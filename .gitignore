@@ -1,0 +1,54 @@
+# ---- Build directories ----
+/build/
+/build-*/
+
+# ---- Visual Studio ----
+*.sln
+*.vcxproj*
+*.user
+*.suo
+*.pdb
+*.idb
+*.ipch
+*.obj
+*.o
+*.lib
+*.dll
+*.exe
+*.exp
+*.log
+
+# VS intermediate/IDE caches
+.vs/
+Debug/
+Release/
+x64/
+[Oo]bj/
+[Bb]in/
+
+# ---- CMake ----
+CMakeCache.txt
+CMakeFiles/
+Testing/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+
+# ---- CUDA ----
+*.cubin
+*.ptx
+*.fatbin
+
+# ---- Python (if you use generateGRiD.py) ----
+__pycache__/
+*.pyc
+
+# ---- Generated files ----
+globeik_ik_per_batch.yml
+
+# ---- OS / Editor ----
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp

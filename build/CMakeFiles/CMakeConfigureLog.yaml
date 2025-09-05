@@ -24,7 +24,7 @@ events:
       The output was:
       0
       MSBuild version 17.14.14+a129329f1 for .NET Framework
-      Build started 9/5/2025 5:14:50 AM.
+      Build started 9/5/2025 5:51:58 AM.
       
       Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCXX\\CompilerIdCXX.vcxproj" on node 1 (default targets).
       PrepareForBuild:
@@ -62,7 +62,7 @@ events:
           0 Warning(s)
           0 Error(s)
       
-      Time Elapsed 00:00:00.92
+      Time Elapsed 00:00:00.81
       
       
       Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CompilerIdCXX.exe"
@@ -88,7 +88,7 @@ events:
       The output was:
       0
       MSBuild version 17.14.14+a129329f1 for .NET Framework
-      Build started 9/5/2025 5:14:51 AM.
+      Build started 9/5/2025 5:51:59 AM.
       
       Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CompilerIdCUDA.vcxproj" on node 1 (default targets).
       PrepareForBuild:
@@ -104,7 +104,7 @@ events:
       CudaBuildCore:
         Compiling CUDA source file CMakeCUDACompilerId.cu...
         Creating directory "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CompilerIdCUDA\\x64\\Debug".
-        cmd.exe /C "C:\\Users\\kalep\\AppData\\Local\\Temp\\tmp64eb1920ae1b4e61a05f36942cf56716.cmd"
+        cmd.exe /C "C:\\Users\\kalep\\AppData\\Local\\Temp\\tmp58952ec37c5e422cb54c1528d3069b5e.cmd"
         "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin\\nvcc.exe" -gencode=arch=compute_52,code=\\"sm_52,compute_52\\" --use-local-env -ccbin "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64" -x cu   -I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\include" -I"C:\\dev\\vcpkg\\installed\\x64-windows\\include" -I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\include"  -G   --keep-dir CompilerIdCUDA\\x64\\Debug  -maxrregcount=0   --machine 64 --compile -cudart static -v -allow-unsupported-compiler -g  -D_MBCS -Xcompiler "/EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd " -Xcompiler "/FdDebug\\vc143.pdb" -o C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CompilerIdCUDA\\x64\\Debug\\CMakeCUDACompilerId.cu.obj "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu"
         
         C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA>"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin\\nvcc.exe" -gencode=arch=compute_52,code=\\"sm_52,compute_52\\" --use-local-env -ccbin "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64" -x cu   -I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\include" -I"C:\\dev\\vcpkg\\installed\\x64-windows\\include" -I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\include"  -G   --keep-dir CompilerIdCUDA\\x64\\Debug  -maxrregcount=0   --machine 64 --compile -cudart static -v -allow-unsupported-compiler -g  -D_MBCS -Xcompiler "/EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd " -Xcompiler "/FdDebug\\vc143.pdb" -o C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CompilerIdCUDA\\x64\\Debug\\CMakeCUDACompilerId.cu.obj "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" 
@@ -126,23 +126,23 @@ events:
         #$ CUDAFE_FLAGS=--sdk_dir "C:\\Program Files (x86)\\Windows Kits\\10"
         #$ PTXAS_FLAGS=
         CMakeCUDACompilerId.cu
-        #$ resource file C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-8.res: [-D__CUDA_ARCH_LIST__=520 -D__NV_LEGACY_LAUNCH -nologo -E -TP -EHsc -D__CUDACC__ -D__NVCC__ -D__CUDACC_DEBUG__  /EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd /FdDebug\\vc143.pdb -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" -I"C:/dev/vcpkg/installed/x64-windows/include" -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" "-IC:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin/../include"    -D "_MBCS" -D__CUDACC_VER_MAJOR__=12 -D__CUDACC_VER_MINOR__=4 -D__CUDACC_VER_BUILD__=99 -D__CUDA_API_VER_MAJOR__=12 -D__CUDA_API_VER_MINOR__=4 -D__NVCC_DIAG_PRAGMA_SUPPORT__=1 -FI "cuda_runtime.h" -Zi "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" ]
-        #$ cl.exe -D__NV_NO_HOST_COMPILER_CHECK=1 @"C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-8.res" > "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-6_CMakeCUDACompilerId.cpp4.ii" 
+        #$ resource file C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-8.res: [-D__CUDA_ARCH_LIST__=520 -D__NV_LEGACY_LAUNCH -nologo -E -TP -EHsc -D__CUDACC__ -D__NVCC__ -D__CUDACC_DEBUG__  /EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd /FdDebug\\vc143.pdb -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" -I"C:/dev/vcpkg/installed/x64-windows/include" -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" "-IC:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin/../include"    -D "_MBCS" -D__CUDACC_VER_MAJOR__=12 -D__CUDACC_VER_MINOR__=4 -D__CUDACC_VER_BUILD__=99 -D__CUDA_API_VER_MAJOR__=12 -D__CUDA_API_VER_MINOR__=4 -D__NVCC_DIAG_PRAGMA_SUPPORT__=1 -FI "cuda_runtime.h" -Zi "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" ]
+        #$ cl.exe -D__NV_NO_HOST_COMPILER_CHECK=1 @"C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-8.res" > "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-6_CMakeCUDACompilerId.cpp4.ii" 
         CMakeCUDACompilerId.cu
-        #$ erase C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-8.res
-        #$ cudafe++ --ms_c++14 --microsoft_version=1944 --msvc_target_version=1944 --compiler_bindir "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/../../../../../../.." --display_error_number --orig_src_file_name "C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CMakeCUDACompilerId.cu" --orig_src_path_name "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" --allow_managed --debug_mode --sdk_dir "C:\\Program Files (x86)\\Windows Kits\\10" --m64 --parse_templates --gen_c_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-7_CMakeCUDACompilerId.cudafe1.cpp" --stub_file_name "tmpxft_00002610_00000000-7_CMakeCUDACompilerId.cudafe1.stub.c" --gen_module_id_file --module_id_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-5_CMakeCUDACompilerId.module_id" "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-6_CMakeCUDACompilerId.cpp4.ii" 
-        #$ resource file C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-10.res: [-D__CUDA_ARCH__=520 -D__CUDA_ARCH_LIST__=520 -D__NV_LEGACY_LAUNCH -nologo -E -TP  -DCUDA_DOUBLE_MATH_FUNCTIONS -EHsc -D__CUDACC__ -D__NVCC__ -D__CUDACC_DEBUG__  /EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd /FdDebug\\vc143.pdb -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" -I"C:/dev/vcpkg/installed/x64-windows/include" -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" "-IC:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin/../include"    -D "_MBCS" -D__CUDACC_VER_MAJOR__=12 -D__CUDACC_VER_MINOR__=4 -D__CUDACC_VER_BUILD__=99 -D__CUDA_API_VER_MAJOR__=12 -D__CUDA_API_VER_MINOR__=4 -D__NVCC_DIAG_PRAGMA_SUPPORT__=1 -FI "cuda_runtime.h" -Zi "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" ]
-        #$ cl.exe -D__NV_NO_HOST_COMPILER_CHECK=1 @"C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-10.res" > "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-9_CMakeCUDACompilerId.cpp1.ii" 
+        #$ erase C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-8.res
+        #$ cudafe++ --ms_c++14 --microsoft_version=1944 --msvc_target_version=1944 --compiler_bindir "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/../../../../../../.." --display_error_number --orig_src_file_name "C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CMakeCUDACompilerId.cu" --orig_src_path_name "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" --allow_managed --debug_mode --sdk_dir "C:\\Program Files (x86)\\Windows Kits\\10" --m64 --parse_templates --gen_c_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.cudafe1.cpp" --stub_file_name "tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.cudafe1.stub.c" --gen_module_id_file --module_id_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-5_CMakeCUDACompilerId.module_id" "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-6_CMakeCUDACompilerId.cpp4.ii" 
+        #$ resource file C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-10.res: [-D__CUDA_ARCH__=520 -D__CUDA_ARCH_LIST__=520 -D__NV_LEGACY_LAUNCH -nologo -E -TP  -DCUDA_DOUBLE_MATH_FUNCTIONS -EHsc -D__CUDACC__ -D__NVCC__ -D__CUDACC_DEBUG__  /EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd /FdDebug\\vc143.pdb -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" -I"C:/dev/vcpkg/installed/x64-windows/include" -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" "-IC:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin/../include"    -D "_MBCS" -D__CUDACC_VER_MAJOR__=12 -D__CUDACC_VER_MINOR__=4 -D__CUDACC_VER_BUILD__=99 -D__CUDA_API_VER_MAJOR__=12 -D__CUDA_API_VER_MINOR__=4 -D__NVCC_DIAG_PRAGMA_SUPPORT__=1 -FI "cuda_runtime.h" -Zi "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" ]
+        #$ cl.exe -D__NV_NO_HOST_COMPILER_CHECK=1 @"C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-10.res" > "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-9_CMakeCUDACompilerId.cpp1.ii" 
         CMakeCUDACompilerId.cu
-        #$ erase C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-10.res
-        #$ cicc --ms_c++14 --microsoft_version=1944 --msvc_target_version=1944 --compiler_bindir "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/../../../../../../.." --display_error_number --orig_src_file_name "C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CMakeCUDACompilerId.cu" --orig_src_path_name "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" --allow_managed --debug_mode --sdk_dir "C:\\Program Files (x86)\\Windows Kits\\10"  -arch compute_52 -m64 --no-version-ident -ftz=0 -prec_div=1 -prec_sqrt=1 -fmad=1 --include_file_name "tmpxft_00002610_00000000-4_CMakeCUDACompilerId.fatbin.c" -g -O0 -tused --module_id_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-5_CMakeCUDACompilerId.module_id" --gen_c_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-7_CMakeCUDACompilerId.cudafe1.c" --stub_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-7_CMakeCUDACompilerId.cudafe1.stub.c" --gen_device_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-7_CMakeCUDACompilerId.cudafe1.gpu"  "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-9_CMakeCUDACompilerId.cpp1.ii" -o "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-7_CMakeCUDACompilerId.ptx"
-        #$ ptxas -arch=sm_52 -m64 -g --dont-merge-basicblocks --return-at-end "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-7_CMakeCUDACompilerId.ptx"  -o "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-11_CMakeCUDACompilerId.sm_52.cubin" 
-        #$ fatbinary -64 --ident="C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CMakeCUDACompilerId.cu" --cmdline="-g --dont-merge-basicblocks --return-at-end " --cicc-cmdline="-ftz=0 -prec_div=1 -prec_sqrt=1 -fmad=1 " -g "--image3=kind=elf,sm=52,file=C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-11_CMakeCUDACompilerId.sm_52.cubin" "--image3=kind=ptx,sm=52,file=C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-7_CMakeCUDACompilerId.ptx" --embedded-fatbin="C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-4_CMakeCUDACompilerId.fatbin.c" 
-        #$ erase C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-4_CMakeCUDACompilerId.fatbin
-        #$ resource file C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-12.res: [-D__CUDA_ARCH__=520 -D__CUDA_ARCH_LIST__=520 -D__NV_LEGACY_LAUNCH -nologo -c -TP  -DCUDA_DOUBLE_MATH_FUNCTIONS -EHsc /EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd /FdDebug\\vc143.pdb -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" -I"C:/dev/vcpkg/installed/x64-windows/include" -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" "-IC:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin/../include"   -Zi "C:\\Users\\kalep\\AppData\\Local\\Temp\\tmpxft_00002610_00000000-7_CMakeCUDACompilerId.cudafe1.cpp" ]
-        #$ cl.exe @"C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-12.res" -Fo"C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CompilerIdCUDA/x64/Debug/CMakeCUDACompilerId.cu.obj" 
-        tmpxft_00002610_00000000-7_CMakeCUDACompilerId.cudafe1.cpp
-        #$ erase C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-12.res
+        #$ erase C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-10.res
+        #$ cicc --ms_c++14 --microsoft_version=1944 --msvc_target_version=1944 --compiler_bindir "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/../../../../../../.." --display_error_number --orig_src_file_name "C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CMakeCUDACompilerId.cu" --orig_src_path_name "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" --allow_managed --debug_mode --sdk_dir "C:\\Program Files (x86)\\Windows Kits\\10"  -arch compute_52 -m64 --no-version-ident -ftz=0 -prec_div=1 -prec_sqrt=1 -fmad=1 --include_file_name "tmpxft_000052c8_00000000-4_CMakeCUDACompilerId.fatbin.c" -g -O0 -tused --module_id_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-5_CMakeCUDACompilerId.module_id" --gen_c_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.cudafe1.c" --stub_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.cudafe1.stub.c" --gen_device_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.cudafe1.gpu"  "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-9_CMakeCUDACompilerId.cpp1.ii" -o "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.ptx"
+        #$ ptxas -arch=sm_52 -m64 -g --dont-merge-basicblocks --return-at-end "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.ptx"  -o "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-11_CMakeCUDACompilerId.sm_52.cubin" 
+        #$ fatbinary -64 --ident="C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CMakeCUDACompilerId.cu" --cmdline="-g --dont-merge-basicblocks --return-at-end " --cicc-cmdline="-ftz=0 -prec_div=1 -prec_sqrt=1 -fmad=1 " -g "--image3=kind=elf,sm=52,file=C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-11_CMakeCUDACompilerId.sm_52.cubin" "--image3=kind=ptx,sm=52,file=C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.ptx" --embedded-fatbin="C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-4_CMakeCUDACompilerId.fatbin.c" 
+        #$ erase C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-4_CMakeCUDACompilerId.fatbin
+        #$ resource file C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-12.res: [-D__CUDA_ARCH__=520 -D__CUDA_ARCH_LIST__=520 -D__NV_LEGACY_LAUNCH -nologo -c -TP  -DCUDA_DOUBLE_MATH_FUNCTIONS -EHsc /EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd /FdDebug\\vc143.pdb -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" -I"C:/dev/vcpkg/installed/x64-windows/include" -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" "-IC:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin/../include"   -Zi "C:\\Users\\kalep\\AppData\\Local\\Temp\\tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.cudafe1.cpp" ]
+        #$ cl.exe @"C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-12.res" -Fo"C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CompilerIdCUDA/x64/Debug/CMakeCUDACompilerId.cu.obj" 
+        tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.cudafe1.cpp
+        #$ erase C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-12.res
       Done Building Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CompilerIdCUDA.vcxproj" (CudaBuildCore target(s)).
       VcpkgTripletSelection:
         Using triplet "x64-windows" from "C:\\dev\\vcpkg\\installed\\x64-windows\\"
@@ -176,7 +176,7 @@ events:
           1 Warning(s)
           0 Error(s)
       
-      Time Elapsed 00:00:02.49
+      Time Elapsed 00:00:02.38
       
       
       Compilation of the CUDA compiler identification source "CMakeCUDACompilerId.cu" produced "CompilerIdCUDA.exe"
@@ -203,7 +203,7 @@ events:
         found 'LIBRARIES=' string: ["/LIBPATH:C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin/../lib/x64"]
         found 'INCLUDES=' string: ["-IC:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin/../include"  ]
         considering line: [MSBuild version 17.14.14+a129329f1 for .NET Framework]
-        considering line: [Build started 9/5/2025 5:14:51 AM.]
+        considering line: [Build started 9/5/2025 5:51:59 AM.]
         considering line: [Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CompilerIdCUDA.vcxproj" on node 1 (default targets).]
         considering line: [PrepareForBuild:]
         considering line: [  Creating directory "Debug\\".]
@@ -218,28 +218,28 @@ events:
         considering line: [CudaBuildCore:]
         considering line: [  Compiling CUDA source file CMakeCUDACompilerId.cu...]
         considering line: [  Creating directory "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CompilerIdCUDA\\x64\\Debug".]
-        considering line: [  cmd.exe /C "C:\\Users\\kalep\\AppData\\Local\\Temp\\tmp64eb1920ae1b4e61a05f36942cf56716.cmd"]
+        considering line: [  cmd.exe /C "C:\\Users\\kalep\\AppData\\Local\\Temp\\tmp58952ec37c5e422cb54c1528d3069b5e.cmd"]
         considering line: [  "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin\\nvcc.exe" -gencode=arch=compute_52,code=\\"sm_52,compute_52\\" --use-local-env -ccbin "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64" -x cu   -I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\include" -I"C:\\dev\\vcpkg\\installed\\x64-windows\\include" -I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\include"  -G   --keep-dir CompilerIdCUDA\\x64\\Debug  -maxrregcount=0   --machine 64 --compile -cudart static -v -allow-unsupported-compiler -g  -D_MBCS -Xcompiler "/EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd " -Xcompiler "/FdDebug\\vc143.pdb" -o C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CompilerIdCUDA\\x64\\Debug\\CMakeCUDACompilerId.cu.obj "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu"]
         considering line: [  ]
         considering line: [  C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA>"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin\\nvcc.exe" -gencode=arch=compute_52,code=\\"sm_52,compute_52\\" --use-local-env -ccbin "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64" -x cu   -I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\include" -I"C:\\dev\\vcpkg\\installed\\x64-windows\\include" -I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\include"  -G   --keep-dir CompilerIdCUDA\\x64\\Debug  -maxrregcount=0   --machine 64 --compile -cudart static -v -allow-unsupported-compiler -g  -D_MBCS -Xcompiler "/EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd " -Xcompiler "/FdDebug\\vc143.pdb" -o C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CompilerIdCUDA\\x64\\Debug\\CMakeCUDACompilerId.cu.obj "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" ]
         considering line: [                                    CMakeCUDACompilerId.cu]
-        considering line: [  #$ resource file C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-8.res: [-D__CUDA_ARCH_LIST__=520 -D__NV_LEGACY_LAUNCH -nologo -E -TP -EHsc -D__CUDACC__ -D__NVCC__ -D__CUDACC_DEBUG__  /EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd /FdDebug\\vc143.pdb -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" -I"C:/dev/vcpkg/installed/x64-windows/include" -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" "-IC:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin/../include"    -D "_MBCS" -D__CUDACC_VER_MAJOR__=12 -D__CUDACC_VER_MINOR__=4 -D__CUDACC_VER_BUILD__=99 -D__CUDA_API_VER_MAJOR__=12 -D__CUDA_API_VER_MINOR__=4 -D__NVCC_DIAG_PRAGMA_SUPPORT__=1 -FI "cuda_runtime.h" -Zi "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" ]]
-        considering line: [  #$ cl.exe -D__NV_NO_HOST_COMPILER_CHECK=1 @"C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-8.res" > "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-6_CMakeCUDACompilerId.cpp4.ii" ]
+        considering line: [  #$ resource file C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-8.res: [-D__CUDA_ARCH_LIST__=520 -D__NV_LEGACY_LAUNCH -nologo -E -TP -EHsc -D__CUDACC__ -D__NVCC__ -D__CUDACC_DEBUG__  /EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd /FdDebug\\vc143.pdb -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" -I"C:/dev/vcpkg/installed/x64-windows/include" -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" "-IC:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin/../include"    -D "_MBCS" -D__CUDACC_VER_MAJOR__=12 -D__CUDACC_VER_MINOR__=4 -D__CUDACC_VER_BUILD__=99 -D__CUDA_API_VER_MAJOR__=12 -D__CUDA_API_VER_MINOR__=4 -D__NVCC_DIAG_PRAGMA_SUPPORT__=1 -FI "cuda_runtime.h" -Zi "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" ]]
+        considering line: [  #$ cl.exe -D__NV_NO_HOST_COMPILER_CHECK=1 @"C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-8.res" > "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-6_CMakeCUDACompilerId.cpp4.ii" ]
         considering line: [  CMakeCUDACompilerId.cu]
-        considering line: [  #$ erase C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-8.res]
-        considering line: [  #$ cudafe++ --ms_c++14 --microsoft_version=1944 --msvc_target_version=1944 --compiler_bindir "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/../../../../../../.." --display_error_number --orig_src_file_name "C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CMakeCUDACompilerId.cu" --orig_src_path_name "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" --allow_managed --debug_mode --sdk_dir "C:\\Program Files (x86)\\Windows Kits\\10" --m64 --parse_templates --gen_c_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-7_CMakeCUDACompilerId.cudafe1.cpp" --stub_file_name "tmpxft_00002610_00000000-7_CMakeCUDACompilerId.cudafe1.stub.c" --gen_module_id_file --module_id_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-5_CMakeCUDACompilerId.module_id" "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-6_CMakeCUDACompilerId.cpp4.ii" ]
-        considering line: [  #$ resource file C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-10.res: [-D__CUDA_ARCH__=520 -D__CUDA_ARCH_LIST__=520 -D__NV_LEGACY_LAUNCH -nologo -E -TP  -DCUDA_DOUBLE_MATH_FUNCTIONS -EHsc -D__CUDACC__ -D__NVCC__ -D__CUDACC_DEBUG__  /EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd /FdDebug\\vc143.pdb -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" -I"C:/dev/vcpkg/installed/x64-windows/include" -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" "-IC:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin/../include"    -D "_MBCS" -D__CUDACC_VER_MAJOR__=12 -D__CUDACC_VER_MINOR__=4 -D__CUDACC_VER_BUILD__=99 -D__CUDA_API_VER_MAJOR__=12 -D__CUDA_API_VER_MINOR__=4 -D__NVCC_DIAG_PRAGMA_SUPPORT__=1 -FI "cuda_runtime.h" -Zi "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" ]]
-        considering line: [  #$ cl.exe -D__NV_NO_HOST_COMPILER_CHECK=1 @"C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-10.res" > "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-9_CMakeCUDACompilerId.cpp1.ii" ]
+        considering line: [  #$ erase C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-8.res]
+        considering line: [  #$ cudafe++ --ms_c++14 --microsoft_version=1944 --msvc_target_version=1944 --compiler_bindir "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/../../../../../../.." --display_error_number --orig_src_file_name "C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CMakeCUDACompilerId.cu" --orig_src_path_name "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" --allow_managed --debug_mode --sdk_dir "C:\\Program Files (x86)\\Windows Kits\\10" --m64 --parse_templates --gen_c_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.cudafe1.cpp" --stub_file_name "tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.cudafe1.stub.c" --gen_module_id_file --module_id_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-5_CMakeCUDACompilerId.module_id" "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-6_CMakeCUDACompilerId.cpp4.ii" ]
+        considering line: [  #$ resource file C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-10.res: [-D__CUDA_ARCH__=520 -D__CUDA_ARCH_LIST__=520 -D__NV_LEGACY_LAUNCH -nologo -E -TP  -DCUDA_DOUBLE_MATH_FUNCTIONS -EHsc -D__CUDACC__ -D__NVCC__ -D__CUDACC_DEBUG__  /EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd /FdDebug\\vc143.pdb -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" -I"C:/dev/vcpkg/installed/x64-windows/include" -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" "-IC:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin/../include"    -D "_MBCS" -D__CUDACC_VER_MAJOR__=12 -D__CUDACC_VER_MINOR__=4 -D__CUDACC_VER_BUILD__=99 -D__CUDA_API_VER_MAJOR__=12 -D__CUDA_API_VER_MINOR__=4 -D__NVCC_DIAG_PRAGMA_SUPPORT__=1 -FI "cuda_runtime.h" -Zi "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" ]]
+        considering line: [  #$ cl.exe -D__NV_NO_HOST_COMPILER_CHECK=1 @"C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-10.res" > "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-9_CMakeCUDACompilerId.cpp1.ii" ]
         considering line: [  CMakeCUDACompilerId.cu]
-        considering line: [  #$ erase C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-10.res]
-        considering line: [  #$ cicc --ms_c++14 --microsoft_version=1944 --msvc_target_version=1944 --compiler_bindir "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/../../../../../../.." --display_error_number --orig_src_file_name "C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CMakeCUDACompilerId.cu" --orig_src_path_name "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" --allow_managed --debug_mode --sdk_dir "C:\\Program Files (x86)\\Windows Kits\\10"  -arch compute_52 -m64 --no-version-ident -ftz=0 -prec_div=1 -prec_sqrt=1 -fmad=1 --include_file_name "tmpxft_00002610_00000000-4_CMakeCUDACompilerId.fatbin.c" -g -O0 -tused --module_id_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-5_CMakeCUDACompilerId.module_id" --gen_c_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-7_CMakeCUDACompilerId.cudafe1.c" --stub_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-7_CMakeCUDACompilerId.cudafe1.stub.c" --gen_device_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-7_CMakeCUDACompilerId.cudafe1.gpu"  "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-9_CMakeCUDACompilerId.cpp1.ii" -o "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-7_CMakeCUDACompilerId.ptx"]
-        considering line: [  #$ ptxas -arch=sm_52 -m64 -g --dont-merge-basicblocks --return-at-end "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-7_CMakeCUDACompilerId.ptx"  -o "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-11_CMakeCUDACompilerId.sm_52.cubin" ]
-        considering line: [  #$ fatbinary -64 --ident="C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CMakeCUDACompilerId.cu" --cmdline="-g --dont-merge-basicblocks --return-at-end " --cicc-cmdline="-ftz=0 -prec_div=1 -prec_sqrt=1 -fmad=1 " -g "--image3=kind=elf,sm=52,file=C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-11_CMakeCUDACompilerId.sm_52.cubin" "--image3=kind=ptx,sm=52,file=C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-7_CMakeCUDACompilerId.ptx" --embedded-fatbin="C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-4_CMakeCUDACompilerId.fatbin.c" ]
-        considering line: [  #$ erase C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-4_CMakeCUDACompilerId.fatbin]
-        considering line: [  #$ resource file C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-12.res: [-D__CUDA_ARCH__=520 -D__CUDA_ARCH_LIST__=520 -D__NV_LEGACY_LAUNCH -nologo -c -TP  -DCUDA_DOUBLE_MATH_FUNCTIONS -EHsc /EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd /FdDebug\\vc143.pdb -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" -I"C:/dev/vcpkg/installed/x64-windows/include" -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" "-IC:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin/../include"   -Zi "C:\\Users\\kalep\\AppData\\Local\\Temp\\tmpxft_00002610_00000000-7_CMakeCUDACompilerId.cudafe1.cpp" ]]
-        considering line: [  #$ cl.exe @"C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-12.res" -Fo"C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CompilerIdCUDA/x64/Debug/CMakeCUDACompilerId.cu.obj" ]
-        considering line: [  tmpxft_00002610_00000000-7_CMakeCUDACompilerId.cudafe1.cpp]
-        considering line: [  #$ erase C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-12.res]
+        considering line: [  #$ erase C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-10.res]
+        considering line: [  #$ cicc --ms_c++14 --microsoft_version=1944 --msvc_target_version=1944 --compiler_bindir "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/../../../../../../.." --display_error_number --orig_src_file_name "C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CMakeCUDACompilerId.cu" --orig_src_path_name "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" --allow_managed --debug_mode --sdk_dir "C:\\Program Files (x86)\\Windows Kits\\10"  -arch compute_52 -m64 --no-version-ident -ftz=0 -prec_div=1 -prec_sqrt=1 -fmad=1 --include_file_name "tmpxft_000052c8_00000000-4_CMakeCUDACompilerId.fatbin.c" -g -O0 -tused --module_id_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-5_CMakeCUDACompilerId.module_id" --gen_c_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.cudafe1.c" --stub_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.cudafe1.stub.c" --gen_device_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.cudafe1.gpu"  "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-9_CMakeCUDACompilerId.cpp1.ii" -o "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.ptx"]
+        considering line: [  #$ ptxas -arch=sm_52 -m64 -g --dont-merge-basicblocks --return-at-end "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.ptx"  -o "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-11_CMakeCUDACompilerId.sm_52.cubin" ]
+        considering line: [  #$ fatbinary -64 --ident="C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CMakeCUDACompilerId.cu" --cmdline="-g --dont-merge-basicblocks --return-at-end " --cicc-cmdline="-ftz=0 -prec_div=1 -prec_sqrt=1 -fmad=1 " -g "--image3=kind=elf,sm=52,file=C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-11_CMakeCUDACompilerId.sm_52.cubin" "--image3=kind=ptx,sm=52,file=C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.ptx" --embedded-fatbin="C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-4_CMakeCUDACompilerId.fatbin.c" ]
+        considering line: [  #$ erase C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-4_CMakeCUDACompilerId.fatbin]
+        considering line: [  #$ resource file C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-12.res: [-D__CUDA_ARCH__=520 -D__CUDA_ARCH_LIST__=520 -D__NV_LEGACY_LAUNCH -nologo -c -TP  -DCUDA_DOUBLE_MATH_FUNCTIONS -EHsc /EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd /FdDebug\\vc143.pdb -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" -I"C:/dev/vcpkg/installed/x64-windows/include" -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" "-IC:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin/../include"   -Zi "C:\\Users\\kalep\\AppData\\Local\\Temp\\tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.cudafe1.cpp" ]]
+        considering line: [  #$ cl.exe @"C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-12.res" -Fo"C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CompilerIdCUDA/x64/Debug/CMakeCUDACompilerId.cu.obj" ]
+        considering line: [  tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.cudafe1.cpp]
+        considering line: [  #$ erase C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-12.res]
         considering line: [Done Building Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CompilerIdCUDA.vcxproj" (CudaBuildCore target(s)).]
         considering line: [VcpkgTripletSelection:]
         considering line: [  Using triplet "x64-windows" from "C:\\dev\\vcpkg\\installed\\x64-windows\\"]
@@ -272,7 +272,7 @@ events:
         considering line: [ use /NODEFAULTLIB:library [C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CompilerIdCUDA.vcxproj]]
         considering line: [    1 Warning(s)]
         considering line: [    0 Error(s)]
-        considering line: [Time Elapsed 00:00:02.49]
+        considering line: [Time Elapsed 00:00:02.38]
         considering line: []
       
         link line regex: [^( *|.*[/\\])(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|link\\.exe|lld-link(\\.exe)?|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
@@ -321,7 +321,7 @@ events:
         found 'LIBRARIES=' string: ["/LIBPATH:C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin/../lib/x64"]
         found 'INCLUDES=' string: ["-IC:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin/../include"  ]
         considering line: [MSBuild version 17.14.14+a129329f1 for .NET Framework]
-        considering line: [Build started 9/5/2025 5:14:51 AM.]
+        considering line: [Build started 9/5/2025 5:51:59 AM.]
         considering line: [Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CompilerIdCUDA.vcxproj" on node 1 (default targets).]
         considering line: [PrepareForBuild:]
         considering line: [  Creating directory "Debug\\".]
@@ -336,28 +336,28 @@ events:
         considering line: [CudaBuildCore:]
         considering line: [  Compiling CUDA source file CMakeCUDACompilerId.cu...]
         considering line: [  Creating directory "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CompilerIdCUDA\\x64\\Debug".]
-        considering line: [  cmd.exe /C "C:\\Users\\kalep\\AppData\\Local\\Temp\\tmp64eb1920ae1b4e61a05f36942cf56716.cmd"]
+        considering line: [  cmd.exe /C "C:\\Users\\kalep\\AppData\\Local\\Temp\\tmp58952ec37c5e422cb54c1528d3069b5e.cmd"]
         considering line: [  "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin\\nvcc.exe" -gencode=arch=compute_52,code=\\"sm_52,compute_52\\" --use-local-env -ccbin "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64" -x cu   -I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\include" -I"C:\\dev\\vcpkg\\installed\\x64-windows\\include" -I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\include"  -G   --keep-dir CompilerIdCUDA\\x64\\Debug  -maxrregcount=0   --machine 64 --compile -cudart static -v -allow-unsupported-compiler -g  -D_MBCS -Xcompiler "/EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd " -Xcompiler "/FdDebug\\vc143.pdb" -o C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CompilerIdCUDA\\x64\\Debug\\CMakeCUDACompilerId.cu.obj "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu"]
         considering line: [  ]
         considering line: [  C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA>"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin\\nvcc.exe" -gencode=arch=compute_52,code=\\"sm_52,compute_52\\" --use-local-env -ccbin "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64" -x cu   -I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\include" -I"C:\\dev\\vcpkg\\installed\\x64-windows\\include" -I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\include"  -G   --keep-dir CompilerIdCUDA\\x64\\Debug  -maxrregcount=0   --machine 64 --compile -cudart static -v -allow-unsupported-compiler -g  -D_MBCS -Xcompiler "/EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd " -Xcompiler "/FdDebug\\vc143.pdb" -o C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CompilerIdCUDA\\x64\\Debug\\CMakeCUDACompilerId.cu.obj "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" ]
         considering line: [                                    CMakeCUDACompilerId.cu]
-        considering line: [  #$ resource file C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-8.res: [-D__CUDA_ARCH_LIST__=520 -D__NV_LEGACY_LAUNCH -nologo -E -TP -EHsc -D__CUDACC__ -D__NVCC__ -D__CUDACC_DEBUG__  /EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd /FdDebug\\vc143.pdb -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" -I"C:/dev/vcpkg/installed/x64-windows/include" -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" "-IC:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin/../include"    -D "_MBCS" -D__CUDACC_VER_MAJOR__=12 -D__CUDACC_VER_MINOR__=4 -D__CUDACC_VER_BUILD__=99 -D__CUDA_API_VER_MAJOR__=12 -D__CUDA_API_VER_MINOR__=4 -D__NVCC_DIAG_PRAGMA_SUPPORT__=1 -FI "cuda_runtime.h" -Zi "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" ]]
-        considering line: [  #$ cl.exe -D__NV_NO_HOST_COMPILER_CHECK=1 @"C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-8.res" > "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-6_CMakeCUDACompilerId.cpp4.ii" ]
+        considering line: [  #$ resource file C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-8.res: [-D__CUDA_ARCH_LIST__=520 -D__NV_LEGACY_LAUNCH -nologo -E -TP -EHsc -D__CUDACC__ -D__NVCC__ -D__CUDACC_DEBUG__  /EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd /FdDebug\\vc143.pdb -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" -I"C:/dev/vcpkg/installed/x64-windows/include" -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" "-IC:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin/../include"    -D "_MBCS" -D__CUDACC_VER_MAJOR__=12 -D__CUDACC_VER_MINOR__=4 -D__CUDACC_VER_BUILD__=99 -D__CUDA_API_VER_MAJOR__=12 -D__CUDA_API_VER_MINOR__=4 -D__NVCC_DIAG_PRAGMA_SUPPORT__=1 -FI "cuda_runtime.h" -Zi "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" ]]
+        considering line: [  #$ cl.exe -D__NV_NO_HOST_COMPILER_CHECK=1 @"C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-8.res" > "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-6_CMakeCUDACompilerId.cpp4.ii" ]
         considering line: [  CMakeCUDACompilerId.cu]
-        considering line: [  #$ erase C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-8.res]
-        considering line: [  #$ cudafe++ --ms_c++14 --microsoft_version=1944 --msvc_target_version=1944 --compiler_bindir "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/../../../../../../.." --display_error_number --orig_src_file_name "C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CMakeCUDACompilerId.cu" --orig_src_path_name "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" --allow_managed --debug_mode --sdk_dir "C:\\Program Files (x86)\\Windows Kits\\10" --m64 --parse_templates --gen_c_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-7_CMakeCUDACompilerId.cudafe1.cpp" --stub_file_name "tmpxft_00002610_00000000-7_CMakeCUDACompilerId.cudafe1.stub.c" --gen_module_id_file --module_id_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-5_CMakeCUDACompilerId.module_id" "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-6_CMakeCUDACompilerId.cpp4.ii" ]
-        considering line: [  #$ resource file C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-10.res: [-D__CUDA_ARCH__=520 -D__CUDA_ARCH_LIST__=520 -D__NV_LEGACY_LAUNCH -nologo -E -TP  -DCUDA_DOUBLE_MATH_FUNCTIONS -EHsc -D__CUDACC__ -D__NVCC__ -D__CUDACC_DEBUG__  /EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd /FdDebug\\vc143.pdb -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" -I"C:/dev/vcpkg/installed/x64-windows/include" -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" "-IC:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin/../include"    -D "_MBCS" -D__CUDACC_VER_MAJOR__=12 -D__CUDACC_VER_MINOR__=4 -D__CUDACC_VER_BUILD__=99 -D__CUDA_API_VER_MAJOR__=12 -D__CUDA_API_VER_MINOR__=4 -D__NVCC_DIAG_PRAGMA_SUPPORT__=1 -FI "cuda_runtime.h" -Zi "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" ]]
-        considering line: [  #$ cl.exe -D__NV_NO_HOST_COMPILER_CHECK=1 @"C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-10.res" > "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-9_CMakeCUDACompilerId.cpp1.ii" ]
+        considering line: [  #$ erase C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-8.res]
+        considering line: [  #$ cudafe++ --ms_c++14 --microsoft_version=1944 --msvc_target_version=1944 --compiler_bindir "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/../../../../../../.." --display_error_number --orig_src_file_name "C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CMakeCUDACompilerId.cu" --orig_src_path_name "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" --allow_managed --debug_mode --sdk_dir "C:\\Program Files (x86)\\Windows Kits\\10" --m64 --parse_templates --gen_c_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.cudafe1.cpp" --stub_file_name "tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.cudafe1.stub.c" --gen_module_id_file --module_id_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-5_CMakeCUDACompilerId.module_id" "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-6_CMakeCUDACompilerId.cpp4.ii" ]
+        considering line: [  #$ resource file C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-10.res: [-D__CUDA_ARCH__=520 -D__CUDA_ARCH_LIST__=520 -D__NV_LEGACY_LAUNCH -nologo -E -TP  -DCUDA_DOUBLE_MATH_FUNCTIONS -EHsc -D__CUDACC__ -D__NVCC__ -D__CUDACC_DEBUG__  /EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd /FdDebug\\vc143.pdb -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" -I"C:/dev/vcpkg/installed/x64-windows/include" -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" "-IC:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin/../include"    -D "_MBCS" -D__CUDACC_VER_MAJOR__=12 -D__CUDACC_VER_MINOR__=4 -D__CUDACC_VER_BUILD__=99 -D__CUDA_API_VER_MAJOR__=12 -D__CUDA_API_VER_MINOR__=4 -D__NVCC_DIAG_PRAGMA_SUPPORT__=1 -FI "cuda_runtime.h" -Zi "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" ]]
+        considering line: [  #$ cl.exe -D__NV_NO_HOST_COMPILER_CHECK=1 @"C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-10.res" > "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-9_CMakeCUDACompilerId.cpp1.ii" ]
         considering line: [  CMakeCUDACompilerId.cu]
-        considering line: [  #$ erase C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-10.res]
-        considering line: [  #$ cicc --ms_c++14 --microsoft_version=1944 --msvc_target_version=1944 --compiler_bindir "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/../../../../../../.." --display_error_number --orig_src_file_name "C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CMakeCUDACompilerId.cu" --orig_src_path_name "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" --allow_managed --debug_mode --sdk_dir "C:\\Program Files (x86)\\Windows Kits\\10"  -arch compute_52 -m64 --no-version-ident -ftz=0 -prec_div=1 -prec_sqrt=1 -fmad=1 --include_file_name "tmpxft_00002610_00000000-4_CMakeCUDACompilerId.fatbin.c" -g -O0 -tused --module_id_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-5_CMakeCUDACompilerId.module_id" --gen_c_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-7_CMakeCUDACompilerId.cudafe1.c" --stub_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-7_CMakeCUDACompilerId.cudafe1.stub.c" --gen_device_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-7_CMakeCUDACompilerId.cudafe1.gpu"  "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-9_CMakeCUDACompilerId.cpp1.ii" -o "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-7_CMakeCUDACompilerId.ptx"]
-        considering line: [  #$ ptxas -arch=sm_52 -m64 -g --dont-merge-basicblocks --return-at-end "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-7_CMakeCUDACompilerId.ptx"  -o "C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-11_CMakeCUDACompilerId.sm_52.cubin" ]
-        considering line: [  #$ fatbinary -64 --ident="C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CMakeCUDACompilerId.cu" --cmdline="-g --dont-merge-basicblocks --return-at-end " --cicc-cmdline="-ftz=0 -prec_div=1 -prec_sqrt=1 -fmad=1 " -g "--image3=kind=elf,sm=52,file=C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-11_CMakeCUDACompilerId.sm_52.cubin" "--image3=kind=ptx,sm=52,file=C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-7_CMakeCUDACompilerId.ptx" --embedded-fatbin="C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-4_CMakeCUDACompilerId.fatbin.c" ]
-        considering line: [  #$ erase C:/Users/kalep/AppData/Local/Temp/tmpxft_00002610_00000000-4_CMakeCUDACompilerId.fatbin]
-        considering line: [  #$ resource file C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-12.res: [-D__CUDA_ARCH__=520 -D__CUDA_ARCH_LIST__=520 -D__NV_LEGACY_LAUNCH -nologo -c -TP  -DCUDA_DOUBLE_MATH_FUNCTIONS -EHsc /EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd /FdDebug\\vc143.pdb -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" -I"C:/dev/vcpkg/installed/x64-windows/include" -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" "-IC:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin/../include"   -Zi "C:\\Users\\kalep\\AppData\\Local\\Temp\\tmpxft_00002610_00000000-7_CMakeCUDACompilerId.cudafe1.cpp" ]]
-        considering line: [  #$ cl.exe @"C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-12.res" -Fo"C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CompilerIdCUDA/x64/Debug/CMakeCUDACompilerId.cu.obj" ]
-        considering line: [  tmpxft_00002610_00000000-7_CMakeCUDACompilerId.cudafe1.cpp]
-        considering line: [  #$ erase C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_00002610_00000000-12.res]
+        considering line: [  #$ erase C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-10.res]
+        considering line: [  #$ cicc --ms_c++14 --microsoft_version=1944 --msvc_target_version=1944 --compiler_bindir "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/../../../../../../.." --display_error_number --orig_src_file_name "C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CMakeCUDACompilerId.cu" --orig_src_path_name "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CMakeCUDACompilerId.cu" --allow_managed --debug_mode --sdk_dir "C:\\Program Files (x86)\\Windows Kits\\10"  -arch compute_52 -m64 --no-version-ident -ftz=0 -prec_div=1 -prec_sqrt=1 -fmad=1 --include_file_name "tmpxft_000052c8_00000000-4_CMakeCUDACompilerId.fatbin.c" -g -O0 -tused --module_id_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-5_CMakeCUDACompilerId.module_id" --gen_c_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.cudafe1.c" --stub_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.cudafe1.stub.c" --gen_device_file_name "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.cudafe1.gpu"  "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-9_CMakeCUDACompilerId.cpp1.ii" -o "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.ptx"]
+        considering line: [  #$ ptxas -arch=sm_52 -m64 -g --dont-merge-basicblocks --return-at-end "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.ptx"  -o "C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-11_CMakeCUDACompilerId.sm_52.cubin" ]
+        considering line: [  #$ fatbinary -64 --ident="C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CMakeCUDACompilerId.cu" --cmdline="-g --dont-merge-basicblocks --return-at-end " --cicc-cmdline="-ftz=0 -prec_div=1 -prec_sqrt=1 -fmad=1 " -g "--image3=kind=elf,sm=52,file=C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-11_CMakeCUDACompilerId.sm_52.cubin" "--image3=kind=ptx,sm=52,file=C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.ptx" --embedded-fatbin="C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-4_CMakeCUDACompilerId.fatbin.c" ]
+        considering line: [  #$ erase C:/Users/kalep/AppData/Local/Temp/tmpxft_000052c8_00000000-4_CMakeCUDACompilerId.fatbin]
+        considering line: [  #$ resource file C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-12.res: [-D__CUDA_ARCH__=520 -D__CUDA_ARCH_LIST__=520 -D__NV_LEGACY_LAUNCH -nologo -c -TP  -DCUDA_DOUBLE_MATH_FUNCTIONS -EHsc /EHsc /W0 /nologo /Od /FS /Zi /RTC1 /MDd /FdDebug\\vc143.pdb -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" -I"C:/dev/vcpkg/installed/x64-windows/include" -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4/include" "-IC:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin/../include"   -Zi "C:\\Users\\kalep\\AppData\\Local\\Temp\\tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.cudafe1.cpp" ]]
+        considering line: [  #$ cl.exe @"C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-12.res" -Fo"C:/dev/research/globeik/build/CMakeFiles/4.0.2/CompilerIdCUDA/CompilerIdCUDA/x64/Debug/CMakeCUDACompilerId.cu.obj" ]
+        considering line: [  tmpxft_000052c8_00000000-7_CMakeCUDACompilerId.cudafe1.cpp]
+        considering line: [  #$ erase C:\\Users\\kalep\\AppData\\Local\\Temp/tmpxft_000052c8_00000000-12.res]
         considering line: [Done Building Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CompilerIdCUDA.vcxproj" (CudaBuildCore target(s)).]
         considering line: [VcpkgTripletSelection:]
         considering line: [  Using triplet "x64-windows" from "C:\\dev\\vcpkg\\installed\\x64-windows\\"]
@@ -390,7 +390,7 @@ events:
         considering line: [ use /NODEFAULTLIB:library [C:\\dev\\research\\globeik\\build\\CMakeFiles\\4.0.2\\CompilerIdCUDA\\CompilerIdCUDA.vcxproj]]
         considering line: [    1 Warning(s)]
         considering line: [    0 Error(s)]
-        considering line: [Time Elapsed 00:00:02.49]
+        considering line: [Time Elapsed 00:00:02.38]
         considering line: []
       
         link line regex: [^( *|.*[/\\])(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|link\\.exe|lld-link(\\.exe)?|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
@@ -436,8 +436,8 @@ events:
     checks:
       - "Detecting CXX compiler ABI info"
     directories:
-      source: "C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-ehdhz8"
-      binary: "C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-ehdhz8"
+      source: "C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-0hehy6"
+      binary: "C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-0hehy6"
     cmakeVariables:
       CMAKE_CUDA_ARCHITECTURES: "52"
       CMAKE_CXX_FLAGS: "/DWIN32 /D_WINDOWS /EHsc"
@@ -452,40 +452,40 @@ events:
       variable: "CMAKE_CXX_ABI_COMPILED"
       cached: true
       stdout: |
-        Change Dir: 'C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-ehdhz8'
+        Change Dir: 'C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-0hehy6'
         
-        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_003dc.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_da383.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
         MSBuild version 17.14.14+a129329f1 for .NET Framework
-        Build started 9/5/2025 5:14:55 AM.
+        Build started 9/5/2025 5:52:04 AM.
         
-        Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ehdhz8\\cmTC_003dc.vcxproj" on node 1 (default targets).
+        Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-0hehy6\\cmTC_da383.vcxproj" on node 1 (default targets).
         PrepareForBuild:
-          Creating directory "cmTC_003dc.dir\\Debug\\".
+          Creating directory "cmTC_da383.dir\\Debug\\".
           Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
-          Creating directory "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ehdhz8\\Debug\\".
-          Creating directory "cmTC_003dc.dir\\Debug\\cmTC_003dc.tlog\\".
+          Creating directory "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-0hehy6\\Debug\\".
+          Creating directory "cmTC_da383.dir\\Debug\\cmTC_da383.tlog\\".
         InitializeBuildStatus:
-          Creating "cmTC_003dc.dir\\Debug\\cmTC_003dc.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
-          Touching "cmTC_003dc.dir\\Debug\\cmTC_003dc.tlog\\unsuccessfulbuild".
+          Creating "cmTC_da383.dir\\Debug\\cmTC_da383.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_da383.dir\\Debug\\cmTC_da383.tlog\\unsuccessfulbuild".
         ClCompile:
-          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_003dc.dir\\Debug\\\\" /Fd"cmTC_003dc.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCXXCompilerABI.cpp"
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_da383.dir\\Debug\\\\" /Fd"cmTC_da383.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCXXCompilerABI.cpp"
           Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35211 for x64
           Copyright (C) Microsoft Corporation.  All rights reserved.
-          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_003dc.dir\\Debug\\\\" /Fd"cmTC_003dc.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCXXCompilerABI.cpp"
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_da383.dir\\Debug\\\\" /Fd"cmTC_da383.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCXXCompilerABI.cpp"
           CMakeCXXCompilerABI.cpp
         Link:
-          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:"C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ehdhz8\\Debug\\cmTC_003dc.exe" /INCREMENTAL /ILK:"cmTC_003dc.dir\\Debug\\cmTC_003dc.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-ehdhz8/Debug/cmTC_003dc.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-ehdhz8/Debug/cmTC_003dc.lib" /MACHINE:X64  /machine:x64 cmTC_003dc.dir\\Debug\\CMakeCXXCompilerABI.obj
-          cmTC_003dc.vcxproj -> C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ehdhz8\\Debug\\cmTC_003dc.exe
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:"C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-0hehy6\\Debug\\cmTC_da383.exe" /INCREMENTAL /ILK:"cmTC_da383.dir\\Debug\\cmTC_da383.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-0hehy6/Debug/cmTC_da383.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-0hehy6/Debug/cmTC_da383.lib" /MACHINE:X64  /machine:x64 cmTC_da383.dir\\Debug\\CMakeCXXCompilerABI.obj
+          cmTC_da383.vcxproj -> C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-0hehy6\\Debug\\cmTC_da383.exe
         FinalizeBuildStatus:
-          Deleting file "cmTC_003dc.dir\\Debug\\cmTC_003dc.tlog\\unsuccessfulbuild".
-          Touching "cmTC_003dc.dir\\Debug\\cmTC_003dc.tlog\\cmTC_003dc.lastbuildstate".
-        Done Building Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ehdhz8\\cmTC_003dc.vcxproj" (default targets).
+          Deleting file "cmTC_da383.dir\\Debug\\cmTC_da383.tlog\\unsuccessfulbuild".
+          Touching "cmTC_da383.dir\\Debug\\cmTC_da383.tlog\\cmTC_da383.lastbuildstate".
+        Done Building Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-0hehy6\\cmTC_da383.vcxproj" (default targets).
         
         Build succeeded.
             0 Warning(s)
             0 Error(s)
         
-        Time Elapsed 00:00:00.44
+        Time Elapsed 00:00:00.43
         
       exitCode: 0
   -
@@ -525,8 +525,8 @@ events:
     checks:
       - "Detecting CUDA compiler ABI info"
     directories:
-      source: "C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-1ibkbr"
-      binary: "C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-1ibkbr"
+      source: "C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-7ta7e3"
+      binary: "C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-7ta7e3"
     cmakeVariables:
       CMAKE_CUDA_ARCHITECTURES: "52"
       CMAKE_CUDA_FLAGS: "-D_WINDOWS -Xcompiler=\" /EHsc\""
@@ -541,70 +541,70 @@ events:
       variable: "CMAKE_CUDA_ABI_COMPILED"
       cached: true
       stdout: |
-        Change Dir: 'C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-1ibkbr'
+        Change Dir: 'C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-7ta7e3'
         
-        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_d2ff5.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_8fc30.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
         MSBuild version 17.14.14+a129329f1 for .NET Framework
-        Build started 9/5/2025 5:14:56 AM.
+        Build started 9/5/2025 5:52:05 AM.
         
-        Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj" on node 1 (default targets).
+        Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj" on node 1 (default targets).
         PrepareForBuild:
-          Creating directory "cmTC_d2ff5.dir\\Debug\\".
+          Creating directory "cmTC_8fc30.dir\\Debug\\".
           Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
-          Creating directory "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\Debug\\".
-          Creating directory "cmTC_d2ff5.dir\\Debug\\cmTC_d2ff5.tlog\\".
+          Creating directory "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\Debug\\".
+          Creating directory "cmTC_8fc30.dir\\Debug\\cmTC_8fc30.tlog\\".
         InitializeBuildStatus:
-          Creating "cmTC_d2ff5.dir\\Debug\\cmTC_d2ff5.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
-          Touching "cmTC_d2ff5.dir\\Debug\\cmTC_d2ff5.tlog\\unsuccessfulbuild".
+          Creating "cmTC_8fc30.dir\\Debug\\cmTC_8fc30.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_8fc30.dir\\Debug\\cmTC_8fc30.tlog\\unsuccessfulbuild".
         AddCudaCompileDeps:
           C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\cl.exe /E /nologo /showIncludes /TP /D__CUDACC__ /D__CUDACC_VER_MAJOR__=12 /D__CUDACC_VER_MINOR__=4 /D_WINDOWS /DCMAKE_INTDIR="Debug" /D_MBCS /DCMAKE_INTDIR="Debug" /I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin" /I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\include" /I. /FIcuda_runtime.h /c "C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCUDACompilerABI.cu" 
-        Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj" (1) is building "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj" (1:2) on node 1 (CudaBuildCore target(s)).
+        Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj" (1) is building "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj" (1:2) on node 1 (CudaBuildCore target(s)).
         CudaBuildCore:
           Compiling CUDA source file ..\\..\\..\\..\\..\\..\\..\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCUDACompilerABI.cu...
-          cmd.exe /C "C:\\Users\\kalep\\AppData\\Local\\Temp\\tmp05ad299514344a61ba4798f13a3bd013.cmd"
-          "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin\\nvcc.exe"  --use-local-env -ccbin "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64" -x cu    -I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\include"     --keep-dir cmTC_d2ff5\\x64\\Debug  -maxrregcount=0   --machine 64 --compile -cudart static --generate-code=arch=compute_52,code=[compute_52,sm_52] -Xcompiler="/EHsc -Zi -Ob0 -v" -g  -D_WINDOWS -D"CMAKE_INTDIR=\\"Debug\\"" -D_MBCS -D"CMAKE_INTDIR=\\"Debug\\"" -Xcompiler "/EHsc /W1 /nologo /Od /FS /Zi /RTC1 /MDd " -Xcompiler "/FdcmTC_d2ff5.dir\\Debug\\vc143.pdb" -o cmTC_d2ff5.dir\\Debug\\CMakeCUDACompilerABI.obj "C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCUDACompilerABI.cu"
+          cmd.exe /C "C:\\Users\\kalep\\AppData\\Local\\Temp\\tmpc5be216877984535a1f792d2dcc57015.cmd"
+          "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin\\nvcc.exe"  --use-local-env -ccbin "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64" -x cu    -I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\include"     --keep-dir cmTC_8fc30\\x64\\Debug  -maxrregcount=0   --machine 64 --compile -cudart static --generate-code=arch=compute_52,code=[compute_52,sm_52] -Xcompiler="/EHsc -Zi -Ob0 -v" -g  -D_WINDOWS -D"CMAKE_INTDIR=\\"Debug\\"" -D_MBCS -D"CMAKE_INTDIR=\\"Debug\\"" -Xcompiler "/EHsc /W1 /nologo /Od /FS /Zi /RTC1 /MDd " -Xcompiler "/FdcmTC_8fc30.dir\\Debug\\vc143.pdb" -o cmTC_8fc30.dir\\Debug\\CMakeCUDACompilerABI.obj "C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCUDACompilerABI.cu"
           
-          C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr>"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin\\nvcc.exe"  --use-local-env -ccbin "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64" -x cu    -I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\include"     --keep-dir cmTC_d2ff5\\x64\\Debug  -maxrregcount=0   --machine 64 --compile -cudart static --generate-code=arch=compute_52,code=[compute_52,sm_52] -Xcompiler="/EHsc -Zi -Ob0 -v" -g  -D_WINDOWS -D"CMAKE_INTDIR=\\"Debug\\"" -D_MBCS -D"CMAKE_INTDIR=\\"Debug\\"" -Xcompiler "/EHsc /W1 /nologo /Od /FS /Zi /RTC1 /MDd " -Xcompiler "/FdcmTC_d2ff5.dir\\Debug\\vc143.pdb" -o cmTC_d2ff5.dir\\Debug\\CMakeCUDACompilerABI.obj "C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCUDACompilerABI.cu" 
-        cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]
+          C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3>"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin\\nvcc.exe"  --use-local-env -ccbin "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64" -x cu    -I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\include"     --keep-dir cmTC_8fc30\\x64\\Debug  -maxrregcount=0   --machine 64 --compile -cudart static --generate-code=arch=compute_52,code=[compute_52,sm_52] -Xcompiler="/EHsc -Zi -Ob0 -v" -g  -D_WINDOWS -D"CMAKE_INTDIR=\\"Debug\\"" -D_MBCS -D"CMAKE_INTDIR=\\"Debug\\"" -Xcompiler "/EHsc /W1 /nologo /Od /FS /Zi /RTC1 /MDd " -Xcompiler "/FdcmTC_8fc30.dir\\Debug\\vc143.pdb" -o cmTC_8fc30.dir\\Debug\\CMakeCUDACompilerABI.obj "C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCUDACompilerABI.cu" 
+        cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]
           CMakeCUDACompilerABI.cu
-        cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]
+        cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]
           CMakeCUDACompilerABI.cu
           CMakeCUDACompilerABI.cu
-        cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]
-          tmpxft_00004ec4_00000000-7_CMakeCUDACompilerABI.cudafe1.cpp
-        C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCompilerCUDAArch.h(10): warning C4305: 'return': truncation from 'int' to 'bool' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]
-        Done Building Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj" (CudaBuildCore target(s)).
+        cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]
+          tmpxft_000030c4_00000000-7_CMakeCUDACompilerABI.cudafe1.cpp
+        C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCompilerCUDAArch.h(10): warning C4305: 'return': truncation from 'int' to 'bool' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]
+        Done Building Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj" (CudaBuildCore target(s)).
         Link:
-          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:"C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\Debug\\cmTC_d2ff5.exe" /INCREMENTAL /ILK:"cmTC_d2ff5.dir\\Debug\\cmTC_d2ff5.ilk" /NOLOGO /LIBPATH:"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\lib\\x64" cudadevrt.lib cudart_static.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-1ibkbr/Debug/cmTC_d2ff5.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-1ibkbr/Debug/cmTC_d2ff5.lib" /MACHINE:X64  /machine:x64 -v cmTC_d2ff5.dir\\Debug\\CMakeCUDACompilerABI.obj
-        LINK : warning LNK4044: unrecognized option '/v'; ignored [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]
-             Creating library C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-1ibkbr/Debug/cmTC_d2ff5.lib and object C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-1ibkbr/Debug/cmTC_d2ff5.exp
-        LINK : warning LNK4098: defaultlib 'LIBCMT' conflicts with use of other libs; use /NODEFAULTLIB:library [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]
-          cmTC_d2ff5.vcxproj -> C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\Debug\\cmTC_d2ff5.exe
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:"C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\Debug\\cmTC_8fc30.exe" /INCREMENTAL /ILK:"cmTC_8fc30.dir\\Debug\\cmTC_8fc30.ilk" /NOLOGO /LIBPATH:"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\lib\\x64" cudadevrt.lib cudart_static.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-7ta7e3/Debug/cmTC_8fc30.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-7ta7e3/Debug/cmTC_8fc30.lib" /MACHINE:X64  /machine:x64 -v cmTC_8fc30.dir\\Debug\\CMakeCUDACompilerABI.obj
+        LINK : warning LNK4044: unrecognized option '/v'; ignored [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]
+             Creating library C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-7ta7e3/Debug/cmTC_8fc30.lib and object C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-7ta7e3/Debug/cmTC_8fc30.exp
+        LINK : warning LNK4098: defaultlib 'LIBCMT' conflicts with use of other libs; use /NODEFAULTLIB:library [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]
+          cmTC_8fc30.vcxproj -> C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\Debug\\cmTC_8fc30.exe
         FinalizeBuildStatus:
-          Deleting file "cmTC_d2ff5.dir\\Debug\\cmTC_d2ff5.tlog\\unsuccessfulbuild".
-          Touching "cmTC_d2ff5.dir\\Debug\\cmTC_d2ff5.tlog\\cmTC_d2ff5.lastbuildstate".
-        Done Building Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj" (default targets).
+          Deleting file "cmTC_8fc30.dir\\Debug\\cmTC_8fc30.tlog\\unsuccessfulbuild".
+          Touching "cmTC_8fc30.dir\\Debug\\cmTC_8fc30.tlog\\cmTC_8fc30.lastbuildstate".
+        Done Building Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj" (default targets).
         
         Build succeeded.
         
-        "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj" (default target) (1) ->
-        "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj" (CudaBuildCore target) (1:2) ->
+        "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj" (default target) (1) ->
+        "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj" (CudaBuildCore target) (1:2) ->
         (CudaBuildCore target) -> 
-          cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]
-          cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]
-          cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]
-          C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCompilerCUDAArch.h(10): warning C4305: 'return': truncation from 'int' to 'bool' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]
+          cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]
+          cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]
+          cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]
+          C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCompilerCUDAArch.h(10): warning C4305: 'return': truncation from 'int' to 'bool' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]
         
         
-        "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj" (default target) (1) ->
+        "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj" (default target) (1) ->
         (Link target) -> 
-          LINK : warning LNK4044: unrecognized option '/v'; ignored [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]
-          LINK : warning LNK4098: defaultlib 'LIBCMT' conflicts with use of other libs; use /NODEFAULTLIB:library [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]
+          LINK : warning LNK4044: unrecognized option '/v'; ignored [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]
+          LINK : warning LNK4098: defaultlib 'LIBCMT' conflicts with use of other libs; use /NODEFAULTLIB:library [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]
         
             6 Warning(s)
             0 Error(s)
         
-        Time Elapsed 00:00:01.86
+        Time Elapsed 00:00:01.76
         
       exitCode: 0
   -
@@ -628,74 +628,74 @@ events:
       Parsed CUDA implicit link information:
         link line regex: [^( *|.*[/\\])(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|link\\.exe|lld-link(\\.exe)?|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
         linker tool regex: [^[ 	]*(->|")?[ 	]*(([^"]*[/\\])?(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|link\\.exe|lld-link(\\.exe)?))("|,| |$)]
-        ignore line: [Change Dir: 'C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-1ibkbr']
+        ignore line: [Change Dir: 'C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-7ta7e3']
         ignore line: []
-        ignore line: [Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_d2ff5.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n]
+        ignore line: [Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_8fc30.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n]
         ignore line: [MSBuild version 17.14.14+a129329f1 for .NET Framework]
-        ignore line: [Build started 9/5/2025 5:14:56 AM.]
+        ignore line: [Build started 9/5/2025 5:52:05 AM.]
         ignore line: []
-        ignore line: [Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj" on node 1 (default targets).]
+        ignore line: [Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj" on node 1 (default targets).]
         ignore line: [PrepareForBuild:]
-        ignore line: [  Creating directory "cmTC_d2ff5.dir\\Debug\\".]
+        ignore line: [  Creating directory "cmTC_8fc30.dir\\Debug\\".]
         ignore line: [  Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.]
-        ignore line: [  Creating directory "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\Debug\\".]
-        ignore line: [  Creating directory "cmTC_d2ff5.dir\\Debug\\cmTC_d2ff5.tlog\\".]
+        ignore line: [  Creating directory "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\Debug\\".]
+        ignore line: [  Creating directory "cmTC_8fc30.dir\\Debug\\cmTC_8fc30.tlog\\".]
         ignore line: [InitializeBuildStatus:]
-        ignore line: [  Creating "cmTC_d2ff5.dir\\Debug\\cmTC_d2ff5.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.]
-        ignore line: [  Touching "cmTC_d2ff5.dir\\Debug\\cmTC_d2ff5.tlog\\unsuccessfulbuild".]
+        ignore line: [  Creating "cmTC_8fc30.dir\\Debug\\cmTC_8fc30.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.]
+        ignore line: [  Touching "cmTC_8fc30.dir\\Debug\\cmTC_8fc30.tlog\\unsuccessfulbuild".]
         ignore line: [AddCudaCompileDeps:]
         ignore line: [  C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\cl.exe /E /nologo /showIncludes /TP /D__CUDACC__ /D__CUDACC_VER_MAJOR__=12 /D__CUDACC_VER_MINOR__=4 /D_WINDOWS /DCMAKE_INTDIR="Debug" /D_MBCS /DCMAKE_INTDIR="Debug" /I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin" /I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\include" /I. /FIcuda_runtime.h /c "C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCUDACompilerABI.cu" ]
-        ignore line: [Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj" (1) is building "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj" (1:2) on node 1 (CudaBuildCore target(s)).]
+        ignore line: [Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj" (1) is building "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj" (1:2) on node 1 (CudaBuildCore target(s)).]
         ignore line: [CudaBuildCore:]
         ignore line: [  Compiling CUDA source file ..\\..\\..\\..\\..\\..\\..\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCUDACompilerABI.cu...]
-        ignore line: [  cmd.exe /C "C:\\Users\\kalep\\AppData\\Local\\Temp\\tmp05ad299514344a61ba4798f13a3bd013.cmd"]
-        ignore line: [  "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin\\nvcc.exe"  --use-local-env -ccbin "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64" -x cu    -I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\include"     --keep-dir cmTC_d2ff5\\x64\\Debug  -maxrregcount=0   --machine 64 --compile -cudart static --generate-code=arch=compute_52 code=[compute_52 sm_52] -Xcompiler="/EHsc -Zi -Ob0 -v" -g  -D_WINDOWS -D"CMAKE_INTDIR=\\"Debug\\"" -D_MBCS -D"CMAKE_INTDIR=\\"Debug\\"" -Xcompiler "/EHsc /W1 /nologo /Od /FS /Zi /RTC1 /MDd " -Xcompiler "/FdcmTC_d2ff5.dir\\Debug\\vc143.pdb" -o cmTC_d2ff5.dir\\Debug\\CMakeCUDACompilerABI.obj "C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCUDACompilerABI.cu"]
+        ignore line: [  cmd.exe /C "C:\\Users\\kalep\\AppData\\Local\\Temp\\tmpc5be216877984535a1f792d2dcc57015.cmd"]
+        ignore line: [  "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin\\nvcc.exe"  --use-local-env -ccbin "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64" -x cu    -I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\include"     --keep-dir cmTC_8fc30\\x64\\Debug  -maxrregcount=0   --machine 64 --compile -cudart static --generate-code=arch=compute_52 code=[compute_52 sm_52] -Xcompiler="/EHsc -Zi -Ob0 -v" -g  -D_WINDOWS -D"CMAKE_INTDIR=\\"Debug\\"" -D_MBCS -D"CMAKE_INTDIR=\\"Debug\\"" -Xcompiler "/EHsc /W1 /nologo /Od /FS /Zi /RTC1 /MDd " -Xcompiler "/FdcmTC_8fc30.dir\\Debug\\vc143.pdb" -o cmTC_8fc30.dir\\Debug\\CMakeCUDACompilerABI.obj "C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCUDACompilerABI.cu"]
         ignore line: [  ]
-        ignore line: [  C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr>"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin\\nvcc.exe"  --use-local-env -ccbin "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64" -x cu    -I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\include"     --keep-dir cmTC_d2ff5\\x64\\Debug  -maxrregcount=0   --machine 64 --compile -cudart static --generate-code=arch=compute_52 code=[compute_52 sm_52] -Xcompiler="/EHsc -Zi -Ob0 -v" -g  -D_WINDOWS -D"CMAKE_INTDIR=\\"Debug\\"" -D_MBCS -D"CMAKE_INTDIR=\\"Debug\\"" -Xcompiler "/EHsc /W1 /nologo /Od /FS /Zi /RTC1 /MDd " -Xcompiler "/FdcmTC_d2ff5.dir\\Debug\\vc143.pdb" -o cmTC_d2ff5.dir\\Debug\\CMakeCUDACompilerABI.obj "C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCUDACompilerABI.cu" ]
-        ignore line: [cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]]
+        ignore line: [  C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3>"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin\\nvcc.exe"  --use-local-env -ccbin "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64" -x cu    -I"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\include"     --keep-dir cmTC_8fc30\\x64\\Debug  -maxrregcount=0   --machine 64 --compile -cudart static --generate-code=arch=compute_52 code=[compute_52 sm_52] -Xcompiler="/EHsc -Zi -Ob0 -v" -g  -D_WINDOWS -D"CMAKE_INTDIR=\\"Debug\\"" -D_MBCS -D"CMAKE_INTDIR=\\"Debug\\"" -Xcompiler "/EHsc /W1 /nologo /Od /FS /Zi /RTC1 /MDd " -Xcompiler "/FdcmTC_8fc30.dir\\Debug\\vc143.pdb" -o cmTC_8fc30.dir\\Debug\\CMakeCUDACompilerABI.obj "C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCUDACompilerABI.cu" ]
+        ignore line: [cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]]
         ignore line: [  CMakeCUDACompilerABI.cu]
-        ignore line: [cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]]
+        ignore line: [cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]]
         ignore line: [  CMakeCUDACompilerABI.cu]
         ignore line: [  CMakeCUDACompilerABI.cu]
-        ignore line: [cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]]
-        ignore line: [  tmpxft_00004ec4_00000000-7_CMakeCUDACompilerABI.cudafe1.cpp]
-        ignore line: [C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCompilerCUDAArch.h(10): warning C4305: 'return': truncation from 'int' to 'bool' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]]
-        ignore line: [Done Building Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj" (CudaBuildCore target(s)).]
+        ignore line: [cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]]
+        ignore line: [  tmpxft_000030c4_00000000-7_CMakeCUDACompilerABI.cudafe1.cpp]
+        ignore line: [C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCompilerCUDAArch.h(10): warning C4305: 'return': truncation from 'int' to 'bool' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]]
+        ignore line: [Done Building Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj" (CudaBuildCore target(s)).]
         ignore line: [Link:]
-        ignore line: [  C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:"C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\Debug\\cmTC_d2ff5.exe" /INCREMENTAL /ILK:"cmTC_d2ff5.dir\\Debug\\cmTC_d2ff5.ilk" /NOLOGO /LIBPATH:"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\lib\\x64" cudadevrt.lib cudart_static.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-1ibkbr/Debug/cmTC_d2ff5.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-1ibkbr/Debug/cmTC_d2ff5.lib" /MACHINE:X64  /machine:x64 -v cmTC_d2ff5.dir\\Debug\\CMakeCUDACompilerABI.obj]
+        ignore line: [  C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:"C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\Debug\\cmTC_8fc30.exe" /INCREMENTAL /ILK:"cmTC_8fc30.dir\\Debug\\cmTC_8fc30.ilk" /NOLOGO /LIBPATH:"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\lib\\x64" cudadevrt.lib cudart_static.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-7ta7e3/Debug/cmTC_8fc30.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-7ta7e3/Debug/cmTC_8fc30.lib" /MACHINE:X64  /machine:x64 -v cmTC_8fc30.dir\\Debug\\CMakeCUDACompilerABI.obj]
         ignore line: [LINK : warning LNK4044: unrecognized option '/v']
-        ignore line: [ ignored [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]]
-        ignore line: [     Creating library C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-1ibkbr/Debug/cmTC_d2ff5.lib and object C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-1ibkbr/Debug/cmTC_d2ff5.exp]
+        ignore line: [ ignored [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]]
+        ignore line: [     Creating library C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-7ta7e3/Debug/cmTC_8fc30.lib and object C:/dev/research/globeik/build/CMakeFiles/CMakeScratch/TryCompile-7ta7e3/Debug/cmTC_8fc30.exp]
         ignore line: [LINK : warning LNK4098: defaultlib 'LIBCMT' conflicts with use of other libs]
-        ignore line: [ use /NODEFAULTLIB:library [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]]
-        ignore line: [  cmTC_d2ff5.vcxproj -> C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\Debug\\cmTC_d2ff5.exe]
+        ignore line: [ use /NODEFAULTLIB:library [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]]
+        ignore line: [  cmTC_8fc30.vcxproj -> C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\Debug\\cmTC_8fc30.exe]
         ignore line: [FinalizeBuildStatus:]
-        ignore line: [  Deleting file "cmTC_d2ff5.dir\\Debug\\cmTC_d2ff5.tlog\\unsuccessfulbuild".]
-        ignore line: [  Touching "cmTC_d2ff5.dir\\Debug\\cmTC_d2ff5.tlog\\cmTC_d2ff5.lastbuildstate".]
-        ignore line: [Done Building Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj" (default targets).]
+        ignore line: [  Deleting file "cmTC_8fc30.dir\\Debug\\cmTC_8fc30.tlog\\unsuccessfulbuild".]
+        ignore line: [  Touching "cmTC_8fc30.dir\\Debug\\cmTC_8fc30.tlog\\cmTC_8fc30.lastbuildstate".]
+        ignore line: [Done Building Project "C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj" (default targets).]
         ignore line: []
         ignore line: [Build succeeded.]
         ignore line: []
-        ignore line: ["C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj" (default target) (1) ->]
-        ignore line: ["C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj" (CudaBuildCore target) (1:2) ->]
+        ignore line: ["C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj" (default target) (1) ->]
+        ignore line: ["C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj" (CudaBuildCore target) (1:2) ->]
         ignore line: [(CudaBuildCore target) -> ]
-        ignore line: [  cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]]
-        ignore line: [  cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]]
-        ignore line: [  cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]]
-        ignore line: [  C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCompilerCUDAArch.h(10): warning C4305: 'return': truncation from 'int' to 'bool' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]]
+        ignore line: [  cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]]
+        ignore line: [  cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]]
+        ignore line: [  cl : Command line warning D9002: ignoring unknown option '-v' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]]
+        ignore line: [  C:\\Program Files\\CMake\\share\\cmake-4.0\\Modules\\CMakeCompilerCUDAArch.h(10): warning C4305: 'return': truncation from 'int' to 'bool' [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]]
         ignore line: []
         ignore line: []
-        ignore line: ["C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj" (default target) (1) ->]
+        ignore line: ["C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj" (default target) (1) ->]
         ignore line: [(Link target) -> ]
         ignore line: [  LINK : warning LNK4044: unrecognized option '/v']
-        ignore line: [ ignored [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]]
+        ignore line: [ ignored [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]]
         ignore line: [  LINK : warning LNK4098: defaultlib 'LIBCMT' conflicts with use of other libs]
-        ignore line: [ use /NODEFAULTLIB:library [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-1ibkbr\\cmTC_d2ff5.vcxproj]]
+        ignore line: [ use /NODEFAULTLIB:library [C:\\dev\\research\\globeik\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7ta7e3\\cmTC_8fc30.vcxproj]]
         ignore line: []
         ignore line: [    6 Warning(s)]
         ignore line: [    0 Error(s)]
         ignore line: []
-        ignore line: [Time Elapsed 00:00:01.86]
+        ignore line: [Time Elapsed 00:00:01.76]
         ignore line: []
         ignore line: []
         linker tool for 'CUDA': C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/link.exe
