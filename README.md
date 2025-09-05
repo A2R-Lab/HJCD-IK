@@ -7,6 +7,7 @@ CUDA-based inverse kinematics solver built on [GRiD](https://github.com/A2R-Lab/
 - CUDA Toolkit 12.x
 - CMake &ge; 3.22
 - yaml-cpp
+- pybind11
 - Visual Studio 2022 (Windows) or GCC/Clang (Linux)
 
 ## Clone
