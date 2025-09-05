@@ -1,0 +1,3 @@
+[submodule "external/GRiD"]
+	path = external/GRiD
+	url = https://github.com/A2R-Lab/GRiD
