@@ -767,9 +767,10 @@ __device__ void solve_lm_batched(
 
     if (tid == 0 && pos_err_m < eps_pos && ori_err_rad < eps_ori) s_break = 1;
     SYNC();
-    if (s_break) goto WRITE_OUT;
-
     T lambda = lambda_init;
+
+    if (s_break) goto WRITE_OUT;
+    
     for (int it = 0; it < k_max; ++it) {
         POLL_STOP(it, 5);
 
