@@ -40,7 +40,7 @@ compile_commands.json
 *.ptx
 *.fatbin
 
-# ---- Python (if you use generateGRiD.py) ----
+# ---- Python ----
 __pycache__/
 *.pyc
 
@@ -52,3 +52,16 @@ globeik_ik_per_batch.yml
 Thumbs.db
 *.swp
 *.tmp
+
+# VS Code
+.vscode/
+
+# CMake / build
+/build/
+/build-*/
+Debug/
+Release/
+x64/
+
+# Generated output
+globeik_ik_per_batch.yml
