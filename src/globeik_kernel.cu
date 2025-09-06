@@ -700,167 +700,128 @@ __device__ void solve_lm_batched(
     const int B,
     int stop_on_first)
 {
-#define SYNC() do { if (blockDim.x <= warpSize) { __syncwarp(); } else { __syncthreads(); } } while (0)
-#define POLL_STOP(iter, mask) do { if (stop_on_first && threadIdx.x == 0 && (((iter) & (mask)) == 0)) { if (read_stop()) s_break = 1; } SYNC(); if (s_break) goto WRITE_OUT; } while (0)
+    #define SYNC() do { if (blockDim.x <= warpSize) { __syncwarp(); } else { __syncthreads(); } } while (0)
 
-    __shared__ T best_pos_seen, best_x_pos[N];
+    auto poll_stop = [&](int it)->bool{
+        if (!stop_on_first) return false;
+        if (threadIdx.x == 0 && (it & 7) == 0) { if (atomicAdd(&g_stop, 0)) return true; }
+        SYNC(); return false;
+    };
 
-    const int gp = blockIdx.x;
+    __shared__ T s_x[N], x_old[N];
+    __shared__ T s_XmatsHom[N*16], s_jointX[N*16], s_tmp[N*2];
+    __shared__ T J[6*N], r_scaled[6], row_s[6], q_goal[4];
+    __shared__ T pos_err_m, ori_err_rad, cost_sq, prev_cost;
+    __shared__ T dq[N], diagA[N], gvec[N];
+    __shared__ T best_x_pos[N], best_pos_seen;
+    __shared__ double Ad_sh[N*N], rhsd_sh[N];
+    __shared__ int s_break, stall;
+
+    const int gp  = blockIdx.x;
     const int tid = threadIdx.x;
     if (gp >= B || !x || !pose || !target_poses || !pos_error || !ori_error || !d_robotModel) return;
 
     const T lambda_min = (T)1e-12, lambda_max = (T)1e6;
-    const int stall_lim = 4;
-    const T alphas[2] = { (T)1.0, (T)0.5 };
+    const int stall_lim = 5;
 
     auto trust_R = [](T perr, T oerr) {
-        if (perr > (T)1e-2 || oerr > (T)0.50) return (T)0.35;
-        if (perr > (T)1e-3 || oerr > (T)0.20) return (T)0.20;
-        if (perr > (T)2e-4 || oerr > (T)0.05) return (T)0.08;
+        if (perr > (T)1e-2 || oerr > (T)0.6)  return (T)0.35;
+        if (perr > (T)1e-3 || oerr > (T)0.25) return (T)0.20;
+        if (perr > (T)2e-4 || oerr > (T)0.08) return (T)0.08;
         return (T)0.03;
-        };
+    };
 
-    __shared__ T s_x[N], x_old[N];
-    __shared__ T s_XmatsHom[N * 16], s_jointX[N * 16], s_tmp[N * 2];
-    __shared__ T J[6 * N];
-    __shared__ T r_scaled[6], row_s[6];
-    __shared__ T q_goal[4];
-    __shared__ T pos_err_m, ori_err_rad, cost_sq, prev_cost;
-    __shared__ T dq[N], diagA[N], gvec[N];
-    __shared__ T w_eff;
-    __shared__ int s_break, stall;
-
-    __shared__ double Ad_sh[N * N], rhsd_sh[N];
-
-    const T* tp = &target_poses[gp * 7];
-
-    if (tid < N) s_x[tid] = x[gp * N + tid];
+    const T* tp = &target_poses[gp*7];
+    if (tid < N) s_x[tid] = x[gp*N + tid];
     if (tid == 0) {
         q_goal[0] = tp[3]; q_goal[1] = tp[4]; q_goal[2] = tp[5]; q_goal[3] = tp[6];
-        T nn = rsqrt(q_goal[0] * q_goal[0] + q_goal[1] * q_goal[1] + q_goal[2] * q_goal[2] + q_goal[3] * q_goal[3]);
-        q_goal[0] *= nn; q_goal[1] *= nn; q_goal[2] *= nn; q_goal[3] *= nn;
+        T n = rsqrt(q_goal[0]*q_goal[0] + q_goal[1]*q_goal[1] + q_goal[2]*q_goal[2] + q_goal[3]*q_goal[3]);
+        q_goal[0]*=n; q_goal[1]*=n; q_goal[2]*=n; q_goal[3]*=n;
         s_break = 0; stall = 0; prev_cost = (T)-1;
+        cost_sq = (T)0;
     }
     SYNC();
+
+    // define lambda before any possible goto WRITE_OUT
+    T lambda = lambda_init;
 
     grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, s_x, d_robotModel, s_tmp);
     SYNC();
 
     if (tid == 0) {
-        grid::update_singleJointX(s_jointX, s_XmatsHom, s_x, N - 1);
-        pos_err_m = compute_pos_err_colmajor<T>(s_jointX, tp);
-        const T* Cn = &s_jointX[(N - 1) * 16];
-        T qee[4]; mat_to_quat_colmajor3x3(Cn, qee);
-        if (qee[0] * q_goal[0] + qee[1] * q_goal[1] + qee[2] * q_goal[2] + qee[3] * q_goal[3] < (T)0) {
-            qee[0] = -qee[0]; qee[1] = -qee[1]; qee[2] = -qee[2]; qee[3] = -qee[3];
-        }
-        T wv[3]; quat_err_rotvec(qee, q_goal, wv);
-        ori_err_rad = sqrt(wv[0] * wv[0] + wv[1] * wv[1] + wv[2] * wv[2]);
-        r_scaled[0] = r_scaled[1] = r_scaled[2] = (T)0;
-        r_scaled[3] = r_scaled[4] = r_scaled[5] = (T)0;
+        grid::update_singleJointX(s_jointX, s_XmatsHom, s_x, N-1);
+        pos_err_m   = compute_pos_err_colmajor<T>(s_jointX, tp);
+        ori_err_rad = compute_ori_err_colmajor<T>(s_jointX, &tp[3]);
     }
     SYNC();
 
-    best_pos_seen = pos_err_m;
-#pragma unroll
-    for (int i = 0; i < N; ++i) best_x_pos[i] = s_x[i];
-
+    best_pos_seen = pos_err_m; if (tid < N) best_x_pos[tid] = s_x[tid];
     if (tid == 0 && pos_err_m < eps_pos && ori_err_rad < eps_ori) s_break = 1;
-    SYNC();
-    T lambda = lambda_init;
+    SYNC(); if (s_break) goto WRITE_OUT;
 
-    if (s_break) goto WRITE_OUT;
-    
     for (int it = 0; it < k_max; ++it) {
-        POLL_STOP(it, 5);
+        if (poll_stop(it)) { s_break = 1; SYNC(); break; }
 
         if (tid < N) {
             const int i = tid;
-            const T* Ci = &s_jointX[i * 16];
-            const T* Cn = &s_jointX[(N - 1) * 16];
+            const T* Ci = &s_jointX[i*16];
+            const T* Cn = &s_jointX[(N-1)*16];
             T oi0 = Ci[12], oi1 = Ci[13], oi2 = Ci[14];
             T on0 = Cn[12], on1 = Cn[13], on2 = Cn[14];
-            T zi0 = Ci[8], zi1 = Ci[9], zi2 = Ci[10];
+            T zi0 = Ci[8],  zi1 = Ci[9],  zi2 = Ci[10];
             T r0 = on0 - oi0, r1 = on1 - oi1, r2 = on2 - oi2;
-            J[0 * N + i] = zi1 * r2 - zi2 * r1;
-            J[1 * N + i] = zi2 * r0 - zi0 * r2;
-            J[2 * N + i] = zi0 * r1 - zi1 * r0;
-            J[3 * N + i] = zi0;
-            J[4 * N + i] = zi1;
-            J[5 * N + i] = zi2;
+            J[0*N+i] = zi1*r2 - zi2*r1;
+            J[1*N+i] = zi2*r0 - zi0*r2;
+            J[2*N+i] = zi0*r1 - zi1*r0;
+            J[3*N+i] = zi0; J[4*N+i] = zi1; J[5*N+i] = zi2;
         }
         SYNC();
 
         if (tid == 0) {
-            T fpos = (T)0, fori = (T)0;
-#pragma unroll
-            for (int i = 0; i < N; ++i) {
-                fpos += J[0 * N + i] * J[0 * N + i] + J[1 * N + i] * J[1 * N + i] + J[2 * N + i] * J[2 * N + i];
-                fori += J[3 * N + i] * J[3 * N + i] + J[4 * N + i] * J[4 * N + i] + J[5 * N + i] * J[5 * N + i];
-            }
-            const T ratio = (fori > (T)1e-20) ? sqrt(fmax((T)1e-20, fpos) / fori) : (T)1;
-            const T wJ = fmin((T)8, fmax((T)0.125, ratio));
-
-            const T p = pos_err_m;
-            T w_base = (p > (T)2e-2) ? (T)0.05 :
-                (p > (T)5e-3) ? (T)0.20 :
-                (p > (T)1e-3) ? (T)0.75 :
-                (p > (T)2e-4) ? (T)1.50 : (T)3.50;
-
-            const T o = ori_err_rad;
-            const T boost = (o > (T)1.0) ? (T)4.0 :
-                (o > (T)0.6) ? (T)2.5 :
-                (o > (T)0.3) ? (T)1.6 : (T)1.0;
-
-            w_eff = fmin((T)12, w_base * wJ * boost);
-
-            const T* Cn = &s_jointX[(N - 1) * 16];
+            const T* Cn = &s_jointX[(N-1)*16];
             T qee[4]; mat_to_quat_colmajor3x3(Cn, qee);
-            if (qee[0] * q_goal[0] + qee[1] * q_goal[1] + qee[2] * q_goal[2] + qee[3] * q_goal[3] < (T)0) {
+            if (qee[0]*q_goal[0] + qee[1]*q_goal[1] + qee[2]*q_goal[2] + qee[3]*q_goal[3] < (T)0) {
                 qee[0] = -qee[0]; qee[1] = -qee[1]; qee[2] = -qee[2]; qee[3] = -qee[3];
             }
             T wv[3]; quat_err_rotvec(qee, q_goal, wv);
 
-            const T dx = tp[0] - Cn[12], dy = tp[1] - Cn[13], dz = tp[2] - Cn[14];
-            r_scaled[0] = dx; r_scaled[1] = dy; r_scaled[2] = dz;
-            r_scaled[3] = wv[0]; r_scaled[4] = wv[1]; r_scaled[5] = wv[2];
+            const T dx = tp[0]-Cn[12], dy = tp[1]-Cn[13], dz = tp[2]-Cn[14];
+            r_scaled[0]=dx; r_scaled[1]=dy; r_scaled[2]=dz;
+            r_scaled[3]=wv[0]; r_scaled[4]=wv[1]; r_scaled[5]=wv[2];
 
-#pragma unroll
-            for (int k = 0; k < 6; ++k) {
-                T rn = (T)0; for (int i = 0; i < N; ++i) rn += J[k * N + i] * J[k * N + i];
+            for (int k=0;k<6;++k) {
+                T rn=(T)0; for (int i=0;i<N;++i) rn += J[k*N+i]*J[k*N+i];
                 row_s[k] = (rn > (T)1e-18) ? rsqrt(rn) : (T)1;
             }
-#pragma unroll
-            for (int k = 0; k < 6; ++k) {
-                const T s = row_s[k];
-#pragma unroll
-                for (int i = 0; i < N; ++i) J[k * N + i] *= s;
-                r_scaled[k] *= s;
-            }
+            for (int k=0;k<6;++k){ T s=row_s[k]; for (int i=0;i<N;++i) J[k*N+i]*=s; r_scaled[k]*=s; }
 
-            const T c_h = (T)2.5 * fmin((T)10, (T)1 + (T)1e3 * pos_err_m);
-#pragma unroll
-            for (int k = 0; k < 3; ++k) {
-                const T a = fabs(r_scaled[k]);
-                const T w = (a <= c_h) ? (T)1 : c_h / (a + (T)1e-30);
-                const T s = sqrt(fmax((T)0, w));
-                if (s != (T)1) {
-#pragma unroll
-                    for (int i = 0; i < N; ++i) J[k * N + i] *= s;
-                    r_scaled[k] *= s; row_s[k] *= s;
-                }
-            }
+            auto huber = [](T a, T c)->T{ return (fabs(a)<=c)?(T)1:(c/(fabs(a)+(T)1e-30)); };
+            const T cp = fmax((T)1e-4, (T)5e-3 * (T)fmax((T)1, (T)1e3*pos_err_m));
+            const T co = (T)0.5;
+            for (int k=0;k<3;++k){ T w = sqrt(huber(r_scaled[k], cp)); if (w!=(T)1){ for(int i=0;i<N;++i) J[k*N+i]*=w; r_scaled[k]*=w; row_s[k]*=w; } }
+            for (int k=3;k<6;++k){ T w = sqrt(huber(r_scaled[k], co)); if (w!=(T)1){ for(int i=0;i<N;++i) J[k*N+i]*=w; r_scaled[k]*=w; row_s[k]*=w; } }
 
-            const T w_sqrt = sqrt(fmax((T)1e-12, w_eff));
-            if (w_sqrt != (T)1) {
-#pragma unroll
-                for (int i = 0; i < N; ++i) { J[3 * N + i] *= w_sqrt; J[4 * N + i] *= w_sqrt; J[5 * N + i] *= w_sqrt; }
-                r_scaled[3] *= w_sqrt; r_scaled[4] *= w_sqrt; r_scaled[5] *= w_sqrt;
-                row_s[3] *= w_sqrt; row_s[4] *= w_sqrt; row_s[5] *= w_sqrt;
-            }
+            T w_ori = (pos_err_m > (T)1e-3) ? (T)0.5 :
+                      (pos_err_m > (T)2e-4) ? (T)1.5 : (T)4.0;
+            T s = sqrt(w_ori);
+            for (int i=0;i<N;++i){ J[3*N+i]*=s; J[4*N+i]*=s; J[5*N+i]*=s; }
+            r_scaled[3]*=s; r_scaled[4]*=s; r_scaled[5]*=s;
+        }
+        SYNC();
 
-            cost_sq = (T)0.5 * (r_scaled[0] * r_scaled[0] + r_scaled[1] * r_scaled[1] + r_scaled[2] * r_scaled[2]
-                + r_scaled[3] * r_scaled[3] + r_scaled[4] * r_scaled[4] + r_scaled[5] * r_scaled[5]);
+        if (tid < N) {
+            const int i = tid;
+            const double2 L = c_joint_limits[i];
+            const T span = (T)(L.y - L.x);
+            const T mid  = (T)(0.5*(L.x + L.y));
+            const T mlo  = s_x[i] - (T)L.x, mhi = (T)L.y - s_x[i];
+            const T mar  = fmax((T)1e-6, fmin(mlo, mhi)) / span;
+            const T col  = fmax((T)0.2, (T)2.0*mar);
+            for (int k=0;k<6;++k) J[k*N+i] *= col;
+
+            const T near = (T)clamp_unit((T)1 - (T)2*mar);
+            diagA[i] = near * (T)1e-3;
+            gvec[i]  = diagA[i] * (mid - s_x[i]);
         }
         SYNC();
 
@@ -868,150 +829,151 @@ __device__ void solve_lm_batched(
 
         if (tid == 0) {
             const T R = trust_R(pos_err_m, ori_err_rad);
-            T nrm = (T)0; for (int i = 0; i < N; ++i) nrm += dq[i] * dq[i];
-            nrm = sqrt(nrm);
-            if (nrm > R) { T s = R / (nrm + (T)1e-18); for (int i = 0; i < N; ++i) dq[i] *= s; }
+            T nrm=(T)0; for (int i=0;i<N;++i) nrm += dq[i]*dq[i]; nrm = sqrt(nrm);
+            if (nrm > R) { T s = R / (nrm + (T)1e-18); for (int i=0;i<N;++i) dq[i]*=s; }
 
             const T clip =
                 (pos_err_m > (T)1e-2) ? (T)0.30 :
                 (pos_err_m > (T)1e-3) ? (T)0.15 :
                 (pos_err_m > (T)2e-4) ? (T)0.08 : (T)0.03;
 
-            const T lim_eps = (T)1e-4;
-            for (int i = 0; i < N; ++i) {
+            for (int i=0;i<N;++i) {
                 const double2 lim = c_joint_limits[i];
-                if (dq[i] > clip) dq[i] = clip;
-                if (dq[i] < -clip) dq[i] = -clip;
-                const bool at_low = (s_x[i] - (T)lim.x) < lim_eps && dq[i] < (T)0;
-                const bool at_high = ((T)lim.y - s_x[i]) < lim_eps && dq[i] > (T)0;
-                if (at_low || at_high) dq[i] = (T)0;
+                dq[i] = fmin(fmax(dq[i], -clip), clip);
+                if ((s_x[i]<= (T)lim.x + (T)1e-4 && dq[i] < (T)0) ||
+                    (s_x[i]>= (T)lim.y - (T)1e-4 && dq[i] > (T)0)) dq[i] = (T)0;
                 x_old[i] = s_x[i];
             }
         }
         SYNC();
 
-        T best_cost = cost_sq, best_pos = pos_err_m, best_ori = ori_err_rad, best_a = (T)0;
-        __shared__ int accept; if (tid == 0) accept = 0; SYNC();
+        __shared__ int accepted; if (tid == 0) accepted = 0; SYNC();
+        T best_cost = (T)1e38, best_pos = pos_err_m, best_ori = ori_err_rad, best_a = (T)0;
 
-#pragma unroll
-        for (int ai = 0; ai < 2; ++ai) {
+        for (int tries = 0; tries < 4; ++tries) {
+            const T a = (tries==0)?(T)1.0 : (T)0.5 * (T)pow((T)0.5, tries-1);
             if (tid == 0) {
-                const T a = alphas[ai];
-                for (int i = 0; i < N; ++i) {
+                for (int i=0;i<N;++i) {
                     const double2 lim = c_joint_limits[i];
-                    const T xi = x_old[i] + a * dq[i];
+                    const T xi = x_old[i] + a*dq[i];
                     s_x[i] = fmin(fmax(xi, (T)lim.x), (T)lim.y);
                 }
-                grid::update_singleJointX(s_jointX, s_XmatsHom, s_x, N - 1);
+                grid::update_singleJointX(s_jointX, s_XmatsHom, s_x, N-1);
+                const T pos_new = compute_pos_err_colmajor<T>(s_jointX, tp);
+                const T ori_new = compute_ori_err_colmajor<T>(s_jointX, &tp[3]);
 
-                const T* Cn = &s_jointX[(N - 1) * 16];
+                const T* Cn = &s_jointX[(N-1)*16];
                 T qee[4]; mat_to_quat_colmajor3x3(Cn, qee);
-                if (qee[0] * q_goal[0] + qee[1] * q_goal[1] + qee[2] * q_goal[2] + qee[3] * q_goal[3] < (T)0) {
+                if (qee[0]*q_goal[0] + qee[1]*q_goal[1] + qee[2]*q_goal[2] + qee[3]*q_goal[3] < (T)0) {
                     qee[0] = -qee[0]; qee[1] = -qee[1]; qee[2] = -qee[2]; qee[3] = -qee[3];
                 }
                 T wv[3]; quat_err_rotvec(qee, q_goal, wv);
-                const T dx = tp[0] - Cn[12], dy = tp[1] - Cn[13], dz = tp[2] - Cn[14];
-                T rt0 = row_s[0] * dx, rt1 = row_s[1] * dy, rt2 = row_s[2] * dz;
-                T rt3 = row_s[3] * wv[0], rt4 = row_s[4] * wv[1], rt5 = row_s[5] * wv[2];
-                T trial = (T)0.5 * (rt0 * rt0 + rt1 * rt1 + rt2 * rt2 + rt3 * rt3 + rt4 * rt4 + rt5 * rt5);
-                T th = sqrt(wv[0] * wv[0] + wv[1] * wv[1] + wv[2] * wv[2]);
-                const bool improve_cost = (trial + (T)1e-20 < best_cost);
-                T pos_new = compute_pos_err_colmajor<T>(s_jointX, tp);
+                T dx = tp[0]-Cn[12], dy = tp[1]-Cn[13], dz = tp[2]-Cn[14];
+
+                T rr[6] = { dx,dy,dz, wv[0],wv[1],wv[2] };
+                for (int k=0;k<6;++k) rr[k] = rr[k]*row_s[k];
+
+                auto hub = [](T a, T c)->T{ return (fabs(a)<=c)?(T)1:(c/(fabs(a)+(T)1e-30)); };
+                const T cp2 = fmax((T)1e-4, (T)5e-3 * (T)fmax((T)1, (T)1e3*pos_new));
+                const T co2 = (T)0.5;
+                for (int k=0;k<3;++k) rr[k] *= sqrt(hub(rr[k], cp2));
+                for (int k=3;k<6;++k) rr[k] *= sqrt(hub(rr[k], co2));
+
+                T trial = (T)0.5*(rr[0]*rr[0]+rr[1]*rr[1]+rr[2]*rr[2]+rr[3]*rr[3]+rr[4]*rr[4]+rr[5]*rr[5]);
+
                 const bool nonincreasing_pos = (pos_new <= pos_err_m + (T)1e-12);
-                const bool ori_sig = (th <= (T)0.90 * ori_err_rad);
-                const bool ori_override = ori_sig && nonincreasing_pos;
-                if ((trial == trial) && ((improve_cost && nonincreasing_pos) || ori_override)) {
-                    best_cost = trial; best_pos = pos_new; best_ori = th; best_a = a; accept = 1;
+                const bool improves_cost     = (trial + (T)1e-20 < best_cost);
+
+                if (improves_cost && nonincreasing_pos) {
+                    best_cost = trial; best_pos = pos_new; best_ori = ori_new; best_a = a; accepted = 1;
                 }
             }
             SYNC();
-            if (accept) break;
+            if (accepted) break;
         }
 
         if (tid == 0) {
-            if (accept) {
+            if (accepted) {
                 T ared = cost_sq - best_cost;
                 T pred = (T)0;
-                for (int i = 0; i < N; ++i) {
+                for (int i=0;i<N;++i) {
                     const T ad = best_a * dq[i];
                     pred += (T)0.5 * (lambda * diagA[i] * ad * ad + ad * gvec[i]);
                 }
                 pred = fmax((T)1e-20, pred);
                 const T rho = ared / pred;
 
-                if (rho > (T)0.90)      lambda = fmax(lambda * (T)0.2, lambda_min);
-                else if (rho > (T)0.50) lambda = fmax(lambda * (T)0.5, lambda_min);
-                else if (rho < (T)0.25) lambda = fmin(lambda * (T)3.0, lambda_max);
+                if      (rho > (T)0.90) lambda = fmax(lambda*(T)0.3, lambda_min);
+                else if (rho > (T)0.50) lambda = fmax(lambda*(T)0.5, lambda_min);
+                else if (rho < (T)0.25) lambda = fmin(lambda*(T)3.0, lambda_max);
 
-                cost_sq = best_cost; pos_err_m = best_pos; ori_err_rad = best_ori;
+                cost_sq   = best_cost;
+                pos_err_m = best_pos;
+                ori_err_rad = best_ori;
 
                 if (pos_err_m + (T)1e-20 < best_pos_seen) {
                     best_pos_seen = pos_err_m;
-                    for (int i = 0; i < N; ++i) best_x_pos[i] = s_x[i];
+                    for (int i=0;i<N;++i) best_x_pos[i] = s_x[i];
                 }
-                if (prev_cost > (T)0 && (prev_cost - cost_sq) / prev_cost < (T)1e-9) ++stall; else stall = 0;
+                if (prev_cost > (T)0 && (prev_cost - cost_sq)/prev_cost < (T)1e-9) ++stall; else stall = 0;
                 prev_cost = cost_sq;
-            }
-            else {
+            } else {
                 bool took = try_dogleg_step<T>(s_x, x_old, s_jointX, s_XmatsHom,
-                    row_s, tp, q_goal, trust_R(pos_err_m, ori_err_rad),
-                    dq, gvec, diagA,
-                    cost_sq, pos_err_m, ori_err_rad,
-                    lambda, lambda_min, lambda_max,
-                    c_joint_limits);
+                                               row_s, tp, q_goal, trust_R(pos_err_m, ori_err_rad),
+                                               dq, gvec, diagA,
+                                               cost_sq, pos_err_m, ori_err_rad,
+                                               lambda, lambda_min, lambda_max,
+                                               c_joint_limits);
                 if (!took) {
                     took = try_coord_linesearch<T>(s_x, x_old, s_jointX, s_XmatsHom,
-                        row_s, tp, q_goal, gvec,
-                        trust_R(pos_err_m, ori_err_rad),
-                        pos_err_m,
-                        cost_sq, pos_err_m, ori_err_rad,
-                        lambda, lambda_min, lambda_max,
-                        c_joint_limits);
+                                                   row_s, tp, q_goal, gvec,
+                                                   trust_R(pos_err_m, ori_err_rad),
+                                                   pos_err_m,
+                                                   cost_sq, pos_err_m, ori_err_rad,
+                                                   lambda, lambda_min, lambda_max,
+                                                   c_joint_limits);
                 }
-                if (!took) s_break = 1;
+                if (!took) ++stall;
             }
+            if (stall >= stall_lim) s_break = 1;
+            if (pos_err_m < eps_pos && ori_err_rad < eps_ori) { atomicCAS(&g_stop, 0, 1); s_break = 1; }
         }
         SYNC();
         if (s_break) break;
+
+        if (tid == 0) {
+            grid::update_singleJointX(s_jointX, s_XmatsHom, s_x, N-1);
+            pos_err_m   = compute_pos_err_colmajor<T>(s_jointX, tp);
+            ori_err_rad = compute_ori_err_colmajor<T>(s_jointX, &tp[3]);
+        }
+        SYNC();
     }
 
-    if (tid == 0 && pos_err_m < eps_pos && ori_err_rad < eps_ori) {
-        atomicCAS(&g_stop, 0, 1);
-        s_break = 1;
-    }
-    SYNC();
-    if (s_break) goto WRITE_OUT;
-
-    {
+    if (tid == 0) {
         const T MAX_DRIFT = (T)2e-3;
         if (pos_err_m > best_pos_seen + MAX_DRIFT) {
-#pragma unroll
-            for (int i = 0; i < N; ++i) s_x[i] = best_x_pos[i];
-            grid::update_singleJointX(s_jointX, s_XmatsHom, s_x, N - 1);
-            pos_err_m = compute_pos_err_colmajor<T>(s_jointX, tp);
+            for (int i=0;i<N;++i) s_x[i] = best_x_pos[i];
+            grid::update_singleJointX(s_jointX, s_XmatsHom, s_x, N-1);
+            pos_err_m   = compute_pos_err_colmajor<T>(s_jointX, tp);
             ori_err_rad = compute_ori_err_colmajor<T>(s_jointX, &tp[3]);
         }
     }
+    SYNC();
 
 WRITE_OUT:
     if (tid == 0) {
-        const T* Cn = &s_jointX[(N - 1) * 16];
+        const T* Cn = &s_jointX[(N-1)*16];
         T q_out[4]; mat_to_quat_colmajor3x3(Cn, q_out);
-        pose[gp * 7 + 0] = Cn[12];
-        pose[gp * 7 + 1] = Cn[13];
-        pose[gp * 7 + 2] = Cn[14];
-        pose[gp * 7 + 3] = q_out[0];
-        pose[gp * 7 + 4] = q_out[1];
-        pose[gp * 7 + 5] = q_out[2];
-        pose[gp * 7 + 6] = q_out[3];
+        pose[gp*7+0]=Cn[12]; pose[gp*7+1]=Cn[13]; pose[gp*7+2]=Cn[14];
+        pose[gp*7+3]=q_out[0]; pose[gp*7+4]=q_out[1]; pose[gp*7+5]=q_out[2]; pose[gp*7+6]=q_out[3];
         pos_error[gp] = pos_err_m * (T)1000.0;
         ori_error[gp] = ori_err_rad;
-#pragma unroll
-        for (int i = 0; i < N; ++i) x[gp * N + i] = s_x[i];
+        for (int i=0;i<N;++i) x[gp*N+i] = s_x[i];
     }
-#undef SYNC
-#undef POLL_STOP
+
+    #undef SYNC
 }
+
 
 #ifndef FULL_WARP_MASK
 #define FULL_WARP_MASK 0xFFFFFFFFu
@@ -1051,7 +1013,7 @@ __global__ void globeik_kernel(
 
     const T  epsilon = (T)20e-3;
     const T  nu = (T)(20.0 * PI / 180.0);
-    const int k_max = 10;
+    const int k_max = 30;
 
     __shared__ int  s_stop;
     __shared__ int  s_allow_ori;
@@ -1579,6 +1541,38 @@ __global__ void perturb_rows_kernel(T* __restrict__ X,
     }
 }
 
+struct RefineSchedule {
+    float  top_frac;
+    int    repeats;
+    double sigma_frac;
+    bool   keep_one;
+};
+
+inline RefineSchedule schedule_for_B(int B) {
+    RefineSchedule s; s.keep_one = true;
+
+    if (B <= 8) {           
+        s.repeats   = 24;
+        s.sigma_frac= 0.35;
+    } else if (B <= 32) {
+        s.repeats   = 22;
+        s.sigma_frac= 0.30;
+    } else if (B <= 128) {
+        s.repeats   = 20;
+        s.sigma_frac= 0.25;
+    } else if (B <= 512) {
+        s.repeats   = 16;
+        s.sigma_frac= 0.25;
+    } else if (B <= 2000) {       // large
+        s.repeats   = 10;
+        s.sigma_frac= 0.20;
+    } else {                      // very large
+        s.repeats   = 10;         // “10 or smaller” for huge batches
+        s.sigma_frac= 0.20;
+    }
+    return s;
+}
+
 template<typename T>
 Result<T> generate_ik_solutions(
     T* target_pose,
@@ -1650,10 +1644,11 @@ Result<T> generate_ik_solutions(
     cudaMemcpy(h_pose_coarse.data(), d_pose, sizeof(T) * num_elems_p7, cudaMemcpyDeviceToHost);
     cudaMemcpy(h_x_coarse.data(), d_x, sizeof(T) * num_elems_x, cudaMemcpyDeviceToHost);
 
-    const float  top_frac = 0.002f;
-    const int    repeats = 12;
-    const double sigma_frac = 0.15;
-    const bool   keep_one = true;
+    const auto sch = schedule_for_B(B);
+    const float  top_frac   = 0.005f;
+    const int    repeats    = sch.repeats;
+    const double sigma_frac = sch.sigma_frac;
+    const bool   keep_one   = true;
 
     T* d_scores = nullptr; cudaMalloc(&d_scores, sizeof(T) * B);
     {
@@ -1725,7 +1720,7 @@ Result<T> generate_ik_solutions(
             (T)1e-8,
             (T)1e-7,
             (T)5e-3,
-            20,
+            60,
             0
             );
         cudaGetLastError();
