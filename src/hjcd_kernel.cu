@@ -728,7 +728,6 @@ __device__ void solve_lm_batched(
     }
     SYNC();
 
-    // define before any possible jump
     T lambda = lambda_init;
 
     grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, s_x, d_robotModel, s_tmp);
@@ -782,7 +781,6 @@ __device__ void solve_lm_batched(
             }
             for (int k=0;k<6;++k){ T s=row_s[k]; for (int i=0;i<N;++i) J[k*N+i]*=s; r_scaled[k]*=s; }
 
-            // Huber weights (inline)
             const T cp = fmax((T)1e-4, (T)5e-3 * (T)fmax((T)1, (T)1e3*pos_err_m));
             const T co = (T)0.5;
             for (int k=0;k<3;++k){
@@ -794,7 +792,6 @@ __device__ void solve_lm_batched(
                 const T s=sqrt(w); if (s!=(T)1){ for(int i=0;i<N;++i) J[k*N+i]*=s; r_scaled[k]*=s; row_s[k]*=s; }
             }
 
-            // orientation emphasis once position is small
             T w_ori = (pos_err_m > (T)1e-3) ? (T)0.5 :
                       (pos_err_m > (T)2e-4) ? (T)1.5 : (T)4.0;
             T s = sqrt(w_ori);
@@ -806,7 +803,6 @@ __device__ void solve_lm_batched(
         }
         SYNC();
 
-        // column scaling near limits + mild mid prior
         if (tid < N) {
             const int i = tid;
             const double2 L = c_joint_limits[i];
@@ -825,7 +821,6 @@ __device__ void solve_lm_batched(
         build_solve_NE_warp<T, N>(J, r_scaled, lambda, dq, diagA, gvec, Ad_sh, rhsd_sh);
 
         if (tid == 0) {
-            // trust region radius (inline of prior lambda)
             T R;
             if      (pos_err_m > (T)1e-2 || ori_err_rad > (T)0.6)  R=(T)0.35;
             else if (pos_err_m > (T)1e-3 || ori_err_rad > (T)0.25) R=(T)0.20;
