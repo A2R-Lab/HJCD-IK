@@ -45,7 +45,7 @@ __pycache__/
 *.pyc
 
 # ---- Generated files ----
-globeik_ik_per_batch.yml
+hjcd_ik_per_batch.yml
 
 # ---- OS / Editor ----
 .DS_Store
@@ -64,4 +64,4 @@ Release/
 x64/
 
 # Generated output
-globeik_ik_per_batch.yml
+hjcd_ik_per_batch.yml

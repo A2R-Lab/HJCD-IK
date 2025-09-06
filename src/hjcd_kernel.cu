@@ -35,7 +35,7 @@
     } while (0)
 #endif
 
-#define N grid::NUM_JOINTS
+enum : int { N = grid::NUM_JOINTS };
 extern "C" int grid_num_joints() { return N; }
 
 #ifndef WARP_SIZE
