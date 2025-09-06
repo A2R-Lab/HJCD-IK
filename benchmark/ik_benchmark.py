@@ -3,19 +3,19 @@ from pathlib import Path
 
 ROOT   = Path(__file__).resolve().parents[1]
 BUILD  = ROOT / "build"
-EXE    = BUILD / ("Release/globeik.exe" if os.name == "nt" else "globeik")
+EXE    = BUILD / ("Release/hjcd.exe" if os.name == "nt" else "hjcd")
 OUTDIR = ROOT / "benchmark" / "outputs"
 OUTDIR.mkdir(parents=True, exist_ok=True)
 
 print(f"[run] {EXE}")
 subprocess.run([str(EXE)], cwd=OUTDIR, check=True)
 
-yml_path = OUTDIR / "globeik_ik_per_batch.yml"
+yml_path = OUTDIR / "hjcd_ik_per_batch.yml"
 data = yaml.safe_load(yml_path.read_text())
 
 def mean(xs): return sum(xs)/len(xs) if xs else float("nan")
 
-print("=== GLOBE_IK summary ===")
+print("=== HJCD-IK summary ===")
 print("samples       :", len(data.get("IK-time(ms)", [])))
 print("mean time (ms):", mean(data.get("IK-time(ms)", [])))
 print("mean pos err  :", mean(data.get("Pos-Error", [])))

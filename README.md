@@ -1,4 +1,4 @@
-# GLOBE_IK
+# HJCD-IK (Hybrid Jacobian Coordinate Descent)
 
 CUDA-based inverse kinematics solver built on [GRiD](https://github.com/A2R-Lab/GRiD).
 
@@ -11,8 +11,8 @@ CUDA-based inverse kinematics solver built on [GRiD](https://github.com/A2R-Lab/
 
 ## Clone
 ```bash
-git clone --recurse-submodules https://github.com/A2R-Lab/GLOBE_IK.git
-cd GLOBE_IK
+git clone --recurse-submodules https://github.com/A2R-Lab/HJCD-IK.git
+cd HJCD-IK
 ```
 
 ## Build
@@ -31,12 +31,12 @@ cmake --build build --config Release
 ## Run
 ### Windows
 ```bash
-.\build\Release\globeik.exe
+.\build\Release\hjcdik.exe
 ```
 
 ### Linux
 ```bash
-./build/globeik
+./build/hjcdik
 ```
 
-Outputs results to globeik_ik_per_batch.yml
+Outputs results to hjcd_ik_per_batch.yml

@@ -1,4 +1,4 @@
-#include "include/globeik_kernel.h"
+#include "include/hjcd_kernel.h"
 #include "include/util.h"
 
 #include <chrono>
@@ -87,7 +87,7 @@ int main(int argc, char** argv) {
     }
     out << YAML::EndMap;
 
-    std::ofstream yaml_file("globeik_ik_per_batch.yml");
+    std::ofstream yaml_file("hjcd_ik_per_batch.yml");
     yaml_file << out.c_str();
     yaml_file.close();
 
