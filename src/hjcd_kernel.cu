@@ -702,12 +702,6 @@ __device__ void solve_lm_batched(
 {
     #define SYNC() do { if (blockDim.x <= warpSize) { __syncwarp(); } else { __syncthreads(); } } while (0)
 
-    auto poll_stop = [&](int it)->bool{
-        if (!stop_on_first) return false;
-        if (threadIdx.x == 0 && (it & 7) == 0) { if (atomicAdd(&g_stop, 0)) return true; }
-        SYNC(); return false;
-    };
-
     __shared__ T s_x[N], x_old[N];
     __shared__ T s_XmatsHom[N*16], s_jointX[N*16], s_tmp[N*2];
     __shared__ T J[6*N], r_scaled[6], row_s[6], q_goal[4];
@@ -724,25 +718,17 @@ __device__ void solve_lm_batched(
     const T lambda_min = (T)1e-12, lambda_max = (T)1e6;
     const int stall_lim = 5;
 
-    auto trust_R = [](T perr, T oerr) {
-        if (perr > (T)1e-2 || oerr > (T)0.6)  return (T)0.35;
-        if (perr > (T)1e-3 || oerr > (T)0.25) return (T)0.20;
-        if (perr > (T)2e-4 || oerr > (T)0.08) return (T)0.08;
-        return (T)0.03;
-    };
-
     const T* tp = &target_poses[gp*7];
     if (tid < N) s_x[tid] = x[gp*N + tid];
     if (tid == 0) {
-        q_goal[0] = tp[3]; q_goal[1] = tp[4]; q_goal[2] = tp[5]; q_goal[3] = tp[6];
-        T n = rsqrt(q_goal[0]*q_goal[0] + q_goal[1]*q_goal[1] + q_goal[2]*q_goal[2] + q_goal[3]*q_goal[3]);
+        q_goal[0]=tp[3]; q_goal[1]=tp[4]; q_goal[2]=tp[5]; q_goal[3]=tp[6];
+        T n = rsqrt(q_goal[0]*q_goal[0]+q_goal[1]*q_goal[1]+q_goal[2]*q_goal[2]+q_goal[3]*q_goal[3]);
         q_goal[0]*=n; q_goal[1]*=n; q_goal[2]*=n; q_goal[3]*=n;
-        s_break = 0; stall = 0; prev_cost = (T)-1;
-        cost_sq = (T)0;
+        s_break=0; stall=0; prev_cost=(T)-1; cost_sq=(T)0;
     }
     SYNC();
 
-    // define lambda before any possible goto WRITE_OUT
+    // define before any possible jump
     T lambda = lambda_init;
 
     grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, s_x, d_robotModel, s_tmp);
@@ -760,20 +746,21 @@ __device__ void solve_lm_batched(
     SYNC(); if (s_break) goto WRITE_OUT;
 
     for (int it = 0; it < k_max; ++it) {
-        if (poll_stop(it)) { s_break = 1; SYNC(); break; }
+        if (stop_on_first && threadIdx.x == 0 && ((it & 7) == 0)) { if (atomicAdd(&g_stop, 0)) s_break = 1; }
+        SYNC(); if (s_break) break;
 
         if (tid < N) {
             const int i = tid;
             const T* Ci = &s_jointX[i*16];
             const T* Cn = &s_jointX[(N-1)*16];
-            T oi0 = Ci[12], oi1 = Ci[13], oi2 = Ci[14];
-            T on0 = Cn[12], on1 = Cn[13], on2 = Cn[14];
-            T zi0 = Ci[8],  zi1 = Ci[9],  zi2 = Ci[10];
-            T r0 = on0 - oi0, r1 = on1 - oi1, r2 = on2 - oi2;
-            J[0*N+i] = zi1*r2 - zi2*r1;
-            J[1*N+i] = zi2*r0 - zi0*r2;
-            J[2*N+i] = zi0*r1 - zi1*r0;
-            J[3*N+i] = zi0; J[4*N+i] = zi1; J[5*N+i] = zi2;
+            T oi0=Ci[12], oi1=Ci[13], oi2=Ci[14];
+            T on0=Cn[12], on1=Cn[13], on2=Cn[14];
+            T zi0=Ci[8],  zi1=Ci[9],  zi2=Ci[10];
+            T r0=on0-oi0, r1=on1-oi1, r2=on2-oi2;
+            J[0*N+i]= zi1*r2 - zi2*r1;
+            J[1*N+i]= zi2*r0 - zi0*r2;
+            J[2*N+i]= zi0*r1 - zi1*r0;
+            J[3*N+i]= zi0; J[4*N+i]= zi1; J[5*N+i]= zi2;
         }
         SYNC();
 
@@ -781,7 +768,7 @@ __device__ void solve_lm_batched(
             const T* Cn = &s_jointX[(N-1)*16];
             T qee[4]; mat_to_quat_colmajor3x3(Cn, qee);
             if (qee[0]*q_goal[0] + qee[1]*q_goal[1] + qee[2]*q_goal[2] + qee[3]*q_goal[3] < (T)0) {
-                qee[0] = -qee[0]; qee[1] = -qee[1]; qee[2] = -qee[2]; qee[3] = -qee[3];
+                qee[0]=-qee[0]; qee[1]=-qee[1]; qee[2]=-qee[2]; qee[3]=-qee[3];
             }
             T wv[3]; quat_err_rotvec(qee, q_goal, wv);
 
@@ -795,98 +782,106 @@ __device__ void solve_lm_batched(
             }
             for (int k=0;k<6;++k){ T s=row_s[k]; for (int i=0;i<N;++i) J[k*N+i]*=s; r_scaled[k]*=s; }
 
-            auto huber = [](T a, T c)->T{ return (fabs(a)<=c)?(T)1:(c/(fabs(a)+(T)1e-30)); };
+            // Huber weights (inline)
             const T cp = fmax((T)1e-4, (T)5e-3 * (T)fmax((T)1, (T)1e3*pos_err_m));
             const T co = (T)0.5;
-            for (int k=0;k<3;++k){ T w = sqrt(huber(r_scaled[k], cp)); if (w!=(T)1){ for(int i=0;i<N;++i) J[k*N+i]*=w; r_scaled[k]*=w; row_s[k]*=w; } }
-            for (int k=3;k<6;++k){ T w = sqrt(huber(r_scaled[k], co)); if (w!=(T)1){ for(int i=0;i<N;++i) J[k*N+i]*=w; r_scaled[k]*=w; row_s[k]*=w; } }
+            for (int k=0;k<3;++k){
+                const T a=fabs(r_scaled[k]); const T w=(a<=cp)?(T)1:(cp/(a+(T)1e-30));
+                const T s=sqrt(w); if (s!=(T)1){ for(int i=0;i<N;++i) J[k*N+i]*=s; r_scaled[k]*=s; row_s[k]*=s; }
+            }
+            for (int k=3;k<6;++k){
+                const T a=fabs(r_scaled[k]); const T w=(a<=co)?(T)1:(co/(a+(T)1e-30));
+                const T s=sqrt(w); if (s!=(T)1){ for(int i=0;i<N;++i) J[k*N+i]*=s; r_scaled[k]*=s; row_s[k]*=s; }
+            }
 
+            // orientation emphasis once position is small
             T w_ori = (pos_err_m > (T)1e-3) ? (T)0.5 :
                       (pos_err_m > (T)2e-4) ? (T)1.5 : (T)4.0;
             T s = sqrt(w_ori);
             for (int i=0;i<N;++i){ J[3*N+i]*=s; J[4*N+i]*=s; J[5*N+i]*=s; }
             r_scaled[3]*=s; r_scaled[4]*=s; r_scaled[5]*=s;
+
+            cost_sq = (T)0.5*(r_scaled[0]*r_scaled[0]+r_scaled[1]*r_scaled[1]+r_scaled[2]*r_scaled[2]
+                            + r_scaled[3]*r_scaled[3]+r_scaled[4]*r_scaled[4]+r_scaled[5]*r_scaled[5]);
         }
         SYNC();
 
+        // column scaling near limits + mild mid prior
         if (tid < N) {
             const int i = tid;
             const double2 L = c_joint_limits[i];
-            const T span = (T)(L.y - L.x);
-            const T mid  = (T)(0.5*(L.x + L.y));
-            const T mlo  = s_x[i] - (T)L.x, mhi = (T)L.y - s_x[i];
-            const T mar  = fmax((T)1e-6, fmin(mlo, mhi)) / span;
-            const T col  = fmax((T)0.2, (T)2.0*mar);
-            for (int k=0;k<6;++k) J[k*N+i] *= col;
-
+            const T span=(T)(L.y - L.x);
+            const T mid=(T)(0.5*(L.x + L.y));
+            const T mlo=s_x[i]-(T)L.x, mhi=(T)L.y - s_x[i];
+            const T mar=fmax((T)1e-6, fmin(mlo,mhi))/span;           // [0,0.5]
+            const T col=fmax((T)0.2, (T)2.0*mar);                    // [0.2,1]
+            for (int k=0;k<6;++k) J[k*N+i]*=col;
             const T near = (T)clamp_unit((T)1 - (T)2*mar);
-            diagA[i] = near * (T)1e-3;
-            gvec[i]  = diagA[i] * (mid - s_x[i]);
+            diagA[i]= near*(T)1e-3;
+            gvec[i] = diagA[i]*(mid - s_x[i]);
         }
         SYNC();
 
         build_solve_NE_warp<T, N>(J, r_scaled, lambda, dq, diagA, gvec, Ad_sh, rhsd_sh);
 
         if (tid == 0) {
-            const T R = trust_R(pos_err_m, ori_err_rad);
+            // trust region radius (inline of prior lambda)
+            T R;
+            if      (pos_err_m > (T)1e-2 || ori_err_rad > (T)0.6)  R=(T)0.35;
+            else if (pos_err_m > (T)1e-3 || ori_err_rad > (T)0.25) R=(T)0.20;
+            else if (pos_err_m > (T)2e-4 || ori_err_rad > (T)0.08) R=(T)0.08;
+            else                                                   R=(T)0.03;
+
             T nrm=(T)0; for (int i=0;i<N;++i) nrm += dq[i]*dq[i]; nrm = sqrt(nrm);
-            if (nrm > R) { T s = R / (nrm + (T)1e-18); for (int i=0;i<N;++i) dq[i]*=s; }
+            if (nrm > R) { T s = R/(nrm + (T)1e-18); for (int i=0;i<N;++i) dq[i]*=s; }
 
-            const T clip =
-                (pos_err_m > (T)1e-2) ? (T)0.30 :
-                (pos_err_m > (T)1e-3) ? (T)0.15 :
-                (pos_err_m > (T)2e-4) ? (T)0.08 : (T)0.03;
-
-            for (int i=0;i<N;++i) {
-                const double2 lim = c_joint_limits[i];
-                dq[i] = fmin(fmax(dq[i], -clip), clip);
-                if ((s_x[i]<= (T)lim.x + (T)1e-4 && dq[i] < (T)0) ||
-                    (s_x[i]>= (T)lim.y - (T)1e-4 && dq[i] > (T)0)) dq[i] = (T)0;
-                x_old[i] = s_x[i];
+            const T clip = (pos_err_m > (T)1e-2)?(T)0.30: (pos_err_m > (T)1e-3)?(T)0.15: (pos_err_m > (T)2e-4)?(T)0.08:(T)0.03;
+            for (int i=0;i<N;++i){
+                const double2 lim=c_joint_limits[i];
+                dq[i]=fmin(fmax(dq[i],-clip),clip);
+                if ((s_x[i] <= (T)lim.x + (T)1e-4 && dq[i] < (T)0) ||
+                    (s_x[i] >= (T)lim.y - (T)1e-4 && dq[i] > (T)0)) dq[i]=(T)0;
+                x_old[i]=s_x[i];
             }
         }
         SYNC();
 
         __shared__ int accepted; if (tid == 0) accepted = 0; SYNC();
-        T best_cost = (T)1e38, best_pos = pos_err_m, best_ori = ori_err_rad, best_a = (T)0;
+        T best_cost=(T)1e38, best_pos=pos_err_m, best_ori=ori_err_rad, best_a=(T)0;
 
-        for (int tries = 0; tries < 4; ++tries) {
+        for (int tries=0; tries<4; ++tries) {
             const T a = (tries==0)?(T)1.0 : (T)0.5 * (T)pow((T)0.5, tries-1);
             if (tid == 0) {
-                for (int i=0;i<N;++i) {
-                    const double2 lim = c_joint_limits[i];
-                    const T xi = x_old[i] + a*dq[i];
-                    s_x[i] = fmin(fmax(xi, (T)lim.x), (T)lim.y);
+                for (int i=0;i<N;++i){
+                    const double2 lim=c_joint_limits[i];
+                    const T xi= x_old[i] + a*dq[i];
+                    s_x[i] = fmin(fmax(xi,(T)lim.x),(T)lim.y);
                 }
                 grid::update_singleJointX(s_jointX, s_XmatsHom, s_x, N-1);
                 const T pos_new = compute_pos_err_colmajor<T>(s_jointX, tp);
                 const T ori_new = compute_ori_err_colmajor<T>(s_jointX, &tp[3]);
 
-                const T* Cn = &s_jointX[(N-1)*16];
+                const T* Cn=&s_jointX[(N-1)*16];
                 T qee[4]; mat_to_quat_colmajor3x3(Cn, qee);
                 if (qee[0]*q_goal[0] + qee[1]*q_goal[1] + qee[2]*q_goal[2] + qee[3]*q_goal[3] < (T)0) {
-                    qee[0] = -qee[0]; qee[1] = -qee[1]; qee[2] = -qee[2]; qee[3] = -qee[3];
+                    qee[0]=-qee[0]; qee[1]=-qee[1]; qee[2]=-qee[2]; qee[3]=-qee[3];
                 }
                 T wv[3]; quat_err_rotvec(qee, q_goal, wv);
                 T dx = tp[0]-Cn[12], dy = tp[1]-Cn[13], dz = tp[2]-Cn[14];
 
                 T rr[6] = { dx,dy,dz, wv[0],wv[1],wv[2] };
-                for (int k=0;k<6;++k) rr[k] = rr[k]*row_s[k];
+                for (int k=0;k<6;++k) rr[k] *= row_s[k];
 
-                auto hub = [](T a, T c)->T{ return (fabs(a)<=c)?(T)1:(c/(fabs(a)+(T)1e-30)); };
                 const T cp2 = fmax((T)1e-4, (T)5e-3 * (T)fmax((T)1, (T)1e3*pos_new));
                 const T co2 = (T)0.5;
-                for (int k=0;k<3;++k) rr[k] *= sqrt(hub(rr[k], cp2));
-                for (int k=3;k<6;++k) rr[k] *= sqrt(hub(rr[k], co2));
+                for (int k=0;k<3;++k){ const T a2=fabs(rr[k]); const T w=(a2<=cp2)?(T)1:(cp2/(a2+(T)1e-30)); rr[k]*=sqrt(w); }
+                for (int k=3;k<6;++k){ const T a2=fabs(rr[k]); const T w=(a2<=co2)?(T)1:(co2/(a2+(T)1e-30)); rr[k]*=sqrt(w); }
 
-                T trial = (T)0.5*(rr[0]*rr[0]+rr[1]*rr[1]+rr[2]*rr[2]+rr[3]*rr[3]+rr[4]*rr[4]+rr[5]*rr[5]);
+                T trial=(T)0.5*(rr[0]*rr[0]+rr[1]*rr[1]+rr[2]*rr[2]+rr[3]*rr[3]+rr[4]*rr[4]+rr[5]*rr[5]);
 
                 const bool nonincreasing_pos = (pos_new <= pos_err_m + (T)1e-12);
                 const bool improves_cost     = (trial + (T)1e-20 < best_cost);
-
-                if (improves_cost && nonincreasing_pos) {
-                    best_cost = trial; best_pos = pos_new; best_ori = ori_new; best_a = a; accepted = 1;
-                }
+                if (improves_cost && nonincreasing_pos) { best_cost=trial; best_pos=pos_new; best_ori=ori_new; best_a=a; accepted=1; }
             }
             SYNC();
             if (accepted) break;
@@ -894,32 +889,30 @@ __device__ void solve_lm_batched(
 
         if (tid == 0) {
             if (accepted) {
-                T ared = cost_sq - best_cost;
-                T pred = (T)0;
-                for (int i=0;i<N;++i) {
-                    const T ad = best_a * dq[i];
-                    pred += (T)0.5 * (lambda * diagA[i] * ad * ad + ad * gvec[i]);
-                }
+                T ared = cost_sq - best_cost, pred=(T)0;
+                for (int i=0;i<N;++i){ const T ad=best_a*dq[i]; pred += (T)0.5 * (lambda*diagA[i]*ad*ad + ad*gvec[i]); }
                 pred = fmax((T)1e-20, pred);
                 const T rho = ared / pred;
 
-                if      (rho > (T)0.90) lambda = fmax(lambda*(T)0.3, lambda_min);
-                else if (rho > (T)0.50) lambda = fmax(lambda*(T)0.5, lambda_min);
-                else if (rho < (T)0.25) lambda = fmin(lambda*(T)3.0, lambda_max);
+                if      (rho > (T)0.90) lambda=fmax(lambda*(T)0.3, lambda_min);
+                else if (rho > (T)0.50) lambda=fmax(lambda*(T)0.5, lambda_min);
+                else if (rho < (T)0.25) lambda=fmin(lambda*(T)3.0, lambda_max);
 
-                cost_sq   = best_cost;
-                pos_err_m = best_pos;
-                ori_err_rad = best_ori;
+                cost_sq=best_cost; pos_err_m=best_pos; ori_err_rad=best_ori;
 
-                if (pos_err_m + (T)1e-20 < best_pos_seen) {
-                    best_pos_seen = pos_err_m;
-                    for (int i=0;i<N;++i) best_x_pos[i] = s_x[i];
-                }
-                if (prev_cost > (T)0 && (prev_cost - cost_sq)/prev_cost < (T)1e-9) ++stall; else stall = 0;
-                prev_cost = cost_sq;
+                if (pos_err_m + (T)1e-20 < best_pos_seen) { best_pos_seen=pos_err_m; for (int i=0;i<N;++i) best_x_pos[i]=s_x[i]; }
+                if (prev_cost > (T)0 && (prev_cost - cost_sq)/prev_cost < (T)1e-9) ++stall; else stall=0;
+                prev_cost=cost_sq;
             } else {
+                // dogleg then 1-D linesearch
+                T R;
+                if      (pos_err_m > (T)1e-2 || ori_err_rad > (T)0.6)  R=(T)0.35;
+                else if (pos_err_m > (T)1e-3 || ori_err_rad > (T)0.25) R=(T)0.20;
+                else if (pos_err_m > (T)2e-4 || ori_err_rad > (T)0.08) R=(T)0.08;
+                else                                                   R=(T)0.03;
+
                 bool took = try_dogleg_step<T>(s_x, x_old, s_jointX, s_XmatsHom,
-                                               row_s, tp, q_goal, trust_R(pos_err_m, ori_err_rad),
+                                               row_s, tp, q_goal, R,
                                                dq, gvec, diagA,
                                                cost_sq, pos_err_m, ori_err_rad,
                                                lambda, lambda_min, lambda_max,
@@ -927,8 +920,7 @@ __device__ void solve_lm_batched(
                 if (!took) {
                     took = try_coord_linesearch<T>(s_x, x_old, s_jointX, s_XmatsHom,
                                                    row_s, tp, q_goal, gvec,
-                                                   trust_R(pos_err_m, ori_err_rad),
-                                                   pos_err_m,
+                                                   R, pos_err_m,
                                                    cost_sq, pos_err_m, ori_err_rad,
                                                    lambda, lambda_min, lambda_max,
                                                    c_joint_limits);
@@ -973,7 +965,6 @@ WRITE_OUT:
 
     #undef SYNC
 }
-
 
 #ifndef FULL_WARP_MASK
 #define FULL_WARP_MASK 0xFFFFFFFFu
