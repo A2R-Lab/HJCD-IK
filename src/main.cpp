@@ -16,7 +16,7 @@
 int main() {
     std::map<std::string, std::vector<float>> yaml_data;
 
-    std::vector<int> num_seeds = { 2000 };
+    std::vector<int> num_seeds = { 1 };
 
     auto* d_robotModel = grid::init_robotModel<float>();
     init_joint_limits_constants();
@@ -34,7 +34,7 @@ int main() {
 
         for (auto& n_seed : num_seeds) {
             std::cout << "Running goal " << i << ", batch size " << n_seed << std::endl;
-            for (int j = 0; j < 3; ++j) {
+            for (int j = 0; j < 5; ++j) {
                 generate_ik_solutions<float>(target_pose, d_robotModel, n_seed);
             }
 
