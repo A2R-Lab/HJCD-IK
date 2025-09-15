@@ -1,6 +1,10 @@
 #include "include/hjcd_kernel.h"
 #include "grid.cuh"
 
+// Test .cuh files (uncomment)
+//#include "include/test_cuh/panda_grid.cuh"
+//#include "include/test_cuh/fetch_grid.cuh"
+
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
 
