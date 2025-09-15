@@ -21,6 +21,8 @@ cd external/GRiD
 python generateGRiD.py /path/to/urdf
 cd ../..
 ```
+### Test .cuh files
+test.cuh files are provided for Franka Panda and Fetch Arm if you would like to build and run solver. Uncomment the includes in hjcd_kernel.cu to run.
 
 ## Build
 ### Windows
