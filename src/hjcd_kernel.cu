@@ -1,11 +1,8 @@
 #include "include/hjcd_kernel.h"
+#include "grid.cuh"
 
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
-
-//#include <GRiD/panda_grid.cuh>
-//#include <GRiD/grid.cuh>
-#include <test_cuh/panda_grid.cuh>
 
 #include <thrust/device_vector.h>
 #include <thrust/sort.h>
@@ -44,7 +41,39 @@ extern "C" int grid_num_joints() { return N; }
 
 __constant__ double2 c_joint_limits[N];
 
-// HELPER FUNCTIONS
+// GRiD HELPER FUNCTIONS
+namespace grid {
+  template<typename T>
+  T* init_joint_limits();
+}
+
+void init_joint_limits_from_grid()
+{
+    double* d_limits = grid::init_joint_limits<double>();
+
+    std::vector<double> h_limits(2 * N);
+    CUDA_OK(cudaMemcpy(h_limits.data(), d_limits,
+                       sizeof(double) * 2 * N, cudaMemcpyDeviceToHost));
+    CUDA_OK(cudaFree(d_limits));
+
+    std::vector<double2> packed(N);
+    for (int j = 0; j < N; ++j) {
+        double lo = h_limits[j];
+        double hi = h_limits[j + N];
+
+        if (!std::isfinite(lo)) lo = -PI;
+        if (!std::isfinite(hi)) hi =  PI;
+        if (lo > hi) std::swap(lo, hi);
+        if (lo == hi) { lo -= 1e-9; hi += 1e-9; }
+
+        packed[j] = make_double2(lo, hi);
+    }
+
+    CUDA_OK(cudaMemcpyToSymbol(c_joint_limits, packed.data(),
+                               sizeof(double2) * N));
+}
+
+// RNG HELPER FUNCTIONS
 __device__ __forceinline__ uint32_t wanghash(uint32_t a) {
     a = (a ^ 61u) ^ (a >> 16); a *= 9u; a ^= (a >> 4);
     a *= 0x27d4eb2d; a ^= (a >> 15); return a;
@@ -80,6 +109,7 @@ __device__ __forceinline__ uint32_t make_seed(
     return wanghash(base ^ t);
 }
 
+// MATH HELPERS
 template<typename T>
 __device__ __forceinline__ T clamp_dot(T dot) {
     if (dot > T(1.0)) return T(1.0);
@@ -232,7 +262,6 @@ __device__ T solve_pos(const T* s_jointXforms, const T* pos, const T* target_pos
     };
     normalize_vec3(r);
 
-    // CALCULATE VECTORS
     T u[3] = {
         pos[0] - joint_pos[0],
         pos[1] - joint_pos[1],
@@ -256,7 +285,6 @@ __device__ T solve_pos(const T* s_jointXforms, const T* pos, const T* target_pos
     normalize_vec3(uproj);
     normalize_vec3(vproj);
 
-    // CALCULATE THETA
     T dotp = uproj[0] * vproj[0] + uproj[1] * vproj[1] + uproj[2] * vproj[2];
     dotp = clamp_dot(dotp);
     T theta = acos(dotp);
@@ -451,6 +479,7 @@ __device__ T compute_ori_err_colmajor(const T* C, const T* q_goal) {
     return (T)2 * acos(d);
 }
 
+// JACOBIAN TUNER
 template<typename T, int M>
 __device__ bool chol_solve(T A[M * M], T b[M]) {
     for (int k = 0; k < M; ++k) {
@@ -586,6 +615,8 @@ __device__ bool try_dogleg_step(
     T& lambda, const T lambda_min, const T lambda_max,
     const double2* limits)
 {
+    // Gradient squared sum
+    // Weighted gradient H
     T gtg = (T)0, gAg = (T)0;
 #pragma unroll
     for (int i = 0; i < N; ++i) { T gi = gvec[i]; gtg += gi * gi; gAg += diagA[i] * gi * gi; }
@@ -595,10 +626,12 @@ __device__ bool try_dogleg_step(
     T gnorm = sqrt(gtg);
     if (alpha * gnorm > R) alpha = R / (gnorm + (T)1e-18);
 
+    // Gradient
     T p_sd[N];
 #pragma unroll
     for (int i = 0; i < N; ++i) p_sd[i] = -alpha * gvec[i];
 
+    // Trial step (GN)
     T p_try[N], p_gn_norm = safe_normN(dq_gn, N);
     if (p_gn_norm <= R) {
 #pragma unroll
@@ -792,8 +825,8 @@ __device__ void solve_lm_batched(
                 const T s=sqrt(w); if (s!=(T)1){ for(int i=0;i<N;++i) J[k*N+i]*=s; r_scaled[k]*=s; row_s[k]*=s; }
             }
 
-            T w_ori = (pos_err_m > (T)1e-3) ? (T)0.5 :
-                      (pos_err_m > (T)2e-4) ? (T)1.5 : (T)4.0;
+            T w_ori = (pos_err_m > (T)1e-3) ? (T)0.6 :
+                      (pos_err_m > (T)2e-4) ? (T)2.2 : (T)5.5;
             T s = sqrt(w_ori);
             for (int i=0;i<N;++i){ J[3*N+i]*=s; J[4*N+i]*=s; J[5*N+i]*=s; }
             r_scaled[3]*=s; r_scaled[4]*=s; r_scaled[5]*=s;
@@ -809,8 +842,8 @@ __device__ void solve_lm_batched(
             const T span=(T)(L.y - L.x);
             const T mid=(T)(0.5*(L.x + L.y));
             const T mlo=s_x[i]-(T)L.x, mhi=(T)L.y - s_x[i];
-            const T mar=fmax((T)1e-6, fmin(mlo,mhi))/span;           // [0,0.5]
-            const T col=fmax((T)0.2, (T)2.0*mar);                    // [0.2,1]
+            const T mar=fmax((T)1e-6, fmin(mlo,mhi))/span;   
+            const T col=fmax((T)0.2, (T)2.0*mar);               
             for (int k=0;k<6;++k) J[k*N+i]*=col;
             const T near = (T)clamp_unit((T)1 - (T)2*mar);
             diagA[i]= near*(T)1e-3;
@@ -822,10 +855,10 @@ __device__ void solve_lm_batched(
 
         if (tid == 0) {
             T R;
-            if      (pos_err_m > (T)1e-2 || ori_err_rad > (T)0.6)  R=(T)0.35;
-            else if (pos_err_m > (T)1e-3 || ori_err_rad > (T)0.25) R=(T)0.20;
-            else if (pos_err_m > (T)2e-4 || ori_err_rad > (T)0.08) R=(T)0.08;
-            else                                                   R=(T)0.03;
+            if      (pos_err_m > (T)1e-2 || ori_err_rad > (T)0.6)  R=(T)0.38;
+            else if (pos_err_m > (T)1e-3 || ori_err_rad > (T)0.25) R=(T)0.22;
+            else if (pos_err_m > (T)2e-4 || ori_err_rad > (T)0.08) R=(T)0.12;
+            else                                                   R=(T)0.05;
 
             T nrm=(T)0; for (int i=0;i<N;++i) nrm += dq[i]*dq[i]; nrm = sqrt(nrm);
             if (nrm > R) { T s = R/(nrm + (T)1e-18); for (int i=0;i<N;++i) dq[i]*=s; }
@@ -901,10 +934,10 @@ __device__ void solve_lm_batched(
             } else {
                 // dogleg then 1-D linesearch
                 T R;
-                if      (pos_err_m > (T)1e-2 || ori_err_rad > (T)0.6)  R=(T)0.35;
-                else if (pos_err_m > (T)1e-3 || ori_err_rad > (T)0.25) R=(T)0.20;
-                else if (pos_err_m > (T)2e-4 || ori_err_rad > (T)0.08) R=(T)0.08;
-                else                                                   R=(T)0.03;
+                if      (pos_err_m > (T)1e-2 || ori_err_rad > (T)0.6)  R=(T)0.45;
+                else if (pos_err_m > (T)1e-3 || ori_err_rad > (T)0.25) R=(T)0.28;
+                else if (pos_err_m > (T)2e-4 || ori_err_rad > (T)0.08) R=(T)0.10;
+                else                                                   R=(T)0.04;
 
                 bool took = try_dogleg_step<T>(s_x, x_old, s_jointX, s_XmatsHom,
                                                row_s, tp, q_goal, R,
@@ -922,7 +955,26 @@ __device__ void solve_lm_batched(
                 }
                 if (!took) ++stall;
             }
-            if (stall >= stall_lim) s_break = 1;
+            if (stall >= stall_lim) {
+                if (B <= 100) {
+                    for (int i=0;i<N;++i){
+                        const double2 L=c_joint_limits[i];
+                        const T span=(T)(L.y-L.x);
+                        uint32_t u = 0x9E3779B9u ^ (uint32_t)(i*0xC2B2AE35u);
+                        T sgn = (T)((int)(u&1)?1:-1);
+                        T kick = (T)0.015 * span * sgn;
+                        T xi = s_x[i] + kick;
+                        s_x[i] = fmin(fmax(xi,(T)L.x),(T)L.y);
+                    }
+                    grid::update_singleJointX(s_jointX,s_XmatsHom,s_x,N-1);
+                    pos_err_m   = compute_pos_err_colmajor<T>(s_jointX,tp);
+                    ori_err_rad = compute_ori_err_colmajor<T>(s_jointX,&tp[3]);
+                    stall = 0;
+                } else {
+                    s_break = 1;
+                }
+            }
+
             if (pos_err_m < eps_pos && ori_err_rad < eps_ori) { atomicCAS(&g_stop, 0, 1); s_break = 1; }
         }
         SYNC();
@@ -975,6 +1027,7 @@ __device__ __forceinline__ void warp_min_reduce_pair(T& e, int& j) {
     }
 }
 
+// COARSE SEARCH
 template<typename T>
 __global__ void globeik_kernel(
     T* __restrict__ x,
@@ -999,7 +1052,7 @@ __global__ void globeik_kernel(
 
     const T  epsilon = (T)20e-3;
     const T  nu = (T)(20.0 * PI / 180.0);
-    const int k_max = 30;
+    const int k_max = 20;
 
     __shared__ int  s_stop;
     __shared__ int  s_allow_ori;
@@ -1317,100 +1370,101 @@ __global__ void forward_kinematics_kernel(
     }
 }
 
+// SAMPLE CONFIG
+__device__ __constant__ int c_halton_bases[32] =
+    {2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,
+     59,61,67,71,73,79,83,89,97,101,103,107,109,113,127,131};
 
 template <typename T>
-__global__ void sample_q_uniform_kernel(T* __restrict__ q, int B, uint64_t seed)
-{
+__device__ inline T radical_inverse(uint32_t n, int b) {
+    T inv = (T)1.0 / (T)b;
+    T f   = inv;
+    T x   = (T)0.0;
+    while (n) {
+        uint32_t d = n % (uint32_t)b;
+        x += (T)d * f;
+        n /= (uint32_t)b;
+        f *= inv;
+    }
+    return x; 
+}
+
+template <typename T>
+__global__ void sample_q_halton_kernel(T* __restrict__ d_q,
+                                       int num_configs,
+                                       uint64_t seed,
+                                       int offset = 1,
+                                       int leap   = 1) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= B) return;
+    if (i >= num_configs) return;
 
-    uint32_t st = (uint32_t)(seed ^ (seed >> 32) ^ 0x9E3779B9u) ^ (uint32_t)(i * 0x85EBCA6Bu + 0xC2B2AE3Du);
+    uint32_t n = (uint32_t)(offset + i * leap);
 
-#pragma unroll
+    uint32_t hseed = (uint32_t)(seed ^ 0x9E3779B97f4a7c15ull);
+
+    #pragma unroll
     for (int j = 0; j < N; ++j) {
-        const double2 L = c_joint_limits[j];
-        float r = u01(st);
-        q[i * N + j] = (T)(L.x + r * (L.y - L.x));
+        const int base = c_halton_bases[j];
+        T u = radical_inverse<T>(n, base); 
+
+        uint32_t sh = wanghash(hseed + (uint32_t)j * 0x9E3779B9u);
+        T shift = (T)((sh & 0xFFFFFFu) / (double)0x1000000u); 
+        u = u + shift;
+        u = u - floor(u);
+
+        double2 lim = c_joint_limits[j];
+        T lo = (T)lim.x;
+        T hi = (T)lim.y;
+        d_q[(size_t)i * N + j] = lo + u * (hi - lo);
     }
 }
 
 template<typename T>
-T* sample_ik_config(
-    const grid::robotModel<T>* d_robotModel,
-    int num_configs,
-    uint64_t seed)
-{
+T* sample_ik_config_halton(const grid::robotModel<T>* d_robotModel,
+                           int num_configs,
+                           uint64_t seed,
+                           int offset = 1,
+                           int leap   = 1) {
     if (num_configs <= 0 || !d_robotModel) return nullptr;
 
     T* d_q = nullptr;
-    T* d_pose7 = nullptr;
     cudaMalloc(&d_q, sizeof(T) * (size_t)num_configs * N);
-    cudaMalloc(&d_pose7, sizeof(T) * (size_t)num_configs * 7);
 
-    {
-        const int tpb = 256;
-        const int gpb = (num_configs + tpb - 1) / tpb;
-        sample_q_uniform_kernel<T> << <gpb, tpb >> > (d_q, num_configs, seed);
-        cudaGetLastError();
-    }
+    const int tpb = 256;
+    const int gpb = (num_configs + tpb - 1) / tpb;
 
-    const int threads = 32;
-    const int blocks = num_configs;
-
-    forward_kinematics_kernel<T> << <blocks, threads >> > (
-        d_q,
-        d_pose7,
-        nullptr,
-        d_robotModel,
-        num_configs
-    );
-
+    sample_q_halton_kernel<T><<<gpb, tpb>>>(d_q, num_configs, seed, offset, leap);
     cudaGetLastError();
     cudaDeviceSynchronize();
 
-    cudaFree(d_pose7);
     return d_q;
 }
 
 template<typename T>
-T* sample_ik_config(const grid::robotModel<T>* d_robotModel, int num_configs) {
-    return sample_ik_config<T>(d_robotModel, num_configs, 0ull);
-}
-
-template<typename T>
-std::vector<std::array<T, 7>>
-sample_random_target_poses(
-    const grid::robotModel<T>* d_robotModel,
-    int num_configs,
-    uint64_t seed)
-{
-    std::vector<std::array<T, 7>> out;
+std::vector<std::array<T,7>>
+sample_random_target_poses(const grid::robotModel<T>* d_robotModel,
+                           int num_configs, uint64_t seed) {
+    std::vector<std::array<T,7>> out;
     if (num_configs <= 0 || !d_robotModel) return out;
 
-    T* d_q = sample_ik_config<T>(d_robotModel, num_configs, seed);
+    T* d_q = sample_ik_config_halton<T>(d_robotModel, num_configs, seed, /*offset=*/1, /*leap=*/1);
     if (!d_q) return out;
 
     T* d_pose7 = nullptr;
     cudaMalloc(&d_pose7, sizeof(T) * 7 * (size_t)num_configs);
 
     const int threads = 32;
-    const int blocks = num_configs;
+    const int blocks  = num_configs;
 
-    forward_kinematics_kernel<T> << <blocks, threads >> > (
-        d_q,
-        d_pose7,
-        nullptr,
-        d_robotModel,
-        num_configs
+    forward_kinematics_kernel<T><<<blocks, threads>>>(
+        d_q, d_pose7, nullptr, d_robotModel, num_configs
     );
-
     cudaGetLastError();
     cudaDeviceSynchronize();
 
-
     std::vector<T> h_pose7((size_t)num_configs * 7);
     cudaMemcpy(h_pose7.data(), d_pose7,
-        sizeof(T) * 7 * (size_t)num_configs, cudaMemcpyDeviceToHost);
+               sizeof(T) * 7 * (size_t)num_configs, cudaMemcpyDeviceToHost);
 
     out.resize(num_configs);
     for (int i = 0; i < num_configs; ++i)
@@ -1420,25 +1474,6 @@ sample_random_target_poses(
     cudaFree(d_pose7);
     cudaFree(d_q);
     return out;
-}
-
-template<typename T>
-std::vector<std::array<T, 7>>
-sample_random_target_poses(const grid::robotModel<T>* d_robotModel, int num_configs) {
-    return sample_random_target_poses<T>(d_robotModel, num_configs, /*seed=*/0ull);
-}
-
-void init_joint_limits_constants() {
-    double2 joint_limits[N] = {
-        { -2.8973,  2.8973 },
-        { -1.7628,  1.7628 },
-        { -2.8973,  2.8973 },
-        { -3.0718,  0.0698 },
-        { -2.8973,  2.8973 },
-        { -0.0175,  3.7525 },
-        { -2.8973,  2.8973 }
-    };
-    cudaMemcpyToSymbol(c_joint_limits, joint_limits, sizeof(joint_limits));
 }
 
 template<typename T>
@@ -1539,22 +1574,36 @@ inline RefineSchedule schedule_for_B(int B) {
 
     if (B <= 8) {           
         s.repeats   = 24;
-        s.sigma_frac= 0.35;
+        s.sigma_frac= 0.5;
+        s.top_frac = 1.0;
     } else if (B <= 32) {
         s.repeats   = 22;
-        s.sigma_frac= 0.30;
+        s.sigma_frac= 0.5;
+        s.top_frac = 0.2;
+    } else if (B <= 64) {
+        s.repeats = 22;
+        s.sigma_frac = 0.5;
+        s.top_frac = 0.2;
     } else if (B <= 128) {
-        s.repeats   = 20;
-        s.sigma_frac= 0.25;
+        s.repeats   = 18;
+        s.sigma_frac= 0.35;
+        s.top_frac = 0.03;
     } else if (B <= 512) {
-        s.repeats   = 16;
-        s.sigma_frac= 0.25;
-    } else if (B <= 2000) {       // large
-        s.repeats   = 10;
+        s.repeats   = 18;
+        s.sigma_frac= 0.35;
+        s.top_frac = 0.006;
+    } else if (B <= 1024) {
+        s.repeats   = 18;
+        s.sigma_frac= 0.35;
+        s.top_frac = 0.008;
+    } else if (B <= 2000) {
+        s.repeats   = 14;
+        s.sigma_frac= 0.30;
+        s.top_frac = 0.008;
+    } else {
+        s.repeats   = 12;
         s.sigma_frac= 0.20;
-    } else {                      // very large
-        s.repeats   = 10;         // “10 or smaller” for huge batches
-        s.sigma_frac= 0.20;
+        s.top_frac = 0.004;
     }
     return s;
 }
@@ -1563,7 +1612,8 @@ template<typename T>
 Result<T> generate_ik_solutions(
     T* target_pose,
     const grid::robotModel<T>* d_robotModel,
-    int b_size
+    int b_size,
+    int num_solutions
 ) {
     using std::chrono::high_resolution_clock;
 
@@ -1572,35 +1622,39 @@ Result<T> generate_ik_solutions(
 
     Result<T> result{};
     if (!d_robotModel || !target_pose || b_size <= 0) {
-        result.pos_errors = new T[1]{ std::numeric_limits<T>::infinity() };
-        result.ori_errors = new T[1]{ std::numeric_limits<T>::infinity() };
-        result.pose = new T[7]{};
-        result.joint_config = new T[N]{};
+        const int S = 1;
+        result.pos_errors   = new T[S]{ std::numeric_limits<T>::infinity() };
+        result.ori_errors   = new T[S]{ std::numeric_limits<T>::infinity() };
+        result.pose         = new T[7 * S]{};
+        result.joint_config = new T[N * S]{};
         result.elapsed_time = 0.0;
+        #ifdef HAS_RESULT_COUNT_FIELD
+        result.count = S;
+        #endif
         return result;
     }
 
     const int    B = b_size;
-    const size_t num_elems_x = (size_t)B * N;
+    const size_t num_elems_x  = (size_t)B * N;
     const size_t num_elems_p7 = (size_t)B * 7;
 
-    T* d_x = nullptr, * d_pose = nullptr, * d_pos_errors = nullptr, * d_ori_errors = nullptr;
-    T* d_target7 = nullptr, * d_targetsB = nullptr;
+    T *d_x=nullptr, *d_pose=nullptr, *d_pos_errors=nullptr, *d_ori_errors=nullptr;
+    T *d_target7=nullptr, *d_targetsB=nullptr, *d_scores=nullptr;
 
-    cudaMalloc(&d_x, sizeof(T) * num_elems_x);
-    cudaMalloc(&d_pose, sizeof(T) * num_elems_p7);
-    cudaMalloc(&d_pos_errors, sizeof(T) * B);
-    cudaMalloc(&d_ori_errors, sizeof(T) * B);
-    cudaMalloc(&d_target7, sizeof(T) * 7);
-    cudaMemcpy(d_target7, target_pose, sizeof(T) * 7, cudaMemcpyHostToDevice);
+    CUDA_OK(cudaMalloc(&d_x,           sizeof(T) * num_elems_x));
+    CUDA_OK(cudaMalloc(&d_pose,        sizeof(T) * num_elems_p7));
+    CUDA_OK(cudaMalloc(&d_pos_errors,  sizeof(T) * B));
+    CUDA_OK(cudaMalloc(&d_ori_errors,  sizeof(T) * B));
+    CUDA_OK(cudaMalloc(&d_target7,     sizeof(T) * 7));
+    CUDA_OK(cudaMemcpy(d_target7, target_pose, sizeof(T) * 7, cudaMemcpyHostToDevice));
 
-    cudaMalloc(&d_targetsB, sizeof(T) * num_elems_p7);
+    CUDA_OK(cudaMalloc(&d_targetsB, sizeof(T) * num_elems_p7));
     {
         std::vector<T> h_targetsB(num_elems_p7);
         for (int i = 0; i < B; ++i)
             for (int k = 0; k < 7; ++k)
                 h_targetsB[(size_t)i * 7 + k] = target_pose[k];
-        cudaMemcpy(d_targetsB, h_targetsB.data(), sizeof(T) * num_elems_p7, cudaMemcpyHostToDevice);
+        CUDA_OK(cudaMemcpy(d_targetsB, h_targetsB.data(), sizeof(T) * num_elems_p7, cudaMemcpyHostToDevice));
     }
 
     {
@@ -1609,37 +1663,38 @@ Result<T> generate_ik_solutions(
         thrust::fill(o, o + B, std::numeric_limits<T>::infinity());
     }
 
-    {
-        int zero = 0, neg1 = -1;
-        cudaMemcpyToSymbol(g_stop, &zero, sizeof(int));
-        cudaMemcpyToSymbol(g_winner, &neg1, sizeof(int));
-        cudaGetLastError();
+    { int zero = 0, neg1 = -1;
+      CUDA_OK(cudaMemcpyToSymbol(g_stop,   &zero, sizeof(int)));
+      CUDA_OK(cudaMemcpyToSymbol(g_winner, &neg1, sizeof(int)));
+      cudaGetLastError();
     }
 
+    // COARSE SEARCH
     const int TPB_coarse = 32 * 2 * N;
-    globeik_kernel<T> << <B, TPB_coarse >> > (d_x, d_pose, d_targetsB, d_pos_errors, d_ori_errors, d_robotModel);
+    globeik_kernel<T><<<B, TPB_coarse>>>(d_x, d_pose, d_targetsB, d_pos_errors, d_ori_errors, d_robotModel);
     cudaGetLastError();
-    cudaDeviceSynchronize();
+    CUDA_OK(cudaDeviceSynchronize());
 
-    { int zero = 0; cudaMemcpyToSymbol(g_stop, &zero, sizeof(int)); }
+    { int zero = 0; CUDA_OK(cudaMemcpyToSymbol(g_stop, &zero, sizeof(int))); }
 
     std::vector<T> h_pos_mm_coarse(B), h_ori_rad_coarse(B);
     std::vector<T> h_pose_coarse(num_elems_p7), h_x_coarse(num_elems_x);
-    cudaMemcpy(h_pos_mm_coarse.data(), d_pos_errors, sizeof(T) * B, cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_ori_rad_coarse.data(), d_ori_errors, sizeof(T) * B, cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_pose_coarse.data(), d_pose, sizeof(T) * num_elems_p7, cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_x_coarse.data(), d_x, sizeof(T) * num_elems_x, cudaMemcpyDeviceToHost);
+    CUDA_OK(cudaMemcpy(h_pos_mm_coarse.data(), d_pos_errors, sizeof(T) * B,            cudaMemcpyDeviceToHost));
+    CUDA_OK(cudaMemcpy(h_ori_rad_coarse.data(), d_ori_errors, sizeof(T) * B,            cudaMemcpyDeviceToHost));
+    CUDA_OK(cudaMemcpy(h_pose_coarse.data(),    d_pose,       sizeof(T) * num_elems_p7, cudaMemcpyDeviceToHost));
+    CUDA_OK(cudaMemcpy(h_x_coarse.data(),       d_x,          sizeof(T) * num_elems_x,  cudaMemcpyDeviceToHost));
 
-    const auto sch = schedule_for_B(B);
-    const float  top_frac   = 0.005f;
-    const int    repeats    = sch.repeats;
-    const double sigma_frac = sch.sigma_frac;
-    const bool   keep_one   = true;
+    // REFINEMENT SELECTION
+    const auto  sch        = schedule_for_B(B);
+    const float top_frac   = sch.top_frac;
+    const int   repeats    = sch.repeats;
+    const double sigma_frac= sch.sigma_frac;
+    const bool  keep_one   = true;
 
-    T* d_scores = nullptr; cudaMalloc(&d_scores, sizeof(T) * B);
+    CUDA_OK(cudaMalloc(&d_scores, sizeof(T) * B));
     {
         const int tpb = 256, gpb = (B + tpb - 1) / tpb;
-        build_scores_kernel<T> << <gpb, tpb >> > (d_pos_errors, d_ori_errors, d_scores, B);
+        build_scores_kernel<T><<<gpb, tpb>>>(d_pos_errors, d_ori_errors, d_scores, B);
         cudaGetLastError();
     }
 
@@ -1647,105 +1702,153 @@ Result<T> generate_ik_solutions(
     thrust::sequence(d_idx.begin(), d_idx.end(), 0);
     {
         thrust::device_ptr<T> s_ptr(d_scores);
-        thrust::sort_by_key(s_ptr, s_ptr + B, d_idx.begin());
+        thrust::sort_by_key(s_ptr, s_ptr + B, d_idx.begin());  // ascending score
     }
 
     const int K = std::max(1, (int)std::ceil(top_frac * (float)B));
     thrust::device_vector<int> d_top_idx(K);
     thrust::copy(d_idx.begin(), d_idx.begin() + K, d_top_idx.begin());
 
-    T* d_x_top = nullptr; cudaMalloc(&d_x_top, sizeof(T) * (size_t)K * N);
+    T* d_x_top = nullptr; CUDA_OK(cudaMalloc(&d_x_top, sizeof(T) * (size_t)K * N));
     {
         const int blocks = K, tpb = 128;
-        gather_rows_kernel<T> << <blocks, tpb >> > (
-            d_x,
-            thrust::raw_pointer_cast(d_top_idx.data()),
-            d_x_top,
-            K
-            );
+        gather_rows_kernel<T><<<blocks, tpb>>>(d_x, thrust::raw_pointer_cast(d_top_idx.data()), d_x_top, K);
         cudaGetLastError();
     }
 
+    // REPLICATION
     const int Krep = K * repeats;
-    T* d_x_rep = nullptr; cudaMalloc(&d_x_rep, sizeof(T) * (size_t)Krep * N);
+    T* d_x_rep = nullptr; CUDA_OK(cudaMalloc(&d_x_rep, sizeof(T) * (size_t)Krep * N));
     {
         const int blocks = K, tpb = 128;
-        replicate_rows_kernel<T> << <blocks, tpb >> > (d_x_top, d_x_rep, K, N, repeats);
+        replicate_rows_kernel<T><<<blocks, tpb>>>(d_x_top, d_x_rep, K, N, repeats);
         cudaGetLastError();
     }
-
     {
         const int blocks = Krep, tpb = 128;
-        perturb_rows_kernel<T> << <blocks, tpb >> > (
-            d_x_rep, Krep, (T)sigma_frac, 0xC0FFEEull, repeats, keep_one
-            );
+        perturb_rows_kernel<T><<<blocks, tpb>>>(d_x_rep, Krep, (T)sigma_frac, 0xC0FFEEull, repeats, keep_one);
         cudaGetLastError();
     }
 
-    T* d_targets_refined = nullptr; cudaMalloc(&d_targets_refined, sizeof(T) * 7 * (size_t)Krep);
+    T* d_targets_refined = nullptr; CUDA_OK(cudaMalloc(&d_targets_refined, sizeof(T) * 7 * (size_t)Krep));
     {
         const int blocks = Krep, tpb = 32;
-        replicate_target7_kernel<T> << <blocks, tpb >> > (d_target7, d_targets_refined, Krep);
+        replicate_target7_kernel<T><<<blocks, tpb>>>(d_target7, d_targets_refined, Krep);
         cudaGetLastError();
     }
 
-    T* d_pose_refined = nullptr, * d_pos_err_refined = nullptr, * d_ori_err_refined = nullptr;
-    cudaMalloc(&d_pose_refined, sizeof(T) * 7 * (size_t)Krep);
-    cudaMalloc(&d_pos_err_refined, sizeof(T) * (size_t)Krep);
-    cudaMalloc(&d_ori_err_refined, sizeof(T) * (size_t)Krep);
+    // JACOBIAN REFINEMENT
+    T *d_pose_refined=nullptr, *d_pos_err_refined=nullptr, *d_ori_err_refined=nullptr;
+    CUDA_OK(cudaMalloc(&d_pose_refined,     sizeof(T) * 7 * (size_t)Krep));
+    CUDA_OK(cudaMalloc(&d_pos_err_refined,  sizeof(T) * (size_t)Krep));
+    CUDA_OK(cudaMalloc(&d_ori_err_refined,  sizeof(T) * (size_t)Krep));
 
     {
         const int TPB_lm = 32;
-        lm_tuner<T> << <Krep, TPB_lm >> > (
-            d_x_rep,
-            d_pose_refined,
-            d_targets_refined,
-            d_pos_err_refined,
-            d_ori_err_refined,
-            d_robotModel,
-            (T)1e-8,
-            (T)1e-7,
-            (T)5e-3,
-            60,
-            0
-            );
+        lm_tuner<T><<<Krep, TPB_lm>>>(d_x_rep, d_pose_refined, d_targets_refined,
+                                      d_pos_err_refined, d_ori_err_refined, d_robotModel,
+                                      (T)1e-8, (T)1e-7, (T)5e-3, 35, 0);
         cudaGetLastError();
-        cudaDeviceSynchronize();
+        CUDA_OK(cudaDeviceSynchronize());
     }
 
     std::vector<T> h_pos_err_mm_ref(Krep), h_ori_err_rad_ref(Krep);
     std::vector<T> h_pose_ref(7ULL * Krep), h_x_ref(1ULL * Krep * N);
-    cudaMemcpy(h_pos_err_mm_ref.data(), d_pos_err_refined, sizeof(T) * Krep, cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_ori_err_rad_ref.data(), d_ori_err_refined, sizeof(T) * Krep, cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_pose_ref.data(), d_pose_refined, sizeof(T) * 7ULL * Krep, cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_x_ref.data(), d_x_rep, sizeof(T) * 1ULL * Krep * N, cudaMemcpyDeviceToHost);
+    CUDA_OK(cudaMemcpy(h_pos_err_mm_ref.data(), d_pos_err_refined, sizeof(T) * Krep,         cudaMemcpyDeviceToHost));
+    CUDA_OK(cudaMemcpy(h_ori_err_rad_ref.data(), d_ori_err_refined, sizeof(T) * Krep,        cudaMemcpyDeviceToHost));
+    CUDA_OK(cudaMemcpy(h_pose_ref.data(),        d_pose_refined,    sizeof(T) * 7ULL * Krep, cudaMemcpyDeviceToHost));
+    CUDA_OK(cudaMemcpy(h_x_ref.data(),           d_x_rep,           sizeof(T) * 1ULL * Krep * N, cudaMemcpyDeviceToHost));
 
-    int best_i = 0; T best_score = std::numeric_limits<T>::infinity();
-    for (int i = 0; i < Krep; ++i) {
-        T score = h_pos_err_mm_ref[i] + h_ori_err_rad_ref[i];
-        if (score < best_score) { best_score = score; best_i = i; }
+    const int S_target = std::max(1, num_solutions);
+
+    auto score_ref = [&](int i) -> T {
+        return h_pos_err_mm_ref[i] + h_ori_err_rad_ref[i];
+    };
+
+    std::vector<int> order(Krep);
+    std::iota(order.begin(), order.end(), 0);
+    std::sort(order.begin(), order.end(),
+              [&](int a, int b){ return score_ref(a) < score_ref(b); });
+
+    const T DUP_TOL = (T)1e-7;
+    auto is_dup = [&](int ia, int ib)->bool {
+        const T* qa = &h_x_ref[(size_t)ia * N];
+        const T* qb = &h_x_ref[(size_t)ib * N];
+        for (int j = 0; j < N; ++j)
+            if (std::fabs(qa[j] - qb[j]) > DUP_TOL) return false;
+        return true;
+    };
+
+    std::vector<int> chosen;
+    chosen.reserve(S_target);
+
+    for (int idx : order) {
+        bool dup = false;
+        for (int c : chosen) { if (is_dup(idx, c)) { dup = true; break; } }
+        if (!dup) {
+            chosen.push_back(idx);
+            if ((int)chosen.size() == S_target) break;
+        }
     }
 
-    result.pos_errors = new T[B];
-    result.ori_errors = new T[B];
-    result.pose = new T[7 * B];
-    result.joint_config = new T[N * B];
-
-    for (int r = 0; r < B; ++r) {
-        result.pos_errors[r] = h_pos_mm_coarse[r];
-        result.ori_errors[r] = h_ori_rad_coarse[r];
-        for (int k = 0; k < 7; ++k) result.pose[r * 7 + k] = h_pose_coarse[r * 7 + k];
-        for (int j = 0; j < N; ++j) result.joint_config[r * N + j] = h_x_coarse[r * N + j];
+    if ((int)chosen.size() < S_target) {
+        for (int idx : order) {
+            bool already = false;
+            for (int c : chosen) if (c == idx) { already = true; break; }
+            if (!already) {
+                chosen.push_back(idx);
+                if ((int)chosen.size() == S_target) break;
+            }
+        }
     }
 
-    {
-        const int dst = 0;
-        result.pos_errors[dst] = h_pos_err_mm_ref[best_i];
-        result.ori_errors[dst] = h_ori_err_rad_ref[best_i];
-        for (int k = 0; k < 7; ++k) result.pose[dst * 7 + k] = h_pose_ref[best_i * 7 + k];
-        for (int j = 0; j < N; ++j) result.joint_config[dst * N + j] = h_x_ref[best_i * N + j];
+    if ((int)chosen.size() < S_target) {
+        std::vector<int> order_coarse(B);
+        std::iota(order_coarse.begin(), order_coarse.end(), 0);
+        auto score_coarse = [&](int i){ return h_pos_mm_coarse[i] + h_ori_rad_coarse[i]; };
+        std::sort(order_coarse.begin(), order_coarse.end(),
+                  [&](int a, int b){ return score_coarse(a) < score_coarse(b); });
+
+        for (int cidx : order_coarse) {
+            chosen.push_back(-1 - cidx);
+            if ((int)chosen.size() == S_target) break;
+        }
     }
 
+    const int S = (int)chosen.size();
+
+    result.pos_errors   = new T[S];
+    result.ori_errors   = new T[S];
+    result.pose         = new T[7 * S];
+    result.joint_config = new T[N * S];
+
+    #ifdef HAS_RESULT_COUNT_FIELD
+    result.count = S;
+    #endif
+
+    for (int r = 0; r < S; ++r) {
+        int idx = chosen[r];
+        if (idx >= 0) {
+            // refined
+            result.pos_errors[r] = h_pos_err_mm_ref[idx];
+            result.ori_errors[r] = h_ori_err_rad_ref[idx];
+            for (int k = 0; k < 7; ++k)
+                result.pose[r * 7 + k] = h_pose_ref[(size_t)idx * 7 + k];
+            for (int j = 0; j < N; ++j)
+                result.joint_config[(size_t)r * N + j] = h_x_ref[(size_t)idx * N + j];
+        } else {
+            // coarse fallback
+            int cidx = -1 - idx;
+            result.pos_errors[r] = h_pos_mm_coarse[cidx];
+            result.ori_errors[r] = h_ori_rad_coarse[cidx];
+            for (int k = 0; k < 7; ++k)
+                result.pose[r * 7 + k] = h_pose_coarse[(size_t)cidx * 7 + k];
+            for (int j = 0; j < N; ++j)
+                result.joint_config[(size_t)r * N + j] = h_x_coarse[(size_t)cidx * N + j];
+        }
+    }
+
+    // CLEAN-UP
     cudaFree(d_scores);
     cudaFree(d_x_top);
     cudaFree(d_x_rep);
@@ -1768,17 +1871,18 @@ Result<T> generate_ik_solutions(
 
 
 
-
 template Result<double> generate_ik_solutions<double>(
     double* target_pose,
     const grid::robotModel<double>* d_robotModel,
-    int b_size
+    int b_size,
+    int num_solutions
 );
 
 template Result<float> generate_ik_solutions<float>(
     float* target_pose,
     const grid::robotModel<float>* d_robotModel,
-    int b_size
+    int b_size,
+    int num_solutions
 );
 
 template std::vector<std::array<double, 7>> sample_random_target_poses(

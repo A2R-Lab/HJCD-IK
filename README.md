@@ -39,4 +39,31 @@ cmake --build build --config Release
 ./build/hjcdik
 ```
 
-Outputs results to hjcd_ik_per_batch.yml
+## Usage
+
+This executable (`./build/hjcdik`) runs the GPU-accelerated IK solver on the Franka Panda or Fetch Robot Arm.
+It supports three modes of operation:
+- **single**: Run on one random target pose.
+- **sweep**: Run on many random target poses.
+- **from_csv**: Replay a set of target poses from an existing CSV file.
+
+```bash
+./build/hjcdik [OPTIONS]
+```
+
+### Options
+- **--mode=single|sweep|from_csv**
+- **--batch_size=N**
+  - Number of IK seeds
+- **--num_solutions=S**
+  - Number of final IK solutions
+- **--num_targets=T**
+  - Number of random targets to evaluate (only used in sweep mode)
+- **--yaml_out=FILE.yml**
+  - Path for YAML summary output
+- **--csv_in=FILE.csv**
+  - Input CSV with target poses (only in from_csv mode)
+- **--csv_out=FILE.csv**
+  - Output CSV with per-solution results (only in from_csv mode)
+- **-h, --help**
+  - Print help and exit

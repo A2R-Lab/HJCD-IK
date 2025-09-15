@@ -46,11 +46,11 @@ set(HJCDIK_SOURCES
 add_executable(hjcdik ${HJCDIK_SOURCES})
 
 # ---------- Include paths ----------
-target_include_directories(hjcdik
-  PRIVATE
+target_include_directories(hjcdik PRIVATE
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/include
-    ${GRID_DIR}/include
+    ${CMAKE_SOURCE_DIR}/external/GRiD         # add this if headers live in repo root
+    ${CMAKE_SOURCE_DIR}/external/GRiD/include # keep this if you also have the structured include/
 )
 
 # ---------- Per-language compile options ----------
@@ -81,6 +81,11 @@ if(HAVE_GRID_TARGETS)
     target_link_libraries(globeik PRIVATE GRiD)
   endif()
 endif()
+
+target_compile_options(hjcdik PRIVATE
+  $<$<COMPILE_LANGUAGE:CUDA>:-use_fast_math>
+  $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-O3>
+)
 
 # ---------- Post-build: copy tests next to binary ----------
 add_custom_command(TARGET hjcdik POST_BUILD

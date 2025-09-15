@@ -24,7 +24,8 @@ template<typename T>
 Result<T> generate_ik_solutions(
     T* target_pose,
     const grid::robotModel<T>* d_robotModel,
-    int b_size
+    int b_size,
+    int num_solutions = 1
 );
 
 template<typename T>
@@ -35,5 +36,7 @@ std::vector<std::array<T, 7>> sample_random_target_poses(
 );
 
 void init_joint_limits_constants();
+
+void init_joint_limits_from_grid();
 
 extern "C" int grid_num_joints();
