@@ -43,6 +43,10 @@ extern "C" int grid_num_joints() { return N; }
 #define WARP_SIZE 32
 #endif
 
+#ifndef UNREFINE
+#define UNREFINE 0
+#endif
+
 __constant__ double2 c_joint_limits[N];
 
 // GRiD HELPER FUNCTIONS
@@ -367,18 +371,16 @@ __device__ T compute_pos_err(const T* CjX, const T* target_pose) {
 }
 
 template<typename T>
-__device__ T compute_ori_err(const T* CjX, const T* q_t) {
-    T qc[4];
-    mat_to_quat(&CjX[(N - 1) * 16], qc);
-    normalize_quat(qc);
-    T dotp = qc[0] * q_t[0] + qc[1] * q_t[1] + qc[2] * q_t[2] + qc[3] * q_t[3];
-    dotp = clamp_dot(dotp);
-    if (dotp < 0) {
-        dotp = -dotp;
+__device__ T compute_ori_err(const T* CjX, const T* q_goal) {
+    T qee[4];
+    mat_to_quat_colmajor3x3(&CjX[(N-1)*16], qee);
+    if (qee[0]*q_goal[0]+qee[1]*q_goal[1]+qee[2]*q_goal[2]+qee[3]*q_goal[3] < (T)0) {
+        qee[0]=-qee[0]; qee[1]=-qee[1]; qee[2]=-qee[2]; qee[3]=-qee[3];
     }
-
-    return 2.0f * acos(dotp);
+    T wv[3]; quat_err_rotvec(qee, q_goal, wv);
+    return sqrt(wv[0]*wv[0] + wv[1]*wv[1] + wv[2]*wv[2]);
 }
+
 
 __device__ int g_stop = 0;
 __device__ int g_winner = -1;
@@ -477,11 +479,16 @@ __device__ T compute_pos_err_colmajor(const T* C, const T* target_pose) {
 }
 template<typename T>
 __device__ T compute_ori_err_colmajor(const T* C, const T* q_goal) {
-    T qc[4]; mat_to_quat_colmajor3x3(&C[(N - 1) * 16], qc);
-    T d = fabs(qc[0] * q_goal[0] + qc[1] * q_goal[1] + qc[2] * q_goal[2] + qc[3] * q_goal[3]);
-    d = clamp_unit(d);
-    return (T)2 * acos(d);
+    T qee[4]; 
+    mat_to_quat_colmajor3x3(&C[(N - 1) * 16], qee);
+    if (qee[0]*q_goal[0] + qee[1]*q_goal[1] + qee[2]*q_goal[2] + qee[3]*q_goal[3] < (T)0) {
+        qee[0] = -qee[0]; qee[1] = -qee[1]; qee[2] = -qee[2]; qee[3] = -qee[3];
+    }
+    T wv[3]; 
+    quat_err_rotvec(qee, q_goal, wv);
+    return sqrt(wv[0]*wv[0] + wv[1]*wv[1] + wv[2]*wv[2]);
 }
+
 
 // JACOBIAN TUNER
 template<typename T, int M>
@@ -547,7 +554,7 @@ void recompute_cost_scaled(T* xcur,
     const T* tp, const T* q_goal,
     T& cost_sq, T& pos_err_m, T& ori_err_rad)
 {
-    grid::update_singleJointX<T>(s_jointX, s_XmatsHom, xcur, N - 1);
+    grid::X_single_thread<T>(s_jointX, s_XmatsHom, xcur, N - 1);
     const T* Cn = &s_jointX[(N - 1) * 16];
     const T dx = tp[0] - Cn[12];
     const T dy = tp[1] - Cn[13];
@@ -619,8 +626,6 @@ __device__ bool try_dogleg_step(
     T& lambda, const T lambda_min, const T lambda_max,
     const double2* limits)
 {
-    // Gradient squared sum
-    // Weighted gradient H
     T gtg = (T)0, gAg = (T)0;
 #pragma unroll
     for (int i = 0; i < N; ++i) { T gi = gvec[i]; gtg += gi * gi; gAg += diagA[i] * gi * gi; }
@@ -771,7 +776,7 @@ __device__ void solve_lm_batched(
     SYNC();
 
     if (tid == 0) {
-        grid::update_singleJointX(s_jointX, s_XmatsHom, s_x, N-1);
+        grid::X_single_thread(s_jointX, s_XmatsHom, s_x, N-1);
         pos_err_m   = compute_pos_err_colmajor<T>(s_jointX, tp);
         ori_err_rad = compute_ori_err_colmajor<T>(s_jointX, &tp[3]);
     }
@@ -889,7 +894,7 @@ __device__ void solve_lm_batched(
                     const T xi= x_old[i] + a*dq[i];
                     s_x[i] = fmin(fmax(xi,(T)lim.x),(T)lim.y);
                 }
-                grid::update_singleJointX(s_jointX, s_XmatsHom, s_x, N-1);
+                grid::X_single_thread(s_jointX, s_XmatsHom, s_x, N-1);
                 const T pos_new = compute_pos_err_colmajor<T>(s_jointX, tp);
                 const T ori_new = compute_ori_err_colmajor<T>(s_jointX, &tp[3]);
 
@@ -960,23 +965,19 @@ __device__ void solve_lm_batched(
                 if (!took) ++stall;
             }
             if (stall >= stall_lim) {
-                if (B <= 100) {
-                    for (int i=0;i<N;++i){
-                        const double2 L=c_joint_limits[i];
-                        const T span=(T)(L.y-L.x);
-                        uint32_t u = 0x9E3779B9u ^ (uint32_t)(i*0xC2B2AE35u);
-                        T sgn = (T)((int)(u&1)?1:-1);
-                        T kick = (T)0.015 * span * sgn;
-                        T xi = s_x[i] + kick;
-                        s_x[i] = fmin(fmax(xi,(T)L.x),(T)L.y);
-                    }
-                    grid::update_singleJointX(s_jointX,s_XmatsHom,s_x,N-1);
-                    pos_err_m   = compute_pos_err_colmajor<T>(s_jointX,tp);
-                    ori_err_rad = compute_ori_err_colmajor<T>(s_jointX,&tp[3]);
-                    stall = 0;
-                } else {
-                    s_break = 1;
+                for (int i=0;i<N;++i){
+                    const double2 L=c_joint_limits[i];
+                    const T span=(T)(L.y-L.x);
+                    uint32_t u = 0x9E3779B9u ^ (uint32_t)(i*0xC2B2AE35u);
+                    T sgn = (T)((int)(u&1)?1:-1);
+                    T kick = (T)0.015 * span * sgn;
+                    T xi = s_x[i] + kick;
+                    s_x[i] = fmin(fmax(xi,(T)L.x),(T)L.y);
                 }
+                grid::X_single_thread(s_jointX,s_XmatsHom,s_x,N-1);
+                pos_err_m   = compute_pos_err_colmajor<T>(s_jointX,tp);
+                ori_err_rad = compute_ori_err_colmajor<T>(s_jointX,&tp[3]);
+                stall = 0;
             }
 
             if (pos_err_m < eps_pos && ori_err_rad < eps_ori) { atomicCAS(&g_stop, 0, 1); s_break = 1; }
@@ -985,7 +986,7 @@ __device__ void solve_lm_batched(
         if (s_break) break;
 
         if (tid == 0) {
-            grid::update_singleJointX(s_jointX, s_XmatsHom, s_x, N-1);
+            grid::X_single_thread(s_jointX, s_XmatsHom, s_x, N-1);
             pos_err_m   = compute_pos_err_colmajor<T>(s_jointX, tp);
             ori_err_rad = compute_ori_err_colmajor<T>(s_jointX, &tp[3]);
         }
@@ -996,7 +997,7 @@ __device__ void solve_lm_batched(
         const T MAX_DRIFT = (T)2e-3;
         if (pos_err_m > best_pos_seen + MAX_DRIFT) {
             for (int i=0;i<N;++i) s_x[i] = best_x_pos[i];
-            grid::update_singleJointX(s_jointX, s_XmatsHom, s_x, N-1);
+            grid::X_single_thread(s_jointX, s_XmatsHom, s_x, N-1);
             pos_err_m   = compute_pos_err_colmajor<T>(s_jointX, tp);
             ori_err_rad = compute_ori_err_colmajor<T>(s_jointX, &tp[3]);
         }
@@ -1041,22 +1042,26 @@ __global__ void globeik_kernel(
     T* __restrict__ ori_errors,
     const grid::robotModel<T>* d_robotModel
 ) {
-    const int gp = blockIdx.x;
-    const int tid = threadIdx.x;
-    const int warp_id = tid >> 5;
+    const int gp   = blockIdx.x;
+    const int tid  = threadIdx.x;
     const int lane = tid & 31;
+    const int warp = tid >> 5;
+    const int warps_per_block = max(1, (int)(blockDim.x >> 5));
 
-    const int warps_per_block = blockDim.x >> 5;
-    if (warps_per_block < 2 * N) return;
+    if (!x || !pose || !targetsB || !pos_errors || !ori_errors || !d_robotModel) return;
+    if (warps_per_block == 0) return;
 
-    const int phase = (warp_id < 2 * N) ? (warp_id / N) : 0;
-    const int p = (warp_id < 2 * N) ? (warp_id % N) : 0;
-    const bool is_pos_warp = (phase == 0);
-    const bool is_ori_warp = (phase == 1);
+    // Two per-warp scratch blocks only: l_tmp (copy buffer) and l_C (computed transforms)
+    extern __shared__ __align__(16) unsigned char s_dyn_raw[];
+    T* s_dyn = reinterpret_cast<T*>(s_dyn_raw);
+    const size_t per_warp_elems = (size_t)(2 * N * 16);
+    T* warp_base = s_dyn + (size_t)warp * per_warp_elems;
+    T* l_tmp = warp_base;
+    T* l_C   = warp_base + (size_t)(N * 16);
 
-    const T  epsilon = (T)20e-3;
-    const T  nu = (T)(20.0 * PI / 180.0);
-    const int k_max = 20;
+    const T  epsilon = (T)20e-3;   // 20 mm
+    const T  nu      = (T)(90 * PI / 180.0);
+    const int k_max  = 20;
 
     __shared__ int  s_stop;
     __shared__ int  s_allow_ori;
@@ -1065,20 +1070,22 @@ __global__ void globeik_kernel(
     __shared__ T s_x[N];
     __shared__ T s_pose[7];
     __shared__ T s_glob_pos_err, s_glob_ori_err;
+
     __shared__ T s_pos_theta1[N], s_ori_theta1[N];
-    __shared__ T s_pos_err[N], s_ori_err[N];
+    __shared__ T s_pos_err[N],    s_ori_err[N];
 
-    __shared__ T s_XmatsHom[N * 16];
-    __shared__ T s_jointXforms[N * 16];
-    __shared__ T s_temp[N * 2];
-
-    if (tid == 0) { s_last_joint_o = -1; s_last_joint_p = -1; }
-    __syncthreads();
+    __shared__ T s_XmatsHom[N*16];
+    __shared__ T s_jointXforms[N*16];
+    __shared__ T s_temp[N*2];
 
     const T* target_pose_local = &targetsB[gp * 7];
     const T q_t[4] = { target_pose_local[3], target_pose_local[4],
                        target_pose_local[5], target_pose_local[6] };
 
+    if (tid == 0) { s_last_joint_o = -1; s_last_joint_p = -1; }
+    __syncthreads();
+
+    // Random initial config in limits
     if (tid < N) {
         uint32_t st = make_seed(1337u, gp, 0, tid);
         float r = u01(st);
@@ -1086,8 +1093,8 @@ __global__ void globeik_kernel(
         s_x[tid] = (T)(L.x + r * (L.y - L.x));
         s_pos_theta1[tid] = (T)0;
         s_ori_theta1[tid] = (T)0;
-        s_pos_err[tid] = (T)1e9;
-        s_ori_err[tid] = (T)1e9;
+        s_pos_err[tid]    = (T)1e9;
+        s_ori_err[tid]    = (T)1e9;
     }
     __syncthreads();
 
@@ -1095,7 +1102,7 @@ __global__ void globeik_kernel(
     __syncthreads();
 
     if (tid == 0) {
-        grid::update_singleJointX(s_jointXforms, s_XmatsHom, s_x, N - 1);
+        grid::X_single_thread(s_jointXforms, s_XmatsHom, s_x, N - 1);
         s_glob_pos_err = compute_pos_err<T>(s_jointXforms, target_pose_local);
         s_glob_ori_err = compute_ori_err<T>(s_jointXforms, q_t);
 
@@ -1115,7 +1122,7 @@ __global__ void globeik_kernel(
         if (s_stop) break;
 
         if (tid == 0) {
-            grid::update_singleJointX(s_jointXforms, s_XmatsHom, s_x, N - 1);
+            grid::X_single_thread(s_jointXforms, s_XmatsHom, s_x, N - 1);
 
             T q_ee[4];
             mat_to_quat(&s_jointXforms[(N - 1) * 16], q_ee);
@@ -1128,79 +1135,91 @@ __global__ void globeik_kernel(
         __syncthreads();
 
         if (tid == 0) {
-            const T pos_gate = (T)50e-3;
+            const T pos_gate = (T)10e-4;
             s_allow_ori = (s_glob_pos_err < pos_gate) ? 1 : 0;
+            // s_allow_ori = 1; // uncomment to always include orientation
         }
         __syncthreads();
 
-        if (warp_id < 2 * N && lane == 0) {
-            if (is_pos_warp) {
-                s_pos_theta1[p] = solve_pos<T>(s_jointXforms, s_pose, target_pose_local, p, k, k_max);
-            }
-            else {
-                if (!s_allow_ori) s_ori_theta1[p] = (T)0;
-                else              s_ori_theta1[p] = solve_ori<T>(s_jointXforms, q_t, p, k, k_max);
+        // Phase 1: compute per-joint theta1 for pos & ori
+        for (int idx = warp; idx < 2 * N; idx += warps_per_block) {
+            const int phase = idx / N;
+            const int p     = idx % N;
+            if (lane == 0) {
+                if (phase == 0) {
+                    s_pos_theta1[p] = solve_pos<T>(s_jointXforms, s_pose, target_pose_local, p, k, k_max);
+                } else {
+                    s_ori_theta1[p] = s_allow_ori ? solve_ori<T>(s_jointXforms, q_t, p, k, k_max) : (T)0;
+                }
             }
         }
         __syncthreads();
 
-        if (warp_id < 2 * N) {
-            T best_err_lane = (is_pos_warp ? s_glob_pos_err : s_glob_ori_err);
+        // Phase 2: evaluate greedy pairwise (p,j) with two scratch buffers (l_tmp, l_C)
+        for (int idx = warp; idx < 2 * N; idx += warps_per_block) {
+            const int phase = idx / N;
+            const int p     = idx % N;
+            const bool pos_phase = (phase == 0);
+
+            T best_err_lane = pos_phase ? s_glob_pos_err : s_glob_ori_err;
             int best_j_lane = -1;
 
-            for (int j = lane; j < N; j += 32) {
-                T cand[N];
-#pragma unroll
-                for (int m = 0; m < N; ++m) cand[m] = s_x[m];
+            if (lane == 0) {
+                for (int j = 0; j < N; ++j) {
+                    // Build candidate vector in registers
+                    T cand[N];
+                    #pragma unroll
+                    for (int m = 0; m < N; ++m) cand[m] = s_x[m];
 
-                const T delta1 = is_pos_warp ? s_pos_theta1[p] : s_ori_theta1[p];
-                cand[p] = clamp_val<T>(cand[p] + delta1,
-                    (T)c_joint_limits[p].x, (T)c_joint_limits[p].y);
+                    const T delta1 = pos_phase ? s_pos_theta1[p] : s_ori_theta1[p];
+                    cand[p] = clamp_val<T>(cand[p] + delta1,
+                                           (T)c_joint_limits[p].x, (T)c_joint_limits[p].y);
 
-                T l_X[N * 16];
-#pragma unroll
-                for (int m = 0; m < N * 16; ++m) l_X[m] = s_XmatsHom[m];
+                    // C1: apply p on top of s_XmatsHom -> l_C
+                    #pragma unroll
+                    for (int m = 0; m < N * 16; ++m) l_tmp[m] = s_XmatsHom[m];
+                    grid::X_single_thread(l_C, l_tmp, cand, N - 1);
 
-                T l_C1[N * 16];
-                grid::update_singleJointX(l_C1, l_X, cand, N - 1);
+                    // Compute theta2 using C1
+                    T theta2 = (T)0;
+                    if (pos_phase) {
+                        const int ee = (N - 1) * 16;
+                        T pos1[3] = { l_C[ee + 12], l_C[ee + 13], l_C[ee + 14] };
+                        theta2 = solve_pos<T>(l_C, pos1, target_pose_local, j, k, k_max);
+                    } else {
+                        theta2 = s_allow_ori ? solve_ori<T>(l_C, q_t, j, k, k_max) : (T)0;
+                    }
 
-                T theta2;
-                if (is_pos_warp) {
-                    const int ee = (N - 1) * 16;
-                    T pos1[3] = { l_C1[ee + 12], l_C1[ee + 13], l_C1[ee + 14] };
-                    theta2 = solve_pos<T>(l_C1, pos1, target_pose_local, j, k, k_max);
+                    cand[j] = clamp_val<T>(cand[j] + theta2,
+                                           (T)c_joint_limits[j].x, (T)c_joint_limits[j].y);
+
+                    // C2: reapply full cand (p and j) on top of s_XmatsHom -> l_C (overwrite)
+                    #pragma unroll
+                    for (int m = 0; m < N * 16; ++m) l_tmp[m] = s_XmatsHom[m];
+                    grid::X_single_thread(l_C, l_tmp, cand, N - 1);
+
+                    const T err = pos_phase
+                        ? compute_pos_err<T>(l_C, target_pose_local)
+                        : compute_ori_err<T>(l_C, q_t);
+
+                    if (err < best_err_lane) { best_err_lane = err; best_j_lane = j; }
                 }
-                else {
-                    if (!s_allow_ori) { theta2 = (T)0; }
-                    else { theta2 = solve_ori<T>(l_C1, q_t, j, k, k_max); }
-                }
-
-                cand[j] = clamp_val<T>(cand[j] + theta2,
-                    (T)c_joint_limits[j].x, (T)c_joint_limits[j].y);
-
-#pragma unroll
-                for (int m = 0; m < N * 16; ++m) l_X[m] = s_XmatsHom[m];
-                T l_C2[N * 16];
-                grid::update_singleJointX(l_C2, l_X, cand, N - 1);
-
-                const T err = is_pos_warp
-                    ? compute_pos_err<T>(l_C2, target_pose_local)
-                    : compute_ori_err<T>(l_C2, q_t);
-
-                if (err < best_err_lane) { best_err_lane = err; best_j_lane = j; }
             }
 
-            warp_min_reduce_pair(best_err_lane, best_j_lane);
+            best_err_lane = __shfl_sync(FULL_WARP_MASK, best_err_lane, 0);
+            best_j_lane   = __shfl_sync(FULL_WARP_MASK, best_j_lane,   0);
+
             if (lane == 0) {
-                if (is_pos_warp) s_pos_err[p] = best_err_lane;
-                else             s_ori_err[p] = best_err_lane;
+                if (pos_phase) s_pos_err[p] = best_err_lane;
+                else           s_ori_err[p] = best_err_lane;
             }
         }
         __syncthreads();
 
+        // Phase 3: choose best pos and ori joints
         if (tid == 0) {
             int best_pos_joint = -1, best_ori_joint = -1;
-            T best_pos_imp = (T)0, best_ori_imp = (T)0;
+            T best_pos_imp = (T)0,  best_ori_imp = (T)0;
 
             for (int jj = 0; jj < N; ++jj) {
                 if (jj == s_last_joint_o) continue;
@@ -1241,8 +1260,9 @@ __global__ void globeik_kernel(
         }
         __syncthreads();
 
+        // Update global errs & pose, early-exit if solved
         if (tid == 0) {
-            grid::update_singleJointX(s_jointXforms, s_XmatsHom, s_x, N - 1);
+            grid::X_single_thread(s_jointXforms, s_XmatsHom, s_x, N - 1);
             s_glob_pos_err = compute_pos_err<T>(s_jointXforms, target_pose_local);
             s_glob_ori_err = compute_ori_err<T>(s_jointXforms, q_t);
 
@@ -1351,7 +1371,7 @@ __global__ void forward_kinematics_kernel(
     __syncthreads();
 
     if (threadIdx.x == 0) {
-        grid::update_singleJointX<T>(s_X, s_X, s_q, N - 1);
+        grid::X_single_thread<T>(s_X, s_X, s_q, N - 1);
 
         if (ee_pose7) {
             const T* Cee = &s_X[(N - 1) * 16];
@@ -1578,51 +1598,51 @@ inline RefineSchedule schedule_for_B(int B) {
 
     if (B <= 8) {           
         s.repeats   = 24;
-        s.sigma_frac= 0.5;
+        s.sigma_frac= 0.25;
         s.top_frac = 1.0;
-    } else if (B <= 32) {
-        s.repeats   = 22;
-        s.sigma_frac= 0.5;
-        s.top_frac = 0.2;
-    } else if (B <= 64) {
-        s.repeats = 22;
-        s.sigma_frac = 0.5;
-        s.top_frac = 0.2;
-    } else if (B <= 128) {
-        s.repeats   = 18;
-        s.sigma_frac= 0.35;
-        s.top_frac = 0.03;
-    } else if (B <= 512) {
-        s.repeats   = 18;
-        s.sigma_frac= 0.35;
-        s.top_frac = 0.006;
-    } else if (B <= 1024) {
-        s.repeats   = 18;
-        s.sigma_frac= 0.35;
-        s.top_frac = 0.008;
-    } else if (B <= 2000) {
-        s.repeats   = 14;
-        s.sigma_frac= 0.30;
-        s.top_frac = 0.008;
-    } else {
+    } else if (B <= 16) {
         s.repeats   = 12;
-        s.sigma_frac= 0.20;
-        s.top_frac = 0.004;
+        s.sigma_frac= 0.25;
+        s.top_frac = 0.5;
+    } else if (B <= 128) {
+        s.repeats   = 10;
+        s.sigma_frac= 0.25;
+        s.top_frac = 0.05;
+    } else if (B <= 1024) {
+        s.repeats   = 2;
+        s.sigma_frac= 0.15;
+        s.top_frac = 0.05;
+    } else if (B <= 2000) {
+        s.repeats   = 2;
+        s.sigma_frac= 0.15;
+        s.top_frac = 0.05;
+    } else {
+        s.repeats   = 2;
+        s.sigma_frac= 0.15;
+        s.top_frac = 0.04;
     }
     return s;
 }
+
+template <typename Dst, typename Src>
+__global__ void cast_array(const Src* __restrict__ in,
+                           Dst* __restrict__ out,
+                           size_t n) {
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) out[i] = (Dst)in[i];
+}
+
 
 template<typename T>
 Result<T> generate_ik_solutions(
     T* target_pose,
     const grid::robotModel<T>* d_robotModel,
     int b_size,
-    int num_solutions
-) {
+    int num_solutions)
+{
     using std::chrono::high_resolution_clock;
-
     auto t0 = high_resolution_clock::now();
-    cudaDeviceSynchronize();
+    CUDA_OK(cudaDeviceSynchronize());
 
     Result<T> result{};
     if (!d_robotModel || !target_pose || b_size <= 0) {
@@ -1632,142 +1652,231 @@ Result<T> generate_ik_solutions(
         result.pose         = new T[7 * S]{};
         result.joint_config = new T[N * S]{};
         result.elapsed_time = 0.0;
-        #ifdef HAS_RESULT_COUNT_FIELD
+    #ifdef HAS_RESULT_COUNT_FIELD
         result.count = S;
-        #endif
+    #endif
         return result;
     }
 
-    const int    B = b_size;
+    using TC = float;
+    const int    B            = b_size;
     const size_t num_elems_x  = (size_t)B * N;
     const size_t num_elems_p7 = (size_t)B * 7;
 
-    T *d_x=nullptr, *d_pose=nullptr, *d_pos_errors=nullptr, *d_ori_errors=nullptr;
-    T *d_target7=nullptr, *d_targetsB=nullptr, *d_scores=nullptr;
+    const grid::robotModel<TC>* d_robotModel_f = grid::init_robotModel<TC>();
 
-    CUDA_OK(cudaMalloc(&d_x,           sizeof(T) * num_elems_x));
-    CUDA_OK(cudaMalloc(&d_pose,        sizeof(T) * num_elems_p7));
-    CUDA_OK(cudaMalloc(&d_pos_errors,  sizeof(T) * B));
-    CUDA_OK(cudaMalloc(&d_ori_errors,  sizeof(T) * B));
-    CUDA_OK(cudaMalloc(&d_target7,     sizeof(T) * 7));
-    CUDA_OK(cudaMemcpy(d_target7, target_pose, sizeof(T) * 7, cudaMemcpyHostToDevice));
+    TC *d_x_c=nullptr, *d_pose_c=nullptr, *d_pos_mm_c=nullptr, *d_ori_r_c=nullptr;
+    TC *d_target7_c=nullptr, *d_targets_coarse_c=nullptr;
 
-    CUDA_OK(cudaMalloc(&d_targetsB, sizeof(T) * num_elems_p7));
+    CUDA_OK(cudaMalloc(&d_x_c,         sizeof(TC) * num_elems_x));
+    CUDA_OK(cudaMalloc(&d_pose_c,      sizeof(TC) * num_elems_p7));
+    CUDA_OK(cudaMalloc(&d_pos_mm_c,    sizeof(TC) * B));
+    CUDA_OK(cudaMalloc(&d_ori_r_c,     sizeof(TC) * B));
+    CUDA_OK(cudaMalloc(&d_target7_c,   sizeof(TC) * 7));
+
+    // copy target pose -> float
     {
-        std::vector<T> h_targetsB(num_elems_p7);
-        for (int i = 0; i < B; ++i)
-            for (int k = 0; k < 7; ++k)
-                h_targetsB[(size_t)i * 7 + k] = target_pose[k];
-        CUDA_OK(cudaMemcpy(d_targetsB, h_targetsB.data(), sizeof(T) * num_elems_p7, cudaMemcpyHostToDevice));
+        TC h_target7f[7];
+        for (int i=0;i<7;++i) h_target7f[i] = (TC)target_pose[i];
+        CUDA_OK(cudaMemcpy(d_target7_c, h_target7f, sizeof(TC) * 7, cudaMemcpyHostToDevice));
     }
 
+    // init errors to +inf
     {
-        thrust::device_ptr<T> p(d_pos_errors), o(d_ori_errors);
-        thrust::fill(p, p + B, std::numeric_limits<T>::infinity());
-        thrust::fill(o, o + B, std::numeric_limits<T>::infinity());
+        thrust::device_ptr<TC> p(d_pos_mm_c), o(d_ori_r_c);
+        thrust::fill(p, p + B, std::numeric_limits<TC>::infinity());
+        thrust::fill(o, o + B, std::numeric_limits<TC>::infinity());
     }
 
-    { int zero = 0, neg1 = -1;
+    // replicate target7 -> B
+    CUDA_OK(cudaMalloc(&d_targets_coarse_c, sizeof(TC) * (size_t)B * 7));
+    {
+        const int blocks=B, tpb=32;
+        replicate_target7_kernel<TC><<<blocks, tpb>>>(d_target7_c, d_targets_coarse_c, B);
+        cudaGetLastError();
+        CUDA_OK(cudaDeviceSynchronize());
+    }
+
+    // reset global stop flags
+    { int zero=0, neg1=-1;
       CUDA_OK(cudaMemcpyToSymbol(g_stop,   &zero, sizeof(int)));
       CUDA_OK(cudaMemcpyToSymbol(g_winner, &neg1, sizeof(int)));
       cudaGetLastError();
     }
 
-    // COARSE SEARCH
-    const int TPB_coarse = 32 * 2 * N;
-    globeik_kernel<T><<<B, TPB_coarse>>>(d_x, d_pose, d_targetsB, d_pos_errors, d_ori_errors, d_robotModel);
-    cudaGetLastError();
-    CUDA_OK(cudaDeviceSynchronize());
+    // COARSE SWEEP
+    {
+        // threads-per-block request ~ 2N warps
+        int TPB_req = std::min((int)(2 * N * WARP_SIZE), 256);
+        int maxThreadsPerBlock = 0;
+        CUDA_OK(cudaDeviceGetAttribute(&maxThreadsPerBlock, cudaDevAttrMaxThreadsPerBlock, 0));
+        TPB_req = std::min(TPB_req, maxThreadsPerBlock);
+        TPB_req = (TPB_req + WARP_SIZE - 1) / WARP_SIZE * WARP_SIZE;
+        TPB_req = std::max(TPB_req, WARP_SIZE);
 
-    { int zero = 0; CUDA_OK(cudaMemcpyToSymbol(g_stop, &zero, sizeof(int))); }
+        const size_t perWarpBytes = (size_t)(2 * N * 16) * sizeof(TC);
 
-    std::vector<T> h_pos_mm_coarse(B), h_ori_rad_coarse(B);
-    std::vector<T> h_pose_coarse(num_elems_p7), h_x_coarse(num_elems_x);
-    CUDA_OK(cudaMemcpy(h_pos_mm_coarse.data(), d_pos_errors, sizeof(T) * B,            cudaMemcpyDeviceToHost));
-    CUDA_OK(cudaMemcpy(h_ori_rad_coarse.data(), d_ori_errors, sizeof(T) * B,            cudaMemcpyDeviceToHost));
-    CUDA_OK(cudaMemcpy(h_pose_coarse.data(),    d_pose,       sizeof(T) * num_elems_p7, cudaMemcpyDeviceToHost));
-    CUDA_OK(cudaMemcpy(h_x_coarse.data(),       d_x,          sizeof(T) * num_elems_x,  cudaMemcpyDeviceToHost));
+        cudaFuncAttributes attr{};
+        CUDA_OK(cudaFuncGetAttributes(&attr, (const void*)globeik_kernel<TC>));
+        const size_t staticShmem = (size_t)attr.sharedSizeBytes;
 
-    // REFINEMENT SELECTION
-    const auto  sch        = schedule_for_B(B);
-    const float top_frac   = sch.top_frac;
-    const int   repeats    = sch.repeats;
-    const double sigma_frac= sch.sigma_frac;
-    const bool  keep_one   = true;
+        // shared memory caps
+        int maxOptIn=0, maxDefault=0;
+        CUDA_OK(cudaDeviceGetAttribute(&maxOptIn,   cudaDevAttrMaxSharedMemoryPerBlockOptin, 0));
+        CUDA_OK(cudaDeviceGetAttribute(&maxDefault, cudaDevAttrMaxSharedMemoryPerBlock,      0));
+        size_t maxSharedAvail = (size_t)std::max(maxOptIn, maxDefault);
 
-    CUDA_OK(cudaMalloc(&d_scores, sizeof(T) * B));
+        // compute warps-per-block allowed by shmem
+        size_t roomForDyn = (maxSharedAvail > staticShmem) ? (maxSharedAvail - staticShmem) : 0;
+        int maxWarpsBySmem = (perWarpBytes > 0) ? (int)(roomForDyn / perWarpBytes) : 1;
+        maxWarpsBySmem = std::max(1, maxWarpsBySmem);
+
+        // TPB cap
+        int reqWarps = TPB_req / WARP_SIZE;
+        int warpsPerBlock = std::min(reqWarps, maxWarpsBySmem);
+        warpsPerBlock = std::min(warpsPerBlock, 4);
+        warpsPerBlock = std::max(1, warpsPerBlock);
+
+        int TPB = warpsPerBlock * WARP_SIZE;
+        size_t scratchBytes = (size_t)warpsPerBlock * perWarpBytes;
+
+        int ask = (int)std::min(maxSharedAvail, staticShmem + scratchBytes);
+        CUDA_OK(cudaFuncSetAttribute((const void*)globeik_kernel<TC>,
+                                     cudaFuncAttributeMaxDynamicSharedMemorySize,
+                                     ask));
+
+        for (;;) {
+            globeik_kernel<TC><<<B, TPB, scratchBytes>>>(
+                d_x_c, d_pose_c, d_targets_coarse_c, d_pos_mm_c, d_ori_r_c, d_robotModel_f
+            );
+            cudaError_t e = cudaPeekAtLastError();
+            if (e == cudaSuccess) break;
+            if (e != cudaErrorLaunchOutOfResources) CUDA_OK(e);
+            if (warpsPerBlock > 1) {
+                warpsPerBlock >>= 1;
+                TPB = warpsPerBlock * WARP_SIZE;
+                scratchBytes = (size_t)warpsPerBlock * perWarpBytes;
+                continue;
+            }
+            CUDA_OK(e);
+            break;
+        }
+        CUDA_OK(cudaDeviceSynchronize());
+    }
+
+    std::vector<TC> h_pos_mm_coarse_f(B), h_ori_rad_coarse_f(B);
+    std::vector<TC> h_pose_coarse_f(num_elems_p7), h_x_coarse_f(num_elems_x);
+    CUDA_OK(cudaMemcpy(h_pos_mm_coarse_f.data(), d_pos_mm_c, sizeof(TC) * B,             cudaMemcpyDeviceToHost));
+    CUDA_OK(cudaMemcpy(h_ori_rad_coarse_f.data(), d_ori_r_c,  sizeof(TC) * B,             cudaMemcpyDeviceToHost));
+    CUDA_OK(cudaMemcpy(h_pose_coarse_f.data(),    d_pose_c,   sizeof(TC) * num_elems_p7,  cudaMemcpyDeviceToHost));
+    CUDA_OK(cudaMemcpy(h_x_coarse_f.data(),       d_x_c,      sizeof(TC) * num_elems_x,   cudaMemcpyDeviceToHost));
+
+    const auto  sch         = schedule_for_B(B);
+    const float top_frac    = sch.top_frac;
+    const int   repeats     = sch.repeats;
+    const double sigma_frac = sch.sigma_frac;
+    const bool  keep_one    = true;
+
+    // score: pos + ori error
+    TC* d_scores_c = nullptr; CUDA_OK(cudaMalloc(&d_scores_c, sizeof(TC) * B));
     {
         const int tpb = 256, gpb = (B + tpb - 1) / tpb;
-        build_scores_kernel<T><<<gpb, tpb>>>(d_pos_errors, d_ori_errors, d_scores, B);
+        build_scores_kernel<TC><<<gpb, tpb>>>(d_pos_mm_c, d_ori_r_c, d_scores_c, B);
         cudaGetLastError();
     }
 
+    // sort by score and gather top-K seeds
     thrust::device_vector<int> d_idx(B);
     thrust::sequence(d_idx.begin(), d_idx.end(), 0);
     {
-        thrust::device_ptr<T> s_ptr(d_scores);
-        thrust::sort_by_key(s_ptr, s_ptr + B, d_idx.begin());  // ascending score
+        thrust::device_ptr<TC> s_ptr(d_scores_c);
+        thrust::sort_by_key(s_ptr, s_ptr + B, d_idx.begin());
     }
 
     const int K = std::max(1, (int)std::ceil(top_frac * (float)B));
     thrust::device_vector<int> d_top_idx(K);
     thrust::copy(d_idx.begin(), d_idx.begin() + K, d_top_idx.begin());
 
-    T* d_x_top = nullptr; CUDA_OK(cudaMalloc(&d_x_top, sizeof(T) * (size_t)K * N));
+    TC* d_x_top_c = nullptr; CUDA_OK(cudaMalloc(&d_x_top_c, sizeof(TC) * (size_t)K * N));
     {
         const int blocks = K, tpb = 128;
-        gather_rows_kernel<T><<<blocks, tpb>>>(d_x, thrust::raw_pointer_cast(d_top_idx.data()), d_x_top, K);
+        gather_rows_kernel<TC><<<blocks, tpb>>>(d_x_c, thrust::raw_pointer_cast(d_top_idx.data()), d_x_top_c, K);
         cudaGetLastError();
     }
 
-    // REPLICATION
     const int Krep = K * repeats;
-    T* d_x_rep = nullptr; CUDA_OK(cudaMalloc(&d_x_rep, sizeof(T) * (size_t)Krep * N));
+    TC* d_x_rep_c = nullptr; CUDA_OK(cudaMalloc(&d_x_rep_c, sizeof(TC) * (size_t)Krep * N));
     {
         const int blocks = K, tpb = 128;
-        replicate_rows_kernel<T><<<blocks, tpb>>>(d_x_top, d_x_rep, K, N, repeats);
+        replicate_rows_kernel<TC><<<blocks, tpb>>>(d_x_top_c, d_x_rep_c, K, N, repeats);
         cudaGetLastError();
     }
     {
         const int blocks = Krep, tpb = 128;
-        perturb_rows_kernel<T><<<blocks, tpb>>>(d_x_rep, Krep, (T)sigma_frac, 0xC0FFEEull, repeats, keep_one);
+        perturb_rows_kernel<TC><<<blocks, tpb>>>(d_x_rep_c, Krep, (TC)sigma_frac, 0xC0FFEEull, repeats, keep_one);
         cudaGetLastError();
     }
 
-    T* d_targets_refined = nullptr; CUDA_OK(cudaMalloc(&d_targets_refined, sizeof(T) * 7 * (size_t)Krep));
+    TC* d_targets_refined_c = nullptr; CUDA_OK(cudaMalloc(&d_targets_refined_c, sizeof(TC) * 7 * (size_t)Krep));
     {
         const int blocks = Krep, tpb = 32;
-        replicate_target7_kernel<T><<<blocks, tpb>>>(d_target7, d_targets_refined, Krep);
+        replicate_target7_kernel<TC><<<blocks, tpb>>>(d_target7_c, d_targets_refined_c, Krep);
         cudaGetLastError();
     }
+    CUDA_OK(cudaDeviceSynchronize());
 
-    // JACOBIAN REFINEMENT
-    T *d_pose_refined=nullptr, *d_pos_err_refined=nullptr, *d_ori_err_refined=nullptr;
-    CUDA_OK(cudaMalloc(&d_pose_refined,     sizeof(T) * 7 * (size_t)Krep));
-    CUDA_OK(cudaMalloc(&d_pos_err_refined,  sizeof(T) * (size_t)Krep));
-    CUDA_OK(cudaMalloc(&d_ori_err_refined,  sizeof(T) * (size_t)Krep));
+    // RUN LM TUNER
+    double *dx64=nullptr, *dtgt64=nullptr, *dpose64=nullptr, *dposmm64=nullptr, *dori64=nullptr;
+    const size_t KrepN = (size_t)Krep * N;
+    const size_t Krep7 = (size_t)Krep * 7;
+
+    CUDA_OK(cudaMalloc(&dx64,    sizeof(double) * KrepN));
+    CUDA_OK(cudaMalloc(&dtgt64,  sizeof(double) * Krep7));
+    CUDA_OK(cudaMalloc(&dpose64, sizeof(double) * Krep7));
+    CUDA_OK(cudaMalloc(&dposmm64,sizeof(double) * Krep));
+    CUDA_OK(cudaMalloc(&dori64,  sizeof(double) * Krep));
 
     {
-        const int TPB_lm = 32;
-        lm_tuner<T><<<Krep, TPB_lm>>>(d_x_rep, d_pose_refined, d_targets_refined,
-                                      d_pos_err_refined, d_ori_err_refined, d_robotModel,
-                                      (T)1e-8, (T)1e-7, (T)5e-3, 35, 0);
+        const int tpb = 256;
+        int gpb = (int)((KrepN + tpb - 1) / tpb);
+        cast_array<double, TC><<<gpb, tpb>>>(d_x_rep_c, dx64, KrepN);
+        cudaGetLastError();
+
+        gpb = (int)((Krep7 + tpb - 1) / tpb);
+        cast_array<double, TC><<<gpb, tpb>>>(d_targets_refined_c, dtgt64, Krep7);
+        cudaGetLastError();
+
+        CUDA_OK(cudaDeviceSynchronize());
+    }
+
+    auto* d_robotModel64 = grid::init_robotModel<double>();
+    {
+        int zero = 0, neg1 = -1;
+        CUDA_OK(cudaMemcpyToSymbol(g_stop,   &zero, sizeof(int)));
+        CUDA_OK(cudaMemcpyToSymbol(g_winner, &neg1, sizeof(int)));
+    }
+
+    {
+        const int TPB_lm=32;
+        const int max_iters = 40;
+        int stop_on_first = (num_solutions > 1) ? 0 : 1;
+        lm_tuner<double><<<Krep, TPB_lm>>>(
+            dx64, dpose64, dtgt64, dposmm64, dori64, d_robotModel64,
+            1e-8, 1e-8, 5e-3, max_iters, stop_on_first
+        );
         cudaGetLastError();
         CUDA_OK(cudaDeviceSynchronize());
     }
 
-    std::vector<T> h_pos_err_mm_ref(Krep), h_ori_err_rad_ref(Krep);
-    std::vector<T> h_pose_ref(7ULL * Krep), h_x_ref(1ULL * Krep * N);
-    CUDA_OK(cudaMemcpy(h_pos_err_mm_ref.data(), d_pos_err_refined, sizeof(T) * Krep,         cudaMemcpyDeviceToHost));
-    CUDA_OK(cudaMemcpy(h_ori_err_rad_ref.data(), d_ori_err_refined, sizeof(T) * Krep,        cudaMemcpyDeviceToHost));
-    CUDA_OK(cudaMemcpy(h_pose_ref.data(),        d_pose_refined,    sizeof(T) * 7ULL * Krep, cudaMemcpyDeviceToHost));
-    CUDA_OK(cudaMemcpy(h_x_ref.data(),           d_x_rep,           sizeof(T) * 1ULL * Krep * N, cudaMemcpyDeviceToHost));
+    std::vector<double> h_posmm64(Krep), h_orir64(Krep), h_pose64(Krep7), h_x64(KrepN);
+    CUDA_OK(cudaMemcpy(h_posmm64.data(), dposmm64, sizeof(double)*Krep,  cudaMemcpyDeviceToHost));
+    CUDA_OK(cudaMemcpy(h_orir64 .data(), dori64,   sizeof(double)*Krep,  cudaMemcpyDeviceToHost));
+    CUDA_OK(cudaMemcpy(h_pose64 .data(), dpose64,  sizeof(double)*Krep7, cudaMemcpyDeviceToHost));
+    CUDA_OK(cudaMemcpy(h_x64    .data(), dx64,     sizeof(double)*KrepN, cudaMemcpyDeviceToHost));
 
+    // select num_solutions
     const int S_target = std::max(1, num_solutions);
-
-    auto score_ref = [&](int i) -> T {
-        return h_pos_err_mm_ref[i] + h_ori_err_rad_ref[i];
-    };
+    auto score_ref = [&](int i)->double { return h_posmm64[i] + h_orir64[i]; };
 
     std::vector<int> order(Krep);
     std::iota(order.begin(), order.end(), 0);
@@ -1776,16 +1885,17 @@ Result<T> generate_ik_solutions(
 
     const T DUP_TOL = (T)1e-7;
     auto is_dup = [&](int ia, int ib)->bool {
-        const T* qa = &h_x_ref[(size_t)ia * N];
-        const T* qb = &h_x_ref[(size_t)ib * N];
+        const double* qa = &h_x64[(size_t)ia * N];
+        const double* qb = &h_x64[(size_t)ib * N];
         for (int j = 0; j < N; ++j)
-            if (std::fabs(qa[j] - qb[j]) > DUP_TOL) return false;
+            if (std::fabs(qa[j] - qb[j]) > (double)DUP_TOL) return false;
         return true;
     };
 
-    std::vector<int> chosen;
-    chosen.reserve(S_target);
+    // fallback: coarse ranking on host FLOAT arrays
+    auto score_coarse = [&](int i)->double { return (double)h_pos_mm_coarse_f[i] + (double)h_ori_rad_coarse_f[i]; };
 
+    std::vector<int> chosen; chosen.reserve(S_target);
     for (int idx : order) {
         bool dup = false;
         for (int c : chosen) { if (is_dup(idx, c)) { dup = true; break; } }
@@ -1794,79 +1904,66 @@ Result<T> generate_ik_solutions(
             if ((int)chosen.size() == S_target) break;
         }
     }
-
     if ((int)chosen.size() < S_target) {
-        for (int idx : order) {
-            bool already = false;
-            for (int c : chosen) if (c == idx) { already = true; break; }
-            if (!already) {
-                chosen.push_back(idx);
-                if ((int)chosen.size() == S_target) break;
-            }
-        }
-    }
-
-    if ((int)chosen.size() < S_target) {
+        // fill with best coarse indexes (tag as negative)
         std::vector<int> order_coarse(B);
         std::iota(order_coarse.begin(), order_coarse.end(), 0);
-        auto score_coarse = [&](int i){ return h_pos_mm_coarse[i] + h_ori_rad_coarse[i]; };
         std::sort(order_coarse.begin(), order_coarse.end(),
                   [&](int a, int b){ return score_coarse(a) < score_coarse(b); });
-
         for (int cidx : order_coarse) {
             chosen.push_back(-1 - cidx);
             if ((int)chosen.size() == S_target) break;
         }
     }
 
+    // PACK OUTPUTS
     const int S = (int)chosen.size();
-
     result.pos_errors   = new T[S];
     result.ori_errors   = new T[S];
     result.pose         = new T[7 * S];
     result.joint_config = new T[N * S];
-
-    #ifdef HAS_RESULT_COUNT_FIELD
+#ifdef HAS_RESULT_COUNT_FIELD
     result.count = S;
-    #endif
+#endif
 
     for (int r = 0; r < S; ++r) {
         int idx = chosen[r];
         if (idx >= 0) {
-            // refined
-            result.pos_errors[r] = h_pos_err_mm_ref[idx];
-            result.ori_errors[r] = h_ori_err_rad_ref[idx];
+            result.pos_errors[r] = (T)h_posmm64[idx];
+            result.ori_errors[r] = (T)h_orir64[idx];
             for (int k = 0; k < 7; ++k)
-                result.pose[r * 7 + k] = h_pose_ref[(size_t)idx * 7 + k];
+                result.pose[r * 7 + k] = (T)h_pose64[(size_t)idx * 7 + k];
             for (int j = 0; j < N; ++j)
-                result.joint_config[(size_t)r * N + j] = h_x_ref[(size_t)idx * N + j];
+                result.joint_config[(size_t)r * N + j] = (T)h_x64[(size_t)idx * N + j];
         } else {
-            // coarse fallback
-            int cidx = -1 - idx;
-            result.pos_errors[r] = h_pos_mm_coarse[cidx];
-            result.ori_errors[r] = h_ori_rad_coarse[cidx];
+            int cidx = -1 - idx; // from coarse
+            result.pos_errors[r] = (T)h_pos_mm_coarse_f[cidx];
+            result.ori_errors[r] = (T)h_ori_rad_coarse_f[cidx];
             for (int k = 0; k < 7; ++k)
-                result.pose[r * 7 + k] = h_pose_coarse[(size_t)cidx * 7 + k];
+                result.pose[r * 7 + k] = (T)h_pose_coarse_f[(size_t)cidx * 7 + k];
             for (int j = 0; j < N; ++j)
-                result.joint_config[(size_t)r * N + j] = h_x_coarse[(size_t)cidx * N + j];
+                result.joint_config[(size_t)r * N + j] = (T)h_x_coarse_f[(size_t)cidx * N + j];
         }
     }
 
     // CLEAN-UP
-    cudaFree(d_scores);
-    cudaFree(d_x_top);
-    cudaFree(d_x_rep);
-    cudaFree(d_pose_refined);
-    cudaFree(d_pos_err_refined);
-    cudaFree(d_ori_err_refined);
-    cudaFree(d_targets_refined);
+    cudaFree(d_scores_c);
+    cudaFree(d_x_top_c);
+    cudaFree(d_x_rep_c);
+    cudaFree(d_targets_refined_c);
 
-    cudaFree(d_x);
-    cudaFree(d_pose);
-    cudaFree(d_pos_errors);
-    cudaFree(d_ori_errors);
-    cudaFree(d_targetsB);
-    cudaFree(d_target7);
+    cudaFree(d_targets_coarse_c);
+    cudaFree(d_x_c);
+    cudaFree(d_pose_c);
+    cudaFree(d_pos_mm_c);
+    cudaFree(d_ori_r_c);
+    cudaFree(d_target7_c);
+
+    cudaFree(dx64);
+    cudaFree(dtgt64);
+    cudaFree(dpose64);
+    cudaFree(dposmm64);
+    cudaFree(dori64);
 
     auto t1 = high_resolution_clock::now();
     result.elapsed_time = std::chrono::duration<double, std::milli>(t1 - t0).count();
