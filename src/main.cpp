@@ -1,4 +1,3 @@
-// main.cpp
 #include "include/hjcd_kernel.h"
 
 #include <algorithm>

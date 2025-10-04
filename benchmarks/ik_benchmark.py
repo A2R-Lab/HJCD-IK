@@ -1,9 +1,8 @@
-# benchmarks/ik_benchmark.py
 import sys, time, os
 from pathlib import Path
 import argparse
 
-# Make local GRiD importable (GRiD/__init__.py lives in external/GRiD)
+# Make local GRiD importable
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "external"))
 
@@ -77,7 +76,6 @@ def main():
     ap.add_argument("--seed", type=int, default=0, help="Seed for target sampling")
     args = ap.parse_args()
 
-    # Optional GRiD step
     maybe_run_grid_codegen(Path(args.urdf), args.skip_grid_codegen)
 
     N = hjcdik.num_joints()
@@ -85,11 +83,10 @@ def main():
     T, batches, S = int(args.num_targets), list(args.batches), int(args.num_solutions)
     targets = hjcdik.sample_targets(T, seed=args.seed)
 
-    # Accumulators like main.cpp
-    y_batch = []        # list[int]
-    y_time_ms = []      # list[float] (per-solution time, same semantics as main.cpp)
-    y_pos = []          # list[float]
-    y_ori = []          # list[float]
+    y_batch = []        
+    y_time_ms = []     
+    y_pos = []          
+    y_ori = []         
 
     _ = hjcdik.generate_solutions(targets[0], batch_size=batches[-1], num_solutions=S)
 
@@ -100,10 +97,9 @@ def main():
             res = hjcdik.generate_solutions(target, batch_size=B, num_solutions=S)
             dt_ms = (time.perf_counter() - t0) * 1e3
 
-            # Per-solution accounting (main.cpp divides total call time across S)
             per_sample_ms = dt_ms / max(1, S)
-            pos_err = res["pos_errors"]   # shape (S,)
-            ori_err = res["ori_errors"]   # shape (S,)
+            pos_err = res["pos_errors"] 
+            ori_err = res["ori_errors"] 
 
             for r in range(S):
                 y_batch.append(B)
