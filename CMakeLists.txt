@@ -10,7 +10,6 @@ set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
 
-# Prefer static CUDA runtime to avoid cudart64_*.dll at import time
 # (CMake 3.18+)
 set(CMAKE_CUDA_RUNTIME_LIBRARY Static)
 
@@ -18,13 +17,12 @@ set(CMAKE_CUDA_RUNTIME_LIBRARY Static)
 
 find_package(CUDAToolkit REQUIRED)
 
-# Use modern Python discovery in pybind11 (important for Python 3.13)
 set(PYBIND11_FINDPYTHON ON)
 if(BUILD_PYTHON)
   find_package(pybind11 CONFIG REQUIRED)
 endif()
 
-# ----- Optional GRiD subdir -----
+# GRiD subdir
 set(GRID_DIR ${CMAKE_SOURCE_DIR}/external/GRiD)
 if(EXISTS "${GRID_DIR}/CMakeLists.txt")
   add_subdirectory(${GRID_DIR} EXCLUDE_FROM_ALL)
@@ -33,16 +31,24 @@ else()
   set(HAVE_GRID_TARGETS FALSE)
 endif()
 
-# ----- Sources -----
+# Sources
 set(HJCDIK_COMMON_SOURCES
   src/hjcd_kernel.cu
   src/util.cpp
 )
 
-# ===== Native executable =====
+set(GRID_HEADER
+  ${CMAKE_SOURCE_DIR}/external/GRiD/grid.cuh
+)
+
+# Native Executable
 add_executable(hjcdik
   src/main.cpp
   ${HJCDIK_COMMON_SOURCES}
+)
+
+target_sources(hjcdik 
+  PRIVATE ${GRID_HEADER}
 )
 
 target_include_directories(hjcdik PRIVATE
@@ -62,7 +68,6 @@ if(HAVE_GRID_TARGETS)
   endif()
 endif()
 
-# Warnings: scope to CXX only (avoid leaking into NVCC)
 if(MSVC)
   target_compile_options(hjcdik PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/permissive- /W4>)
 else()
@@ -75,12 +80,13 @@ target_compile_options(hjcdik PRIVATE
   $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-O3>
 )
 
-# ===== Python extension =====
+# Python
 if(BUILD_PYTHON)
   pybind11_add_module(_hjcdik MODULE
     src/pybind_module.cpp
     ${HJCDIK_COMMON_SOURCES}
   )
+  target_sources(_hjcdik PRIVATE ${GRID_HEADER})
   target_include_directories(_hjcdik PRIVATE
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/include
@@ -88,7 +94,7 @@ if(BUILD_PYTHON)
     ${CMAKE_SOURCE_DIR}/external/GRiD/include
   )
 
-  # Link STATIC CUDA runtime for the extension too
+  # Link STATIC CUDA runtime
   target_link_libraries(_hjcdik PRIVATE CUDA::cudart_static)
   if(HAVE_GRID_TARGETS)
     if(TARGET grid::grid)
@@ -111,10 +117,8 @@ if(BUILD_PYTHON)
     $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-O3>
   )
 
-  # Place the extension into the package directory on install
   install(TARGETS _hjcdik DESTINATION hjcdik)
 
-  # --- If GRiD is a shared library, copy its DLL next to the .pyd and install it ---
   if(HAVE_GRID_TARGETS AND GRID_DLL_TARGET)
     get_target_property(_grid_type ${GRID_DLL_TARGET} TYPE)
     if(_grid_type STREQUAL "SHARED_LIBRARY" OR _grid_type STREQUAL "MODULE_LIBRARY")
