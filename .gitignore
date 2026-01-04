@@ -45,7 +45,7 @@ __pycache__/
 *.pyc
 
 # ---- Generated files ----
-hjcd_ik_per_batch.yml
+results.yml
 
 # ---- OS / Editor ----
 .DS_Store

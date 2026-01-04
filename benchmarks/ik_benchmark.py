@@ -1,6 +1,8 @@
 import sys, time, os
 from pathlib import Path
 import argparse
+from collections import defaultdict 
+import math
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "external"))
@@ -62,6 +64,24 @@ def _parse_batches(s: str):
         raise argparse.ArgumentTypeError("batches list is empty")
     return vals
 
+# Print summary
+def print_batch_summary(batches, y_batch, y_time_ms, y_pos, y_ori):
+    g_time = defaultdict(list)
+    g_pos = defaultdict(list)
+    g_ori = defaultdict(list)
+
+    for B, t, p, o in zip(y_batch, y_time_ms, y_pos, y_ori):
+        g_time[B].append(t)
+        g_pos[B].append(p)
+        g_ori[B].append(o)
+
+    print("\n==== Batch Summary (averages) ====")
+    for B in sorted(g_time.keys()):
+        print(f"Batch Size {B}:")
+        print(f"  Time (ms): {sum(g_time[B]) / len(g_time[B]):12.6e}")
+        print(f"  Position Error: {sum(g_pos[B]) / len(g_pos[B]):12.6e}")
+        print(f"  Orientation Error: {sum(g_ori[B]) / len(g_ori[B]):12.6e}")
+
 def main():
     ap = argparse.ArgumentParser(description="HJCD-IK benchmark")
     ap.add_argument("--num-targets", type=int, default=100)
@@ -104,6 +124,7 @@ def main():
 
     # Benchmark
     print(f"[info] running {T} targets, batches={batches}, num_solutions={S}")
+    
     for i, target in enumerate(targets, 1):
         for B in batches:
             t0 = time.perf_counter()
@@ -122,6 +143,7 @@ def main():
         if (i % 50) == 0 or i == T:
             print(f"[info] processed {i}/{T} targets")
 
+    print_batch_summary(batches, y_batch, y_time_ms, y_pos, y_ori)
     out_path = (Path(args.yaml_out) if Path(args.yaml_out).is_absolute()
                 else (ROOT / args.yaml_out).resolve())
     write_yaml_flat(out_path, y_batch, y_time_ms, y_pos, y_ori)
