@@ -135,11 +135,9 @@ if(BUILD_PYTHON)
     src/pybind_module.cpp
     ${HJCDIK_COMMON_SOURCES}
   )
-  target_link_libraries(_hjcdik PRIVATE
-    CUDA::cudart_static 
-    yaml-cpp::yaml-cpp 
-  )
+
   target_sources(_hjcdik PRIVATE ${GRID_HEADER})
+
   target_include_directories(_hjcdik PRIVATE
     ${CMAKE_BINARY_DIR}
     ${CMAKE_SOURCE_DIR}
@@ -148,8 +146,14 @@ if(BUILD_PYTHON)
     ${CMAKE_SOURCE_DIR}/external/GRiD/include
   )
 
-  # Link STATIC CUDA runtime
-  target_link_libraries(_hjcdik PRIVATE CUDA::cudart_static)
+  target_link_libraries(_hjcdik PRIVATE
+    CUDA::cudart
+    yaml-cpp::yaml-cpp
+  )
+
+  set_target_properties(_hjcdik PROPERTIES CUDA_RESOLVE_DEVICE_SYMBOLS ON)
+  set_target_properties(_hjcdik PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
   if(HAVE_GRID_TARGETS)
     if(TARGET grid::grid)
       target_link_libraries(_hjcdik PRIVATE grid::grid)
@@ -180,7 +184,6 @@ if(BUILD_PYTHON)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 $<TARGET_FILE:${GRID_DLL_TARGET}>
                 $<TARGET_FILE_DIR:_hjcdik>)
-
       install(FILES $<TARGET_FILE:${GRID_DLL_TARGET}> DESTINATION hjcdik)
     endif()
   endif()
