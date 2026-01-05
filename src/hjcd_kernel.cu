@@ -361,31 +361,6 @@ __device__ T solve_ori(const T* s_jointXforms, const T* q_t, int joint, int k, i
     return step;
 }
 
-template<typename T>
-__device__ T compute_pos_err(const T* CjX, const T* target_pose) {
-    T dx = CjX[(N - 1) * 16 + 12];
-    T dy = CjX[(N - 1) * 16 + 13];
-    T dz = CjX[(N - 1) * 16 + 14];
-
-    return sqrt(
-        (dx - target_pose[0]) * (dx - target_pose[0]) +
-        (dy - target_pose[1]) * (dy - target_pose[1]) +
-        (dz - target_pose[2]) * (dz - target_pose[2])
-    );
-}
-
-template<typename T>
-__device__ T compute_ori_err(const T* CjX, const T* q_goal) {
-    T qee[4];
-    mat_to_quat_colmajor3x3(&CjX[(N-1)*16], qee);
-    if (qee[0]*q_goal[0]+qee[1]*q_goal[1]+qee[2]*q_goal[2]+qee[3]*q_goal[3] < (T)0) {
-        qee[0]=-qee[0]; qee[1]=-qee[1]; qee[2]=-qee[2]; qee[3]=-qee[3];
-    }
-    T wv[3]; quat_err_rotvec(qee, q_goal, wv);
-    return sqrt(wv[0]*wv[0] + wv[1]*wv[1] + wv[2]*wv[2]);
-}
-
-
 __device__ int g_stop = 0;
 __device__ int g_winner = -1;
 
@@ -493,6 +468,29 @@ __device__ T compute_ori_err_colmajor(const T* C, const T* q_goal) {
     return sqrt(wv[0]*wv[0] + wv[1]*wv[1] + wv[2]*wv[2]);
 }
 
+template<typename T>
+__device__ T compute_pos_err(const T* CjX, const T* target_pose) {
+    T dx = CjX[(N - 1) * 16 + 12];
+    T dy = CjX[(N - 1) * 16 + 13];
+    T dz = CjX[(N - 1) * 16 + 14];
+
+    return sqrt(
+        (dx - target_pose[0]) * (dx - target_pose[0]) +
+        (dy - target_pose[1]) * (dy - target_pose[1]) +
+        (dz - target_pose[2]) * (dz - target_pose[2])
+    );
+}
+
+template<typename T>
+__device__ T compute_ori_err(const T* CjX, const T* q_goal) {
+    T qee[4];
+    mat_to_quat_colmajor3x3(&CjX[(N-1)*16], qee);
+    if (qee[0]*q_goal[0]+qee[1]*q_goal[1]+qee[2]*q_goal[2]+qee[3]*q_goal[3] < (T)0) {
+        qee[0]=-qee[0]; qee[1]=-qee[1]; qee[2]=-qee[2]; qee[3]=-qee[3];
+    }
+    T wv[3]; quat_err_rotvec(qee, q_goal, wv);
+    return sqrt(wv[0]*wv[0] + wv[1]*wv[1] + wv[2]*wv[2]);
+}
 
 // JACOBIAN TUNER
 template<typename T, int M>
