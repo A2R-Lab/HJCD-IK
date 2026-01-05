@@ -37,9 +37,21 @@ set(HJCDIK_COMMON_SOURCES
   src/util.cpp
 )
 
-set(GRID_HEADER
-  ${CMAKE_SOURCE_DIR}/external/GRiD/grid.cuh
-)
+set(GRID_HEADER_GENERATED "${CMAKE_SOURCE_DIR}/external/GRiD/grid.cuh")
+set(GRID_HEADER_FALLBACK  "${CMAKE_SOURCE_DIR}/include/test_cuh/panda_grid.cuh")
+
+if(EXISTS "${GRID_HEADER_GENERATED}")
+  message(STATUS "HJCD-IK: using generated GRiD header: ${GRID_HEADER_GENERATED}")
+  set(GRID_HEADER "${GRID_HEADER_GENERATED}")
+  add_compile_definitions(HJCDIK_HAS_GENERATED_GRID_CUH=1)
+else()
+  message(WARNING "HJCD-IK: external/GRiD/grid.cuh not found; using fallback: ${GRID_HEADER_FALLBACK}")
+  if(NOT EXISTS "${GRID_HEADER_FALLBACK}")
+    message(FATAL_ERROR "HJCD-IK: fallback grid header not found at ${GRID_HEADER_FALLBACK}")
+  endif()
+  set(GRID_HEADER "${GRID_HEADER_FALLBACK}")
+  add_compile_definitions(HJCDIK_HAS_GENERATED_GRID_CUH=0)
+endif()
 
 # Native Executable
 add_executable(hjcdik

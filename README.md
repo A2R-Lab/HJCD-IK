@@ -1,6 +1,8 @@
-# HJCD-IK (Hybrid Jacobian Coordinate Descent)
+# HJCD-IK: Hybrid Jacobian Coordinate Descent Inverse Kinematics
 
-A GPU-accelerated inverse kinematics solver built on [GRiD](https://github.com/A2R-Lab/GRiD).
+[![arXiv:2510.07514](https://img.shields.io/badge/arXiv-2510.07514-b31b1b.svg)](https://arxiv.org/abs/2510.07514)
+
+This repository contains the code from "HJCD-IK: GPU-Accelerated Inverse Kinematics through Batched Hybrid Jacobian Coordinate Descent"(https://arxiv.org/abs/2510.07514)
 
 ## Requirements
 
@@ -9,19 +11,23 @@ A GPU-accelerated inverse kinematics solver built on [GRiD](https://github.com/A
 - **CMake &ge; 3.23**
 - **Visual Studio 2022** (Windows) or **GCC/Clang** (Linux)
 
-## Clone
+## Installation
 ```bash
-git clone --recurse-submodules https://github.com/A2R-Lab/HJCD-IK.git
+git clone https://github.com/A2R-Lab/HJCD-IK.git
 cd HJCD-IK
 ```
 
-## Install the Python package
-You can install `hjcdik` with `pip` on Python &ge; 3.9:
+HJCD-IK relies on [GRiD](https://github.com/A2R-Lab/GRiD), a GPU-accelerated library for rigid body dynamics and analytical gradients.
 ```bash
-python -m pip install -U pip
-python -m pip install -e .
+git submodule sync --recursive
+git submodule update --init --recursive
 ```
 
+You can install `hjcdik` with `pip` on Python &ge; 3.9:
+```bash
+python -m pip install -e .
+```
+<!--
 ## Initial Start
 After installation, configure an initial GRiD header file for the robot:
 ```bash
@@ -30,9 +36,9 @@ python generateGRiD.py /path/to/urdf
 cd ../..
 ```
 For testing we provide `panda` and `fetch` urdf files in `include/test_urdf`. 
-
+-->
 ## Benchmark
-Once initializing a GRiD header file, run:
+Once done installing, run:
 ```bash
 python benchmarks/ik_benchmark.py --skip-grid-codegen
 ```
@@ -67,4 +73,14 @@ python benchmarks/ik_benchmark.py \
 * Run with GRiD code-gen using specific URDF:
 ```bash
 python benchmarks/ik_benchmark.py --urdf include/test_urdf/panda.urdf
+```
+
+## Cite
+```bibtex
+@article{yasutake2025hjcd,
+  title={HJCD-IK: GPU-Accelerated Inverse Kinematics through Batched Hybrid Jacobian Coordinate Descent},
+  author={Yasutake, Cael and Kingston, Zachary and Plancher, Brian},
+  journal={arXiv preprint arXiv:2510.07514},
+  year={2025}
+}
 ```
