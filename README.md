@@ -26,7 +26,7 @@ chmod +x scripts/bootstrap.sh
 ```
 (Windows)
 ```bash
-.\scripts\boostrap_windows.bat
+.\scripts\bootstrap_windows.bat
 ```
 
 You can install `hjcdik` with `pip` on Python &ge; 3.9:
