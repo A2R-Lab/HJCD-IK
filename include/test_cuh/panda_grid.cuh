@@ -2230,8 +2230,8 @@ namespace grid {
         h_joint_limits[6] = static_cast<T>(-2.8973);
         h_joint_limits[13] = static_cast<T>(2.8973);
         T *d_joint_limits;
-        gpuErrchk(cudaMalloc((void**)&d_joint_limits,14*sizeof(T)));
-        gpuErrchk(cudaMemcpy(d_joint_limits,h_joint_limits,14*sizeof(T),cudaMemcpyHostToDevice));
+        gpuErrchk(cudaMalloc((void**)&d_joint_limits, 14*sizeof(T)));
+        gpuErrchk(cudaMemcpy(d_joint_limits, h_joint_limits, 14*sizeof(T), cudaMemcpyHostToDevice));
         free(h_joint_limits);
         return d_joint_limits;
     }
@@ -3487,17 +3487,17 @@ namespace grid {
     }
 
     /**
-     * Update local trig terms in Xhom and accumulate joint transforms up to tid
+     * Single thread joint transformation matrix accumulation up to joint (tid)
      *
-     * @param s_jointXforms is the (shared) memory destination location for cumulative 4x4 joint transforms
-     * @param s_XmatsHom is the (shared) memory of local homogeneous transforms (will be updated in-place for trigs)
-     * @param s_q is the (shared) configuration vector
-     * @param tid is the joint index up to which to accumulate
+     * @param s_jointXforms is the pointer to the cumulative joint transfomration matrices
+     * @param s_XmatsHom is the pointer to the homogenous transformation matrices
+     * @param s_q is the vector of joint positions
+     * @param tid is the joint index up to compute
      */
     template <typename T>
     __device__
-    void update_singleJointX(T *s_jointXforms, T *s_XmatsHom, T *s_q, int tid) {
-        // 1) Refresh non-constant entries in s_XmatsHom using s_q (sin/cos/theta substitution)
+    void X_single_thread(T *s_jointXforms, T *s_XmatsHom, T *s_q, int tid) {
+        // Update s_XmatsHom from s_q
         // X_hom[0]
         s_XmatsHom[0] = static_cast<T>(cos(s_q[0]));
         s_XmatsHom[1] = static_cast<T>(sin(s_q[0]));
@@ -3533,7 +3533,7 @@ namespace grid {
         s_XmatsHom[98] = static_cast<T>(sin(s_q[6]));
         s_XmatsHom[100] = static_cast<T>(-sin(s_q[6]));
         s_XmatsHom[102] = static_cast<T>(cos(s_q[6]));
-        // 2) Sequentially accumulate global transforms up to 'tid' (inclusive)
+        // Accumulate global transforms up to 'tid'
         if (tid >= 7) tid = 7-1;
         if (tid < 0) { return; }
         {
@@ -3569,6 +3569,113 @@ namespace grid {
           o[12]=r12; o[13]=r13; o[14]=r14;
           o[15]=(T)1;
         }
+    }
+
+    /**
+     * Warp-cooperative joint transformation matrix accumulation up to joint (tid)
+     *
+     * @param s_jointXforms is the pointer to the cumulative joint transfomration matrices
+     * @param s_XmatsHom is the pointer to the homogenous transformation matrices
+     * @param s_q is the vector of joint positions
+     * @param tid is the joint index up to compute
+     */
+    template <typename T>
+    __device__ inline void X_warp(
+        T* __restrict__ s_jointXforms,
+        T* __restrict__ s_XmatsHom,
+        const T* __restrict__ s_q,
+        int tid)
+    {
+          const int lane = threadIdx.x & 31;
+          const unsigned mask = 0xFFFFFFFFu;
+          if (tid >= 7) tid = 7-1;
+          if (tid < 0)  return;
+        
+          if (lane <= 6) {
+            const int j = lane;
+            const T c = static_cast<T>(cos(s_q[j]));
+            const T s = static_cast<T>(sin(s_q[j]));
+            T* X = &s_XmatsHom[j * 16];
+            if (j == 0) {
+              X[0] = static_cast<T>(c);
+              X[1] = static_cast<T>(s);
+              X[4] = static_cast<T>(-s);
+              X[5] = static_cast<T>(c);
+            }
+            else if (j == 1) {
+              X[0] = static_cast<T>(c);
+              X[2] = static_cast<T>(-s);
+              X[4] = static_cast<T>(-s);
+              X[6] = static_cast<T>(-c);
+            }
+            else if (j == 2) {
+              X[0] = static_cast<T>(c);
+              X[2] = static_cast<T>(s);
+              X[4] = static_cast<T>(-s);
+              X[6] = static_cast<T>(c);
+            }
+            else if (j == 3) {
+              X[0] = static_cast<T>(c);
+              X[2] = static_cast<T>(s);
+              X[4] = static_cast<T>(-s);
+              X[6] = static_cast<T>(c);
+            }
+            else if (j == 4) {
+              X[0] = static_cast<T>(c);
+              X[2] = static_cast<T>(-s);
+              X[4] = static_cast<T>(-s);
+              X[6] = static_cast<T>(-c);
+            }
+            else if (j == 5) {
+              X[0] = static_cast<T>(c);
+              X[2] = static_cast<T>(s);
+              X[4] = static_cast<T>(-s);
+              X[6] = static_cast<T>(c);
+            }
+            else if (j == 6) {
+              X[0] = static_cast<T>(c);
+              X[2] = static_cast<T>(s);
+              X[4] = static_cast<T>(-s);
+              X[6] = static_cast<T>(c);
+            }
+          }
+          __syncwarp(mask);
+        
+          {
+            const T* c = &s_XmatsHom[0];
+            T*       o = &s_jointXforms[0];
+            if (lane == 0) { o[0]  = c[0];  o[4]  = c[4];  o[8]  = c[8];  o[12] = c[12]; }
+            else if (lane == 1) { o[1]  = c[1];  o[5]  = c[5];  o[9]  = c[9];  o[13] = c[13]; }
+            else if (lane == 2) { o[2]  = c[2];  o[6]  = c[6];  o[10] = c[10]; o[14] = c[14]; }
+            if (lane == 0) { o[3]=(T)0; o[7]=(T)0; o[11]=(T)0; o[15]=(T)1; }
+          }
+          __syncwarp(mask);
+          if (tid == 0) return;
+        
+          #pragma unroll
+          for (int j = 1; j <= tid; ++j) {
+            const T* p = &s_jointXforms[(j - 1) * 16];
+            const T* c = &s_XmatsHom[ j      * 16];
+            T*       o = &s_jointXforms[ j      * 16];
+            if (lane == 0) {
+              o[0]  = p[0]*c[0]  + p[4]*c[1]  + p[8]*c[2];
+              o[4]  = p[0]*c[4]  + p[4]*c[5]  + p[8]*c[6];
+              o[8]  = p[0]*c[8]  + p[4]*c[9]  + p[8]*c[10];
+              o[12] = p[0]*c[12] + p[4]*c[13] + p[8]*c[14] + p[12];
+            } else if (lane == 1) {
+              o[1]  = p[1]*c[0]  + p[5]*c[1]  + p[9]*c[2];
+              o[5]  = p[1]*c[4]  + p[5]*c[5]  + p[9]*c[6];
+              o[9]  = p[1]*c[8]  + p[5]*c[9]  + p[9]*c[10];
+              o[13] = p[1]*c[12] + p[5]*c[13] + p[9]*c[14] + p[13];
+            } else if (lane == 2) {
+              o[2]  = p[2]*c[0]  + p[6]*c[1]  + p[10]*c[2];
+              o[6]  = p[2]*c[4]  + p[6]*c[5]  + p[10]*c[6];
+              o[10] = p[2]*c[8]  + p[6]*c[9]  + p[10]*c[10];
+              o[14] = p[2]*c[12] + p[6]*c[13] + p[10]*c[14] + p[14];
+            }
+            if (lane == 0) { o[3]=(T)0; o[7]=(T)0; o[11]=(T)0; o[15]=(T)1; }
+            __syncwarp(mask);
+          }
     }
 
     /**
@@ -8164,8 +8271,8 @@ namespace grid {
 
             // Transform S
             for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < 6*NUM_JOINTS; i += blockDim.x*blockDim.y){
-                int joint = i / 6;
-                S[i] = Xdown[joint*XIMAT_SIZE + 2*6 + (i % 6)];
+                int jid = i / 6;
+                S[i] = Xdown[jid*XIMAT_SIZE + 2*6 + (i % 6)];
             }
             __syncthreads();
             
