@@ -28,7 +28,9 @@ endif()
 
 # GRiD subdir
 set(GRID_DIR ${CMAKE_SOURCE_DIR}/external/GRiD)
-if(EXISTS "${GRID_DIR}/CMakeLists.txt")
+set(GRID_HEADER_GENERATED "${GRID_DIR}/grid.cuh")
+
+if(EXISTS "${GRID_DIR}/CMakeLists.txt" AND EXISTS "${GRID_HEADER_GENERATED}")
   add_subdirectory(${GRID_DIR} EXCLUDE_FROM_ALL)
   set(HAVE_GRID_TARGETS TRUE)
 else()
@@ -47,9 +49,11 @@ set(GRID_HEADER_FALLBACK  "${CMAKE_SOURCE_DIR}/include/test_cuh/panda_grid.cuh")
 
 if(NOT EXISTS "${GRID_HEADER_GENERATED}" AND HJCDIK_AUTO_CODEGEN)
   message(STATUS "HJCD-IK: grid.cuh missing — running GRiD codegen")
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  set(HJCDIK_CODEGEN_URDF "${CMAKE_SOURCE_DIR}/include/test_urdf/panda.urdf")
 
   execute_process(
-    COMMAND ${Python3_EXECUTABLE} generateGRiD.py
+    COMMAND ${Python3_EXECUTABLE} generateGRiD.py "${HJCDIK_CODEGEN_URDF}" panda
     WORKING_DIRECTORY ${GRID_DIR}
     RESULT_VARIABLE _codegen_result
   )
@@ -59,8 +63,6 @@ if(NOT EXISTS "${GRID_HEADER_GENERATED}" AND HJCDIK_AUTO_CODEGEN)
   endif()
 endif()
 
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
-
 if(EXISTS "${GRID_HEADER_GENERATED}")
   message(STATUS "HJCD-IK: using generated GRiD header")
   set(GRID_HEADER "${GRID_HEADER_GENERATED}")
@@ -69,6 +71,14 @@ else()
   message(WARNING "HJCD-IK: grid.cuh missing — using fallback")
   set(GRID_HEADER "${GRID_HEADER_FALLBACK}")
   add_compile_definitions(HJCDIK_HAS_GENERATED_GRID_CUH=0)
+endif()
+
+if(NOT EXISTS "${GRID_HEADER_GENERATED}")
+  set(GRID_HEADER_SHIM "${CMAKE_BINARY_DIR}/grid.cuh")
+  file(WRITE "${GRID_HEADER_SHIM}"
+"#pragma once\n"
+"#include \"test_cuh/panda_grid.cuh\"\n"
+  )
 endif()
 
 # Native Executable
@@ -82,6 +92,7 @@ target_sources(hjcdik
 )
 
 target_include_directories(hjcdik PRIVATE
+  ${CMAKE_BINARY_DIR}
   ${CMAKE_SOURCE_DIR}
   ${CMAKE_SOURCE_DIR}/include
   ${CMAKE_SOURCE_DIR}/external/GRiD
@@ -118,6 +129,7 @@ if(BUILD_PYTHON)
   )
   target_sources(_hjcdik PRIVATE ${GRID_HEADER})
   target_include_directories(_hjcdik PRIVATE
+    ${CMAKE_BINARY_DIR}
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/external/GRiD
