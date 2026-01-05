@@ -33,22 +33,13 @@ You can install `hjcdik` with `pip` on Python &ge; 3.9:
 ```bash
 python -m pip install -e . --config-settings=cmake.define.HJCDIK_AUTO_CODEGEN=ON
 ```
-<!--
-## Initial Start
-After installation, configure an initial GRiD header file for the robot:
-```bash
-cd external/GRiD
-python generateGRiD.py /path/to/urdf
-cd ../..
-```
-For testing we provide `panda` and `fetch` urdf files in `include/test_urdf`. 
--->
+
 ## Benchmark
-Once done installing, run:
+To run IK benchmarks, use:
 ```bash
 python benchmarks/ik_benchmark.py --skip-grid-codegen
 ```
-To run the Panda Arm benchmark on batch sizes of `1,10,100,1000,2000`. Results are written to a `results.yml` file.
+which performs IK using the Panda Arm with batches of `1, 10, 100, 1000, 2000`. Results are written to a `results.yml`.
 
 ### Usage
 * `--num-targets <int>`
@@ -67,7 +58,7 @@ To run the Panda Arm benchmark on batch sizes of `1,10,100,1000,2000`. Results a
   * Seed for target sampling. Default: `0`
 
 ### Usage Examples
-* Custom batches/targets/solutions, write a custom file:
+* Custom batches/targets/solutions, out file name:
 ```bash
 python benchmarks/ik_benchmark.py \
   --batches "1,32,256,2048" \
@@ -76,12 +67,16 @@ python benchmarks/ik_benchmark.py \
   --yaml-out results.yml \ 
   --skip-grid-codegen
 ```
-* Run with GRiD code-gen using specific URDF:
+* To generate a new GRiD header on a different robot, run:
 ```bash
-python benchmarks/ik_benchmark.py --urdf include/test_urdf/panda.urdf
+python benchmarks/ik_benchmark.py --urdf include/test_urdf/fetch.urdf
 ```
 
+### Note on custom robots:
+HJCD-IK and GRiD currently only supports robots using revolute, prismatic, and fixed joints without any closed kinematics loops.
+
 ## Cite
+Please cite HCJD-IK if you found this work useful:
 ```bibtex
 @article{yasutake2025hjcd,
   title={HJCD-IK: GPU-Accelerated Inverse Kinematics through Batched Hybrid Jacobian Coordinate Descent},
