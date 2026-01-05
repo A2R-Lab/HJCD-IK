@@ -21,6 +21,9 @@ set(CMAKE_CUDA_RUNTIME_LIBRARY Static)
 
 find_package(CUDAToolkit REQUIRED)
 
+# yaml-cpp
+find_package(yaml-cpp CONFIG REQUIRED)
+
 set(PYBIND11_FINDPYTHON ON)
 if(BUILD_PYTHON)
   find_package(pybind11 CONFIG REQUIRED)
@@ -87,6 +90,11 @@ add_executable(hjcdik
   ${HJCDIK_COMMON_SOURCES}
 )
 
+target_link_libraries(hjcdik PRIVATE
+  CUDA::cudart_static
+  yaml-cpp::yaml-cpp
+)
+
 target_sources(hjcdik 
   PRIVATE ${GRID_HEADER}
 )
@@ -126,6 +134,10 @@ if(BUILD_PYTHON)
   pybind11_add_module(_hjcdik MODULE
     src/pybind_module.cpp
     ${HJCDIK_COMMON_SOURCES}
+  )
+  target_link_libraries(_hjcdik PRIVATE
+    CUDA::cudart_static 
+    yaml-cpp::yaml-cpp 
   )
   target_sources(_hjcdik PRIVATE ${GRID_HEADER})
   target_include_directories(_hjcdik PRIVATE
