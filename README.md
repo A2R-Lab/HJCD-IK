@@ -31,7 +31,7 @@ chmod +x scripts/bootstrap.sh
 
 You can install `hjcdik` with `pip` on Python &ge; 3.9:
 ```bash
-python -m pip install -e . --config-settings=cmake.define.HJCDIK_AUTO_CODEGEN=ON
+python -m pip install -e .
 ```
 
 ## Benchmark
