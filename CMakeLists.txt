@@ -3,6 +3,10 @@ project(hjcdik LANGUAGES CXX CUDA)
 
 option(HJCDIK_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
 option(BUILD_PYTHON "Build the Python extension module" ON)
+option(HJCDIK_AUTO_CODEGEN
+  "Automatically generate grid.cuh using GRiD if missing"
+  OFF
+)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -37,18 +41,32 @@ set(HJCDIK_COMMON_SOURCES
   src/util.cpp
 )
 
-set(GRID_HEADER_GENERATED "${CMAKE_SOURCE_DIR}/external/GRiD/grid.cuh")
+set(GRID_DIR ${CMAKE_SOURCE_DIR}/external/GRiD)
+set(GRID_HEADER_GENERATED "${GRID_DIR}/grid.cuh")
 set(GRID_HEADER_FALLBACK  "${CMAKE_SOURCE_DIR}/include/test_cuh/panda_grid.cuh")
 
+if(NOT EXISTS "${GRID_HEADER_GENERATED}" AND HJCDIK_AUTO_CODEGEN)
+  message(STATUS "HJCD-IK: grid.cuh missing — running GRiD codegen")
+
+  execute_process(
+    COMMAND ${Python3_EXECUTABLE} generateGRiD.py
+    WORKING_DIRECTORY ${GRID_DIR}
+    RESULT_VARIABLE _codegen_result
+  )
+
+  if(NOT _codegen_result EQUAL 0)
+    message(FATAL_ERROR "GRiD codegen failed")
+  endif()
+endif()
+
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
 if(EXISTS "${GRID_HEADER_GENERATED}")
-  message(STATUS "HJCD-IK: using generated GRiD header: ${GRID_HEADER_GENERATED}")
+  message(STATUS "HJCD-IK: using generated GRiD header")
   set(GRID_HEADER "${GRID_HEADER_GENERATED}")
   add_compile_definitions(HJCDIK_HAS_GENERATED_GRID_CUH=1)
 else()
-  message(WARNING "HJCD-IK: external/GRiD/grid.cuh not found; using fallback: ${GRID_HEADER_FALLBACK}")
-  if(NOT EXISTS "${GRID_HEADER_FALLBACK}")
-    message(FATAL_ERROR "HJCD-IK: fallback grid header not found at ${GRID_HEADER_FALLBACK}")
-  endif()
+  message(WARNING "HJCD-IK: grid.cuh missing — using fallback")
   set(GRID_HEADER "${GRID_HEADER_FALLBACK}")
   add_compile_definitions(HJCDIK_HAS_GENERATED_GRID_CUH=0)
 endif()
