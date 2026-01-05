@@ -78,7 +78,7 @@ def print_batch_summary(batches, y_batch, y_time_ms, y_pos, y_ori):
     print("\n==== Batch Summary (averages) ====")
     for B in sorted(g_time.keys()):
         print(f"Batch Size {B}:")
-        print(f"  Time (ms): {sum(g_time[B]) / len(g_time[B]):12.6e}")
+        print(f"  Time (ms): {sum(g_time[B]) / len(g_time[B]):.6f}")
         print(f"  Position Error: {sum(g_pos[B]) / len(g_pos[B]):12.6e}")
         print(f"  Orientation Error: {sum(g_ori[B]) / len(g_ori[B]):12.6e}")
 
@@ -147,7 +147,7 @@ def main():
     out_path = (Path(args.yaml_out) if Path(args.yaml_out).is_absolute()
                 else (ROOT / args.yaml_out).resolve())
     write_yaml_flat(out_path, y_batch, y_time_ms, y_pos, y_ori)
-    print(f"[OK] wrote {out_path} with {T*S*len(batches)} entries "
+    print(f"\n[OK] wrote {out_path} with {T*S*len(batches)} entries "
           f"({T} targets × {len(batches)} batches × {S} solutions each).")
 
 
