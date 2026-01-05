@@ -18,9 +18,13 @@ cd HJCD-IK
 ```
 
 HJCD-IK relies on [GRiD](https://github.com/A2R-Lab/GRiD), a GPU-accelerated library for rigid body dynamics and analytical gradients.
+(Mac/Linux)
 ```bash
-git submodule sync --recursive
-git submodule update --init --recursive
+./scripts/boostrap.sh
+```
+(Windows)
+```bash
+scripts/boostrap_windows.bat
 ```
 
 You can install `hjcdik` with `pip` on Python &ge; 3.9:

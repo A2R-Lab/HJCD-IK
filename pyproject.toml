@@ -10,6 +10,14 @@ readme = "README.md"
 requires-python = ">=3.9"
 authors = [{ name = "You" }]
 
+# REQUIRED runtime + codegen dependencies
+dependencies = [
+  "numpy>=1.17.4",
+  "sympy>=1.7.1",
+  "beautifulsoup4>=4.9.3",
+  "lxml>=4.2.1",
+]
+
 [tool.scikit-build]
 cmake.version = ">=3.23"
 build-dir = "build"
