@@ -2,7 +2,7 @@
 
 [![arXiv:2510.07514](https://img.shields.io/badge/arXiv-2510.07514-b31b1b.svg)](https://arxiv.org/abs/2510.07514)
 
-This repository contains the code from "HJCD-IK: GPU-Accelerated Inverse Kinematics through Batched Hybrid Jacobian Coordinate Descent"(https://arxiv.org/abs/2510.07514)
+This repository contains the code from ["HJCD-IK: GPU-Accelerated Inverse Kinematics through Batched Hybrid Jacobian Coordinate Descent"](https://arxiv.org/abs/2510.07514)
 
 ## Requirements
 
