@@ -73,7 +73,7 @@ python benchmarks/ik_benchmark.py --urdf include/test_urdf/fetch.urdf
 ```
 
 ### Note on custom robots:
-HJCD-IK and GRiD currently only supports robots using revolute, prismatic, and fixed joints without any closed kinematics loops.
+HJCD-IK and GRiD currently only support robots using revolute, prismatic, and fixed joints without any closed kinematics loops.
 
 ## Cite
 Please cite HCJD-IK if you found this work useful:
