@@ -11,6 +11,10 @@ set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+  set(CMAKE_CUDA_ARCHITECTURES 86;89)
+endif()
+
 find_package(CUDAToolkit REQUIRED)
 find_package(yaml-cpp CONFIG REQUIRED)
 
@@ -121,9 +125,13 @@ if(BUILD_PYTHON)
   )
   target_sources(_hjcdik PRIVATE ${GRID_HEADER})
   target_include_directories(_hjcdik PRIVATE ${HJCDIK_INCLUDE_DIRS})
+  target_compile_options(_hjcdik PRIVATE ${HJCDIK_WARN_FLAGS} ${HJCDIK_CUDA_FLAGS})
 
-  set_target_properties(_hjcdik PROPERTIES CUDA_RUNTIME_LIBRARY Shared)
-  set_target_properties(_hjcdik PROPERTIES CUDA_RESOLVE_DEVICE_SYMBOLS ON)
+  set_target_properties(_hjcdik PROPERTIES
+    CUDA_SEPARABLE_COMPILATION OFF
+    CUDA_RESOLVE_DEVICE_SYMBOLS OFF
+    CUDA_RUNTIME_LIBRARY Shared
+  )
 
   target_link_libraries(_hjcdik PRIVATE
     CUDA::cudart
@@ -143,5 +151,5 @@ if(BUILD_PYTHON)
     RUNTIME DESTINATION hjcdik
     ARCHIVE DESTINATION hjcdik
   )
-
 endif()
+
