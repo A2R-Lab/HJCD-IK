@@ -71,6 +71,7 @@ endif()
 # Sources
 set(HJCDIK_HEADERS
   include/hjcd_settings.h
+  include/device_utils.cuh
 )
 
 set(HJCDIK_COMMON_SOURCES

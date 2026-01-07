@@ -1,5 +1,7 @@
 #include "include/hjcd_kernel.h"
 #include "include/hjcd_settings.h"
+#include "include/util.h"
+#include "include/device_utils.cuh"
 #include "grid.cuh"
 
 // Test .cuh files (uncomment)
@@ -28,18 +30,6 @@
 // Collision checking
 //#include "collision/environment.hh"
 //#include "robots/panda.cuh"
-
-#ifndef CUDA_OK
-#define CUDA_OK(stmt)                                                         \
-    do {                                                                      \
-        cudaError_t __err = (stmt);                                           \
-        if (__err != cudaSuccess) {                                           \
-            fprintf(stderr, "CUDA error %s at %s:%d\n",                       \
-                    cudaGetErrorString(__err), __FILE__, __LINE__);           \
-            std::abort();                                                     \
-        }                                                                     \
-    } while (0)
-#endif
 
 enum : int { N = grid::NUM_JOINTS };
 extern "C" int grid_num_joints() { return N; }
@@ -78,50 +68,7 @@ void init_joint_limits_from_grid()
                                sizeof(double2) * N));
 }
 
-// RNG HELPER FUNCTIONS
-__device__ __forceinline__ uint32_t wanghash(uint32_t a) {
-    a = (a ^ 61u) ^ (a >> 16); a *= 9u; a ^= (a >> 4);
-    a *= 0x27d4eb2d; a ^= (a >> 15); return a;
-}
-
-__device__ __forceinline__ float u01(uint32_t& s) {
-    s = wanghash(s);
-    return (s & 0x00FFFFFFu) * (1.0f / 16777216.0f);   // [0,1)
-}
-
-__device__ __forceinline__ float u11(uint32_t& s) {
-    return 2.0f * u01(s) - 1.0f;
-}
-
-__device__ __forceinline__ float gauss01(uint32_t& s) {
-    float u1 = fmaxf(u01(s), 1e-7f);
-    float u2 = u01(s);
-    float r = sqrtf(-2.0f * logf(u1));
-    float phi = 6.283185307179586f * u2;
-    return r * cosf(phi);
-}
-
-__device__ __forceinline__ uint32_t make_seed(
-    uint32_t base,
-    int global_problem,
-    int local_problem,
-    int joint_or_dim
-) {
-    uint32_t t = (blockIdx.x << 20) ^ (blockIdx.y << 10) ^ (threadIdx.x);
-    t ^= (uint32_t)global_problem * 0x9E3779B9u;
-    t ^= (uint32_t)local_problem * 0x85EBCA6Bu;
-    t ^= (uint32_t)joint_or_dim * 0xC2B2AE35u;
-    return wanghash(base ^ t);
-}
-
 // MATH HELPERS
-template<typename T>
-__device__ __forceinline__ T clamp_dot(T dot) {
-    if (dot > T(1.0)) return T(1.0);
-    if (dot < T(-1.0)) return T(-1.0);
-    return dot;
-}
-
 template<typename T>
 __device__ void mat_to_quat(const T* s_XmatsHom, T* quat) {
     T t;
@@ -226,11 +173,6 @@ __device__ void perturb_joint_config(T* s_x, int global_problem, T sigma_frac = 
         v = fminf(hi, fmaxf(low, v));
         s_x[j] = (T)v;
     }
-}
-
-template<typename T>
-__device__ __forceinline__ T clamp_val(T v, T lo, T hi) {
-    return (v < lo) ? lo : ((v > hi) ? hi : v);
 }
 
 template<typename T>
@@ -372,8 +314,6 @@ __device__ __forceinline__ void quat_mul(const T* a, const T* b, T* o) {
     o[2] = a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1];
     o[3] = a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0];
 }
-template<typename T>
-__device__ __forceinline__ T clamp_unit(T v) { return v > (T)1 ? (T)1 : (v < (T)-1 ? (T)-1 : v); }
 
 template<typename T>
 __device__ __forceinline__ void quat_err_rotvec(const T* q_cur, const T* q_goal, T* w_err3) {
@@ -843,19 +783,6 @@ __device__ inline void build_ne_and_solve_warp(
     __syncwarp(mask);
 }
 
-__device__ __forceinline__ float warp_sum(float v){
-#pragma unroll
-    for (int off=16; off>0; off>>=1) v += __shfl_down_sync(0xffffffff, v, off);
-    return v;
-}
-__device__ __forceinline__ double warp_sum(double v){
-#pragma unroll
-    for (int off=16; off>0; off>>=1) v += __shfl_down_sync(0xffffffff, v, off);
-    return v;
-}
-template<typename T>
-__device__ __forceinline__ T sqr(T x){ return x*x; }
-
 template<typename T>
 __device__ void solve_lm_batched(
     T* __restrict__ x,
@@ -1247,16 +1174,6 @@ WRITE_OUT:
     }
 
     #undef SYNC
-}
-
-template<typename T>
-__device__ __forceinline__ void warp_min_reduce_pair(T& e, int& j) {
-#pragma unroll
-    for (int off = 16; off > 0; off >>= 1) {
-        T   e2 = __shfl_down_sync(FULL_WARP_MASK, e, off);
-        int j2 = __shfl_down_sync(FULL_WARP_MASK, j, off);
-        if (e2 < e) { e = e2; j = j2; }
-    }
 }
 
 // COARSE SEARCH
