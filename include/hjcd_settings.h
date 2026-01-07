@@ -2,6 +2,9 @@
     Settings for HJCD-IK algorithm
 */
 
+#pragma once 
+#include "grid.cuh"
+
 #ifndef WARP_SIZE
 #define WARP_SIZE 32
 #endif
@@ -17,6 +20,10 @@
 #ifndef PI
 #define PI 3.14159265358979323846
 #endif
+
+namespace hjcd {
+    static constexpr int N = grid::NUM_JOINTS;
+}
 
 struct RefineSchedule {
     float  top_frac;

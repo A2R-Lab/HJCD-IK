@@ -2,7 +2,7 @@
 #include "include/hjcd_settings.h"
 #include "include/util.h"
 #include "include/device_utils.cuh"
-#include "grid.cuh"
+#include "include/math.cuh"
 
 // Test .cuh files (uncomment)
 //#include "include/test_cuh/panda_grid.cuh"
@@ -68,73 +68,6 @@ void init_joint_limits_from_grid()
                                sizeof(double2) * N));
 }
 
-// MATH HELPERS
-template<typename T>
-__device__ void mat_to_quat(const T* s_XmatsHom, T* quat) {
-    T t;
-    T m00, m11, m22;
-
-    m00 = s_XmatsHom[0];
-    m11 = s_XmatsHom[5];
-    m22 = s_XmatsHom[10];
-
-    if (m22 < 0) {
-        if (m00 > m11) {
-            t = 1 + m00 - m11 - m22;
-            quat[0] = t;
-            quat[1] = s_XmatsHom[4] + s_XmatsHom[1];
-            quat[2] = s_XmatsHom[2] + s_XmatsHom[8];
-            quat[3] = s_XmatsHom[9] - s_XmatsHom[6];
-        }
-        else {
-            t = 1 - m00 + m11 - m22;
-            quat[0] = s_XmatsHom[4] + s_XmatsHom[1];
-            quat[1] = t;
-            quat[2] = s_XmatsHom[9] + s_XmatsHom[6];
-            quat[3] = s_XmatsHom[2] - s_XmatsHom[8];
-        }
-    }
-    else {
-        if (m00 < -m11) {
-            t = 1 - m00 - m11 + m22;
-            quat[0] = s_XmatsHom[2] + s_XmatsHom[8];
-            quat[1] = s_XmatsHom[9] + s_XmatsHom[6];
-            quat[2] = t;
-            quat[3] = s_XmatsHom[4] - s_XmatsHom[1];
-        }
-        else {
-            t = 1 + m00 + m11 + m22;
-            quat[0] = s_XmatsHom[9] - s_XmatsHom[6];
-            quat[1] = s_XmatsHom[2] - s_XmatsHom[8];
-            quat[2] = s_XmatsHom[4] - s_XmatsHom[1];
-            quat[3] = t;
-        }
-    }
-    quat[0] *= 0.5 / sqrt(t);
-    quat[1] *= 0.5 / sqrt(t);
-    quat[2] *= 0.5 / sqrt(t);
-    quat[3] *= 0.5 / sqrt(t);
-}
-
-template<typename T>
-__device__ void multiply_quat(const T* r, const T* s, T* t) {
-    t[0] = r[0] * s[0] - r[1] * s[1] - r[2] * s[2] - r[3] * s[3];
-    t[1] = r[0] * s[1] + r[1] * s[0] - r[2] * s[3] + r[3] * s[2];
-    t[2] = r[0] * s[2] + r[1] * s[3] + r[2] * s[0] - r[3] * s[1];
-    t[3] = r[0] * s[3] - r[1] * s[2] + r[2] * s[1] + r[3] * s[0];
-}
-
-template<typename T>
-__device__ void normalize_quat(T* quat) {
-    T norm = sqrt(quat[0] * quat[0] + quat[1] * quat[1] + quat[2] * quat[2] + quat[3] * quat[3]);
-    if (norm > 1e-6f) {
-        quat[0] /= norm;
-        quat[1] /= norm;
-        quat[2] /= norm;
-        quat[3] /= norm;
-    }
-}
-
 template<typename T>
 __device__ void sample_joint_config(T* s_x, int local_problem, int global_problem) {
     const int offset = local_problem * N;
@@ -172,16 +105,6 @@ __device__ void perturb_joint_config(T* s_x, int global_problem, T sigma_frac = 
         float v = (float)s_x[j] + step;
         v = fminf(hi, fmaxf(low, v));
         s_x[j] = (T)v;
-    }
-}
-
-template<typename T>
-__device__ void normalize_vec3(T* vec) {
-    T norm = sqrt(vec[0] * vec[0] + vec[1] * vec[1] + vec[2] * vec[2]);
-    if (norm > 1e-6) {
-        vec[0] /= norm;
-        vec[1] /= norm;
-        vec[2] /= norm;
     }
 }
 
@@ -303,128 +226,6 @@ __device__ __forceinline__ int read_stop() {
     return atomicAdd(&g_stop, 0);
 }
 
-template<typename T>
-__device__ __forceinline__ void quat_conj(const T* q, T* qc) {
-    qc[0] = q[0]; qc[1] = -q[1]; qc[2] = -q[2]; qc[3] = -q[3];
-}
-template<typename T>
-__device__ __forceinline__ void quat_mul(const T* a, const T* b, T* o) {
-    o[0] = a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3];
-    o[1] = a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2];
-    o[2] = a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1];
-    o[3] = a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0];
-}
-
-template<typename T>
-__device__ __forceinline__ void quat_err_rotvec(const T* q_cur, const T* q_goal, T* w_err3) {
-    T qc[4], qe[4];
-    quat_conj(q_cur, qc);
-    quat_mul(q_goal, qc, qe);
-    T n = rsqrt(qe[0] * qe[0] + qe[1] * qe[1] + qe[2] * qe[2] + qe[3] * qe[3]);
-    qe[0] *= n; qe[1] *= n; qe[2] *= n; qe[3] *= n;
-    T vnorm = sqrt(qe[1] * qe[1] + qe[2] * qe[2] + qe[3] * qe[3]);
-    T cw = fabs(qe[0]);
-    T theta = (vnorm > (T)1e-12) ? (T)2 * atan2(vnorm, cw) : (T)0;
-    if (theta < (T)1e-12) { w_err3[0] = w_err3[1] = w_err3[2] = (T)0; return; }
-    T s = theta / vnorm;
-    w_err3[0] = s * qe[1]; w_err3[1] = s * qe[2]; w_err3[2] = s * qe[3];
-}
-
-template<typename T>
-__device__ __forceinline__
-void mat_to_quat_colmajor(const T* __restrict__ C, T* __restrict__ q) {
-    const T m00 = C[0], m01 = C[4], m02 = C[8];
-    const T m10 = C[1], m11 = C[5], m12 = C[9];
-    const T m20 = C[2], m21 = C[6], m22 = C[10];
-
-    const T trace = m00 + m11 + m22;
-    const T eps = (T)1e-20;
-
-    if (trace > (T)0) {
-        T r = sqrt(fmax((T)1 + trace, eps));
-        T s = (T)0.5 / r;
-        q[0] = (T)0.5 * r;
-        q[1] = (m21 - m12) * s;
-        q[2] = (m02 - m20) * s;
-        q[3] = (m10 - m01) * s;
-    }
-    else if (m00 >= m11 && m00 >= m22) {
-        T r = sqrt(fmax((T)1 + m00 - m11 - m22, eps));
-        T s = (T)0.5 / r;
-        q[1] = (T)0.5 * r;
-        q[0] = (m21 - m12) * s;
-        q[2] = (m01 + m10) * s;
-        q[3] = (m02 + m20) * s;
-    }
-    else if (m11 >= m22) {
-        T r = sqrt(fmax((T)1 - m00 + m11 - m22, eps));
-        T s = (T)0.5 / r;
-        q[2] = (T)0.5 * r;
-        q[0] = (m02 - m20) * s;
-        q[1] = (m01 + m10) * s;
-        q[3] = (m12 + m21) * s;
-    }
-    else {
-        T r = sqrt(fmax((T)1 - m00 - m11 + m22, eps));
-        T s = (T)0.5 / r;
-        q[3] = (T)0.5 * r;
-        q[0] = (m10 - m01) * s;
-        q[1] = (m02 + m20) * s;
-        q[2] = (m12 + m21) * s;
-    }
-
-    T n = rsqrt(fmax(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3], eps));
-    q[0] *= n; q[1] *= n; q[2] *= n; q[3] *= n;
-}
-
-template<typename T>
-__device__ __forceinline__ void mat_to_quat_colmajor3x3(const T* C4x4, T* q) {
-    mat_to_quat_colmajor(C4x4, q);
-}
-
-template<typename T>
-__device__ T compute_pos_err_colmajor(const T* C, const T* target_pose) {
-    const T dx = C[(N - 1) * 16 + 12] - target_pose[0];
-    const T dy = C[(N - 1) * 16 + 13] - target_pose[1];
-    const T dz = C[(N - 1) * 16 + 14] - target_pose[2];
-    return sqrt(dx * dx + dy * dy + dz * dz);
-}
-template<typename T>
-__device__ T compute_ori_err_colmajor(const T* C, const T* q_goal) {
-    T qee[4]; 
-    mat_to_quat_colmajor3x3(&C[(N - 1) * 16], qee);
-    if (qee[0]*q_goal[0] + qee[1]*q_goal[1] + qee[2]*q_goal[2] + qee[3]*q_goal[3] < (T)0) {
-        qee[0] = -qee[0]; qee[1] = -qee[1]; qee[2] = -qee[2]; qee[3] = -qee[3];
-    }
-    T wv[3]; 
-    quat_err_rotvec(qee, q_goal, wv);
-    return sqrt(wv[0]*wv[0] + wv[1]*wv[1] + wv[2]*wv[2]);
-}
-
-template<typename T>
-__device__ T compute_pos_err(const T* CjX, const T* target_pose) {
-    T dx = CjX[(N - 1) * 16 + 12];
-    T dy = CjX[(N - 1) * 16 + 13];
-    T dz = CjX[(N - 1) * 16 + 14];
-
-    return sqrt(
-        (dx - target_pose[0]) * (dx - target_pose[0]) +
-        (dy - target_pose[1]) * (dy - target_pose[1]) +
-        (dz - target_pose[2]) * (dz - target_pose[2])
-    );
-}
-
-template<typename T>
-__device__ T compute_ori_err(const T* CjX, const T* q_goal) {
-    T qee[4];
-    mat_to_quat_colmajor3x3(&CjX[(N-1)*16], qee);
-    if (qee[0]*q_goal[0]+qee[1]*q_goal[1]+qee[2]*q_goal[2]+qee[3]*q_goal[3] < (T)0) {
-        qee[0]=-qee[0]; qee[1]=-qee[1]; qee[2]=-qee[2]; qee[3]=-qee[3];
-    }
-    T wv[3]; quat_err_rotvec(qee, q_goal, wv);
-    return sqrt(wv[0]*wv[0] + wv[1]*wv[1] + wv[2]*wv[2]);
-}
-
 // JACOBIAN TUNER
 template<typename T, int M>
 __device__ bool chol_solve(T A[M * M], T b[M]) {
@@ -494,7 +295,7 @@ void recompute_cost_scaled(T* xcur,
     const T dx = tp[0] - Cn[12];
     const T dy = tp[1] - Cn[13];
     const T dz = tp[2] - Cn[14];
-    T qee[4]; mat_to_quat_colmajor3x3(Cn, qee);
+    T qee[4]; mat_to_quat(Cn, qee);
     if (qee[0] * q_goal[0] + qee[1] * q_goal[1] + qee[2] * q_goal[2] + qee[3] * q_goal[3] < (T)0) {
         qee[0] = -qee[0]; qee[1] = -qee[1]; qee[2] = -qee[2]; qee[3] = -qee[3];
     }
@@ -838,8 +639,8 @@ __device__ void solve_lm_batched(
     SYNC();
 
     if (tid == 0) {
-        pos_err_m   = compute_pos_err_colmajor<T>(s_jointX, tp);
-        ori_err_rad = compute_ori_err_colmajor<T>(s_jointX, &tp[3]);
+        pos_err_m   = compute_pos_err(s_jointX, tp);
+        ori_err_rad = compute_ori_err(s_jointX, &tp[3]);
     }
     SYNC();
 
@@ -857,7 +658,7 @@ __device__ void solve_lm_batched(
         // residual
         if (tid == 0) {
             const T* Cn = &s_jointX[(N-1)*16];
-            T qee[4]; mat_to_quat_colmajor3x3(Cn, qee);
+            T qee[4]; mat_to_quat(Cn, qee);
             if (qee[0]*q_goal[0] + qee[1]*q_goal[1] + qee[2]*q_goal[2] + qee[3]*q_goal[3] < (T)0) {
                 qee[0]=-qee[0]; qee[1]=-qee[1]; qee[2]=-qee[2]; qee[3]=-qee[3];
             }
@@ -1035,11 +836,11 @@ __device__ void solve_lm_batched(
             SYNC();
 
             if (tid == 0) {
-                const T pos_new = compute_pos_err_colmajor<T>(s_jointX, tp);
-                const T ori_new = compute_ori_err_colmajor<T>(s_jointX, &tp[3]);
+                const T pos_new = compute_pos_err(s_jointX, tp);
+                const T ori_new = compute_ori_err(s_jointX, &tp[3]);
 
                 const T* Cn=&s_jointX[(N-1)*16];
-                T qee[4]; mat_to_quat_colmajor3x3(Cn, qee);
+                T qee[4]; mat_to_quat(Cn, qee);
                 if (qee[0]*q_goal[0] + qee[1]*q_goal[1] + qee[2]*q_goal[2] + qee[3]*q_goal[3] < (T)0) {
                     qee[0]=-qee[0]; qee[1]=-qee[1]; qee[2]=-qee[2]; qee[3]=-qee[3];
                 }
@@ -1124,8 +925,8 @@ __device__ void solve_lm_batched(
                     s_x[i] = fmin(fmax(xi,(T)L.x),(T)L.y);
                 }
                 grid::X_single_thread(s_jointX,s_XmatsHom,s_x,N-1);
-                pos_err_m   = compute_pos_err_colmajor<T>(s_jointX,tp);
-                ori_err_rad = compute_ori_err_colmajor<T>(s_jointX,&tp[3]);
+                pos_err_m   = compute_pos_err(s_jointX,tp);
+                ori_err_rad = compute_ori_err(s_jointX,&tp[3]);
                 stall = 0;
             }
 
@@ -1140,8 +941,8 @@ __device__ void solve_lm_batched(
         SYNC();
 
         if (tid == 0) {
-            pos_err_m   = compute_pos_err_colmajor<T>(s_jointX, tp);
-            ori_err_rad = compute_ori_err_colmajor<T>(s_jointX, &tp[3]);
+            pos_err_m   = compute_pos_err(s_jointX, tp);
+            ori_err_rad = compute_ori_err(s_jointX, &tp[3]);
         }
         SYNC();
     }
@@ -1161,11 +962,11 @@ WRITE_OUT:
     }
 
     if (tid == 0) {
-        pos_err_m   = compute_pos_err_colmajor<T>(s_jointX, tp);
-        ori_err_rad = compute_ori_err_colmajor<T>(s_jointX, &tp[3]);
+        pos_err_m   = compute_pos_err(s_jointX, tp);
+        ori_err_rad = compute_ori_err(s_jointX, &tp[3]);
 
         const T* Cn = &s_jointX[(N-1)*16];
-        T q_out[4]; mat_to_quat_colmajor3x3(Cn, q_out);
+        T q_out[4]; mat_to_quat(Cn, q_out);
         pose[gp*7+0]=Cn[12]; pose[gp*7+1]=Cn[13]; pose[gp*7+2]=Cn[14];
         pose[gp*7+3]=q_out[0]; pose[gp*7+4]=q_out[1]; pose[gp*7+5]=q_out[2]; pose[gp*7+6]=q_out[3];
         pos_error[gp] = pos_err_m * (T)1000.0;
@@ -1247,8 +1048,8 @@ __global__ void coarse_search(
     __syncthreads();
 
     if (tid == 0) {
-        s_glob_pos_err = compute_pos_err<T>(s_jointXforms, target_pose_local);
-        s_glob_ori_err = compute_ori_err<T>(s_jointXforms, q_t);
+        s_glob_pos_err = compute_pos_err(s_jointXforms, target_pose_local);
+        s_glob_ori_err = compute_ori_err(s_jointXforms, q_t);
 
         T q_ee[4];
         mat_to_quat(&s_jointXforms[(N - 1) * 16], q_ee);
@@ -1346,8 +1147,8 @@ __global__ void coarse_search(
                     grid::X_single_thread(l_C, l_tmp, cand, N - 1);
 
                     const T err = pos_phase
-                        ? compute_pos_err<T>(l_C, target_pose_local)
-                        : compute_ori_err<T>(l_C, q_t);
+                        ? compute_pos_err(l_C, target_pose_local)
+                        : compute_ori_err(l_C, q_t);
 
                     if (err < best_err_lane) { best_err_lane = err; best_j_lane = j; }
                 }
@@ -1414,8 +1215,8 @@ __global__ void coarse_search(
         __syncthreads();
 
         if (tid == 0) {
-            s_glob_pos_err = compute_pos_err<T>(s_jointXforms, target_pose_local);
-            s_glob_ori_err = compute_ori_err<T>(s_jointXforms, q_t);
+            s_glob_pos_err = compute_pos_err(s_jointXforms, target_pose_local);
+            s_glob_ori_err = compute_ori_err(s_jointXforms, q_t);
 
             T q_ee[4];
             mat_to_quat(&s_jointXforms[(N - 1) * 16], q_ee);
@@ -1527,7 +1328,7 @@ __global__ void forward_kinematics_kernel(
         if (ee_pose7) {
             const T* Cee = &s_X[(N - 1) * 16];
             T qee[4];
-            mat_to_quat_colmajor3x3(Cee, qee);
+            mat_to_quat(Cee, qee);
             ee_pose7[b * 7 + 0] = Cee[12];
             ee_pose7[b * 7 + 1] = Cee[13];
             ee_pose7[b * 7 + 2] = Cee[14];
