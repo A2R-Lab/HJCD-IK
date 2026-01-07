@@ -1,4 +1,5 @@
 #include "include/hjcd_kernel.h"
+#include "include/hjcd_settings.h"
 #include "grid.cuh"
 
 // Test .cuh files (uncomment)
@@ -24,6 +25,10 @@
 #include <vector>
 #include <chrono>
 
+// Collision checking
+//#include "collision/environment.hh"
+//#include "robots/panda.cuh"
+
 #ifndef CUDA_OK
 #define CUDA_OK(stmt)                                                         \
     do {                                                                      \
@@ -38,18 +43,6 @@
 
 enum : int { N = grid::NUM_JOINTS };
 extern "C" int grid_num_joints() { return N; }
-
-#ifndef WARP_SIZE
-#define WARP_SIZE 32
-#endif
-
-#ifndef UNREFINE
-#define UNREFINE 0
-#endif
-
-#ifndef FULL_WARP_MASK
-#define FULL_WARP_MASK 0xFFFFFFFFu
-#endif
 
 __constant__ double2 c_joint_limits[N];
 
@@ -1293,10 +1286,6 @@ __global__ void coarse_search(
     T* l_tmp = warp_base;
     T* l_C   = warp_base + (size_t)(N * 16);
 
-    const T  epsilon = (T)20e-3;   // 20 mm
-    const T  nu      = (T)(90 * PI / 180.0);
-    const int k_max  = 20;
-
     __shared__ int  s_stop;
     __shared__ int  s_allow_ori;
     __shared__ int  s_last_joint_o, s_last_joint_p;
@@ -1354,7 +1343,7 @@ __global__ void coarse_search(
     }
     __syncthreads();
 
-    for (int k = 0; k < k_max; ++k) {
+    for (int k = 0; k < HJCDSettings<T>::k_max; ++k) {
         if (tid == 0) s_stop = read_stop();
         __syncthreads();
         if (s_stop) break;
@@ -1388,9 +1377,9 @@ __global__ void coarse_search(
             const int p     = idx % N;
             if (lane == 0) {
                 if (phase == 0) {
-                    s_pos_theta1[p] = solve_pos<T>(s_jointXforms, s_pose, target_pose_local, p, k, k_max);
+                    s_pos_theta1[p] = solve_pos<T>(s_jointXforms, s_pose, target_pose_local, p, k, HJCDSettings<T>::k_max);
                 } else {
-                    s_ori_theta1[p] = s_allow_ori ? solve_ori<T>(s_jointXforms, q_t, p, k, k_max) : (T)0;
+                    s_ori_theta1[p] = s_allow_ori ? solve_ori<T>(s_jointXforms, q_t, p, k, HJCDSettings<T>::k_max) : (T)0;
                 }
             }
         }
@@ -1426,9 +1415,9 @@ __global__ void coarse_search(
                     if (pos_phase) {
                         const int ee = (N - 1) * 16;
                         T pos1[3] = { l_C[ee + 12], l_C[ee + 13], l_C[ee + 14] };
-                        theta2 = solve_pos<T>(l_C, pos1, target_pose_local, j, k, k_max);
+                        theta2 = solve_pos<T>(l_C, pos1, target_pose_local, j, k, HJCDSettings<T>::k_max);
                     } else {
-                        theta2 = s_allow_ori ? solve_ori<T>(l_C, q_t, j, k, k_max) : (T)0;
+                        theta2 = s_allow_ori ? solve_ori<T>(l_C, q_t, j, k, HJCDSettings<T>::k_max) : (T)0;
                     }
 
                     cand[j] = clamp_val<T>(cand[j] + theta2,
@@ -1524,7 +1513,7 @@ __global__ void coarse_search(
                 s_ori_err[jj] = s_glob_ori_err;
             }
 
-            if (s_glob_pos_err < epsilon && s_glob_ori_err < nu) {
+            if (s_glob_pos_err < HJCDSettings<T>::epsilon && s_glob_ori_err < HJCDSettings<T>::nu) {
                 int old = atomicCAS(&g_stop, 0, 1);
                 if (old == 0) { __threadfence(); g_winner = gp; }
             }
@@ -1829,44 +1818,6 @@ __global__ void perturb_rows_kernel(T* __restrict__ X,
         if (v > (T)L.y) v = (T)L.y;
         X[r * N + j] = v;
     }
-}
-
-struct RefineSchedule {
-    float  top_frac;
-    int    repeats;
-    double sigma_frac;
-    bool   keep_one;
-};
-
-inline RefineSchedule schedule_for_B(int B) {
-    RefineSchedule s; s.keep_one = true;
-
-    if (B <= 8) {           
-        s.repeats   = 24;
-        s.sigma_frac= 0.25;
-        s.top_frac = 1.0;
-    } else if (B <= 16) {
-        s.repeats   = 16;
-        s.sigma_frac= 0.15;
-        s.top_frac = 0.5;
-    } else if (B <= 128) {
-        s.repeats   = 5;
-        s.sigma_frac= 0.15;
-        s.top_frac = 0.2;
-    } else if (B <= 1024) {
-        s.repeats   = 5;
-        s.sigma_frac= 0.15;
-        s.top_frac = 0.02;
-    } else if (B <= 2048) {
-        s.repeats   = 5;
-        s.sigma_frac= 0.15;
-        s.top_frac = 0.01;
-    } else {
-        s.repeats   = 2;
-        s.sigma_frac= 0.15;
-        s.top_frac = 0.01;
-    }
-    return s;
 }
 
 template <typename Dst, typename Src>

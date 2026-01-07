@@ -69,9 +69,14 @@ if(NOT EXISTS "${GRID_HEADER_GENERATED}")
 endif()
 
 # Sources
+set(HJCDIK_HEADERS
+  include/hjcd_settings.h
+)
+
 set(HJCDIK_COMMON_SOURCES
   src/hjcd_kernel.cu
   src/util.cpp
+  ${HJCDIK_HEADERS}
 )
 
 set(HJCDIK_INCLUDE_DIRS
