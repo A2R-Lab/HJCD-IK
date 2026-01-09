@@ -14,5 +14,3 @@
         }                                                                     \
     } while (0)
 #endif
-
-std::vector<std::array<double, 7>> load_dataset(const std::string& filename);

@@ -2,6 +2,13 @@
     Device utility functions
 */
 
+__device__ int g_stop = 0;
+__device__ int g_winner = -1;
+
+__device__ __forceinline__ int read_stop() {
+    return atomicAdd(&g_stop, 0);
+}
+
 // RNG HELPER FUNCTIONS
 __device__ __forceinline__ uint32_t wanghash(uint32_t a) {
     a = (a ^ 61u) ^ (a >> 16); a *= 9u; a ^= (a >> 4);
@@ -54,6 +61,25 @@ __device__ __forceinline__ T clamp_unit(T v) {
 template<typename T>
 __device__ __forceinline__ T clamp_val(T v, T lo, T hi) {
     return (v < lo) ? lo : ((v > hi) ? hi : v);
+}
+
+template<typename T>
+__device__ __forceinline__ T clamp_step_angle(T step_rad) {
+    const T MAX_STEP = (T)(15.0 * PI / 180.0);
+    if (step_rad > MAX_STEP) step_rad = MAX_STEP;
+    if (step_rad < -MAX_STEP) step_rad = -MAX_STEP;
+    return step_rad;
+}
+
+template<typename T>
+__device__ __forceinline__
+void clamp_into_limits(const T* xbase, const T* step, T* xout, const double2* limits) {
+#pragma unroll
+    for (int i = 0; i < N; ++i) {
+        const double2 L = limits[i];
+        const T xi = xbase[i] + step[i];
+        xout[i] = fmin(fmax(xi, (T)L.x), (T)L.y);
+    }
 }
 
 __device__ __forceinline__ float warp_sum(float v){

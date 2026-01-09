@@ -77,7 +77,6 @@ set(HJCDIK_HEADERS
 
 set(HJCDIK_COMMON_SOURCES
   src/hjcd_kernel.cu
-  src/util.cpp
   ${HJCDIK_HEADERS}
 )
 
@@ -85,6 +84,7 @@ set(HJCDIK_INCLUDE_DIRS
   ${CMAKE_BINARY_DIR}
   ${CMAKE_SOURCE_DIR}
   ${CMAKE_SOURCE_DIR}/include
+  ${CMAKE_SOURCE_DIR}/src
   ${CMAKE_SOURCE_DIR}/external/GRiD
   ${CMAKE_SOURCE_DIR}/external/GRiD/include
 )

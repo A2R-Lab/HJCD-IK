@@ -28,8 +28,10 @@
 #include <chrono>
 
 // Collision checking
-//#include "collision/environment.hh"
-//#include "robots/panda.cuh"
+
+#ifdef M
+#undef M
+#endif
 
 enum : int { N = grid::NUM_JOINTS };
 extern "C" int grid_num_joints() { return N; }
@@ -106,14 +108,6 @@ __device__ void perturb_joint_config(T* s_x, int global_problem, T sigma_frac = 
         v = fminf(hi, fmaxf(low, v));
         s_x[j] = (T)v;
     }
-}
-
-template<typename T>
-__device__ __forceinline__ T clamp_step_angle(T step_rad) {
-    const T MAX_STEP = (T)(15.0 * PI / 180.0);
-    if (step_rad > MAX_STEP) step_rad = MAX_STEP;
-    if (step_rad < -MAX_STEP) step_rad = -MAX_STEP;
-    return step_rad;
 }
 
 // SOLVE
@@ -219,13 +213,6 @@ __device__ T solve_ori(const T* s_jointXforms, const T* q_t, int joint, int k, i
     return step;
 }
 
-__device__ int g_stop = 0;
-__device__ int g_winner = -1;
-
-__device__ __forceinline__ int read_stop() {
-    return atomicAdd(&g_stop, 0);
-}
-
 // JACOBIAN TUNER
 template<typename T, int M>
 __device__ bool chol_solve(T A[M * M], T b[M]) {
@@ -269,17 +256,6 @@ __device__ __forceinline__ void upper_index_to_rc(int idx, int M, int& r, int& c
 template<typename T>
 __device__ __forceinline__ T safe_normN(const T* v, int n) {
     T s = (T)0; for (int i = 0; i < n; ++i) s += v[i] * v[i]; return sqrt(s);
-}
-
-template<typename T>
-__device__ __forceinline__
-void clamp_into_limits(const T* xbase, const T* step, T* xout, const double2* limits) {
-#pragma unroll
-    for (int i = 0; i < N; ++i) {
-        const double2 L = limits[i];
-        const T xi = xbase[i] + step[i];
-        xout[i] = fmin(fmax(xi, (T)L.x), (T)L.y);
-    }
 }
 
 template<typename T>
