@@ -27,12 +27,6 @@
 #include <vector>
 #include <chrono>
 
-// Collision checking
-
-#ifdef M
-#undef M
-#endif
-
 enum : int { N = grid::NUM_JOINTS };
 extern "C" int grid_num_joints() { return N; }
 
