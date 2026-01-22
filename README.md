@@ -19,7 +19,7 @@ cd HJCD-IK
 
 HJCD-IK relies on [GRiD](https://github.com/A2R-Lab/GRiD), a GPU-accelerated library for rigid body dynamics and analytical gradients.
 
-(Mac/Linux)
+(Linux)
 ```bash
 chmod +x scripts/bootstrap.sh
 ./scripts/bootstrap.sh
