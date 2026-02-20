@@ -2,6 +2,6 @@
 	path = external/GRiD
 	url = https://github.com/A2R-Lab/GRiD
 	fetchRecurseSubmodules = true
-[submodule "external/AnDRLib"]
-	path = external/AnDRLib
-	url = https://github.com/CoMMALab/AnDRLib.git
+[submodule "external/vamp"]
+	path = external/vamp
+	url = https://github.com/CoMMALab/vamp.git
