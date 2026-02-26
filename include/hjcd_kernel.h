@@ -18,6 +18,7 @@ struct Result {
     T* pos_errors;
     T* ori_errors;
     T  elapsed_time;
+    int count;
 };
 
 template<typename T>
@@ -25,7 +26,11 @@ Result<T> generate_ik_solutions(
     T* target_pose,
     const grid::robotModel<T>* d_robotModel,
     int b_size,
-    int num_solutions = 1
+    int num_solutions = 1,
+    bool collision_free = false,
+    const char* problems_json_text = nullptr,
+    const char* problem_set_name = nullptr,
+    int problem_idx = 0
 );
 
 template<typename T>

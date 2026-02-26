@@ -1,6 +1,3 @@
-/*
-    Settings for HJCD-IK algorithm
-*/
 
 #pragma once 
 #include "grid.cuh"
@@ -26,40 +23,26 @@ namespace hjcd {
 }
 
 struct RefineSchedule {
-    float  top_frac;
+    int    top_k;
     int    repeats;
     double sigma_frac;
     bool   keep_one;
 };
 
 inline RefineSchedule schedule_for_B(int B) {
-    RefineSchedule s; s.keep_one = true;
+    RefineSchedule s;
+    s.keep_one   = true;
+    s.sigma_frac = 0.1;
+    s.repeats    = 5;
 
-    if (B <= 8) {           
-        s.repeats   = 24;
+    if (B <= 12) {
+        s.top_k     = B;
+        s.repeats   = 12;
         s.sigma_frac= 0.25;
-        s.top_frac = 1.0;
-    } else if (B <= 16) {
-        s.repeats   = 16;
-        s.sigma_frac= 0.15;
-        s.top_frac = 0.5;
-    } else if (B <= 128) {
-        s.repeats   = 5;
-        s.sigma_frac= 0.15;
-        s.top_frac = 0.2;
-    } else if (B <= 1024) {
-        s.repeats   = 5;
-        s.sigma_frac= 0.15;
-        s.top_frac = 0.02;
-    } else if (B <= 2048) {
-        s.repeats   = 5;
-        s.sigma_frac= 0.15;
-        s.top_frac = 0.01;
     } else {
-        s.repeats   = 2;
-        s.sigma_frac= 0.15;
-        s.top_frac = 0.01;
+        s.top_k = 32;
     }
+
     return s;
 }
 
@@ -73,4 +56,3 @@ struct HJCDSettings {
     // Refine phase settings
     static constexpr T lambda_init = static_cast<T>(5e-3);
 };
-

@@ -17,6 +17,7 @@ endif()
 
 find_package(CUDAToolkit REQUIRED)
 find_package(yaml-cpp CONFIG REQUIRED)
+find_package(Eigen3 CONFIG REQUIRED)
 
 set(PYBIND11_FINDPYTHON ON)
 if(BUILD_PYTHON)
@@ -72,11 +73,16 @@ endif()
 set(HJCDIK_HEADERS
   include/hjcd_settings.h
   include/device_utils.cuh
-  include/math.cuh
+  include/math.cuh 
+  src/collision/prrtc_collision.cuh
+  src/collision/prrtc_env_from_json.hpp
+  src/collision/prrtc_env_cache.hpp
 )
 
 set(HJCDIK_COMMON_SOURCES
   src/hjcd_kernel.cu
+  src/collision/prrtc_collision.cu 
+  src/collision/prrtc_env_from_json.cpp
   ${HJCDIK_HEADERS}
 )
 
@@ -114,6 +120,7 @@ set_target_properties(hjcdik PROPERTIES CUDA_RUNTIME_LIBRARY Static)
 target_link_libraries(hjcdik PRIVATE
   CUDA::cudart
   yaml-cpp::yaml-cpp
+  Eigen3::Eigen
 )
 
 if(HAVE_GRID_TARGETS)
@@ -143,6 +150,7 @@ if(BUILD_PYTHON)
   target_link_libraries(_hjcdik PRIVATE
     CUDA::cudart
     yaml-cpp::yaml-cpp
+    Eigen3::Eigen
   )
 
   if(HAVE_GRID_TARGETS)

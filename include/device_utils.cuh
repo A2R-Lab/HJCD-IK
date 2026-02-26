@@ -1,6 +1,4 @@
-/*
-    Device utility functions
-*/
+#include "hjcd_settings.h"
 
 __device__ int g_stop = 0;
 __device__ int g_winner = -1;
@@ -75,7 +73,7 @@ template<typename T>
 __device__ __forceinline__
 void clamp_into_limits(const T* xbase, const T* step, T* xout, const double2* limits) {
 #pragma unroll
-    for (int i = 0; i < N; ++i) {
+    for (int i = 0; i < hjcd::N; ++i) {
         const double2 L = limits[i];
         const T xi = xbase[i] + step[i];
         xout[i] = fmin(fmax(xi, (T)L.x), (T)L.y);
