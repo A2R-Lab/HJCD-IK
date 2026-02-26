@@ -1,28 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-ik_benchmark.py
-
-- Non-collision: sample FK targets from hjcdik
-- Collision-free (RoboMetrics-style mb_problems.json):
-    * For each problem instance:
-        - associate the goal_pose position to the closest cylinder in obstacles.cylinder
-          (prefer cylinders sharing x/y/z within eps, then minimize distance^2)
-        - build IK target as:
-              position = (associated cylinder x,y, goal_pose z)
-              orientation = goal_pose quaternion (qw,qx,qy,qz)
-    * Optional override: --filtered-targets JSON (explicit targets) still gets associated
-      to a cylinder in its problem_idx, but orientation still comes from that problem's
-      goal_pose.
-
-Target format passed to hjcdik.generate_solutions:
-  [x, y, z, qw, qx, qy, qz]   (wxyz)
-
-Printing:
-  - By default: prints only joint configs (same behavior as your original)
-  - No cylinder/diagnostic spam
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -39,8 +14,7 @@ sys.path.insert(0, str(ROOT / "external"))
 
 import math
 
-def quat_mul_wxyz(a: List[float], b: List[float]) -> List[float]:
-    """Quaternion multiply (a ⊗ b) with quats in wxyz."""
+def quat_mul_wxyz(a, b):
     aw, ax, ay, az = a
     bw, bx, by, bz = b
     return [
@@ -50,8 +24,7 @@ def quat_mul_wxyz(a: List[float], b: List[float]) -> List[float]:
         aw*bz + ax*by - ay*bx + az*bw,
     ]
 
-def quat_norm_wxyz(q: List[float]) -> List[float]:
-    """Normalize quaternion in wxyz."""
+def quat_norm_wxyz(q):
     w, x, y, z = q
     n = math.sqrt(w*w + x*x + y*y + z*z)
     if n > 0.0:
@@ -59,25 +32,16 @@ def quat_norm_wxyz(q: List[float]) -> List[float]:
         return [w*inv, x*inv, y*inv, z*inv]
     return [1.0, 0.0, 0.0, 0.0]
 
-def rotate_quat_90deg_local_y_wxyz(q_wxyz: List[float], sign: int = +1) -> List[float]:
-    """
-    Rotate quaternion by ±90° about LOCAL +Y.
-    Local rotation => q' = q ⊗ d
-    where d = [cos(θ/2), 0, sin(θ/2), 0] in wxyz for axis Y.
-    """
-    s = 0.7071067811865476  # sqrt(1/2)
-    d = [s, 0.0, float(sign)*s, 0.0]  # wxyz
+def rotate_quat_90deg_local_y_wxyz(q_wxyz, sign = +1):
+    s = 0.7071067811865476 # sqrt(1/2)
+    d = [s, 0.0, float(sign)*s, 0.0] # wxyz
     return quat_norm_wxyz(quat_mul_wxyz(q_wxyz, d))
 
-# --------------------------------------------------------------------------------------
-# JSON helpers
-# --------------------------------------------------------------------------------------
-
-def _load_text(path: Path) -> str:
+def _load_text(path):
     return path.expanduser().read_text(encoding="utf-8")
 
 
-def num_problems(D: Dict[str, Any], problem_set: str) -> int:
+def num_problems(D, problem_set):
     if "problems" not in D or problem_set not in D["problems"]:
         raise KeyError(
             f"Problem set '{problem_set}' not found. Available: {list(D.get('problems', {}).keys())}"
@@ -85,25 +49,17 @@ def num_problems(D: Dict[str, Any], problem_set: str) -> int:
     return len(D["problems"][problem_set])
 
 
-def _get_instance(D: Dict[str, Any], problem_set: str, problem_idx: int) -> Dict[str, Any]:
+def _get_instance(D, problem_set, problem_idx):
     return D["problems"][problem_set][problem_idx]
 
-def _parse_batches(s: str) -> List[int]:
+def _parse_batches(s):
     parts = [p.strip() for p in s.replace(",", " ").split()]
     vals = [int(p) for p in parts if p]
     if not vals:
         raise argparse.ArgumentTypeError("batches list is empty")
     return vals
 
-def _cylinders_list(inst: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """
-    RoboMetrics mb_problems.json format:
-      inst["obstacles"]["cylinder"] is typically a dict:
-        {"cylinder0": {"pose":[x,y,z,qw,qx,qy,qz], "height":..., "radius":...}, ...}
-
-    Returns list of cylinders, each with at least:
-      {"name": str, "pose": [x,y,z,qw,qx,qy,qz], ...}
-    """
+def _cylinders_list(inst):
     cyl_block = inst.get("obstacles", {}).get("cylinder", {})
     out: List[Dict[str, Any]] = []
 
@@ -125,11 +81,7 @@ def _cylinders_list(inst: Dict[str, Any]) -> List[Dict[str, Any]]:
 
     return []
 
-
-def goal_pose_wxyz(inst: Dict[str, Any]) -> List[float]:
-    """
-    inst["goal_pose"] -> [x,y,z,qw,qx,qy,qz] (wxyz)
-    """
+def goal_pose_wxyz(inst):
     gp = inst.get("goal_pose")
     if gp is None:
         raise KeyError("instance missing goal_pose")
@@ -145,27 +97,13 @@ def goal_pose_wxyz(inst: Dict[str, Any]) -> List[float]:
     qw, qx, qy, qz = [float(v) for v in qwxyz]
     return [float(pos[0]), float(pos[1]), float(pos[2]), qw, qx, qy, qz]
 
-
-def associate_pos_to_closest_cylinder(
-    inst: Dict[str, Any],
-    gx: float,
-    gy: float,
-    gz: float,
-    *,
-    eps: float,
-) -> Dict[str, Any]:
-    """
-    Returns the best-matching cylinder dict for a given position.
-    Scoring:
-      1) maximize number of axes (x/y/z) matching within eps
-      2) then minimize dist^2
-    """
+def associate_pos_to_closest_cylinder(inst, gx, gy, gz, *, eps):
     cyls = _cylinders_list(inst)
     if not cyls:
         raise RuntimeError("No cylinders found in inst['obstacles']['cylinder'] (expected at least 1).")
 
-    best: Optional[Dict[str, Any]] = None
-    best_key: Optional[Tuple[int, float]] = None  # (-match_axes, dist2)
+    best = None
+    best_key = None  # (-match_axes, dist2)
 
     for c in cyls:
         pose = c["pose"]
@@ -190,35 +128,10 @@ def associate_pos_to_closest_cylinder(
     assert best is not None
     return best
 
-
-# def build_target_cylinder_pose(
-#     inst: Dict[str, Any],
-#     ref_pos_xyz: Tuple[float, float, float],
-#     *,
-#     eps: float,
-# ) -> List[float]:
-#     gx, gy, gz = ref_pos_xyz
-#     cyl = associate_pos_to_closest_cylinder(inst, gx, gy, gz, eps=eps)
-#     pose = cyl["pose"]  # [x,y,z,qw,qx,qy,qz] in wxyz
-
-#     # rotate cylinder orientation immediately (like your original cylinder logic)
-#     q = [float(pose[3]), float(pose[4]), float(pose[5]), float(pose[6])]  # wxyz
-#     q = rotate_quat_90deg_local_y_wxyz(q, sign=+1)  # change to -1 if you want the opposite direction
-
-#     return [float(pose[0]), float(pose[1]), float(pose[2]),
-#             float(q[0]), float(q[1]), float(q[2]), float(q[3])]
-
-def build_target_cylinder_pose(
-    inst: Dict[str, Any],
-    ref_pos_xyz: Tuple[float, float, float],
-    *,
-    eps: float,
-    rotate_goal_local_y: bool = False,
-    rotate_sign: int = +1,
-) -> List[float]:
+def build_target_cylinder_pose(inst, ref_pos_xyz, *, eps):
     gx, gy, gz = ref_pos_xyz
 
-    # pick the cylinder closest to the GOAL position (or ref position)
+    # pick the cylinder closest to the GOAL position
     cyl = associate_pos_to_closest_cylinder(inst, gx, gy, gz, eps=eps)
     cpose = cyl["pose"]  # [cx,cy,cz,qw,qx,qy,qz] wxyz
 
@@ -226,27 +139,23 @@ def build_target_cylinder_pose(
     goal = goal_pose_wxyz(inst)  # [gx,gy,gz,qw,qx,qy,qz] wxyz
     q = [float(goal[3]), float(goal[4]), float(goal[5]), float(goal[6])]  # wxyz
 
-    # apply your 90deg local-Y rotation to the GOAL quaternion
-    if rotate_goal_local_y:
-        q = rotate_quat_90deg_local_y_wxyz(q, sign=int(rotate_sign))
-
     return [
         float(cpose[0]), float(cpose[1]), float(goal[2]),
         float(q[0]), float(q[1]), float(q[2]), float(q[3]),
     ]
 
-def build_target_from_goal_pose(inst: Dict[str, Any]) -> List[float]:
+def build_target_from_goal_pose(inst):
     # goal_pose_wxyz returns [x,y,z,qw,qx,qy,qz]
     return goal_pose_wxyz(inst)
 
-def _load_filtered_targets(path: Path) -> Tuple[List[List[float]], List[int]]:
+def _load_filtered_targets(path):
     D = json.loads(path.expanduser().read_text("utf-8"))
     items = D["targets"] if isinstance(D, dict) and "targets" in D else D
     if not isinstance(items, list):
         raise ValueError("filtered targets JSON must be a list or {'targets': [...]}")
 
-    targets: List[List[float]] = []
-    pidxs: List[int] = []
+    targets = []
+    pidxs = []
 
     for i, it in enumerate(items):
         if not isinstance(it, dict):
@@ -266,12 +175,8 @@ def _load_filtered_targets(path: Path) -> Tuple[List[List[float]], List[int]]:
         raise RuntimeError("filtered targets file contained 0 targets")
     return targets, pidxs
 
-
-# --------------------------------------------------------------------------------------
-# GRiD codegen / build
-# --------------------------------------------------------------------------------------
-
-def run_grid_codegen(urdf: Path, skip: bool) -> bool:
+# GRiD codegen
+def run_grid_codegen(urdf, skip):
     if skip:
         print("[GRiD] skipping URDF codegen...")
         return False
@@ -304,7 +209,7 @@ def run_grid_codegen(urdf: Path, skip: bool) -> bool:
     return True
 
 
-def rebuild_against_current_header() -> None:
+def rebuild_against_current_header():
     import subprocess
 
     env = os.environ.copy()
@@ -313,12 +218,7 @@ def rebuild_against_current_header() -> None:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "-e", "."], cwd=ROOT, env=env)
     print("[build] Rebuild done!")
 
-
-# --------------------------------------------------------------------------------------
-# Output
-# --------------------------------------------------------------------------------------
-
-def write_yaml_flat(path: Path, batch_sizes, time_ms, pos_err, ori_err) -> None:
+def write_yaml_flat(path, batch_sizes, time_ms, pos_err, ori_err):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as y:
@@ -336,7 +236,7 @@ def write_yaml_flat(path: Path, batch_sizes, time_ms, pos_err, ori_err) -> None:
             y.write(f"  - {v:.17g}\n")
 
 
-def print_batch_summary(y_batch, y_time_ms, y_pos, y_ori) -> None:
+def print_batch_summary(y_batch, y_time_ms, y_pos, y_ori):
     g_time = defaultdict(list)
     g_pos = defaultdict(list)
     g_ori = defaultdict(list)
@@ -353,11 +253,7 @@ def print_batch_summary(y_batch, y_time_ms, y_pos, y_ori) -> None:
         print(f"  Position Error: {sum(g_pos[B]) / len(g_pos[B]):12.6e}")
         print(f"  Orientation Error: {sum(g_ori[B]) / len(g_ori[B]):12.6e}")
 
-def write_csv_summary(path: Path, solver: str, y_batch, y_time_ms, y_pos, y_ori) -> None:
-    """
-    Writes one row per Batch-Size with MEAN metrics, format:
-      solver,Batch-Size,time_ms,pos_err_mm,ori_err_rad
-    """
+def write_csv_summary(path, solver, y_batch, y_time_ms, y_pos, y_ori):
     import csv
     from collections import defaultdict
 
@@ -384,66 +280,37 @@ def write_csv_summary(path: Path, solver: str, y_batch, y_time_ms, y_pos, y_ori)
 
             w.writerow([solver, int(B), f"{time_ms:.9f}", f"{pos_mm:.9g}", f"{ori_rad:.9g}"])
 
-# --------------------------------------------------------------------------------------
-# Main
-# --------------------------------------------------------------------------------------
-
 def main() -> None:
     ap = argparse.ArgumentParser()
 
-    ap.add_argument("--skip-grid-codegen", action="store_true",
-                    help="Skip URDF parse/codegen step for GRiD.")
-    ap.add_argument("--urdf", type=str, default=str(ROOT / "include" / "test_urdf" / "panda.urdf"),
-                    help="URDF used for GRiD codegen.")
-
-    ap.add_argument("--yaml-out", type=str, default="results.yml",
-                    help="YAML output file name.")
-    ap.add_argument(
-        "--batches",
-        type=_parse_batches,
-        default=_parse_batches("1,10,100,1000,2000"),
-        help="Batch sizes (comma/space separated).",
-    )
-    ap.add_argument("--num-solutions", type=int, default=1,
-                    help="Number of returned solutions per target.")
-    ap.add_argument("--print-solutions", action="store_true",
-                    help="Print joint configs (original behavior).")
+    ap.add_argument("--skip-grid-codegen", action="store_true", help="Skip URDF parse/codegen step for GRiD.")
+    ap.add_argument( "--urdf", type=str, default=str(ROOT / "include" / "test_urdf" / "panda.urdf"), help="URDF used for GRiD codegen.")
+    ap.add_argument("--yaml-out", type=str, default="results.yml",help="YAML output file name.")
+    ap.add_argument("--batches",type=_parse_batches,default=_parse_batches("1,10,100,1000,2000"), help="Batch sizes (comma/space separated).")
+    ap.add_argument("--num-solutions", type=int, default=1,help="Number of returned solutions per target.")
+    ap.add_argument("--print-solutions", action="store_true",help="Print joint configs (original behavior).")
 
     # Non-collision
-    ap.add_argument("--num-targets", type=int, default=100,
-                    help="Number of random targets (non-collision benchmark).")
+    ap.add_argument("--num-targets", type=int, default=100,help="Number of random targets (non-collision benchmark).")
 
     # Collision-free (RoboMetrics)
-    ap.add_argument("--collision-free", action="store_true",
-                    help="Enable collision-free solutions.")
-    ap.add_argument("--problems-json", type=str, default=str(ROOT / "src" / "problems" / "panda_problems.json"),
-                    help="Path to problems JSON (e.g., mb_problems.json).")
-    ap.add_argument("--problem-set", type=str, default="bookshelf_thin",
-                    help="Problem set name in JSON.")
-    ap.add_argument("--problem-idx", type=int, default=-1,
-                    help="If >=0, run only this problem index; if -1 run all.")
+    ap.add_argument("--collision-free", action="store_true",help="Enable collision-free solutions.")
+    ap.add_argument( "--problems-json", type=str, default=str(ROOT / "src" / "problems" / "panda_problems.json"),help="Path to problems JSON (e.g., mb_problems.json).")
+    ap.add_argument("--problem-set", type=str, default="bookshelf_thin",help="Problem set name in JSON.")
+    ap.add_argument("--problem-idx", type=int, default=-1,help="If >=0, run only this problem index; if -1 run all.")
 
-    ap.add_argument("--assoc-eps", type=float, default=1e-4,
-                    help="Axis-coincidence epsilon for association (meters).")
+    ap.add_argument("--assoc-eps", type=float, default=1e-4,help="Axis-coincidence epsilon for association (meters).")
 
-    ap.add_argument("--filtered-targets", type=str, default="",
-                    help="JSON of explicit targets; xyz is used for association.")
-    ap.add_argument("--max-targets", type=int, default=0,
-                    help="If >0, cap number of loaded targets (quick tests).")
+    ap.add_argument("--filtered-targets", type=str, default="",help="JSON of explicit targets; xyz is used for association.")
+    ap.add_argument("--max-targets", type=int, default=0,help="If >0, cap number of loaded targets (quick tests).")
 
-    ap.add_argument("--csv-out", type=str, default="",
-                help="If set, write a CSV summary with columns: solver,Batch-Size,time_ms,pos_err_mm,ori_err_rad")
-    ap.add_argument("--solver", type=str, default="hjcdik",
-                help="Solver name to emit in CSV (default: hjcdik).")
+    ap.add_argument("--csv-out", type=str, default="",help="If set, write a CSV summary with columns: solver,Batch-Size,time_ms,pos_err_mm,ori_err_rad")
+    ap.add_argument("--solver", type=str, default="hjcdik",help="Solver name to emit in CSV (default: hjcdik).")
     
-    ap.add_argument("--solutions-out", type=str, default="",
-                help="Write joint configs for ONE chosen target (one solution per line: q1,q2,...,q7).")
-    ap.add_argument("--solutions-target-idx", type=int, default=0,
-                    help="0-based target index to dump solutions for (default: 0 = first target).")
-    ap.add_argument("--solutions-batch", type=int, default=-1,
-                    help="Batch size to dump solutions from. If -1, uses the last batch in --batches.")
-    ap.add_argument("--solutions-count", type=int, default=50,
-                    help="Max number of solutions to write (default 50).")
+    ap.add_argument("--solutions-out", type=str, default="",help="Write joint configs for ONE chosen target (one solution per line: q1,q2,...,q7).")
+    ap.add_argument("--solutions-target-idx", type=int, default=0,help="0-based target index to dump solutions for (default: 0 = first target).")
+    ap.add_argument("--solutions-batch", type=int, default=-1,help="Batch size to dump solutions from. If -1, uses the last batch in --batches.")
+    ap.add_argument("--solutions-count", type=int, default=50,help="Max number of solutions to write (default 50).")
 
     args = ap.parse_args()
     batches = list(args.batches) 
@@ -453,7 +320,7 @@ def main() -> None:
     dump_idx = int(args.solutions_target_idx)
     dump_limit = int(args.solutions_count)
     dumped = False
-    dump_solutions: List[List[float]] = []
+    dump_solutions = []
 
     # GRiD codegen + rebuild
     did_codegen = run_grid_codegen(Path(args.urdf), args.skip_grid_codegen)
@@ -468,8 +335,8 @@ def main() -> None:
         pass
 
     problems_text = ""
-    targets: List[List[float]] = []
-    problem_indices: List[Optional[int]] = []
+    targets = []
+    problem_indices = []
 
     if args.collision_free:
         problems_text = _load_text(Path(args.problems_json))
@@ -518,10 +385,10 @@ def main() -> None:
     print(f"[info] running {len(targets)} targets, batches={batches}, num_solutions={S}, collision_free={args.collision_free}")
 
     # Benchmark loop
-    y_batch: List[int] = []
-    y_time_ms: List[float] = []
-    y_pos: List[float] = []
-    y_ori: List[float] = []
+    y_batch = []
+    y_time_ms = []
+    y_pos = []
+    y_ori = []
 
     #targets = [[0.4142281711101532, -0.5743789076805115, 0.38658469915390015, 0.5558769702911377, 0.43919798731803894, 0.5561493039131165, -0.43451568484306335]]
     #problem_indices = [None]
@@ -529,15 +396,14 @@ def main() -> None:
     for i, (target, pidx) in enumerate(zip(targets, problem_indices)):
         for B in batches:
             if args.collision_free:
-                # hjcdik expects a real index (0..P-1). -1 will explode.
                 if pidx is not None:
                     eff_pidx = int(pidx)
                 elif args.problem_idx is not None and args.problem_idx >= 0:
                     eff_pidx = int(args.problem_idx)
                 else:
-                    eff_pidx = 0  # safe default for single-target debug
+                    eff_pidx = 0 
             else:
-                eff_pidx = -1  # unused / ignored by hjcdik when collision_free=False
+                eff_pidx = -1 
 
             # Warmup
             _ = hjcdik.generate_solutions(
@@ -580,7 +446,6 @@ def main() -> None:
                         sol = joint_cfg[r]
                         print("[joint_config] " + ", ".join([f"{v:.6f}" for v in sol]))
 
-            # ---- NEW: dump joint configs for ONE target only ----
             if args.solutions_out and (not dumped) and (i == dump_idx) and (B == dump_B):
                 joint_cfg = res.get("joint_config", None)
                 if joint_cfg is not None:
