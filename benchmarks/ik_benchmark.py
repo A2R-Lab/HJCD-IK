@@ -81,6 +81,9 @@ def _cylinders_list(inst):
 
     return []
 
+def has_any_cylinders(inst) -> bool:
+    return len(_cylinders_list(inst)) > 0
+
 def goal_pose_wxyz(inst):
     gp = inst.get("goal_pose")
     if gp is None:
@@ -350,17 +353,17 @@ def main() -> None:
                 raise IndexError(f"--problem-idx {args.problem_idx} out of range (0..{P-1}).")
             problem_range = [args.problem_idx]
 
-        # for pidx in problem_range:
-        #     inst = _get_instance(D, args.problem_set, pidx)
-        #     targets.append(build_target_from_goal_pose(inst))
-        #     problem_indices.append(pidx)
         for pidx in problem_range:
             inst = _get_instance(D, args.problem_set, pidx)
 
             goal = goal_pose_wxyz(inst)
             ref_xyz = (goal[0], goal[1], goal[2])
 
-            targets.append(build_target_cylinder_pose(inst, ref_xyz, eps=float(args.assoc_eps)))
+            #targets.append(build_target_cylinder_pose(inst, ref_xyz, eps=float(args.assoc_eps)))
+            if has_any_cylinders(inst):
+                targets.append(build_target_cylinder_pose(inst, ref_xyz, eps=float(args.assoc_eps)))
+            else:
+                targets.append(build_target_from_goal_pose(inst))
             problem_indices.append(pidx)
 
         if args.max_targets and args.max_targets > 0:
@@ -389,9 +392,6 @@ def main() -> None:
     y_time_ms = []
     y_pos = []
     y_ori = []
-
-    #targets = [[0.4142281711101532, -0.5743789076805115, 0.38658469915390015, 0.5558769702911377, 0.43919798731803894, 0.5561493039131165, -0.43451568484306335]]
-    #problem_indices = [None]
 
     for i, (target, pidx) in enumerate(zip(targets, problem_indices)):
         for B in batches:

@@ -2,10 +2,10 @@
 #pragma once 
 #include "hjcd_settings.h"
 
-// joints: 0..6
-constexpr int NJ = hjcd::N; // Num joints
-constexpr int EE_IDX = NJ; // Store Frame in memory
+// (panda specific)
+constexpr int NJ = hjcd::N;
 constexpr int FLANGE_IDX = 8;
+constexpr int EE_IDX = NJ;
 constexpr int NX = FLANGE_IDX + 1;
 
 template<typename T>

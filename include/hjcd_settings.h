@@ -1,4 +1,3 @@
-
 #pragma once 
 #include "grid.cuh"
 
@@ -33,14 +32,14 @@ inline RefineSchedule schedule_for_B(int B) {
     RefineSchedule s;
     s.keep_one   = true;
     s.sigma_frac = 0.1;
-    s.repeats    = 5;
+    s.repeats    = 16;
 
-    if (B <= 12) {
+    if (B <= 16) {
         s.top_k     = B;
-        s.repeats   = 12;
+        s.repeats   = 16;
         s.sigma_frac= 0.25;
     } else {
-        s.top_k = 32;
+        s.top_k = 16 + (int)((B - 1000)/1000 * 8);
     }
 
     return s;
@@ -50,7 +49,7 @@ template<typename T>
 struct HJCDSettings {
     // Coarse phase settings
     static constexpr T epsilon = static_cast<T>(20e-3);   // 20 mm
-    static constexpr T  nu = static_cast<T>(90 * PI / 180.0);
+    static constexpr T nu = static_cast<T>(90 * PI / 180.0);
     static constexpr int k_max  = 20;
 
     // Refine phase settings

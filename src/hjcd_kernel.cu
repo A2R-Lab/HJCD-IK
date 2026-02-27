@@ -34,7 +34,9 @@
 #include "collision/prrtc_collision.cuh"
 #include <nlohmann/json.hpp>
 
-enum : int { N = grid::NUM_JOINTS };
+enum : int {
+    N = grid::NUM_JOINTS
+};
 extern "C" int grid_num_joints() { return N; }
 
 __constant__ double2 c_joint_limits[N];
@@ -91,9 +93,9 @@ __device__ void sample_joint_config(T* s_x, int local_problem, int global_proble
 }
 
 template<typename T>
-__device__ void perturb_joint_config(T* s_x, int global_problem, int salt, T sigma_frac=(T)0.05) {
+__device__ void perturb_joint_config(T* s_x, int global_problem, T sigma_frac = (T)0.05) {
     const uint32_t base = 911u;
-    uint32_t s = make_seed(base, global_problem, salt, threadIdx.x);
+    uint32_t s = make_seed(base, global_problem, 0, threadIdx.x);
 
 #pragma unroll
     for (int j = 0; j < N; ++j) {
@@ -377,7 +379,7 @@ __device__ bool try_dogleg_step(
     T c_new = cost_sq, p_new = pos_err_m, o_new = ori_err_rad;
     recompute_cost_scaled(x_trial, s_jointX, s_XmatsHom, row_s, tp, q_goal, c_new, p_new, o_new);
 
-    const bool ok = (c_new + (T)1e-20 < cost_sq);
+    const bool ok = (c_new + (T)1e-20 < cost_sq) && (p_new <= pos_err_m + (T)1e-12);
     if (ok) {
 #pragma unroll
         for (int i = 0; i < N; ++i) s_x[i] = x_trial[i];
@@ -423,7 +425,7 @@ __device__ bool try_coord_linesearch(
         const T xi = x_old[i_star] + (T)sgn * mag;
         x_trial[i_star] = fmin(fmax(xi, (T)L.x), (T)L.y);
         T c, p, o; recompute_cost_scaled(x_trial, s_jointX, s_XmatsHom, row_s, tp, q_goal, c, p, o);
-        if (c + (T)1e-20 < best_cost) {
+        if ((p <= pos_err_m + (T)1e-12) && (c + (T)1e-20 < best_cost)) {
             best_cost = c; best_pos = p; best_ori = o; accepted = true;
 #pragma unroll
             for (int j = 0; j < N; ++j) s_x[j] = x_trial[j];
@@ -525,7 +527,7 @@ __device__ inline void build_ne_and_solve_warp(
     const unsigned mask = FULL_WARP_MASK;
     const int lane = threadIdx.x & 31;
 
-    // build A = J^T J
+    // Build A = J^T J
     if (lane < DIM) {
         const int r = lane;
         #pragma unroll
@@ -539,7 +541,7 @@ __device__ inline void build_ne_and_solve_warp(
         double accb = 0.0;
         #pragma unroll
         for (int k = 0; k < 6; ++k) accb += (double)J[k*DIM + r] * (double)r_scaled[k];
-        b_sh[r] = -accb;
+        b_sh[r] = accb;
     }
     __syncwarp(mask);
 
@@ -553,11 +555,11 @@ __device__ inline void build_ne_and_solve_warp(
     }
     __syncwarp(mask);
 
-    // warp Cholesky
+    // Warp Cholesky
     bool ok = warp_cholesky_solve_inplace<DIM>(A_sh, b_sh);
 
-    // write
-    if (lane < DIM) dq[lane] = ok ? (T)(-b_sh[lane]) : (T)0;
+    // Write
+    if (lane < DIM) dq[lane] = ok ? (T)b_sh[lane] : (T)0;
     __syncwarp(mask);
 }
 
@@ -583,14 +585,9 @@ __device__ void solve_lm_batched(
     __shared__ T J[6*N], r_scaled[6], row_s[6], q_goal[4];
     __shared__ T pos_err_m, ori_err_rad, cost_sq, prev_cost;
     __shared__ T dq[N], diagA[N], gvec[N];
-    __shared__ T best_x_pos[N], best_pos_seen, best_cost_seen;
+    __shared__ T best_x_pos[N], best_pos_seen;
     __shared__ double Ad_sh[N*N], rhsd_sh[N];
     __shared__ int s_break, stall;
-    __shared__ T col_s[N];
-    __shared__ T stall_best_x[N];
-    __shared__ T stall_try_x[N];
-    __shared__ T dz[N];
-    __shared__ int s_pos_only;
 
     const int warp_id = threadIdx.x >> 5;
     const int gp  = blockIdx.x;
@@ -598,7 +595,7 @@ __device__ void solve_lm_batched(
     if (gp >= B || !x || !pose || !target_poses || !pos_error || !ori_error || !d_robotModel) return;
 
     const T  lambda_min = (T)1e-12, lambda_max = (T)1e6;
-    const int stall_lim = 15;
+    const int stall_lim = 5;
 
     const T* tp = &target_poses[gp*7];
     if (tid < N) s_x[tid] = x[gp*N + tid];
@@ -606,7 +603,7 @@ __device__ void solve_lm_batched(
         q_goal[0]=tp[3]; q_goal[1]=tp[4]; q_goal[2]=tp[5]; q_goal[3]=tp[6];
         T n = rsqrt(q_goal[0]*q_goal[0]+q_goal[1]*q_goal[1]+q_goal[2]*q_goal[2]+q_goal[3]*q_goal[3]);
         q_goal[0]*=n; q_goal[1]*=n; q_goal[2]*=n; q_goal[3]*=n;
-        s_break=0; stall=0; prev_cost=(T)-1; cost_sq=(T)0; s_pos_only=0;
+        s_break=0; stall=0; prev_cost=(T)-1; cost_sq=(T)0;
     }
     SYNC();
 
@@ -623,12 +620,10 @@ __device__ void solve_lm_batched(
     if (tid == 0) {
         pos_err_m   = compute_pos_err(s_jointX, tp);
         ori_err_rad = compute_ori_err(s_jointX, &tp[3]);
-        s_pos_only = (pos_err_m > (T)5e-3) ? 1 : 0;
     }
     SYNC();
 
     best_pos_seen = pos_err_m;
-    best_cost_seen = (T)1e38;
     if (tid < N) best_x_pos[tid] = s_x[tid];
     if (tid == 0 && pos_err_m < eps_pos && ori_err_rad < eps_ori) s_break = 1;
     SYNC(); if (s_break) goto WRITE_OUT;
@@ -639,19 +634,7 @@ __device__ void solve_lm_batched(
         }
         SYNC(); if (s_break) break;
 
-        if (tid == 0) {
-            const T pos_only_enter = (T)5e-3;
-            const T pos_only_exit  = (T)2e-3;
-
-            if (s_pos_only) {
-                s_pos_only = (pos_err_m > pos_only_exit) ? 1 : 0;
-            } else {
-                s_pos_only = (pos_err_m > pos_only_enter) ? 1 : 0;
-            }
-        }
-        SYNC();
-
-        // residual
+        // Position and orientation residual
         if (tid == 0) {
             const T* Cn = &s_jointX[EE_IDX * 16];
             T qee[4]; mat_to_quat(Cn, qee);
@@ -665,7 +648,7 @@ __device__ void solve_lm_batched(
         }
         SYNC();
 
-        // build J and row-norms
+        // Build J and row-norms
         __shared__ T row_norm2[6];
         if (tid < 6) row_norm2[tid] = (T)0;
         SYNC();
@@ -706,7 +689,7 @@ __device__ void solve_lm_batched(
             p5 += __shfl_down_sync(mask, p5, off);
         }
 
-        // lane per warp accumulate into shared row sums
+        // Lane per warp accumulate into shared row sums
         if ((threadIdx.x & 31) == 0) {
             row_norm2[0] += p0; row_norm2[1] += p1; row_norm2[2] += p2;
             row_norm2[3] += p3; row_norm2[4] += p4; row_norm2[5] += p5;
@@ -738,20 +721,11 @@ __device__ void solve_lm_batched(
                 row_s[k]*=s; r_scaled[k]*=s;
             }
 
-            T w_ori;
-            if (s_pos_only) {
-                w_ori = (T)1e-8;
-            } else {
-                if (pos_err_m > (T)1e-3) w_ori = (T)2.0; // > 1 mm
-                else if (pos_err_m > (T)1e-4) w_ori = (T)10.0; // 0.1-1 mm
-                else if (pos_err_m > (T)1e-5) w_ori = (T)50.0; // 0.01-0.1 mm
-                else if (pos_err_m > (T)1e-6) w_ori = (T)200.0; // 0.001-0.01 mm
-                else w_ori = (T)1000.0; // ultra-fine polish
-            }
+            T w_ori = (pos_err_m > (T)1e-3) ? (T)0.5 :
+                      (pos_err_m > (T)2e-4) ? (T)1.0 : (T)1.5;
             const T s = sqrt(w_ori);
-            row_s[3] *= s; row_s[4] *= s; row_s[5] *= s;
-            r_scaled[3] *= s; r_scaled[4] *= s; r_scaled[5] *= s;
-
+            row_s[3]*=s; row_s[4]*=s; row_s[5]*=s;
+            r_scaled[3]*=s; r_scaled[4]*=s; r_scaled[5]*=s;
 
             cost_sq = (T)0.5*(
                 r_scaled[0]*r_scaled[0]+r_scaled[1]*r_scaled[1]+r_scaled[2]*r_scaled[2]+
@@ -769,30 +743,22 @@ __device__ void solve_lm_batched(
         // Joint-limit column scaling + LM diag/prior
         if (tid < N) {
             const int i = tid;
-            const double2 L = c_joint_limits[i];
-            const T span=(T)(L.y - L.x);
-            const T mid =(T)(0.5*(L.x + L.y));
-            const T mlo = s_x[i]-(T)L.x, mhi=(T)L.y - s_x[i];
-
-            const T mar = fmax((T)1e-6, fmin(mlo,mhi))/span;
-
             const T col = (T)1.0;
-            col_s[i] = col;
+
+            #pragma unroll
             for (int k=0;k<6;++k) J[k*N+i] *= col;
+
+            // Disable joint-center prior near limits
             diagA[i] = (T)0;
             gvec[i]  = (T)0;
         }
-
         SYNC();
 
         // Build normal equations and solve in warp 0
         if (warp_id == 0) {
-            build_ne_and_solve_warp<T, N>(J, r_scaled, lambda, dz, diagA, gvec, Ad_sh, rhsd_sh);
+            build_ne_and_solve_warp<T, N>(J, r_scaled, lambda, dq, diagA, gvec, Ad_sh, rhsd_sh);
         }
         SYNC();
-        if (tid < N) {
-            dq[tid] = dz[tid] * col_s[tid];
-        }
 
         if (tid == 0) {
             T R;
@@ -808,10 +774,7 @@ __device__ void solve_lm_batched(
                            (pos_err_m > (T)1e-3)?(T)0.15:
                            (pos_err_m > (T)2e-4)?(T)0.08:(T)0.03;
             for (int i=0;i<N;++i){
-                const double2 lim=c_joint_limits[i];
                 dq[i]=fmin(fmax(dq[i],-clip),clip);
-                if ((s_x[i] <= (T)lim.x + (T)1e-4 && dq[i] < (T)0) ||
-                    (s_x[i] >= (T)lim.y - (T)1e-4 && dq[i] > (T)0)) dq[i]=(T)0;
                 x_old[i]=s_x[i];
             }
         }
@@ -823,7 +786,7 @@ __device__ void solve_lm_batched(
 
         T best_cost=(T)1e38, best_pos=pos_err_m, best_ori=ori_err_rad, best_a=(T)0;
 
-        // short backtracking schedule: 1.0, 0.5, 0.25, 0.125
+        // Backtracking schedule: 1.0, 0.5, 0.25, 0.125
         for (int tries=0; tries<4; ++tries) {
             const T a = (tries==0)?(T)1.0 : (T)0.5 * (T)pow((T)0.5, tries-1);
             if (tid == 0) {
@@ -869,14 +832,9 @@ __device__ void solve_lm_batched(
 
                 T trial=(T)0.5*(rr[0]*rr[0]+rr[1]*rr[1]+rr[2]*rr[2]+rr[3]*rr[3]+rr[4]*rr[4]+rr[5]*rr[5]);
 
-                const T pos_slack = fmax((T)1e-12, (T)1e-3 * pos_err_m);
-                const T ori_slack = fmax((T)1e-12, (T)1e-4 * ori_err_rad);
-                const bool improves_cost = (trial + (T)1e-20 < best_cost);
-                const bool ok_pos = (pos_new <= pos_err_m + pos_slack);
-                const bool ok_ori = (ori_new <= ori_err_rad - ori_slack);
-                const bool ok = improves_cost && (s_pos_only ? ok_pos : (ok_pos || ok_ori));
-                
-                if (ok) { 
+                const bool nonincreasing_pos = (pos_new <= pos_err_m + (T)1e-12);
+                const bool improves_cost     = (trial + (T)1e-20 < best_cost);
+                if (improves_cost && nonincreasing_pos) { 
                     best_cost=trial; best_pos=pos_new; best_ori=ori_new; best_a=a; accepted=1; 
                 }
             }
@@ -886,35 +844,10 @@ __device__ void solve_lm_batched(
 
         if (tid == 0) {
             if (accepted) {
-                T ared = cost_sq - best_cost;
-                T pDp = (T)0;
-                T rJp = (T)0;
-                T Jp2 = (T)0;
-                T Jp0=(T)0,Jp1=(T)0,Jp2v=(T)0,Jp3=(T)0,Jp4=(T)0,Jp5=(T)0;
-
-                #pragma unroll
-                for (int i=0;i<N;++i) {
-                    const T p = best_a * dz[i];
-                    pDp += diagA[i] * p * p;
-                    Jp0 += J[0*N+i] * p;
-                    Jp1 += J[1*N+i] * p;
-                    Jp2v+= J[2*N+i] * p;
-                    Jp3 += J[3*N+i] * p;
-                    Jp4 += J[4*N+i] * p;
-                    Jp5 += J[5*N+i] * p;
-                }
-
-                Jp2 = Jp0*Jp0 + Jp1*Jp1 + Jp2v*Jp2v + Jp3*Jp3 + Jp4*Jp4 + Jp5*Jp5;
-
-                // compute g^T p as r^T (Jp)
-                rJp = r_scaled[0]*Jp0 + r_scaled[1]*Jp1 + r_scaled[2]*Jp2v
-                    + r_scaled[3]*Jp3 + r_scaled[4]*Jp4 + r_scaled[5]*Jp5;
-
-                // pred = g^T p - 0.5*(||Jp||^2 + lambda * p^T D p)
-                T pred = rJp - (T)0.5 * (Jp2 + lambda * pDp);
+                T ared = cost_sq - best_cost, pred=(T)0;
+                for (int i=0;i<N;++i){ const T ad=best_a*dq[i]; pred += (T)0.5 * (lambda*diagA[i]*ad*ad + ad*gvec[i]); }
                 pred = fmax((T)1e-20, pred);
-
-                T rho = ared / pred;
+                const T rho = ared / pred;
 
                 if      (rho > (T)0.90) lambda=fmax(lambda*(T)0.3, lambda_min);
                 else if (rho > (T)0.50) lambda=fmax(lambda*(T)0.5, lambda_min);
@@ -922,20 +855,17 @@ __device__ void solve_lm_batched(
 
                 cost_sq=best_cost; pos_err_m=best_pos; ori_err_rad=best_ori;
 
-                if (cost_sq < best_cost_seen) {
-                    best_cost_seen = cost_sq;
-                    best_pos_seen = pos_err_m;
-                    for (int i=0;i<N;++i) best_x_pos[i]=s_x[i];
-                }
+                if (pos_err_m + (T)1e-20 < best_pos_seen) { best_pos_seen=pos_err_m; for (int i=0;i<N;++i) best_x_pos[i]=s_x[i]; }
                 if (prev_cost > (T)0 && (prev_cost - cost_sq)/prev_cost < (T)1e-9) ++stall; else stall=0;
                 prev_cost=cost_sq;
             } else {
-                // dogleg then 1-D linesearch 
+                // Dogleg + linesearch
                 T R;
                 if      (pos_err_m > (T)1e-2 || ori_err_rad > (T)0.6)  R=(T)0.45;
                 else if (pos_err_m > (T)1e-3 || ori_err_rad > (T)0.25) R=(T)0.28;
                 else if (pos_err_m > (T)2e-4 || ori_err_rad > (T)0.08) R=(T)0.10;
-                else lambda = fmin(lambda * (T)5.0, lambda_max);
+                else                                                   R=(T)0.04;
+
                 bool took = try_dogleg_step<T>(s_x, x_old, s_jointX, s_XmatsHom,
                                                row_s, tp, q_goal, R,
                                                dq, gvec, diagA,
@@ -958,7 +888,7 @@ __device__ void solve_lm_batched(
                     const T span=(T)(L.y-L.x);
                     uint32_t u = 0x9E3779B9u ^ (uint32_t)(i*0xC2B2AE35u);
                     T sgn = (T)((int)(u&1)?1:-1);
-                    T kick = (T)0.025 * span * sgn;
+                    T kick = (T)0.005 * span * sgn;
                     T xi = s_x[i] + kick;
                     s_x[i] = fmin(fmax(xi,(T)L.x),(T)L.y);
                 }
@@ -967,39 +897,6 @@ __device__ void solve_lm_batched(
                 ori_err_rad = compute_ori_err(s_jointX,&tp[3]);
                 stall = 0;
             }
-            // if (stall >= stall_lim) {
-            //     #pragma unroll
-            //     for (int i = 0; i < N; ++i) stall_best_x[i] = best_x_pos[i];
-
-            //     grid::X_single_thread(s_jointX, s_XmatsHom, stall_best_x, FLANGE_IDX);
-            //     {
-            //         const T* Cn = &s_jointX[EE_IDX * 16];
-            //         T qee[4]; mat_to_quat(Cn, qee);
-            //         if (qee[0]*q_goal[0]+qee[1]*q_goal[1]+qee[2]*q_goal[2]+qee[3]*q_goal[3] < (T)0) {
-            //             qee[0]=-qee[0]; qee[1]=-qee[1]; qee[2]=-qee[2]; qee[3]=-qee[3];
-            //         }
-            //         T wv[3]; quat_err_rotvec(qee, q_goal, wv);
-            //         const T ex = tp[0]-Cn[12], ey = tp[1]-Cn[13], ez = tp[2]-Cn[14];
-            //         T r_tmp[6] = {ex, ey, ez, wv[0], wv[1], wv[2]};
-
-            //         // T rn[6];
-            //         // for (int k=0;k<6;++k) rn[k] = r_tmp[k]*r_tmp[k];
-            //         // T fresh_row_s[6];
-            //         // for (int k=0;k<6;++k)
-            //         //     fresh_row_s[k] = (rn[k] > (T)1e-18) ? (T)1/sqrt(rn[k]) : (T)1;
-            //         // for (int k=0;k<6;++k) row_s[k] = fresh_row_s[k];
-            //     }
-
-            //     // Now recompute baseline cost at stall_best_x with fresh row_s
-            //     T best_escape_cost, best_escape_pos, best_escape_ori;
-            //     recompute_cost_scaled(stall_best_x, s_jointX, s_XmatsHom,
-            //                         row_s, tp, q_goal,
-            //                         best_escape_cost, best_escape_pos, best_escape_ori);
-            //     #pragma unroll
-            //     for (int i = 0; i < N; ++i) s_x[i] = stall_best_x[i];
-            //     cost_sq = best_escape_cost; pos_err_m = best_escape_pos; ori_err_rad = best_escape_ori;
-
-            // }
 
             if (pos_err_m < eps_pos && ori_err_rad < eps_ori) { atomicCAS(&g_stop, 0, 1); s_break = 1; }
         }
@@ -1020,9 +917,9 @@ __device__ void solve_lm_batched(
 
 WRITE_OUT:
 
-    // drift guard against noisy acceptances
+    // Drift guard against noisy acceptances
     {
-        const T MAX_DRIFT = (T)2e-3;
+        const T MAX_DRIFT = (T)2e-4;
         if (pos_err_m > best_pos_seen + MAX_DRIFT) {
             for (int i=0; i<N; ++i) s_x[i] = best_x_pos[i];
             if (warp_id == 0) {
@@ -1110,12 +1007,12 @@ __global__ void coarse_search(
         s_ori_err[tid]    = (T)1e9;
     }
     __syncthreads();
-    
+
     grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, s_x, d_robotModel, s_temp);
     __syncthreads();
 
     if ((threadIdx.x >> 5) == 0) { // warp 0
-        grid::X_warp<T>(s_jointXforms, s_XmatsHom, s_x,FLANGE_IDX);
+        grid::X_warp<T>(s_jointXforms, s_XmatsHom, s_x, FLANGE_IDX);
     }
     __syncthreads();
 
@@ -1155,13 +1052,12 @@ __global__ void coarse_search(
         __syncthreads();
 
         if (tid == 0) {
-            const T pos_gate = (T)5e-3;
+            const T pos_gate = (T)10e-4;
             s_allow_ori = (s_glob_pos_err < pos_gate) ? 1 : 0;
-            //s_allow_ori = 1; // always include orientation
         }
         __syncthreads();
 
-        // compute per-joint theta1 for pos & ori
+        // Compute per-joint theta1 for pos & ori
         for (int idx = warp; idx < 2 * N; idx += warps_per_block) {
             const int phase = idx / N;
             const int p     = idx % N;
@@ -1175,7 +1071,7 @@ __global__ void coarse_search(
         }
         __syncthreads();
 
-        // evaluate greedy pairwise (p,j) with two scratch buffers (l_tmp, l_C)
+        // Evaluate greedy pairwise (p,j) with two scratch buffers (l_tmp, l_C)
         for (int idx = warp; idx < 2 * N; idx += warps_per_block) {
             const int phase = idx / N;
             const int p     = idx % N;
@@ -1236,7 +1132,7 @@ __global__ void coarse_search(
         }
         __syncthreads();
 
-        // choose best pos and ori joints
+        // Choose best position and orientation joints
         if (tid == 0) {
             int best_pos_joint = -1, best_ori_joint = -1;
             T best_pos_imp = (T)0,  best_ori_imp = (T)0;
@@ -1244,14 +1140,14 @@ __global__ void coarse_search(
             for (int jj = 0; jj < N; ++jj) {
                 if (jj == s_last_joint_o) continue;
                 const T imp_p = s_glob_pos_err - s_pos_err[jj];
-                if (imp_p > best_pos_imp && imp_p > (T)1e-10) {
+                if (imp_p > best_pos_imp && imp_p > (T)1e-5) {
                     best_pos_imp = imp_p; best_pos_joint = jj;
                 }
             }
             for (int jj = 0; jj < N; ++jj) {
                 if (jj == s_last_joint_p) continue;
                 const T imp_o = s_glob_ori_err - s_ori_err[jj];
-                if (imp_o > best_ori_imp && imp_o > (T)1e-10) {
+                if (imp_o > best_ori_imp && imp_o > (T)1e-5) {
                     best_ori_imp = imp_o; best_ori_joint = jj;
                 }
             }
@@ -1275,7 +1171,7 @@ __global__ void coarse_search(
             }
 
             if (best_ori_joint == -1 && best_pos_joint == -1) {
-                perturb_joint_config<T>(s_x, gp, 0x10000 + k);
+                perturb_joint_config<T>(s_x, gp);
             }
         }
         __syncthreads();
@@ -1383,41 +1279,37 @@ __global__ void forward_kinematics_kernel(
     const int b = blockIdx.x;
     if (!q || !RM || b >= B) return;
 
-    __shared__ T s_q[grid::NUM_JOINTS];
-    __shared__ T s_XmatsHom[NX * 16];
+    __shared__ T s_q[N];
+    __shared__ T s_XmatsHom[NX*16];
     __shared__ T s_jointX[NX * 16];
     __shared__ T s_tmp[NX * 2];
 
-    // Load q for this batch item
-    for (int j = threadIdx.x; j < grid::NUM_JOINTS; j += blockDim.x)
-        s_q[j] = q[(size_t)b * grid::NUM_JOINTS + j];
+    for (int j = threadIdx.x; j < N; j += blockDim.x)
+        s_q[j] = q[b * N + j];
     __syncthreads();
 
-    // Build local per-joint homogeneous transforms into s_XmatsHom
     grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, RM, s_tmp);
     __syncthreads();
 
     if (threadIdx.x == 0) {
-        // Accumulate into s_jointX up to flange
-        grid::X_single_thread<T>(s_jointX, s_XmatsHom, s_q, EE_IDX);
+        grid::X_single_thread<T>(s_jointX, s_XmatsHom, s_q, FLANGE_IDX);
 
         if (ee_pose7) {
             const T* Cee = &s_jointX[EE_IDX * 16];
-            T q_wxyz[4];
-            mat_to_quat(Cee, q_wxyz);
-
-            ee_pose7[b*7+0] = Cee[12];
-            ee_pose7[b*7+1] = Cee[13];
-            ee_pose7[b*7+2] = Cee[14];
-            ee_pose7[b*7+3] = q_wxyz[0];
-            ee_pose7[b*7+4] = q_wxyz[1];
-            ee_pose7[b*7+5] = q_wxyz[2];
-            ee_pose7[b*7+6] = q_wxyz[3];
+            T qee[4];
+            mat_to_quat(Cee, qee);
+            ee_pose7[b * 7 + 0] = Cee[12];
+            ee_pose7[b * 7 + 1] = Cee[13];
+            ee_pose7[b * 7 + 2] = Cee[14];
+            ee_pose7[b * 7 + 3] = qee[0];
+            ee_pose7[b * 7 + 4] = qee[1];
+            ee_pose7[b * 7 + 5] = qee[2];
+            ee_pose7[b * 7 + 6] = qee[3];
         }
 
         if (all_link_T) {
-            T* out = &all_link_T[(size_t)b * (NX * 16)];
-            #pragma unroll
+            T* out = &all_link_T[b * (NX * 16)];
+#pragma unroll
             for (int i = 0; i < NX * 16; ++i) out[i] = s_jointX[i];
         }
     }
@@ -1500,8 +1392,6 @@ sample_random_target_poses(const grid::robotModel<T>* d_robotModel,
     std::vector<std::array<T,7>> out;
     if (num_configs <= 0 || !d_robotModel) return out;
 
-    init_joint_limits_from_grid();
-
     T* d_q = sample_ik_config_halton<T>(d_robotModel, num_configs, seed, /*offset=*/1, /*leap=*/1);
     if (!d_q) return out;
 
@@ -1555,7 +1445,10 @@ __global__ void build_scores_kernel(const T* __restrict__ pos_err_mm,
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= B) return;
 
-    scores[i] = pos_err_mm[i] + ori_err_rad[i];
+    const T ORI_TARGET_RAD = (T)1.1e-4;
+    const T ORI_OUTLIER_W  = (T)1e4;
+    const T ori_excess = fmax((T)0, ori_err_rad[i] - ORI_TARGET_RAD);
+    scores[i] = pos_err_mm[i] + ORI_OUTLIER_W * ori_excess;
 }
 
 template<typename T>
@@ -1626,9 +1519,9 @@ __global__ void cast_array(const Src* __restrict__ in,
 }
 
 __global__ void mark_collisions_panda(
-    const double* __restrict__ q_in,
+    const double* __restrict__ q_in,   // K x N_JOINTS
     int K,
-    unsigned char* __restrict__ valid,
+    unsigned char* __restrict__ valid, // K bytes
     ppln::collision::Environment<float>* env)
 {
     using Robot = ppln::robots::Panda;
@@ -1638,6 +1531,7 @@ __global__ void mark_collisions_panda(
     int tid = (int)threadIdx.x;
     if (i >= K) return;
 
+    // collision_free_cfg's link_CC clearing assumes 128 threads -> 640 ints
     __shared__ __align__(16) float sphere_pos[6000];
     __shared__ __align__(16) float sphere_pos_approx[2500];
     __shared__ __align__(16) int   link_CC[640];
@@ -1667,6 +1561,8 @@ __global__ void apply_valid_mask_to_scores(
 }
 
 const double COLLISION_PENALTY = 1e6;
+const double ORI_TARGET_RAD = 1.1e-4;
+const double ORI_OUTLIER_W  = 7000.0;
 
 template<typename T>
 Result<T> generate_ik_solutions(
@@ -1706,12 +1602,12 @@ Result<T> generate_ik_solutions(
 
     if (collision_free) {
         if (!problems_json_text || !problem_set_name) {
-            // if no environment provided, disable collision
             collision_free = false;
             printf("[pRRTC] Warning: collision-free requested but no problem JSON provided\n");
         } else {
-            // build environment
+            // Build a cache key
             std::string key = std::string(problem_set_name) + "#" + std::to_string(problem_idx);
+
             if (!g_env_cache.ready || g_env_cache.key != key) {
                 // Clear previous cached env
                 if (g_env_cache.ready) {
@@ -1725,18 +1621,16 @@ Result<T> generate_ik_solutions(
                 nlohmann::json all_data = nlohmann::json::parse(problems_json_text);
                 nlohmann::json problems_root = all_data.at("problems");
 
-                // Select the problem instance
+                // Select the exact problem instance
                 nlohmann::json data = pRRTC::select_problem_instance(
                     problems_root, problem_set_name, problem_idx);
 
+                // Disable collision if invalid
                 if (data.contains("valid") && !bool(data["valid"])) {
-                    // No environment; disable collision
                     collision_free = false;
                 } else {
                     // Build host env
                     g_env_cache.h_env = pRRTC::problem_dict_to_env(data, problem_set_name);
-
-                    // Upload to device
                     pRRTC::setup_environment_on_device(g_env_cache.d_env, g_env_cache.h_env);
 
                     g_env_cache.key = key;
@@ -1881,16 +1775,13 @@ Result<T> generate_ik_solutions(
     CUDA_OK(cudaMemcpy(h_x_coarse_f.data(), d_x_c,
                        sizeof(TC) * num_elems_x, cudaMemcpyDeviceToHost));
 
-    const auto  sch         = schedule_for_B(B);
-    const int   top_k_req   = sch.top_k;
-    const int   repeats     = sch.repeats;
+    const auto sch = schedule_for_B(B);
+    const int top_k_req = sch.top_k;
+    const int repeats = sch.repeats;
     const double sigma_frac = sch.sigma_frac;
-    const bool  keep_one    = sch.keep_one;
+    const bool keep_one = sch.keep_one;
 
-    // K in [1, B];
-    const int K = (top_k_req <= 0) ? B : std::min(B, std::max(1, top_k_req));
-
-    // score: pos + ori error
+    // score: pos + ori error (float)
     TC* d_scores_c = nullptr;
     CUDA_OK(cudaMalloc(&d_scores_c, sizeof(TC) * B));
     {
@@ -1903,10 +1794,15 @@ Result<T> generate_ik_solutions(
     // sort configs and gather top K
     thrust::device_vector<int> d_idx(B);
     thrust::sequence(d_idx.begin(), d_idx.end(), 0);
+
     {
         thrust::device_ptr<TC> s_ptr(d_scores_c);
         thrust::sort_by_key(s_ptr, s_ptr + B, d_idx.begin());
     }
+
+    // K in [1, B]
+    const int K = (top_k_req <= 0) ? B : std::min(B, std::max(1, top_k_req));
+
     thrust::device_vector<int> d_top_idx(K);
     thrust::copy(d_idx.begin(), d_idx.begin() + K, d_top_idx.begin());
 
@@ -2002,8 +1898,6 @@ Result<T> generate_ik_solutions(
         const int TPB_lm   = 32;
         const int max_iters = 40;
         int stop_on_first_lm  = (num_solutions > 1) ? 0 : 1;
-        //int stop_on_first_lm = (do_cc) ? 1 : ((num_solutions > 1) ? 0 : 1);
-        //int stop_on_first_lm = 1;
 
         lm_tuner<double><<<Krep, TPB_lm>>>(
             dx64, dpose64, dtgt64, dposmm64, dori64, d_robotModel64,
@@ -2013,7 +1907,7 @@ Result<T> generate_ik_solutions(
         CUDA_OK(cudaDeviceSynchronize());
     }
 
-    // collision filter
+    // refined collision check 
     std::vector<unsigned char> h_valid_refined(Krep, 1);
     unsigned char* d_valid_refined = nullptr;
 
@@ -2045,7 +1939,8 @@ Result<T> generate_ik_solutions(
     // GET SOLUTIONS
     const int S_target = std::max(1, num_solutions);
     auto score_ref = [&](int i)->double {
-        double s = h_posmm64[i] + h_orir64[i];
+        const double ori_excess = std::max(0.0, h_orir64[i] - ORI_TARGET_RAD);
+        double s = h_posmm64[i] + ORI_OUTLIER_W * ori_excess;
         if (do_cc && !h_valid_refined[i]) s += COLLISION_PENALTY;
         return s;
     };
@@ -2066,7 +1961,8 @@ Result<T> generate_ik_solutions(
     };
 
     auto score_coarse = [&](int i)->double {
-        return (double)h_pos_mm_coarse_f[i] + (double)h_ori_rad_coarse_f[i];
+        const double ori_excess = std::max(0.0, (double)h_ori_rad_coarse_f[i] - ORI_TARGET_RAD);
+        return (double)h_pos_mm_coarse_f[i] + ORI_OUTLIER_W * ori_excess;
     };
 
     std::vector<int> chosen;
@@ -2081,11 +1977,13 @@ Result<T> generate_ik_solutions(
             if ((int)chosen.size() == S_target) break;
         }
     }
+
     if ((int)chosen.size() < S_target) {
         std::vector<int> order_coarse(B);
         std::iota(order_coarse.begin(), order_coarse.end(), 0);
         std::sort(order_coarse.begin(), order_coarse.end(),
                 [&](int a, int b){ return score_coarse(a) < score_coarse(b); });
+
         for (int cidx : order_coarse) {
             chosen.push_back(-1 - cidx);
             if ((int)chosen.size() == S_target) break;
