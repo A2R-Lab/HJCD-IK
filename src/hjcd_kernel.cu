@@ -1518,6 +1518,84 @@ __global__ void cast_array(const Src* __restrict__ in,
     if (i < n) out[i] = (Dst)in[i];
 }
 
+__device__ __forceinline__ float sphere_environment_penetration_depth(
+    ppln::collision::Environment<float>* env,
+    float sx,
+    float sy,
+    float sz,
+    float sr)
+{
+    float max_pen_sq = 0.0f;
+    const float rsq = sr * sr;
+
+    for (unsigned int j = 0; j < env->num_spheres; ++j) {
+        const float sep = ppln::collision::sphere_sphere_sql2(env->spheres[j], sx, sy, sz, sr);
+        if (sep < 0.0f) max_pen_sq = fmaxf(max_pen_sq, -sep);
+    }
+    for (unsigned int j = 0; j < env->num_capsules; ++j) {
+        const float sep = ppln::collision::sphere_capsule(env->capsules[j], sx, sy, sz, sr);
+        if (sep < 0.0f) max_pen_sq = fmaxf(max_pen_sq, -sep);
+    }
+    for (unsigned int j = 0; j < env->num_z_aligned_capsules; ++j) {
+        const float sep = ppln::collision::sphere_z_aligned_capsule(env->z_aligned_capsules[j], sx, sy, sz, sr);
+        if (sep < 0.0f) max_pen_sq = fmaxf(max_pen_sq, -sep);
+    }
+    for (unsigned int j = 0; j < env->num_cuboids; ++j) {
+        const float sep = ppln::collision::sphere_cuboid(env->cuboids[j], sx, sy, sz, rsq);
+        if (sep < 0.0f) max_pen_sq = fmaxf(max_pen_sq, -sep);
+    }
+    for (unsigned int j = 0; j < env->num_z_aligned_cuboids; ++j) {
+        const float sep = ppln::collision::sphere_z_aligned_cuboid(env->z_aligned_cuboids[j], sx, sy, sz, rsq);
+        if (sep < 0.0f) max_pen_sq = fmaxf(max_pen_sq, -sep);
+    }
+
+    return sqrtf(max_pen_sq);
+}
+
+__global__ void score_environment_costs_panda(
+    const double* __restrict__ q_in,   // K x N_JOINTS
+    int K,
+    float* __restrict__ cost_mm,       // K floats
+    ppln::collision::Environment<float>* env)
+{
+    using Robot = ppln::robots::Panda;
+    constexpr int dim = Robot::dimension;
+
+    const int i   = (int)blockIdx.x;
+    const int tid = (int)threadIdx.x;
+    if (i >= K) return;
+
+    __shared__ __align__(16) float sphere_pos[6000];
+    __shared__ __align__(16) float Tbuf[16 * 2 * 16];
+    __shared__ float qf[dim];
+    __shared__ float partial[4];
+
+    for (int j = tid; j < dim; j += blockDim.x) {
+        qf[j] = (float)q_in[(size_t)i * N + j];
+    }
+    partial[tid] = 0.0f;
+    __syncthreads();
+
+    ppln::collision::fk<Robot>(qf, sphere_pos, Tbuf, tid);
+    __syncthreads();
+
+    float local_mm = 0.0f;
+    for (int s = tid; s < PANDA_SPHERE_COUNT; s += blockDim.x) {
+        const float sx = sphere_pos[s * BATCH_SIZE * 3 + 0];
+        const float sy = sphere_pos[s * BATCH_SIZE * 3 + 1];
+        const float sz = sphere_pos[s * BATCH_SIZE * 3 + 2];
+        local_mm += 1000.0f * sphere_environment_penetration_depth(
+            env, sx, sy, sz, ppln::collision::panda_spheres_array[s].w);
+    }
+
+    partial[tid] = local_mm;
+    __syncthreads();
+
+    if (tid == 0) {
+        cost_mm[i] = partial[0] + partial[1] + partial[2] + partial[3];
+    }
+}
+
 __global__ void mark_collisions_panda(
     const double* __restrict__ q_in,   // K x N_JOINTS
     int K,
@@ -1560,7 +1638,7 @@ __global__ void apply_valid_mask_to_scores(
     if (!valid[i]) scores[i] = 1e9;
 }
 
-const double COLLISION_PENALTY = 1e6;
+const double ENV_COLLISION_COST_W = 1.5;
 const double ORI_TARGET_RAD = 1.1e-4;
 const double ORI_OUTLIER_W  = 7000.0;
 
@@ -1645,7 +1723,7 @@ Result<T> generate_ik_solutions(
     // If collision_free ended up false, make d_env null
     if (!collision_free) d_env = nullptr;
 
-    const bool do_cc = false;//collision_free && (d_env != nullptr);
+    const bool do_cc = collision_free && (d_env != nullptr);
 
     // Coarse phase precision
     using TC = float;
@@ -1907,22 +1985,43 @@ Result<T> generate_ik_solutions(
         CUDA_OK(cudaDeviceSynchronize());
     }
 
-    // refined collision check 
-    std::vector<unsigned char> h_valid_refined(Krep, 1);
-    unsigned char* d_valid_refined = nullptr;
+    // Soft environment-collision cost in mm, computed only after optimization.
+    std::vector<float> h_env_cost_refined(Krep, 0.0f);
+    std::vector<float> h_env_cost_coarse(B, 0.0f);
+    float* d_env_cost_refined = nullptr;
+    float* d_env_cost_coarse = nullptr;
+    double* dx_coarse64 = nullptr;
 
     if (do_cc) {
-        CUDA_OK(cudaMalloc(&d_valid_refined, sizeof(unsigned char) * (size_t)Krep));
+        CUDA_OK(cudaMalloc(&d_env_cost_refined, sizeof(float) * (size_t)Krep));
+        CUDA_OK(cudaMalloc(&d_env_cost_coarse, sizeof(float) * (size_t)B));
+        CUDA_OK(cudaMalloc(&dx_coarse64, sizeof(double) * num_elems_x));
         {
-            const int CC_TPB = 128;
-            mark_collisions_panda<<<Krep, CC_TPB>>>(dx64, Krep, d_valid_refined, d_env);
+            const int tpb = 256;
+            const int gpb = (int)((num_elems_x + tpb - 1) / tpb);
+            cast_array<double, TC><<<gpb, tpb>>>(d_x_c, dx_coarse64, num_elems_x);
+            cudaGetLastError();
+            CUDA_OK(cudaDeviceSynchronize());
+        }
+        {
+            const int CC_TPB = 4;
+            score_environment_costs_panda<<<Krep, CC_TPB>>>(dx64, Krep, d_env_cost_refined, d_env);
+            cudaGetLastError();
+            CUDA_OK(cudaDeviceSynchronize());
+        }
+        {
+            const int CC_TPB = 4;
+            score_environment_costs_panda<<<B, CC_TPB>>>(dx_coarse64, B, d_env_cost_coarse, d_env);
             cudaGetLastError();
             CUDA_OK(cudaDeviceSynchronize());
         }
 
-        CUDA_OK(cudaMemcpy(h_valid_refined.data(), d_valid_refined,
-                        sizeof(unsigned char) * (size_t)Krep,
-                        cudaMemcpyDeviceToHost));
+        CUDA_OK(cudaMemcpy(h_env_cost_refined.data(), d_env_cost_refined,
+                           sizeof(float) * (size_t)Krep,
+                           cudaMemcpyDeviceToHost));
+        CUDA_OK(cudaMemcpy(h_env_cost_coarse.data(), d_env_cost_coarse,
+                           sizeof(float) * (size_t)B,
+                           cudaMemcpyDeviceToHost));
     }
 
     std::vector<double> h_posmm64(Krep), h_orir64(Krep);
@@ -1941,7 +2040,7 @@ Result<T> generate_ik_solutions(
     auto score_ref = [&](int i)->double {
         const double ori_excess = std::max(0.0, h_orir64[i] - ORI_TARGET_RAD);
         double s = h_posmm64[i] + ORI_OUTLIER_W * ori_excess;
-        if (do_cc && !h_valid_refined[i]) s += COLLISION_PENALTY;
+        if (do_cc) s += ENV_COLLISION_COST_W * (double)h_env_cost_refined[i];
         return s;
     };
 
@@ -1962,7 +2061,9 @@ Result<T> generate_ik_solutions(
 
     auto score_coarse = [&](int i)->double {
         const double ori_excess = std::max(0.0, (double)h_ori_rad_coarse_f[i] - ORI_TARGET_RAD);
-        return (double)h_pos_mm_coarse_f[i] + ORI_OUTLIER_W * ori_excess;
+        double s = (double)h_pos_mm_coarse_f[i] + ORI_OUTLIER_W * ori_excess;
+        if (do_cc) s += ENV_COLLISION_COST_W * (double)h_env_cost_coarse[i];
+        return s;
     };
 
     std::vector<int> chosen;
@@ -1996,9 +2097,7 @@ Result<T> generate_ik_solutions(
     result.ori_errors   = new T[S];
     result.pose         = new T[7 * S];
     result.joint_config = new T[N * S];
-#ifdef HAS_RESULT_COUNT_FIELD
     result.count = S;
-#endif
 
     for (int r = 0; r < S; ++r) {
         int idx = chosen[r];
@@ -2043,8 +2142,10 @@ Result<T> generate_ik_solutions(
     cudaFree(dposmm64);
     cudaFree(dori64);
     cudaFree(d_target7_d);
+    if (dx_coarse64) cudaFree(dx_coarse64);
 
-    if (d_valid_refined) cudaFree(d_valid_refined);
+    if (d_env_cost_refined) cudaFree(d_env_cost_refined);
+    if (d_env_cost_coarse) cudaFree(d_env_cost_coarse);
 
     auto t1 = high_resolution_clock::now();
     result.elapsed_time =

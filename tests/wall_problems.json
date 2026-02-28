@@ -1,6 +1,6 @@
 {
   "problems": {
-    "single_goal_pose_test": [
+    "problem": [
       {
         "collision_buffer_ik": 0.0,
         "goal_ik": [],

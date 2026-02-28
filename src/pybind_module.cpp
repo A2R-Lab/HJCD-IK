@@ -41,11 +41,8 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
 
   const int N = grid_num_joints();
 
-  // IMPORTANT: number actually returned (may be < num_solutions if collision_free)
-  int S = num_solutions;
-#ifdef HAS_RESULT_COUNT_FIELD
-  S = res.count;
-#endif
+  // The solver may return fewer solutions after collision filtering.
+  int S = res.count;
 
   py::array_t<double> joint_config({S, N});
   py::array_t<double> pose({S, 7});
@@ -67,9 +64,7 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
   out["pose"]         = std::move(pose);
   out["pos_errors"]   = std::move(pos_errors);
   out["ori_errors"]   = std::move(ori_errors);
-#ifdef HAS_RESULT_COUNT_FIELD
   out["count"]        = S;
-#endif
   return out;
 }
 

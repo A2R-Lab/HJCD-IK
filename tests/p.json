@@ -4,7 +4,7 @@
         "goal_ik": [], 
         "goal_pose": { 
             "frame": "panda_hand", 
-            "position_xyz": [0.03, 0.35, 0.2], 
+            "position_xyz": [0.04, 0.35, 0.2], 
             "quaternion_wxyz": [0.0, -0.55470020, 0.83205029, 0.0] 
         }, 
         "obstacles": { 
