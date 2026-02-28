@@ -28,13 +28,13 @@ bool collision_free_cfg(
     ppln::collision::fk_approx<Robot>(q, sphere_pos_approx, Tbuf, tid);
     __syncthreads();
 
-    // approx env + self
+    // Build a union mask of joints implicated by the approximate checks.
+    // The Panda exact checks use this mask to narrow the expensive pass.
     clear_link_CC((int*)link_CC);
-    bool env_ok_approx  = ppln::collision::env_collision_check<Robot>(
+    bool env_ok_approx  = ppln::collision::env_collision_check_approx<Robot>(
         (float*)sphere_pos_approx, (int*)link_CC, env, tid);
 
-    clear_link_CC((int*)link_CC);
-    bool self_ok_approx = ppln::collision::self_collision_check<Robot>(
+    bool self_ok_approx = ppln::collision::self_collision_check_approx<Robot>(
         (float*)sphere_pos_approx, (int*)link_CC, tid);
 
     bool ok = env_ok_approx && self_ok_approx;
@@ -45,11 +45,9 @@ bool collision_free_cfg(
         ppln::collision::fk<Robot>(q, sphere_pos, Tbuf, tid);
         __syncthreads();
 
-        clear_link_CC((int*)link_CC);
         bool env_ok  = ppln::collision::env_collision_check<Robot>(
             (float*)sphere_pos, (int*)link_CC, env, tid);
 
-        clear_link_CC((int*)link_CC);
         bool self_ok = ppln::collision::self_collision_check<Robot>(
             (float*)sphere_pos, (int*)link_CC, tid);
 

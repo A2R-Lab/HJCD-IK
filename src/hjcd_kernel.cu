@@ -1645,7 +1645,7 @@ Result<T> generate_ik_solutions(
     // If collision_free ended up false, make d_env null
     if (!collision_free) d_env = nullptr;
 
-    const bool do_cc = collision_free && (d_env != nullptr);
+    const bool do_cc = false;//collision_free && (d_env != nullptr);
 
     // Coarse phase precision
     using TC = float;
@@ -1896,7 +1896,7 @@ Result<T> generate_ik_solutions(
 
     {
         const int TPB_lm   = 32;
-        const int max_iters = 40;
+        const int max_iters = 80;
         int stop_on_first_lm  = (num_solutions > 1) ? 0 : 1;
 
         lm_tuner<double><<<Krep, TPB_lm>>>(
