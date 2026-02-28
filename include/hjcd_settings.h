@@ -34,12 +34,12 @@ inline RefineSchedule schedule_for_B(int B) {
     s.sigma_frac = 0.1;
     s.repeats    = 16;
 
-    if (B <= 128) {
+    if (B <= 16) {
         s.top_k     = B;
         s.repeats   = 16;
         s.sigma_frac= 0.25;
     } else {
-        s.top_k = 256;
+        s.top_k = 16 + (int)((B - 1000)/1000 * 8);
     }
 
     return s;

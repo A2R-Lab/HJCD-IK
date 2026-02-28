@@ -1776,7 +1776,7 @@ Result<T> generate_ik_solutions(
                        sizeof(TC) * num_elems_x, cudaMemcpyDeviceToHost));
 
     const auto sch = schedule_for_B(B);
-    const int top_k_req = sch.top_k;
+    const int top_k_req = sch.top_k * std::max(1, num_solutions / 2);
     const int repeats = sch.repeats;
     const double sigma_frac = sch.sigma_frac;
     const bool keep_one = sch.keep_one;
@@ -1896,7 +1896,7 @@ Result<T> generate_ik_solutions(
 
     {
         const int TPB_lm   = 32;
-        const int max_iters = 80;
+        const int max_iters = 40;
         int stop_on_first_lm  = (num_solutions > 1) ? 0 : 1;
 
         lm_tuner<double><<<Krep, TPB_lm>>>(
