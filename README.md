@@ -25,6 +25,7 @@ chmod +x scripts/bootstrap.sh
 ./scripts/bootstrap.sh
 ```
 Note: may need to run ```dos2unix scripts/bootstrap.sh ``` before ```./scripts/bootstrap.sh``` first
+
 (Windows)
 ```bash
 .\scripts\bootstrap_windows.bat
