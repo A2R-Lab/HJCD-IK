@@ -32,7 +32,7 @@ Note: may need to run ```bash dos2unix scripts/bootstrap.sh ``` before ```bash .
 
 You can install `hjcdik` with `pip` on Python &ge; 3.9:
 ```bash
-CMAKE_ARGS="-DHJCDIK_AUTO_CODEGEN=ON" python -m pip install -e .
+python -m pip install -e .
 ```
 
 ## Benchmark
