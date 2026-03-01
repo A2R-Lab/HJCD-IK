@@ -24,6 +24,7 @@ HJCD-IK relies on [GRiD](https://github.com/A2R-Lab/GRiD), a GPU-accelerated lib
 chmod +x scripts/bootstrap.sh
 ./scripts/bootstrap.sh
 ```
+Note: may need to run ```bash dos2unix scripts/bootstrap.sh ``` before ```bash ./scripts/bootstrap.sh``` first
 (Windows)
 ```bash
 .\scripts\bootstrap_windows.bat
@@ -31,7 +32,7 @@ chmod +x scripts/bootstrap.sh
 
 You can install `hjcdik` with `pip` on Python &ge; 3.9:
 ```bash
-python -m pip install -e .
+CMAKE_ARGS="-DHJCDIK_AUTO_CODEGEN=ON" python -m pip install -e .
 ```
 
 ## Benchmark
