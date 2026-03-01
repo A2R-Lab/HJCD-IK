@@ -24,7 +24,7 @@ HJCD-IK relies on [GRiD](https://github.com/A2R-Lab/GRiD), a GPU-accelerated lib
 chmod +x scripts/bootstrap.sh
 ./scripts/bootstrap.sh
 ```
-Note: may need to run ```bash dos2unix scripts/bootstrap.sh ``` before ```bash ./scripts/bootstrap.sh``` first
+Note: may need to run ```dos2unix scripts/bootstrap.sh ``` before ```./scripts/bootstrap.sh``` first
 (Windows)
 ```bash
 .\scripts\bootstrap_windows.bat
