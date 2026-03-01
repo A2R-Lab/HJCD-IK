@@ -24,25 +24,23 @@ if(BUILD_PYTHON)
   find_package(pybind11 CONFIG REQUIRED)
 endif()
 
-# GRiD
+# GRiD codegen assets
 set(GRID_DIR              ${CMAKE_SOURCE_DIR}/external/GRiD)
+set(GRID_CODEGEN_SCRIPT   ${GRID_DIR}/generateGRiD.py)
 set(GRID_HEADER_GENERATED ${GRID_DIR}/grid.cuh)
 set(GRID_HEADER_FALLBACK  ${CMAKE_SOURCE_DIR}/include/test_cuh/panda_grid.cuh)
 
-if(EXISTS "${GRID_DIR}/CMakeLists.txt" AND EXISTS "${GRID_HEADER_GENERATED}")
-  add_subdirectory(${GRID_DIR} EXCLUDE_FROM_ALL)
-  set(HAVE_GRID_TARGETS TRUE)
-else()
-  set(HAVE_GRID_TARGETS FALSE)
-endif()
-
 if(NOT EXISTS "${GRID_HEADER_GENERATED}" AND HJCDIK_AUTO_CODEGEN)
+  if(NOT EXISTS "${GRID_CODEGEN_SCRIPT}")
+    message(FATAL_ERROR "HJCD-IK: GRiD codegen requested, but ${GRID_CODEGEN_SCRIPT} is missing")
+  endif()
+
   message(STATUS "HJCD-IK: grid.cuh missing — running GRiD codegen")
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
   set(HJCDIK_CODEGEN_URDF "${CMAKE_SOURCE_DIR}/include/test_urdf/panda.urdf")
 
   execute_process(
-    COMMAND ${Python3_EXECUTABLE} generateGRiD.py "${HJCDIK_CODEGEN_URDF}" panda
+    COMMAND ${Python3_EXECUTABLE} "${GRID_CODEGEN_SCRIPT}" "${HJCDIK_CODEGEN_URDF}"
     WORKING_DIRECTORY ${GRID_DIR}
     RESULT_VARIABLE _codegen_result
   )
@@ -55,6 +53,9 @@ if(EXISTS "${GRID_HEADER_GENERATED}")
   message(STATUS "HJCD-IK: using generated GRiD header")
   set(GRID_HEADER "${GRID_HEADER_GENERATED}")
   add_compile_definitions(HJCDIK_HAS_GENERATED_GRID_CUH=1)
+  if(EXISTS "${CMAKE_BINARY_DIR}/grid.cuh")
+    file(REMOVE "${CMAKE_BINARY_DIR}/grid.cuh")
+  endif()
 else()
   message(WARNING "HJCD-IK: grid.cuh missing — using fallback")
   set(GRID_HEADER "${GRID_HEADER_FALLBACK}")
@@ -87,12 +88,12 @@ set(HJCDIK_COMMON_SOURCES
 )
 
 set(HJCDIK_INCLUDE_DIRS
+  ${CMAKE_SOURCE_DIR}/external/GRiD
+  ${CMAKE_SOURCE_DIR}/external/GRiD/include
   ${CMAKE_BINARY_DIR}
   ${CMAKE_SOURCE_DIR}
   ${CMAKE_SOURCE_DIR}/include
   ${CMAKE_SOURCE_DIR}/src
-  ${CMAKE_SOURCE_DIR}/external/GRiD
-  ${CMAKE_SOURCE_DIR}/external/GRiD/include
 )
 
 if(MSVC)
@@ -123,14 +124,6 @@ target_link_libraries(hjcdik PRIVATE
   Eigen3::Eigen
 )
 
-if(HAVE_GRID_TARGETS)
-  if(TARGET grid::grid)
-    target_link_libraries(hjcdik PRIVATE grid::grid)
-  elseif(TARGET GRiD)
-    target_link_libraries(hjcdik PRIVATE GRiD)
-  endif()
-endif()
-
 # Python
 if(BUILD_PYTHON)
   pybind11_add_module(_hjcdik MODULE
@@ -152,14 +145,6 @@ if(BUILD_PYTHON)
     yaml-cpp::yaml-cpp
     Eigen3::Eigen
   )
-
-  if(HAVE_GRID_TARGETS)
-    if(TARGET grid::grid)
-      target_link_libraries(_hjcdik PRIVATE grid::grid)
-    elseif(TARGET GRiD)
-      target_link_libraries(_hjcdik PRIVATE GRiD)
-    endif()
-  endif()
 
   install(TARGETS _hjcdik
     LIBRARY DESTINATION hjcdik

@@ -130,25 +130,3 @@ __device__ T compute_pos_err(const T* C, const T* target_pose) {
     return sqrt(dx * dx + dy * dy + dz * dz);
 }
 
-template<typename T>
-__device__ __forceinline__
-void mat4_mul(const T* A, const T* B, T* C) {
-    T tmp[16];
-
-    #pragma unroll
-    for (int c=0; c<4; ++c) {
-        #pragma unroll
-        for (int r=0; r<4; ++r) {
-            tmp[c*4 + r] = 
-                A[0*4 + r] * B[c*4 + 0] +
-                A[1*4 + r] * B[c*4 + 1] + 
-                A[2*4 + r] * B[c*4 + 2] +
-                A[3*4 + r] * B[c*4 + 3];
-        }
-    }
-
-    #pragma unroll
-    for (int i=0; i<16; ++i) {
-        C[i] = tmp[i];
-    }
-}
