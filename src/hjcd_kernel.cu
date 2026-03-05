@@ -1516,8 +1516,6 @@ __global__ void cast_array(const Src* __restrict__ in,
     if (i < n) out[i] = (Dst)in[i];
 }
 
-<<<<<<< Updated upstream
-=======
 __device__ __forceinline__ float sphere_environment_penetration_depth(
     ppln::collision::Environment<float>* env,
     float sx,
@@ -1642,7 +1640,6 @@ const double ENV_COLLISION_COST_W = 4.0;
 const double ORI_TARGET_RAD = 1.1e-4;
 const double ORI_OUTLIER_W  = 7000.0;
 
->>>>>>> Stashed changes
 template<typename T>
 Result<T> generate_ik_solutions(
     T* target_pose,
@@ -1668,8 +1665,6 @@ Result<T> generate_ik_solutions(
         return result;
     }
 
-<<<<<<< Updated upstream
-=======
     // Collision environment
     static pRRTC::EnvCache g_env_cache;
     ppln::collision::Environment<float>* d_env = nullptr;
@@ -1722,7 +1717,6 @@ Result<T> generate_ik_solutions(
 
     const bool do_cc = collision_free && (d_env != nullptr);
     
->>>>>>> Stashed changes
     // Coarse phase precision
     using TC = float;
 
@@ -1850,15 +1844,9 @@ Result<T> generate_ik_solutions(
     CUDA_OK(cudaMemcpy(h_x_coarse_f.data(), d_x_c,
                        sizeof(TC) * num_elems_x, cudaMemcpyDeviceToHost));
 
-<<<<<<< Updated upstream
-    const auto  sch         = schedule_for_B(B);
-    const float top_frac    = sch.top_frac;
-    const int   repeats     = sch.repeats;
-=======
     const auto sch = schedule_for_B(B);
     const int top_k_req = sch.top_k * std::max(1, (int)(num_solutions / 1.5));
     const int repeats = sch.repeats;
->>>>>>> Stashed changes
     const double sigma_frac = sch.sigma_frac;
     const bool  keep_one    = true;
 

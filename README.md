@@ -9,20 +9,8 @@ This repository contains the code from ["HJCD-IK: GPU-Accelerated Inverse Kinema
 - **CMake &ge; 3.23**
 - **Visual Studio 2022** (Windows) or **GCC/Clang** (Linux)
 
-<<<<<<< Updated upstream
-## Installation
-```bash
-git clone https://github.com/A2R-Lab/HJCD-IK.git
-cd HJCD-IK
-```
-
-HJCD-IK relies on [GRiD](https://github.com/A2R-Lab/GRiD), a GPU-accelerated library for rigid body dynamics and analytical gradients.
-
-(Linux)
-=======
 ## Setup
 (Mac/Linux)
->>>>>>> Stashed changes
 ```bash
 chmod +x scripts/bootstrap.sh
 ./scripts/bootstrap.sh
