@@ -1,6 +1,6 @@
 # HJCD-IK: Hybrid Jacobian Coordinate Descent Inverse Kinematics
 
-This repository contains the code from ["HJCD-IK: GPU-Accelerated Inverse Kinematics through Batched Hybrid Jacobian Coordinate Descent"]
+This repository contains the code from ["HJCD-IK: GPU-Accelerated Inverse Kinematics through Batched Hybrid Jacobian Coordinate Descent"]()
 
 ## Requirements
 
@@ -10,7 +10,7 @@ This repository contains the code from ["HJCD-IK: GPU-Accelerated Inverse Kinema
 - **Visual Studio 2022** (Windows) or **GCC/Clang** (Linux)
 
 ## Setup
-(Mac/Linux)
+(Linux)
 ```bash
 chmod +x scripts/bootstrap.sh
 ./scripts/bootstrap.sh
@@ -71,7 +71,7 @@ To run collision-free benchmark on Motion Benchmarker dataset, run:
 python benchmarks/ik_benchmark.py --skip-grid-codegen --collision-free --problems-json tests/mb_problems.json --problem-set bookshelf_thin_panda
 ```
 
-### Collision-Free Benchmark Additional
+### Collision-Free Benchmark Additional Usages
 * `--collision-free`
   * Enable collision filter on solutions.
 * `--problems-json <path>` 
