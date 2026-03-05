@@ -1,8 +1,6 @@
 # HJCD-IK: Hybrid Jacobian Coordinate Descent Inverse Kinematics
 
-[![arXiv:2510.07514](https://img.shields.io/badge/arXiv-2510.07514-b31b1b.svg)](https://arxiv.org/abs/2510.07514)
-
-This repository contains the code from ["HJCD-IK: GPU-Accelerated Inverse Kinematics through Batched Hybrid Jacobian Coordinate Descent"](https://arxiv.org/abs/2510.07514)
+This repository contains the code from ["HJCD-IK: GPU-Accelerated Inverse Kinematics through Batched Hybrid Jacobian Coordinate Descent"]
 
 ## Requirements
 
@@ -11,6 +9,7 @@ This repository contains the code from ["HJCD-IK: GPU-Accelerated Inverse Kinema
 - **CMake &ge; 3.23**
 - **Visual Studio 2022** (Windows) or **GCC/Clang** (Linux)
 
+<<<<<<< Updated upstream
 ## Installation
 ```bash
 git clone https://github.com/A2R-Lab/HJCD-IK.git
@@ -20,6 +19,10 @@ cd HJCD-IK
 HJCD-IK relies on [GRiD](https://github.com/A2R-Lab/GRiD), a GPU-accelerated library for rigid body dynamics and analytical gradients.
 
 (Linux)
+=======
+## Setup
+(Mac/Linux)
+>>>>>>> Stashed changes
 ```bash
 chmod +x scripts/bootstrap.sh
 ./scripts/bootstrap.sh
@@ -29,7 +32,9 @@ chmod +x scripts/bootstrap.sh
 .\scripts\bootstrap_windows.bat
 ```
 
-You can install `hjcdik` with `pip` on Python &ge; 3.9:
+Note: for current collision-free usage, move the `grid.cuh` header file from `include\test_cuh` into the `external\GRiD` folder before installing `hjcdik`.
+
+Then install with `pip` on Python &ge; 3.9:
 ```bash
 python -m pip install -e .
 ```
@@ -41,7 +46,7 @@ python benchmarks/ik_benchmark.py --skip-grid-codegen
 ```
 which performs IK using the Panda Arm with batches of `1, 10, 100, 1000, 2000`. Results are written to a `results.yml`.
 
-### Usage
+### IK Benchmark Usage
 * `--num-targets <int>`
   * How many target poses to sample. Default: `100`
 * `--batches "<list>"`
@@ -72,16 +77,21 @@ python benchmarks/ik_benchmark.py \
 python benchmarks/ik_benchmark.py --urdf include/test_urdf/fetch.urdf
 ```
 
+### Collision-Free Benchmark
+To run collision-free benchmark on Motion Benchmarker dataset, run:
+```bash
+python benchmarks/ik_benchmark.py --skip-grid-codegen --collision-free --problems-json tests/mb_problems.json --problem-set bookshelf_thin_panda
+```
+
+### Collision-Free Benchmark Additional
+* `--collision-free`
+  * Enable collision filter on solutions.
+* `--problems-json <path>` 
+  * Path to json problem file for collision-free benchmarking.
+* `--problem-set <str>`
+  * Problem set within json file to run benchmarking.
+* `--problem-idx <int>`
+  * Run collision-free benchmarking on specific problem index within problem set.
+
 ### Note on custom robots:
 HJCD-IK and GRiD currently only support robots using revolute, prismatic, and fixed joints without any closed kinematics loops.
-
-## Cite
-Please cite HCJD-IK if you found this work useful:
-```bibtex
-@article{yasutake2025hjcd,
-  title={HJCD-IK: GPU-Accelerated Inverse Kinematics through Batched Hybrid Jacobian Coordinate Descent},
-  author={Yasutake, Cael and Kingston, Zachary and Plancher, Brian},
-  journal={arXiv preprint arXiv:2510.07514},
-  year={2025}
-}
-```

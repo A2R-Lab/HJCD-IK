@@ -1516,6 +1516,133 @@ __global__ void cast_array(const Src* __restrict__ in,
     if (i < n) out[i] = (Dst)in[i];
 }
 
+<<<<<<< Updated upstream
+=======
+__device__ __forceinline__ float sphere_environment_penetration_depth(
+    ppln::collision::Environment<float>* env,
+    float sx,
+    float sy,
+    float sz,
+    float sr)
+{
+    float max_pen_sq = 0.0f;
+    const float rsq = sr * sr;
+
+    for (unsigned int j = 0; j < env->num_spheres; ++j) {
+        const float sep = ppln::collision::sphere_sphere_sql2(env->spheres[j], sx, sy, sz, sr);
+        if (sep < 0.0f) max_pen_sq = fmaxf(max_pen_sq, -sep);
+    }
+    for (unsigned int j = 0; j < env->num_capsules; ++j) {
+        const float sep = ppln::collision::sphere_capsule(env->capsules[j], sx, sy, sz, sr);
+        if (sep < 0.0f) max_pen_sq = fmaxf(max_pen_sq, -sep);
+    }
+    for (unsigned int j = 0; j < env->num_z_aligned_capsules; ++j) {
+        const float sep = ppln::collision::sphere_z_aligned_capsule(env->z_aligned_capsules[j], sx, sy, sz, sr);
+        if (sep < 0.0f) max_pen_sq = fmaxf(max_pen_sq, -sep);
+    }
+    for (unsigned int j = 0; j < env->num_cuboids; ++j) {
+        const float sep = ppln::collision::sphere_cuboid(env->cuboids[j], sx, sy, sz, rsq);
+        if (sep < 0.0f) max_pen_sq = fmaxf(max_pen_sq, -sep);
+    }
+    for (unsigned int j = 0; j < env->num_z_aligned_cuboids; ++j) {
+        const float sep = ppln::collision::sphere_z_aligned_cuboid(env->z_aligned_cuboids[j], sx, sy, sz, rsq);
+        if (sep < 0.0f) max_pen_sq = fmaxf(max_pen_sq, -sep);
+    }
+
+    return sqrtf(max_pen_sq);
+}
+
+__global__ void score_environment_costs_panda(
+    const double* __restrict__ q_in,   // K x N_JOINTS
+    int K,
+    float* __restrict__ cost_mm,       // K floats
+    ppln::collision::Environment<float>* env)
+{
+    using Robot = ppln::robots::Panda;
+    constexpr int dim = Robot::dimension;
+
+    const int i   = (int)blockIdx.x;
+    const int tid = (int)threadIdx.x;
+    if (i >= K) return;
+
+    __shared__ __align__(16) float sphere_pos[6000];
+    __shared__ __align__(16) float Tbuf[16 * 2 * 16];
+    __shared__ float qf[dim];
+    __shared__ float partial[4];
+
+    for (int j = tid; j < dim; j += blockDim.x) {
+        qf[j] = (float)q_in[(size_t)i * N + j];
+    }
+    partial[tid] = 0.0f;
+    __syncthreads();
+
+    ppln::collision::fk<Robot>(qf, sphere_pos, Tbuf, tid);
+    __syncthreads();
+
+    float local_mm = 0.0f;
+    for (int s = tid; s < PANDA_SPHERE_COUNT; s += blockDim.x) {
+        const float sx = sphere_pos[s * BATCH_SIZE * 3 + 0];
+        const float sy = sphere_pos[s * BATCH_SIZE * 3 + 1];
+        const float sz = sphere_pos[s * BATCH_SIZE * 3 + 2];
+        local_mm += 1000.0f * sphere_environment_penetration_depth(
+            env, sx, sy, sz, ppln::collision::panda_spheres_array[s].w);
+    }
+
+    partial[tid] = local_mm;
+    __syncthreads();
+
+    if (tid == 0) {
+        cost_mm[i] = partial[0] + partial[1] + partial[2] + partial[3];
+    }
+}
+
+__global__ void mark_collisions_panda(
+    const double* __restrict__ q_in,   // K x N_JOINTS
+    int K,
+    unsigned char* __restrict__ valid, // K bytes
+    ppln::collision::Environment<float>* env)
+{
+    using Robot = ppln::robots::Panda;
+    constexpr int dim = Robot::dimension;
+
+    int i   = (int)blockIdx.x;   // one config per block
+    int tid = (int)threadIdx.x;
+    if (i >= K) return;
+
+    // collision_free_cfg's link_CC clearing assumes 128 threads -> 640 ints
+    __shared__ __align__(16) float sphere_pos[6000];
+    __shared__ __align__(16) float sphere_pos_approx[2500];
+    __shared__ __align__(16) int   link_CC[640];
+    __shared__ __align__(16) float Tbuf[16 * 2 * 16];
+
+    __shared__ float qf[dim];
+    if (tid < dim) qf[tid] = (float)q_in[(size_t)i * N + tid];
+    __syncthreads();
+
+    bool ok = pRRTC::collision_free_cfg<Robot>(
+        qf, env,
+        sphere_pos, sphere_pos_approx, link_CC, Tbuf,
+        tid);
+
+    if (tid == 0) valid[i] = ok ? 1 : 0;
+}
+
+template<typename T>
+__global__ void apply_valid_mask_to_scores(
+    const unsigned char* __restrict__ valid,
+    T* __restrict__ scores,
+    int n)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    if (!valid[i]) scores[i] = 1e9;
+}
+
+const double ENV_COLLISION_COST_W = 4.0;
+const double ORI_TARGET_RAD = 1.1e-4;
+const double ORI_OUTLIER_W  = 7000.0;
+
+>>>>>>> Stashed changes
 template<typename T>
 Result<T> generate_ik_solutions(
     T* target_pose,
@@ -1541,6 +1668,61 @@ Result<T> generate_ik_solutions(
         return result;
     }
 
+<<<<<<< Updated upstream
+=======
+    // Collision environment
+    static pRRTC::EnvCache g_env_cache;
+    ppln::collision::Environment<float>* d_env = nullptr;
+    bool stop_on_first = 1;
+
+    if (collision_free) {
+        if (!problems_json_text || !problem_set_name) {
+            collision_free = false;
+            printf("[pRRTC] Warning: collision-free requested but no problem JSON provided\n");
+        } else {
+            // Build a cache key
+            std::string key = std::string(problem_set_name) + "#" + std::to_string(problem_idx);
+
+            if (!g_env_cache.ready || g_env_cache.key != key) {
+                // Clear previous cached env
+                if (g_env_cache.ready) {
+                    pRRTC::cleanup_environment_on_device(g_env_cache.d_env, g_env_cache.h_env);
+                    pRRTC::free_host_env(g_env_cache.h_env);
+                    g_env_cache.d_env = nullptr;
+                    g_env_cache.ready = false;
+                }
+
+                // Parse problems json
+                nlohmann::json all_data = nlohmann::json::parse(problems_json_text);
+                nlohmann::json problems_root = all_data.at("problems");
+
+                // Select the exact problem instance
+                nlohmann::json data = pRRTC::select_problem_instance(
+                    problems_root, problem_set_name, problem_idx);
+
+                // Disable collision if invalid
+                if (data.contains("valid") && !bool(data["valid"])) {
+                    collision_free = false;
+                } else {
+                    // Build host env
+                    g_env_cache.h_env = pRRTC::problem_dict_to_env(data, problem_set_name);
+                    pRRTC::setup_environment_on_device(g_env_cache.d_env, g_env_cache.h_env);
+
+                    g_env_cache.key = key;
+                    g_env_cache.ready = true;
+                }
+            }
+
+            d_env = g_env_cache.d_env;
+        }
+    }
+
+    // If collision_free ended up false, make d_env null
+    if (!collision_free) d_env = nullptr;
+
+    const bool do_cc = collision_free && (d_env != nullptr);
+    
+>>>>>>> Stashed changes
     // Coarse phase precision
     using TC = float;
 
@@ -1668,9 +1850,15 @@ Result<T> generate_ik_solutions(
     CUDA_OK(cudaMemcpy(h_x_coarse_f.data(), d_x_c,
                        sizeof(TC) * num_elems_x, cudaMemcpyDeviceToHost));
 
+<<<<<<< Updated upstream
     const auto  sch         = schedule_for_B(B);
     const float top_frac    = sch.top_frac;
     const int   repeats     = sch.repeats;
+=======
+    const auto sch = schedule_for_B(B);
+    const int top_k_req = sch.top_k * std::max(1, (int)(num_solutions / 1.5));
+    const int repeats = sch.repeats;
+>>>>>>> Stashed changes
     const double sigma_frac = sch.sigma_frac;
     const bool  keep_one    = true;
 
@@ -1817,14 +2005,25 @@ Result<T> generate_ik_solutions(
     std::sort(order.begin(), order.end(),
               [&](int a, int b){ return score_ref(a) < score_ref(b); });
 
-    const T DUP_TOL = (T)1e-7;
-    auto is_dup = [&](int ia, int ib)->bool {
+    // const T DUP_TOL = (T)1e-7;
+    // auto is_dup = [&](int ia, int ib)->bool {
+    //     const double* qa = &h_x64[(size_t)ia * N];
+    //     const double* qb = &h_x64[(size_t)ib * N];
+    //     for (int j = 0; j < N; ++j)
+    //         if (std::fabs(qa[j] - qb[j]) > (double)DUP_TOL)
+    //             return false;
+    //     return true;
+    // };
+    const double DIVERSITY_RADIUS = 0.1;
+    auto too_close = [&](int ia, int ib)->bool {
         const double* qa = &h_x64[(size_t)ia * N];
         const double* qb = &h_x64[(size_t)ib * N];
-        for (int j = 0; j < N; ++j)
-            if (std::fabs(qa[j] - qb[j]) > (double)DUP_TOL)
-                return false;
-        return true;
+        double d2 = 0.0;
+        for (int j = 0; j < N; ++j) {
+            const double d = qa[j] - qb[j];
+            d2 += d * d;
+        }
+        return d2 < DIVERSITY_RADIUS * DIVERSITY_RADIUS;
     };
 
     auto score_coarse = [&](int i)->double {
@@ -1836,7 +2035,8 @@ Result<T> generate_ik_solutions(
     for (int idx : order) {
         bool dup = false;
         for (int c : chosen) {
-            if (is_dup(idx, c)) { dup = true; break; }
+            //if (is_dup(idx, c)) { dup = true; break; }
+            if (too_close(idx, c)) { dup = true; break; }
         }
         if (!dup) {
             chosen.push_back(idx);

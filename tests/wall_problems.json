@@ -1,0 +1,60 @@
+{
+  "problems": {
+    "problem": [
+      {
+        "collision_buffer_ik": 0.0,
+        "goal_ik": [],
+        "goal_pose": {
+          "frame": "panda_hand",
+          "position_xyz": [0.35, 0.15, 0.40],
+          "quaternion_wxyz": [0.92387953, 0.0, 0.38268343, 0.0]
+        },
+        "obstacles": {
+          "cuboid": {
+            "cube_robot_stand": {
+              "dims": [0.30, 0.25, 0.80],
+              "pose": [-0.05, 0.00, -0.40, 1, 0, 0, 0]
+            }
+          },
+
+          "cylinder": {
+            "goal_post": {
+              "radius": 0.035,
+              "height": 0.24,
+              "pose": [0.35, 0.15, 0.12, 1, 0, 0, 0]
+            },
+            "goal_post2": {
+              "radius": 0.035,
+              "height": 0.24,
+              "pose": [0.35, 0, 0.12, 1, 0, 0, 0]
+            },
+
+            "pillar_near_wall": {
+              "radius": 0.03,
+              "height": 0.4,
+              "pose": [0.06, 0.22, 0.2, 1, 0, 0, 0]
+            },
+            "pillar_left": {
+              "radius": 0.028,
+              "height": 0.4,
+              "pose": [0.30, -0.18, 0.2, 1, 0, 0, 0]
+            },
+            "pillar_right": {
+              "radius": 0.028,
+              "height": 0.4,
+              "pose": [0.30, 0.28, 0.2, 1, 0, 0, 0]
+            },
+            "pillar_back": {
+              "radius": 0.028,
+              "height": 0.4,
+              "pose": [0.1, -0.25, 0.2, 1, 0, 0, 0]
+            }
+          }
+        },
+
+        "start": [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785],
+        "world_frame": "panda_link0"
+      }
+    ]
+  }
+}
