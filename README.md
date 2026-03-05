@@ -81,5 +81,5 @@ python benchmarks/ik_benchmark.py --skip-grid-codegen --collision-free --problem
 * `--problem-idx <int>`
   * Run collision-free benchmarking on specific problem index within problem set.
 
-### Note on custom robots:
-HJCD-IK and GRiD currently only support robots using revolute, prismatic, and fixed joints without any closed kinematics loops.
+### Note
+Collision-Free usage currently only supports Franka Panda benchmarking.
