@@ -179,7 +179,7 @@ def _load_filtered_targets(path):
     return targets, pidxs
 
 # GRiD codegen
-def run_grid_codegen(urdf, skip):
+def run_grid_codegen(urdf, skip, fixed_target_name=""):
     if skip:
         print("[GRiD] skipping URDF codegen...")
         return False
@@ -204,13 +204,19 @@ def run_grid_codegen(urdf, skip):
     cwd = os.getcwd()
     os.chdir(out_dir)
     try:
-        codegen.gen_all_code(include_homogenous_transforms=True)
+        if fixed_target_name:
+            print(f"[GRiD] generating code with fixed target: {fixed_target_name}")
+            codegen.gen_all_code(
+                include_homogenous_transforms=True,
+                fixed_target_name=fixed_target_name,
+            )
+        else:
+            codegen.gen_all_code(include_homogenous_transforms=True)
     finally:
         os.chdir(cwd)
 
     print("[GRiD] codegen done!")
     return True
-
 
 def rebuild_against_current_header():
     import subprocess
@@ -288,6 +294,7 @@ def main() -> None:
 
     ap.add_argument("--skip-grid-codegen", action="store_true", help="Skip URDF parse/codegen step for GRiD.")
     ap.add_argument( "--urdf", type=str, default=str(ROOT / "include" / "test_urdf" / "panda.urdf"), help="URDF used for GRiD codegen.")
+    ap.add_argument("--grid-target", type=str, default="", help="Optional GRiD fixed kinematic target name, e.g. panda_grasptarget_hand.")
     ap.add_argument("--yaml-out", type=str, default="results.yml",help="YAML output file name.")
     ap.add_argument("--batches",type=_parse_batches,default=_parse_batches("1,10,100,1000,2000"), help="Batch sizes (comma/space separated).")
     ap.add_argument("--num-solutions", type=int, default=1,help="Number of returned solutions per target.")
@@ -326,7 +333,11 @@ def main() -> None:
     dump_solutions = []
 
     # GRiD codegen + rebuild
-    did_codegen = run_grid_codegen(Path(args.urdf), args.skip_grid_codegen)
+    did_codegen = run_grid_codegen(
+        Path(args.urdf),
+        args.skip_grid_codegen,
+        args.grid_target,
+    )
     if did_codegen:
         rebuild_against_current_header()
 
