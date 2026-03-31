@@ -18,16 +18,31 @@ static grid::robotModel<double>* ensure_robot() {
 
 py::dict py_generate_solutions(const std::array<double,7>& target_pose,
                                int batch_size,
-                               int num_solutions) {
+                               int num_solutions,
+                               bool collision_free,
+                               const std::string& problems_json_text,
+                               const std::string& problem_set_name,
+                               int problem_idx) {
   auto* model = ensure_robot();
 
   double tp[7];
   for (int i = 0; i < 7; ++i) tp[i] = target_pose[i];
 
-  auto res = generate_ik_solutions<double>(tp, model, batch_size, num_solutions);
+  const char* json_cstr = problems_json_text.empty() ? nullptr : problems_json_text.c_str();
+  const char* set_cstr  = problem_set_name.empty() ? nullptr : problem_set_name.c_str();
+
+  auto res = generate_ik_solutions<double>(
+      tp, model, batch_size, num_solutions,
+      collision_free,
+      json_cstr,
+      set_cstr,
+      problem_idx
+  );
 
   const int N = grid_num_joints();
-  const int S = num_solutions;
+
+  // The solver may return fewer solutions after collision filtering.
+  int S = res.count;
 
   py::array_t<double> joint_config({S, N});
   py::array_t<double> pose({S, 7});
@@ -49,6 +64,7 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
   out["pose"]         = std::move(pose);
   out["pos_errors"]   = std::move(pos_errors);
   out["ori_errors"]   = std::move(ori_errors);
+  out["count"]        = S;
   return out;
 }
 
@@ -60,9 +76,13 @@ std::vector<std::array<double,7>> py_sample_targets(int num_targets, std::uint64
 PYBIND11_MODULE(_hjcdik, m) {
   m.doc() = "Minimal pybind11 bindings for hjcdik";
   m.def("generate_solutions", &py_generate_solutions,
-        py::arg("target_pose"),
-        py::arg("batch_size") = 2000,
-        py::arg("num_solutions") = 1);
+      py::arg("target_pose"),
+      py::arg("batch_size") = 2000,
+      py::arg("num_solutions") = 1,
+      py::arg("collision_free") = false,
+      py::arg("problems_json_text") = "",
+      py::arg("problem_set_name") = "",
+      py::arg("problem_idx") = 0);
   m.def("sample_targets", &py_sample_targets,
         py::arg("num_targets"), py::arg("seed") = 0);
   m.def("num_joints", &grid_num_joints);

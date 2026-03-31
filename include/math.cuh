@@ -1,9 +1,12 @@
-/*
-    Additional Math Utilities
-*/
 
 #pragma once 
 #include "hjcd_settings.h"
+
+// (panda specific)
+constexpr int NJ = hjcd::N;
+constexpr int FLANGE_IDX = 8;
+constexpr int EE_IDX = NJ;
+constexpr int NX = FLANGE_IDX + 1;
 
 template<typename T>
 __device__ __forceinline__
@@ -111,7 +114,7 @@ __device__ void normalize_vec3(T* vec) {
 template<typename T>
 __device__ T compute_ori_err(const T* CjX, const T* q_goal) {
     T qee[4];
-    mat_to_quat(&CjX[(hjcd::N-1)*16], qee);
+    mat_to_quat(&CjX[EE_IDX*16], qee);
     if (qee[0]*q_goal[0]+qee[1]*q_goal[1]+qee[2]*q_goal[2]+qee[3]*q_goal[3] < (T)0) {
         qee[0]=-qee[0]; qee[1]=-qee[1]; qee[2]=-qee[2]; qee[3]=-qee[3];
     }
@@ -121,8 +124,9 @@ __device__ T compute_ori_err(const T* CjX, const T* q_goal) {
 
 template<typename T>
 __device__ T compute_pos_err(const T* C, const T* target_pose) {
-    const T dx = C[(hjcd::N - 1) * 16 + 12] - target_pose[0];
-    const T dy = C[(hjcd::N - 1) * 16 + 13] - target_pose[1];
-    const T dz = C[(hjcd::N - 1) * 16 + 14] - target_pose[2];
+    const T dx = C[EE_IDX * 16 + 12] - target_pose[0];
+    const T dy = C[EE_IDX * 16 + 13] - target_pose[1];
+    const T dz = C[EE_IDX * 16 + 14] - target_pose[2];
     return sqrt(dx * dx + dy * dy + dz * dz);
 }
+

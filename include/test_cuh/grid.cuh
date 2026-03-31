@@ -1,5 +1,5 @@
 /**
- * This instance of grid.cuh is optimized for the urdf: fetch_arm_no_helpers
+ * This instance of grid.cuh is optimized for the urdf: panda
  *
  * Notes:
  *   Interface is:
@@ -73,6 +73,9 @@
  *   Additional helper functions and ALGORITHM_inner functions which take in __shared__ memory temp variables exist -- see function descriptions in the file
  *   
  *   By default device and kernels need to be launched with dynamic shared mem of size <FUNC_CODE>_DYNAMIC_SHARED_MEM_COUNT where <FUNC_CODE> = [ID, MINV, FD, ID_DU, FD_DU]
+ *   
+ *   Additional EEPose Functions Included for Fixed Kinematic Target: panda_grasptarget_hand
+ *   
  *
  */
 
@@ -127,20 +130,20 @@ namespace grid {
     const int NUM_JOINTS = 7;
     const int NUM_VEL = 7;
     const int NUM_EES = 1;
-    const int ID_DYNAMIC_SHARED_MEM_COUNT = 882;
-    const int MINV_DYNAMIC_SHARED_MEM_COUNT = 1507;
-    const int FD_DYNAMIC_SHARED_MEM_COUNT = 1731;
-    const int ID_DU_DYNAMIC_SHARED_MEM_COUNT = 2562;
-    const int FD_DU_DYNAMIC_SHARED_MEM_COUNT = 2562;
-    const int ABA_DYNAMIC_SHARED_MEM_COUNT = 1820;
-    const int CRBA_SHARED_MEM_COUNT = 1820;
-    const int ID_DU_MAX_SHARED_MEM_COUNT = 2807;
-    const int FD_DU_MAX_SHARED_MEM_COUNT = 2961;
-    const int EE_POS_DYNAMIC_SHARED_MEM_COUNT = 144;
-    const int DEE_POS_DYNAMIC_SHARED_MEM_COUNT = 672;
-    const int D2EE_POS_DYNAMIC_SHARED_MEM_COUNT = 2160;
+    const int ID_DYNAMIC_SHARED_MEM_COUNT = 978;
+    const int MINV_DYNAMIC_SHARED_MEM_COUNT = 1603;
+    const int FD_DYNAMIC_SHARED_MEM_COUNT = 1827;
+    const int ID_DU_DYNAMIC_SHARED_MEM_COUNT = 2658;
+    const int FD_DU_DYNAMIC_SHARED_MEM_COUNT = 2658;
+    const int ABA_DYNAMIC_SHARED_MEM_COUNT = 1916;
+    const int CRBA_SHARED_MEM_COUNT = 1916;
+    const int ID_DU_MAX_SHARED_MEM_COUNT = 2903;
+    const int FD_DU_MAX_SHARED_MEM_COUNT = 3057;
+    const int EE_POS_DYNAMIC_SHARED_MEM_COUNT = 240;
+    const int DEE_POS_DYNAMIC_SHARED_MEM_COUNT = 768;
+    const int D2EE_POS_DYNAMIC_SHARED_MEM_COUNT = 2256;
     const int IDSVA_SO_DYNAMIC_SHARED_MEM_COUNT = 0;
-    const int FDSVA_SO_DYNAMIC_SHARED_MEM_COUNT = 2562;
+    const int FDSVA_SO_DYNAMIC_SHARED_MEM_COUNT = 2658;
     const int SUGGESTED_THREADS = 352;
     // Define custom structs
     template <typename T>
@@ -1218,7 +1221,7 @@ namespace grid {
     template <typename T>
     __host__
     T* init_XImats() {
-        T *h_XImats = (T *)malloc(840*sizeof(T));
+        T *h_XImats = (T *)malloc(936*sizeof(T));
         // X[0]
         h_XImats[0] = static_cast<T>(0);
         h_XImats[1] = static_cast<T>(0);
@@ -1231,7 +1234,7 @@ namespace grid {
         h_XImats[8] = static_cast<T>(0);
         h_XImats[9] = static_cast<T>(0);
         h_XImats[10] = static_cast<T>(0);
-        h_XImats[11] = static_cast<T>(-0.0326500000000000);
+        h_XImats[11] = static_cast<T>(0);
         h_XImats[12] = static_cast<T>(0);
         h_XImats[13] = static_cast<T>(0);
         h_XImats[14] = static_cast<T>(1.00000000000000);
@@ -1265,13 +1268,13 @@ namespace grid {
         h_XImats[41] = static_cast<T>(0);
         h_XImats[42] = static_cast<T>(0);
         h_XImats[43] = static_cast<T>(0);
-        h_XImats[44] = static_cast<T>(0);
+        h_XImats[44] = static_cast<T>(1.00000000000000);
         h_XImats[45] = static_cast<T>(0);
         h_XImats[46] = static_cast<T>(0);
-        h_XImats[47] = static_cast<T>(-0.117000000000000);
+        h_XImats[47] = static_cast<T>(0);
         h_XImats[48] = static_cast<T>(0);
         h_XImats[49] = static_cast<T>(0);
-        h_XImats[50] = static_cast<T>(1.00000000000000);
+        h_XImats[50] = static_cast<T>(0);
         h_XImats[51] = static_cast<T>(0);
         h_XImats[52] = static_cast<T>(0);
         h_XImats[53] = static_cast<T>(0);
@@ -1286,13 +1289,13 @@ namespace grid {
         h_XImats[62] = static_cast<T>(0);
         h_XImats[63] = static_cast<T>(0);
         h_XImats[64] = static_cast<T>(0);
-        h_XImats[65] = static_cast<T>(0);
+        h_XImats[65] = static_cast<T>(1.00000000000000);
         h_XImats[66] = static_cast<T>(0);
         h_XImats[67] = static_cast<T>(0);
         h_XImats[68] = static_cast<T>(0);
         h_XImats[69] = static_cast<T>(0);
         h_XImats[70] = static_cast<T>(0);
-        h_XImats[71] = static_cast<T>(1.00000000000000);
+        h_XImats[71] = static_cast<T>(0);
         // X[2]
         h_XImats[72] = static_cast<T>(0);
         h_XImats[73] = static_cast<T>(0);
@@ -1302,13 +1305,13 @@ namespace grid {
         h_XImats[77] = static_cast<T>(0);
         h_XImats[78] = static_cast<T>(0);
         h_XImats[79] = static_cast<T>(0);
-        h_XImats[80] = static_cast<T>(0);
+        h_XImats[80] = static_cast<T>(-1.00000000000000);
         h_XImats[81] = static_cast<T>(0);
         h_XImats[82] = static_cast<T>(0);
-        h_XImats[83] = static_cast<T>(-0.219000000000000);
+        h_XImats[83] = static_cast<T>(0);
         h_XImats[84] = static_cast<T>(0);
         h_XImats[85] = static_cast<T>(0);
-        h_XImats[86] = static_cast<T>(1.00000000000000);
+        h_XImats[86] = static_cast<T>(0);
         h_XImats[87] = static_cast<T>(0);
         h_XImats[88] = static_cast<T>(0);
         h_XImats[89] = static_cast<T>(0);
@@ -1323,13 +1326,13 @@ namespace grid {
         h_XImats[98] = static_cast<T>(0);
         h_XImats[99] = static_cast<T>(0);
         h_XImats[100] = static_cast<T>(0);
-        h_XImats[101] = static_cast<T>(0);
+        h_XImats[101] = static_cast<T>(-1.00000000000000);
         h_XImats[102] = static_cast<T>(0);
         h_XImats[103] = static_cast<T>(0);
         h_XImats[104] = static_cast<T>(0);
         h_XImats[105] = static_cast<T>(0);
         h_XImats[106] = static_cast<T>(0);
-        h_XImats[107] = static_cast<T>(1.00000000000000);
+        h_XImats[107] = static_cast<T>(0);
         // X[3]
         h_XImats[108] = static_cast<T>(0);
         h_XImats[109] = static_cast<T>(0);
@@ -1339,16 +1342,16 @@ namespace grid {
         h_XImats[113] = static_cast<T>(0);
         h_XImats[114] = static_cast<T>(0);
         h_XImats[115] = static_cast<T>(0);
-        h_XImats[116] = static_cast<T>(0);
+        h_XImats[116] = static_cast<T>(-1.00000000000000);
         h_XImats[117] = static_cast<T>(0);
         h_XImats[118] = static_cast<T>(0);
-        h_XImats[119] = static_cast<T>(-0.133000000000000);
+        h_XImats[119] = static_cast<T>(0);
         h_XImats[120] = static_cast<T>(0);
         h_XImats[121] = static_cast<T>(0);
-        h_XImats[122] = static_cast<T>(1.00000000000000);
+        h_XImats[122] = static_cast<T>(0);
         h_XImats[123] = static_cast<T>(0);
         h_XImats[124] = static_cast<T>(0);
-        h_XImats[125] = static_cast<T>(0);
+        h_XImats[125] = static_cast<T>(-0.0825000000000000);
         h_XImats[126] = static_cast<T>(0);
         h_XImats[127] = static_cast<T>(0);
         h_XImats[128] = static_cast<T>(0);
@@ -1360,13 +1363,13 @@ namespace grid {
         h_XImats[134] = static_cast<T>(0);
         h_XImats[135] = static_cast<T>(0);
         h_XImats[136] = static_cast<T>(0);
-        h_XImats[137] = static_cast<T>(0);
+        h_XImats[137] = static_cast<T>(-1.00000000000000);
         h_XImats[138] = static_cast<T>(0);
         h_XImats[139] = static_cast<T>(0);
         h_XImats[140] = static_cast<T>(0);
         h_XImats[141] = static_cast<T>(0);
         h_XImats[142] = static_cast<T>(0);
-        h_XImats[143] = static_cast<T>(1.00000000000000);
+        h_XImats[143] = static_cast<T>(0);
         // X[4]
         h_XImats[144] = static_cast<T>(0);
         h_XImats[145] = static_cast<T>(0);
@@ -1376,16 +1379,16 @@ namespace grid {
         h_XImats[149] = static_cast<T>(0);
         h_XImats[150] = static_cast<T>(0);
         h_XImats[151] = static_cast<T>(0);
-        h_XImats[152] = static_cast<T>(0);
+        h_XImats[152] = static_cast<T>(1.00000000000000);
         h_XImats[153] = static_cast<T>(0);
         h_XImats[154] = static_cast<T>(0);
-        h_XImats[155] = static_cast<T>(-0.197000000000000);
+        h_XImats[155] = static_cast<T>(0);
         h_XImats[156] = static_cast<T>(0);
         h_XImats[157] = static_cast<T>(0);
-        h_XImats[158] = static_cast<T>(1.00000000000000);
+        h_XImats[158] = static_cast<T>(0);
         h_XImats[159] = static_cast<T>(0);
         h_XImats[160] = static_cast<T>(0);
-        h_XImats[161] = static_cast<T>(0);
+        h_XImats[161] = static_cast<T>(-0.0825000000000000);
         h_XImats[162] = static_cast<T>(0);
         h_XImats[163] = static_cast<T>(0);
         h_XImats[164] = static_cast<T>(0);
@@ -1397,13 +1400,13 @@ namespace grid {
         h_XImats[170] = static_cast<T>(0);
         h_XImats[171] = static_cast<T>(0);
         h_XImats[172] = static_cast<T>(0);
-        h_XImats[173] = static_cast<T>(0);
+        h_XImats[173] = static_cast<T>(1.00000000000000);
         h_XImats[174] = static_cast<T>(0);
         h_XImats[175] = static_cast<T>(0);
         h_XImats[176] = static_cast<T>(0);
         h_XImats[177] = static_cast<T>(0);
         h_XImats[178] = static_cast<T>(0);
-        h_XImats[179] = static_cast<T>(1.00000000000000);
+        h_XImats[179] = static_cast<T>(0);
         // X[5]
         h_XImats[180] = static_cast<T>(0);
         h_XImats[181] = static_cast<T>(0);
@@ -1413,13 +1416,13 @@ namespace grid {
         h_XImats[185] = static_cast<T>(0);
         h_XImats[186] = static_cast<T>(0);
         h_XImats[187] = static_cast<T>(0);
-        h_XImats[188] = static_cast<T>(0);
+        h_XImats[188] = static_cast<T>(-1.00000000000000);
         h_XImats[189] = static_cast<T>(0);
         h_XImats[190] = static_cast<T>(0);
-        h_XImats[191] = static_cast<T>(-0.124500000000000);
+        h_XImats[191] = static_cast<T>(0);
         h_XImats[192] = static_cast<T>(0);
         h_XImats[193] = static_cast<T>(0);
-        h_XImats[194] = static_cast<T>(1.00000000000000);
+        h_XImats[194] = static_cast<T>(0);
         h_XImats[195] = static_cast<T>(0);
         h_XImats[196] = static_cast<T>(0);
         h_XImats[197] = static_cast<T>(0);
@@ -1434,13 +1437,13 @@ namespace grid {
         h_XImats[206] = static_cast<T>(0);
         h_XImats[207] = static_cast<T>(0);
         h_XImats[208] = static_cast<T>(0);
-        h_XImats[209] = static_cast<T>(0);
+        h_XImats[209] = static_cast<T>(-1.00000000000000);
         h_XImats[210] = static_cast<T>(0);
         h_XImats[211] = static_cast<T>(0);
         h_XImats[212] = static_cast<T>(0);
         h_XImats[213] = static_cast<T>(0);
         h_XImats[214] = static_cast<T>(0);
-        h_XImats[215] = static_cast<T>(1.00000000000000);
+        h_XImats[215] = static_cast<T>(0);
         // X[6]
         h_XImats[216] = static_cast<T>(0);
         h_XImats[217] = static_cast<T>(0);
@@ -1450,16 +1453,16 @@ namespace grid {
         h_XImats[221] = static_cast<T>(0);
         h_XImats[222] = static_cast<T>(0);
         h_XImats[223] = static_cast<T>(0);
-        h_XImats[224] = static_cast<T>(0);
+        h_XImats[224] = static_cast<T>(-1.00000000000000);
         h_XImats[225] = static_cast<T>(0);
         h_XImats[226] = static_cast<T>(0);
-        h_XImats[227] = static_cast<T>(-0.138500000000000);
+        h_XImats[227] = static_cast<T>(0);
         h_XImats[228] = static_cast<T>(0);
         h_XImats[229] = static_cast<T>(0);
-        h_XImats[230] = static_cast<T>(1.00000000000000);
+        h_XImats[230] = static_cast<T>(0);
         h_XImats[231] = static_cast<T>(0);
         h_XImats[232] = static_cast<T>(0);
-        h_XImats[233] = static_cast<T>(0);
+        h_XImats[233] = static_cast<T>(-0.0880000000000000);
         h_XImats[234] = static_cast<T>(0);
         h_XImats[235] = static_cast<T>(0);
         h_XImats[236] = static_cast<T>(0);
@@ -1471,272 +1474,272 @@ namespace grid {
         h_XImats[242] = static_cast<T>(0);
         h_XImats[243] = static_cast<T>(0);
         h_XImats[244] = static_cast<T>(0);
-        h_XImats[245] = static_cast<T>(0);
+        h_XImats[245] = static_cast<T>(-1.00000000000000);
         h_XImats[246] = static_cast<T>(0);
         h_XImats[247] = static_cast<T>(0);
         h_XImats[248] = static_cast<T>(0);
         h_XImats[249] = static_cast<T>(0);
         h_XImats[250] = static_cast<T>(0);
-        h_XImats[251] = static_cast<T>(1.00000000000000);
+        h_XImats[251] = static_cast<T>(0);
         // I[0]
-        h_XImats[252] = static_cast<T>(0.012519363184);
-        h_XImats[253] = static_cast<T>(0.001228272344);
-        h_XImats[254] = static_cast<T>(-0.012377600036);
+        h_XImats[252] = static_cast<T>(0.11107);
+        h_XImats[253] = static_cast<T>(0.0);
+        h_XImats[254] = static_cast<T>(0.0);
         h_XImats[255] = static_cast<T>(0.0);
-        h_XImats[256] = static_cast<T>(-0.14431068);
-        h_XImats[257] = static_cast<T>(-0.01432872);
-        h_XImats[258] = static_cast<T>(0.001228272344);
-        h_XImats[259] = static_cast<T>(0.038826773475);
-        h_XImats[260] = static_cast<T>(0.0007081398079999999);
-        h_XImats[261] = static_cast<T>(0.14431068);
+        h_XImats[256] = static_cast<T>(0.135);
+        h_XImats[257] = static_cast<T>(-0.10800000000000001);
+        h_XImats[258] = static_cast<T>(0.0);
+        h_XImats[259] = static_cast<T>(0.10675000000000001);
+        h_XImats[260] = static_cast<T>(-0.005400000000000001);
+        h_XImats[261] = static_cast<T>(-0.135);
         h_XImats[262] = static_cast<T>(0.0);
-        h_XImats[263] = static_cast<T>(-0.23719149);
-        h_XImats[264] = static_cast<T>(-0.012377600036);
-        h_XImats[265] = static_cast<T>(0.0007081398079999999);
-        h_XImats[266] = static_cast<T>(0.030767891955);
-        h_XImats[267] = static_cast<T>(0.01432872);
-        h_XImats[268] = static_cast<T>(0.23719149);
+        h_XImats[263] = static_cast<T>(0.0);
+        h_XImats[264] = static_cast<T>(0.0);
+        h_XImats[265] = static_cast<T>(-0.0054);
+        h_XImats[266] = static_cast<T>(0.10432000000000001);
+        h_XImats[267] = static_cast<T>(0.10800000000000001);
+        h_XImats[268] = static_cast<T>(0.0);
         h_XImats[269] = static_cast<T>(0.0);
         h_XImats[270] = static_cast<T>(0.0);
-        h_XImats[271] = static_cast<T>(0.14431068);
-        h_XImats[272] = static_cast<T>(0.01432872);
-        h_XImats[273] = static_cast<T>(2.5587);
+        h_XImats[271] = static_cast<T>(-0.135);
+        h_XImats[272] = static_cast<T>(0.10800000000000001);
+        h_XImats[273] = static_cast<T>(2.7);
         h_XImats[274] = static_cast<T>(0.0);
         h_XImats[275] = static_cast<T>(0.0);
-        h_XImats[276] = static_cast<T>(-0.14431068);
+        h_XImats[276] = static_cast<T>(0.135);
         h_XImats[277] = static_cast<T>(0.0);
-        h_XImats[278] = static_cast<T>(0.23719149);
+        h_XImats[278] = static_cast<T>(0.0);
         h_XImats[279] = static_cast<T>(0.0);
-        h_XImats[280] = static_cast<T>(2.5587);
+        h_XImats[280] = static_cast<T>(2.7);
         h_XImats[281] = static_cast<T>(0.0);
-        h_XImats[282] = static_cast<T>(-0.01432872);
-        h_XImats[283] = static_cast<T>(-0.23719149);
+        h_XImats[282] = static_cast<T>(-0.10800000000000001);
+        h_XImats[283] = static_cast<T>(0.0);
         h_XImats[284] = static_cast<T>(0.0);
         h_XImats[285] = static_cast<T>(0.0);
         h_XImats[286] = static_cast<T>(0.0);
-        h_XImats[287] = static_cast<T>(2.5587);
+        h_XImats[287] = static_cast<T>(2.7);
         // I[1]
-        h_XImats[288] = static_cast<T>(0.0029379987749999998);
-        h_XImats[289] = static_cast<T>(-0.00484411296);
-        h_XImats[290] = static_cast<T>(3.8112680000000004e-05);
+        h_XImats[288] = static_cast<T>(0.114196);
+        h_XImats[289] = static_cast<T>(0.0);
+        h_XImats[290] = static_cast<T>(0.0);
         h_XImats[291] = static_cast<T>(0.0);
-        h_XImats[292] = static_cast<T>(0.00026615000000000005);
-        h_XImats[293] = static_cast<T>(0.0191628);
-        h_XImats[294] = static_cast<T>(-0.00484411296);
-        h_XImats[295] = static_cast<T>(0.065677384375);
-        h_XImats[296] = static_cast<T>(1.91628e-06);
-        h_XImats[297] = static_cast<T>(-0.00026615000000000005);
+        h_XImats[292] = static_cast<T>(-0.1638);
+        h_XImats[293] = static_cast<T>(-0.1092);
+        h_XImats[294] = static_cast<T>(0.0);
+        h_XImats[295] = static_cast<T>(0.10982800000000001);
+        h_XImats[296] = static_cast<T>(0.006552);
+        h_XImats[297] = static_cast<T>(0.1638);
         h_XImats[298] = static_cast<T>(0.0);
-        h_XImats[299] = static_cast<T>(-0.3811268);
-        h_XImats[300] = static_cast<T>(3.8112680000000004e-05);
-        h_XImats[301] = static_cast<T>(1.9162800000000005e-06);
-        h_XImats[302] = static_cast<T>(0.06591532991999999);
-        h_XImats[303] = static_cast<T>(-0.0191628);
-        h_XImats[304] = static_cast<T>(0.3811268);
+        h_XImats[299] = static_cast<T>(0.0);
+        h_XImats[300] = static_cast<T>(0.0);
+        h_XImats[301] = static_cast<T>(0.0065520000000000005);
+        h_XImats[302] = static_cast<T>(0.104368);
+        h_XImats[303] = static_cast<T>(0.1092);
+        h_XImats[304] = static_cast<T>(0.0);
         h_XImats[305] = static_cast<T>(0.0);
         h_XImats[306] = static_cast<T>(0.0);
-        h_XImats[307] = static_cast<T>(-0.00026615000000000005);
-        h_XImats[308] = static_cast<T>(-0.0191628);
-        h_XImats[309] = static_cast<T>(2.6615);
+        h_XImats[307] = static_cast<T>(0.1638);
+        h_XImats[308] = static_cast<T>(0.1092);
+        h_XImats[309] = static_cast<T>(2.73);
         h_XImats[310] = static_cast<T>(0.0);
         h_XImats[311] = static_cast<T>(0.0);
-        h_XImats[312] = static_cast<T>(0.00026615000000000005);
+        h_XImats[312] = static_cast<T>(-0.1638);
         h_XImats[313] = static_cast<T>(0.0);
-        h_XImats[314] = static_cast<T>(0.3811268);
+        h_XImats[314] = static_cast<T>(0.0);
         h_XImats[315] = static_cast<T>(0.0);
-        h_XImats[316] = static_cast<T>(2.6615);
+        h_XImats[316] = static_cast<T>(2.73);
         h_XImats[317] = static_cast<T>(0.0);
-        h_XImats[318] = static_cast<T>(0.0191628);
-        h_XImats[319] = static_cast<T>(-0.3811268);
+        h_XImats[318] = static_cast<T>(-0.1092);
+        h_XImats[319] = static_cast<T>(0.0);
         h_XImats[320] = static_cast<T>(0.0);
         h_XImats[321] = static_cast<T>(0.0);
         h_XImats[322] = static_cast<T>(0.0);
-        h_XImats[323] = static_cast<T>(2.6615);
+        h_XImats[323] = static_cast<T>(2.73);
         // I[2]
-        h_XImats[324] = static_cast<T>(0.001904568956);
-        h_XImats[325] = static_cast<T>(-0.00048020241);
-        h_XImats[326] = static_cast<T>(0.0);
+        h_XImats[324] = static_cast<T>(0.10530400000000001);
+        h_XImats[325] = static_cast<T>(-0.00020400000000000003);
+        h_XImats[326] = static_cast<T>(0.00102);
         h_XImats[327] = static_cast<T>(0.0);
-        h_XImats[328] = static_cast<T>(0.0);
-        h_XImats[329] = static_cast<T>(0.00326354);
-        h_XImats[330] = static_cast<T>(-0.00048020241);
-        h_XImats[331] = static_cast<T>(0.03613827197499999);
-        h_XImats[332] = static_cast<T>(0.0);
-        h_XImats[333] = static_cast<T>(0.0);
+        h_XImats[328] = static_cast<T>(0.10200000000000001);
+        h_XImats[329] = static_cast<T>(0.0204);
+        h_XImats[330] = static_cast<T>(-0.00020400000000000003);
+        h_XImats[331] = static_cast<T>(0.10530400000000001);
+        h_XImats[332] = static_cast<T>(0.00102);
+        h_XImats[333] = static_cast<T>(-0.10200000000000001);
         h_XImats[334] = static_cast<T>(0.0);
-        h_XImats[335] = static_cast<T>(-0.27157315);
-        h_XImats[336] = static_cast<T>(0.0);
-        h_XImats[337] = static_cast<T>(0.0);
-        h_XImats[338] = static_cast<T>(0.036342840930999994);
-        h_XImats[339] = static_cast<T>(-0.00326354);
-        h_XImats[340] = static_cast<T>(0.27157315);
+        h_XImats[335] = static_cast<T>(-0.0204);
+        h_XImats[336] = static_cast<T>(0.00102);
+        h_XImats[337] = static_cast<T>(0.00102);
+        h_XImats[338] = static_cast<T>(0.10040800000000001);
+        h_XImats[339] = static_cast<T>(-0.0204);
+        h_XImats[340] = static_cast<T>(0.0204);
         h_XImats[341] = static_cast<T>(0.0);
         h_XImats[342] = static_cast<T>(0.0);
-        h_XImats[343] = static_cast<T>(0.0);
-        h_XImats[344] = static_cast<T>(-0.00326354);
-        h_XImats[345] = static_cast<T>(2.3311);
+        h_XImats[343] = static_cast<T>(-0.10200000000000001);
+        h_XImats[344] = static_cast<T>(-0.0204);
+        h_XImats[345] = static_cast<T>(2.04);
         h_XImats[346] = static_cast<T>(0.0);
         h_XImats[347] = static_cast<T>(0.0);
-        h_XImats[348] = static_cast<T>(0.0);
+        h_XImats[348] = static_cast<T>(0.10200000000000001);
         h_XImats[349] = static_cast<T>(0.0);
-        h_XImats[350] = static_cast<T>(0.27157315);
+        h_XImats[350] = static_cast<T>(0.0204);
         h_XImats[351] = static_cast<T>(0.0);
-        h_XImats[352] = static_cast<T>(2.3311);
+        h_XImats[352] = static_cast<T>(2.04);
         h_XImats[353] = static_cast<T>(0.0);
-        h_XImats[354] = static_cast<T>(0.00326354);
-        h_XImats[355] = static_cast<T>(-0.27157315);
+        h_XImats[354] = static_cast<T>(0.0204);
+        h_XImats[355] = static_cast<T>(-0.0204);
         h_XImats[356] = static_cast<T>(0.0);
         h_XImats[357] = static_cast<T>(0.0);
         h_XImats[358] = static_cast<T>(0.0);
-        h_XImats[359] = static_cast<T>(2.3311);
+        h_XImats[359] = static_cast<T>(2.04);
         // I[3]
-        h_XImats[360] = static_cast<T>(0.0025135023709999997);
-        h_XImats[361] = static_cast<T>(-0.003588623733);
-        h_XImats[362] = static_cast<T>(0.0);
+        h_XImats[360] = static_cast<T>(0.102704);
+        h_XImats[361] = static_cast<T>(0.0018719999999999997);
+        h_XImats[362] = static_cast<T>(0.001248);
         h_XImats[363] = static_cast<T>(0.0);
-        h_XImats[364] = static_cast<T>(0.0);
-        h_XImats[365] = static_cast<T>(0.015548270000000001);
-        h_XImats[366] = static_cast<T>(-0.003588623733);
-        h_XImats[367] = static_cast<T>(0.04304177745900001);
-        h_XImats[368] = static_cast<T>(0.0);
-        h_XImats[369] = static_cast<T>(0.0);
+        h_XImats[364] = static_cast<T>(-0.041600000000000005);
+        h_XImats[365] = static_cast<T>(0.0624);
+        h_XImats[366] = static_cast<T>(0.0018719999999999997);
+        h_XImats[367] = static_cast<T>(0.102704);
+        h_XImats[368] = static_cast<T>(-0.001248);
+        h_XImats[369] = static_cast<T>(0.041600000000000005);
         h_XImats[370] = static_cast<T>(0.0);
-        h_XImats[371] = static_cast<T>(-0.27241421000000005);
-        h_XImats[372] = static_cast<T>(0.0);
-        h_XImats[373] = static_cast<T>(0.0);
-        h_XImats[374] = static_cast<T>(0.04335527983000001);
-        h_XImats[375] = static_cast<T>(-0.015548270000000001);
-        h_XImats[376] = static_cast<T>(0.27241421000000005);
+        h_XImats[371] = static_cast<T>(0.0624);
+        h_XImats[372] = static_cast<T>(0.0012480000000000002);
+        h_XImats[373] = static_cast<T>(-0.0012480000000000002);
+        h_XImats[374] = static_cast<T>(0.103744);
+        h_XImats[375] = static_cast<T>(-0.0624);
+        h_XImats[376] = static_cast<T>(-0.0624);
         h_XImats[377] = static_cast<T>(0.0);
         h_XImats[378] = static_cast<T>(0.0);
-        h_XImats[379] = static_cast<T>(0.0);
-        h_XImats[380] = static_cast<T>(-0.015548270000000001);
-        h_XImats[381] = static_cast<T>(2.1299);
+        h_XImats[379] = static_cast<T>(0.041600000000000005);
+        h_XImats[380] = static_cast<T>(-0.0624);
+        h_XImats[381] = static_cast<T>(2.08);
         h_XImats[382] = static_cast<T>(0.0);
         h_XImats[383] = static_cast<T>(0.0);
-        h_XImats[384] = static_cast<T>(0.0);
+        h_XImats[384] = static_cast<T>(-0.041600000000000005);
         h_XImats[385] = static_cast<T>(0.0);
-        h_XImats[386] = static_cast<T>(0.27241421000000005);
+        h_XImats[386] = static_cast<T>(-0.0624);
         h_XImats[387] = static_cast<T>(0.0);
-        h_XImats[388] = static_cast<T>(2.1299);
+        h_XImats[388] = static_cast<T>(2.08);
         h_XImats[389] = static_cast<T>(0.0);
-        h_XImats[390] = static_cast<T>(0.015548270000000001);
-        h_XImats[391] = static_cast<T>(-0.27241421000000005);
+        h_XImats[390] = static_cast<T>(0.0624);
+        h_XImats[391] = static_cast<T>(0.0624);
         h_XImats[392] = static_cast<T>(0.0);
         h_XImats[393] = static_cast<T>(0.0);
         h_XImats[394] = static_cast<T>(0.0);
-        h_XImats[395] = static_cast<T>(2.1299);
+        h_XImats[395] = static_cast<T>(2.08);
         // I[4]
-        h_XImats[396] = static_cast<T>(0.002771931628);
-        h_XImats[397] = static_cast<T>(0.004533116526000001);
+        h_XImats[396] = static_cast<T>(0.148);
+        h_XImats[397] = static_cast<T>(0.0);
         h_XImats[398] = static_cast<T>(0.0);
         h_XImats[399] = static_cast<T>(0.0);
-        h_XImats[400] = static_cast<T>(0.0);
-        h_XImats[401] = static_cast<T>(-0.04405758);
-        h_XImats[402] = static_cast<T>(0.004533116526);
-        h_XImats[403] = static_cast<T>(0.022932063267);
-        h_XImats[404] = static_cast<T>(0.0);
-        h_XImats[405] = static_cast<T>(0.0);
+        h_XImats[400] = static_cast<T>(0.36);
+        h_XImats[401] = static_cast<T>(0.12);
+        h_XImats[402] = static_cast<T>(0.0);
+        h_XImats[403] = static_cast<T>(0.1432);
+        h_XImats[404] = static_cast<T>(0.0144);
+        h_XImats[405] = static_cast<T>(-0.36);
         h_XImats[406] = static_cast<T>(0.0);
-        h_XImats[407] = static_cast<T>(-0.18169611000000002);
+        h_XImats[407] = static_cast<T>(0.0);
         h_XImats[408] = static_cast<T>(0.0);
-        h_XImats[409] = static_cast<T>(0.0);
-        h_XImats[410] = static_cast<T>(0.024603994895000002);
-        h_XImats[411] = static_cast<T>(0.04405758);
-        h_XImats[412] = static_cast<T>(0.18169611000000002);
+        h_XImats[409] = static_cast<T>(0.0144);
+        h_XImats[410] = static_cast<T>(0.1048);
+        h_XImats[411] = static_cast<T>(-0.12);
+        h_XImats[412] = static_cast<T>(0.0);
         h_XImats[413] = static_cast<T>(0.0);
         h_XImats[414] = static_cast<T>(0.0);
-        h_XImats[415] = static_cast<T>(0.0);
-        h_XImats[416] = static_cast<T>(0.04405758);
-        h_XImats[417] = static_cast<T>(1.6563);
+        h_XImats[415] = static_cast<T>(-0.36);
+        h_XImats[416] = static_cast<T>(-0.12);
+        h_XImats[417] = static_cast<T>(3.0);
         h_XImats[418] = static_cast<T>(0.0);
         h_XImats[419] = static_cast<T>(0.0);
-        h_XImats[420] = static_cast<T>(0.0);
+        h_XImats[420] = static_cast<T>(0.36);
         h_XImats[421] = static_cast<T>(0.0);
-        h_XImats[422] = static_cast<T>(0.18169611000000002);
+        h_XImats[422] = static_cast<T>(0.0);
         h_XImats[423] = static_cast<T>(0.0);
-        h_XImats[424] = static_cast<T>(1.6563);
+        h_XImats[424] = static_cast<T>(3.0);
         h_XImats[425] = static_cast<T>(0.0);
-        h_XImats[426] = static_cast<T>(-0.04405758);
-        h_XImats[427] = static_cast<T>(-0.18169611000000002);
+        h_XImats[426] = static_cast<T>(0.12);
+        h_XImats[427] = static_cast<T>(0.0);
         h_XImats[428] = static_cast<T>(0.0);
         h_XImats[429] = static_cast<T>(0.0);
         h_XImats[430] = static_cast<T>(0.0);
-        h_XImats[431] = static_cast<T>(1.6563);
+        h_XImats[431] = static_cast<T>(3.0);
         // I[5]
-        h_XImats[432] = static_cast<T>(0.0018014145);
-        h_XImats[433] = static_cast<T>(-0.0002369305);
-        h_XImats[434] = static_cast<T>(1.5214500000000001e-05);
+        h_XImats[432] = static_cast<T>(0.1);
+        h_XImats[433] = static_cast<T>(0.0);
+        h_XImats[434] = static_cast<T>(0.0);
         h_XImats[435] = static_cast<T>(0.0);
-        h_XImats[436] = static_cast<T>(0.00017250000000000002);
-        h_XImats[437] = static_cast<T>(0.0015525);
-        h_XImats[438] = static_cast<T>(-0.0002369305);
-        h_XImats[439] = static_cast<T>(0.017619206249999998);
-        h_XImats[440] = static_cast<T>(1.5525000000000002e-07);
-        h_XImats[441] = static_cast<T>(-0.00017250000000000002);
+        h_XImats[436] = static_cast<T>(0.0);
+        h_XImats[437] = static_cast<T>(0.0);
+        h_XImats[438] = static_cast<T>(0.0);
+        h_XImats[439] = static_cast<T>(0.10208);
+        h_XImats[440] = static_cast<T>(0.0);
+        h_XImats[441] = static_cast<T>(0.0);
         h_XImats[442] = static_cast<T>(0.0);
-        h_XImats[443] = static_cast<T>(-0.152145);
-        h_XImats[444] = static_cast<T>(1.5214500000000001e-05);
-        h_XImats[445] = static_cast<T>(1.5525000000000002e-07);
-        h_XImats[446] = static_cast<T>(0.01762058625);
-        h_XImats[447] = static_cast<T>(-0.0015525);
-        h_XImats[448] = static_cast<T>(0.152145);
+        h_XImats[443] = static_cast<T>(-0.052000000000000005);
+        h_XImats[444] = static_cast<T>(0.0);
+        h_XImats[445] = static_cast<T>(0.0);
+        h_XImats[446] = static_cast<T>(0.10208);
+        h_XImats[447] = static_cast<T>(0.0);
+        h_XImats[448] = static_cast<T>(0.052000000000000005);
         h_XImats[449] = static_cast<T>(0.0);
         h_XImats[450] = static_cast<T>(0.0);
-        h_XImats[451] = static_cast<T>(-0.00017250000000000002);
-        h_XImats[452] = static_cast<T>(-0.0015525);
-        h_XImats[453] = static_cast<T>(1.725);
+        h_XImats[451] = static_cast<T>(0.0);
+        h_XImats[452] = static_cast<T>(0.0);
+        h_XImats[453] = static_cast<T>(1.3);
         h_XImats[454] = static_cast<T>(0.0);
         h_XImats[455] = static_cast<T>(0.0);
-        h_XImats[456] = static_cast<T>(0.00017250000000000002);
+        h_XImats[456] = static_cast<T>(0.0);
         h_XImats[457] = static_cast<T>(0.0);
-        h_XImats[458] = static_cast<T>(0.152145);
+        h_XImats[458] = static_cast<T>(0.052000000000000005);
         h_XImats[459] = static_cast<T>(0.0);
-        h_XImats[460] = static_cast<T>(1.725);
+        h_XImats[460] = static_cast<T>(1.3);
         h_XImats[461] = static_cast<T>(0.0);
-        h_XImats[462] = static_cast<T>(0.0015525);
-        h_XImats[463] = static_cast<T>(-0.152145);
+        h_XImats[462] = static_cast<T>(0.0);
+        h_XImats[463] = static_cast<T>(-0.052000000000000005);
         h_XImats[464] = static_cast<T>(0.0);
         h_XImats[465] = static_cast<T>(0.0);
         h_XImats[466] = static_cast<T>(0.0);
-        h_XImats[467] = static_cast<T>(1.725);
+        h_XImats[467] = static_cast<T>(1.3);
         // I[6]
-        h_XImats[468] = static_cast<T>(0.00010012708);
-        h_XImats[469] = static_cast<T>(-5.1452e-07);
-        h_XImats[470] = static_cast<T>(2.5726e-07);
-        h_XImats[471] = static_cast<T>(0.0);
-        h_XImats[472] = static_cast<T>(2.7079999999999998e-05);
-        h_XImats[473] = static_cast<T>(5.4159999999999996e-05);
-        h_XImats[474] = static_cast<T>(-5.145199999999999e-07);
-        h_XImats[475] = static_cast<T>(0.000112325266);
-        h_XImats[476] = static_cast<T>(1.0831999999999999e-08);
-        h_XImats[477] = static_cast<T>(-2.7079999999999998e-05);
-        h_XImats[478] = static_cast<T>(0.0);
-        h_XImats[479] = static_cast<T>(-0.0012863);
-        h_XImats[480] = static_cast<T>(2.5725999999999996e-07);
-        h_XImats[481] = static_cast<T>(1.0831999999999999e-08);
-        h_XImats[482] = static_cast<T>(0.00011234151400000001);
-        h_XImats[483] = static_cast<T>(-5.4159999999999996e-05);
-        h_XImats[484] = static_cast<T>(0.0012863);
+        h_XImats[468] = static_cast<T>(0.6264364120000033);
+        h_XImats[469] = static_cast<T>(-0.000249999999999952);
+        h_XImats[470] = static_cast<T>(0.0);
+        h_XImats[471] = static_cast<T>(-1.1245157095807987e-15);
+        h_XImats[472] = static_cast<T>(-0.1742200000000066);
+        h_XImats[473] = static_cast<T>(0.0);
+        h_XImats[474] = static_cast<T>(-0.00024999999999993165);
+        h_XImats[475] = static_cast<T>(0.6264364120000022);
+        h_XImats[476] = static_cast<T>(0.0);
+        h_XImats[477] = static_cast<T>(0.1742200000000066);
+        h_XImats[478] = static_cast<T>(-1.123137364153803e-15);
+        h_XImats[479] = static_cast<T>(0.0);
+        h_XImats[480] = static_cast<T>(0.0);
+        h_XImats[481] = static_cast<T>(0.0);
+        h_XImats[482] = static_cast<T>(0.6006);
+        h_XImats[483] = static_cast<T>(0.0);
+        h_XImats[484] = static_cast<T>(0.0);
         h_XImats[485] = static_cast<T>(0.0);
-        h_XImats[486] = static_cast<T>(0.0);
-        h_XImats[487] = static_cast<T>(-2.7079999999999998e-05);
-        h_XImats[488] = static_cast<T>(-5.4159999999999996e-05);
-        h_XImats[489] = static_cast<T>(0.13549999999999998);
-        h_XImats[490] = static_cast<T>(0.0);
+        h_XImats[486] = static_cast<T>(-1.1323933490264283e-15);
+        h_XImats[487] = static_cast<T>(0.1742200000000066);
+        h_XImats[488] = static_cast<T>(0.0);
+        h_XImats[489] = static_cast<T>(1.22);
+        h_XImats[490] = static_cast<T>(2.0309973606637675e-17);
         h_XImats[491] = static_cast<T>(0.0);
-        h_XImats[492] = static_cast<T>(2.7079999999999998e-05);
-        h_XImats[493] = static_cast<T>(0.0);
-        h_XImats[494] = static_cast<T>(0.0012863);
-        h_XImats[495] = static_cast<T>(0.0);
-        h_XImats[496] = static_cast<T>(0.13549999999999998);
+        h_XImats[492] = static_cast<T>(-0.1742200000000066);
+        h_XImats[493] = static_cast<T>(-1.1307978187467187e-15);
+        h_XImats[494] = static_cast<T>(0.0);
+        h_XImats[495] = static_cast<T>(-6.675990526941293e-18);
+        h_XImats[496] = static_cast<T>(1.22);
         h_XImats[497] = static_cast<T>(0.0);
-        h_XImats[498] = static_cast<T>(5.4159999999999996e-05);
-        h_XImats[499] = static_cast<T>(-0.0012863);
+        h_XImats[498] = static_cast<T>(0.0);
+        h_XImats[499] = static_cast<T>(0.0);
         h_XImats[500] = static_cast<T>(0.0);
         h_XImats[501] = static_cast<T>(0.0);
         h_XImats[502] = static_cast<T>(0.0);
-        h_XImats[503] = static_cast<T>(0.13549999999999998);
+        h_XImats[503] = static_cast<T>(1.22);
         // Xhom[0]
         h_XImats[504] = static_cast<T>(0);
         h_XImats[505] = static_cast<T>(0);
@@ -1750,9 +1753,9 @@ namespace grid {
         h_XImats[513] = static_cast<T>(0);
         h_XImats[514] = static_cast<T>(1.00000000000000);
         h_XImats[515] = static_cast<T>(0);
-        h_XImats[516] = static_cast<T>(0.0326500000000000);
+        h_XImats[516] = static_cast<T>(0);
         h_XImats[517] = static_cast<T>(0);
-        h_XImats[518] = static_cast<T>(0.726010000000000);
+        h_XImats[518] = static_cast<T>(0.333000000000000);
         h_XImats[519] = static_cast<T>(1.00000000000000);
         // Xhom[1]
         h_XImats[520] = static_cast<T>(0);
@@ -1764,12 +1767,12 @@ namespace grid {
         h_XImats[526] = static_cast<T>(0);
         h_XImats[527] = static_cast<T>(0);
         h_XImats[528] = static_cast<T>(0);
-        h_XImats[529] = static_cast<T>(0);
-        h_XImats[530] = static_cast<T>(1.00000000000000);
+        h_XImats[529] = static_cast<T>(1.00000000000000);
+        h_XImats[530] = static_cast<T>(0);
         h_XImats[531] = static_cast<T>(0);
-        h_XImats[532] = static_cast<T>(0.117000000000000);
+        h_XImats[532] = static_cast<T>(0);
         h_XImats[533] = static_cast<T>(0);
-        h_XImats[534] = static_cast<T>(0.0600000000000000);
+        h_XImats[534] = static_cast<T>(0);
         h_XImats[535] = static_cast<T>(1.00000000000000);
         // Xhom[2]
         h_XImats[536] = static_cast<T>(0);
@@ -1781,11 +1784,11 @@ namespace grid {
         h_XImats[542] = static_cast<T>(0);
         h_XImats[543] = static_cast<T>(0);
         h_XImats[544] = static_cast<T>(0);
-        h_XImats[545] = static_cast<T>(0);
-        h_XImats[546] = static_cast<T>(1.00000000000000);
+        h_XImats[545] = static_cast<T>(-1.00000000000000);
+        h_XImats[546] = static_cast<T>(0);
         h_XImats[547] = static_cast<T>(0);
-        h_XImats[548] = static_cast<T>(0.219000000000000);
-        h_XImats[549] = static_cast<T>(0);
+        h_XImats[548] = static_cast<T>(0);
+        h_XImats[549] = static_cast<T>(-0.316000000000000);
         h_XImats[550] = static_cast<T>(0);
         h_XImats[551] = static_cast<T>(1.00000000000000);
         // Xhom[3]
@@ -1798,10 +1801,10 @@ namespace grid {
         h_XImats[558] = static_cast<T>(0);
         h_XImats[559] = static_cast<T>(0);
         h_XImats[560] = static_cast<T>(0);
-        h_XImats[561] = static_cast<T>(0);
-        h_XImats[562] = static_cast<T>(1.00000000000000);
+        h_XImats[561] = static_cast<T>(-1.00000000000000);
+        h_XImats[562] = static_cast<T>(0);
         h_XImats[563] = static_cast<T>(0);
-        h_XImats[564] = static_cast<T>(0.133000000000000);
+        h_XImats[564] = static_cast<T>(0.0825000000000000);
         h_XImats[565] = static_cast<T>(0);
         h_XImats[566] = static_cast<T>(0);
         h_XImats[567] = static_cast<T>(1.00000000000000);
@@ -1815,11 +1818,11 @@ namespace grid {
         h_XImats[574] = static_cast<T>(0);
         h_XImats[575] = static_cast<T>(0);
         h_XImats[576] = static_cast<T>(0);
-        h_XImats[577] = static_cast<T>(0);
-        h_XImats[578] = static_cast<T>(1.00000000000000);
+        h_XImats[577] = static_cast<T>(1.00000000000000);
+        h_XImats[578] = static_cast<T>(0);
         h_XImats[579] = static_cast<T>(0);
-        h_XImats[580] = static_cast<T>(0.197000000000000);
-        h_XImats[581] = static_cast<T>(0);
+        h_XImats[580] = static_cast<T>(-0.0825000000000000);
+        h_XImats[581] = static_cast<T>(0.384000000000000);
         h_XImats[582] = static_cast<T>(0);
         h_XImats[583] = static_cast<T>(1.00000000000000);
         // Xhom[5]
@@ -1832,10 +1835,10 @@ namespace grid {
         h_XImats[590] = static_cast<T>(0);
         h_XImats[591] = static_cast<T>(0);
         h_XImats[592] = static_cast<T>(0);
-        h_XImats[593] = static_cast<T>(0);
-        h_XImats[594] = static_cast<T>(1.00000000000000);
+        h_XImats[593] = static_cast<T>(-1.00000000000000);
+        h_XImats[594] = static_cast<T>(0);
         h_XImats[595] = static_cast<T>(0);
-        h_XImats[596] = static_cast<T>(0.124500000000000);
+        h_XImats[596] = static_cast<T>(0);
         h_XImats[597] = static_cast<T>(0);
         h_XImats[598] = static_cast<T>(0);
         h_XImats[599] = static_cast<T>(1.00000000000000);
@@ -1849,116 +1852,116 @@ namespace grid {
         h_XImats[606] = static_cast<T>(0);
         h_XImats[607] = static_cast<T>(0);
         h_XImats[608] = static_cast<T>(0);
-        h_XImats[609] = static_cast<T>(0);
-        h_XImats[610] = static_cast<T>(1.00000000000000);
+        h_XImats[609] = static_cast<T>(-1.00000000000000);
+        h_XImats[610] = static_cast<T>(0);
         h_XImats[611] = static_cast<T>(0);
-        h_XImats[612] = static_cast<T>(0.138500000000000);
+        h_XImats[612] = static_cast<T>(0.0880000000000000);
         h_XImats[613] = static_cast<T>(0);
         h_XImats[614] = static_cast<T>(0);
         h_XImats[615] = static_cast<T>(1.00000000000000);
+        // Xhom[7]
+        h_XImats[616] = static_cast<T>(-0.7071067811857501);
+        h_XImats[617] = static_cast<T>(0.7071067811873449);
+        h_XImats[618] = static_cast<T>(0.0);
+        h_XImats[619] = static_cast<T>(0.0);
+        h_XImats[620] = static_cast<T>(-0.7071067811873449);
+        h_XImats[621] = static_cast<T>(-0.7071067811857501);
+        h_XImats[622] = static_cast<T>(0.0);
+        h_XImats[623] = static_cast<T>(0.0);
+        h_XImats[624] = static_cast<T>(0.0);
+        h_XImats[625] = static_cast<T>(0.0);
+        h_XImats[626] = static_cast<T>(1.0);
+        h_XImats[627] = static_cast<T>(0.0);
+        h_XImats[628] = static_cast<T>(0.0);
+        h_XImats[629] = static_cast<T>(0.0);
+        h_XImats[630] = static_cast<T>(0.20700000000000002);
+        h_XImats[631] = static_cast<T>(1.0);
+        // Xhom[8]
+        h_XImats[632] = static_cast<T>(0.7071067811873449);
+        h_XImats[633] = static_cast<T>(-0.7071067811857501);
+        h_XImats[634] = static_cast<T>(0.0);
+        h_XImats[635] = static_cast<T>(0.0);
+        h_XImats[636] = static_cast<T>(0.7071067811857501);
+        h_XImats[637] = static_cast<T>(0.7071067811873449);
+        h_XImats[638] = static_cast<T>(0.0);
+        h_XImats[639] = static_cast<T>(0.0);
+        h_XImats[640] = static_cast<T>(0.0);
+        h_XImats[641] = static_cast<T>(0.0);
+        h_XImats[642] = static_cast<T>(1.0);
+        h_XImats[643] = static_cast<T>(0.0);
+        h_XImats[644] = static_cast<T>(0.0);
+        h_XImats[645] = static_cast<T>(0.0);
+        h_XImats[646] = static_cast<T>(0.212);
+        h_XImats[647] = static_cast<T>(1.0);
+        // Xhom[9]
+        h_XImats[648] = static_cast<T>(0.7071067811873449);
+        h_XImats[649] = static_cast<T>(-0.7071067811857501);
+        h_XImats[650] = static_cast<T>(0.0);
+        h_XImats[651] = static_cast<T>(0.0);
+        h_XImats[652] = static_cast<T>(0.7071067811857501);
+        h_XImats[653] = static_cast<T>(0.7071067811873449);
+        h_XImats[654] = static_cast<T>(0.0);
+        h_XImats[655] = static_cast<T>(0.0);
+        h_XImats[656] = static_cast<T>(0.0);
+        h_XImats[657] = static_cast<T>(0.0);
+        h_XImats[658] = static_cast<T>(1.0);
+        h_XImats[659] = static_cast<T>(0.0);
+        h_XImats[660] = static_cast<T>(0.0);
+        h_XImats[661] = static_cast<T>(-0.04);
+        h_XImats[662] = static_cast<T>(0.1654);
+        h_XImats[663] = static_cast<T>(1.0);
+        // Xhom[10]
+        h_XImats[664] = static_cast<T>(0.7071067811873449);
+        h_XImats[665] = static_cast<T>(-0.7071067811857501);
+        h_XImats[666] = static_cast<T>(0.0);
+        h_XImats[667] = static_cast<T>(0.0);
+        h_XImats[668] = static_cast<T>(0.7071067811857501);
+        h_XImats[669] = static_cast<T>(0.7071067811873449);
+        h_XImats[670] = static_cast<T>(0.0);
+        h_XImats[671] = static_cast<T>(0.0);
+        h_XImats[672] = static_cast<T>(0.0);
+        h_XImats[673] = static_cast<T>(0.0);
+        h_XImats[674] = static_cast<T>(1.0);
+        h_XImats[675] = static_cast<T>(0.0);
+        h_XImats[676] = static_cast<T>(0.0);
+        h_XImats[677] = static_cast<T>(0.04);
+        h_XImats[678] = static_cast<T>(0.1654);
+        h_XImats[679] = static_cast<T>(1.0);
+        // Xhom[11]
+        h_XImats[680] = static_cast<T>(0.7071067811873449);
+        h_XImats[681] = static_cast<T>(-0.7071067811857501);
+        h_XImats[682] = static_cast<T>(0.0);
+        h_XImats[683] = static_cast<T>(0.0);
+        h_XImats[684] = static_cast<T>(0.7071067811857501);
+        h_XImats[685] = static_cast<T>(0.7071067811873449);
+        h_XImats[686] = static_cast<T>(0.0);
+        h_XImats[687] = static_cast<T>(0.0);
+        h_XImats[688] = static_cast<T>(0.0);
+        h_XImats[689] = static_cast<T>(0.0);
+        h_XImats[690] = static_cast<T>(1.0);
+        h_XImats[691] = static_cast<T>(0.0);
+        h_XImats[692] = static_cast<T>(0.0);
+        h_XImats[693] = static_cast<T>(0.0);
+        h_XImats[694] = static_cast<T>(0.107);
+        h_XImats[695] = static_cast<T>(1.0);
+        // Xhom[12]
+        h_XImats[696] = static_cast<T>(1.0);
+        h_XImats[697] = static_cast<T>(0.0);
+        h_XImats[698] = static_cast<T>(0.0);
+        h_XImats[699] = static_cast<T>(0.0);
+        h_XImats[700] = static_cast<T>(0.0);
+        h_XImats[701] = static_cast<T>(1.0);
+        h_XImats[702] = static_cast<T>(0.0);
+        h_XImats[703] = static_cast<T>(0.0);
+        h_XImats[704] = static_cast<T>(0.0);
+        h_XImats[705] = static_cast<T>(0.0);
+        h_XImats[706] = static_cast<T>(1.0);
+        h_XImats[707] = static_cast<T>(0.0);
+        h_XImats[708] = static_cast<T>(0.0);
+        h_XImats[709] = static_cast<T>(0.0);
+        h_XImats[710] = static_cast<T>(0.107);
+        h_XImats[711] = static_cast<T>(1.0);
         // dXhom[0]
-        h_XImats[616] = static_cast<T>(0);
-        h_XImats[617] = static_cast<T>(0);
-        h_XImats[618] = static_cast<T>(0);
-        h_XImats[619] = static_cast<T>(0);
-        h_XImats[620] = static_cast<T>(0);
-        h_XImats[621] = static_cast<T>(0);
-        h_XImats[622] = static_cast<T>(0);
-        h_XImats[623] = static_cast<T>(0);
-        h_XImats[624] = static_cast<T>(0);
-        h_XImats[625] = static_cast<T>(0);
-        h_XImats[626] = static_cast<T>(0);
-        h_XImats[627] = static_cast<T>(0);
-        h_XImats[628] = static_cast<T>(0);
-        h_XImats[629] = static_cast<T>(0);
-        h_XImats[630] = static_cast<T>(0);
-        h_XImats[631] = static_cast<T>(0);
-        // dXhom[1]
-        h_XImats[632] = static_cast<T>(0);
-        h_XImats[633] = static_cast<T>(0);
-        h_XImats[634] = static_cast<T>(0);
-        h_XImats[635] = static_cast<T>(0);
-        h_XImats[636] = static_cast<T>(0);
-        h_XImats[637] = static_cast<T>(0);
-        h_XImats[638] = static_cast<T>(0);
-        h_XImats[639] = static_cast<T>(0);
-        h_XImats[640] = static_cast<T>(0);
-        h_XImats[641] = static_cast<T>(0);
-        h_XImats[642] = static_cast<T>(0);
-        h_XImats[643] = static_cast<T>(0);
-        h_XImats[644] = static_cast<T>(0);
-        h_XImats[645] = static_cast<T>(0);
-        h_XImats[646] = static_cast<T>(0);
-        h_XImats[647] = static_cast<T>(0);
-        // dXhom[2]
-        h_XImats[648] = static_cast<T>(0);
-        h_XImats[649] = static_cast<T>(0);
-        h_XImats[650] = static_cast<T>(0);
-        h_XImats[651] = static_cast<T>(0);
-        h_XImats[652] = static_cast<T>(0);
-        h_XImats[653] = static_cast<T>(0);
-        h_XImats[654] = static_cast<T>(0);
-        h_XImats[655] = static_cast<T>(0);
-        h_XImats[656] = static_cast<T>(0);
-        h_XImats[657] = static_cast<T>(0);
-        h_XImats[658] = static_cast<T>(0);
-        h_XImats[659] = static_cast<T>(0);
-        h_XImats[660] = static_cast<T>(0);
-        h_XImats[661] = static_cast<T>(0);
-        h_XImats[662] = static_cast<T>(0);
-        h_XImats[663] = static_cast<T>(0);
-        // dXhom[3]
-        h_XImats[664] = static_cast<T>(0);
-        h_XImats[665] = static_cast<T>(0);
-        h_XImats[666] = static_cast<T>(0);
-        h_XImats[667] = static_cast<T>(0);
-        h_XImats[668] = static_cast<T>(0);
-        h_XImats[669] = static_cast<T>(0);
-        h_XImats[670] = static_cast<T>(0);
-        h_XImats[671] = static_cast<T>(0);
-        h_XImats[672] = static_cast<T>(0);
-        h_XImats[673] = static_cast<T>(0);
-        h_XImats[674] = static_cast<T>(0);
-        h_XImats[675] = static_cast<T>(0);
-        h_XImats[676] = static_cast<T>(0);
-        h_XImats[677] = static_cast<T>(0);
-        h_XImats[678] = static_cast<T>(0);
-        h_XImats[679] = static_cast<T>(0);
-        // dXhom[4]
-        h_XImats[680] = static_cast<T>(0);
-        h_XImats[681] = static_cast<T>(0);
-        h_XImats[682] = static_cast<T>(0);
-        h_XImats[683] = static_cast<T>(0);
-        h_XImats[684] = static_cast<T>(0);
-        h_XImats[685] = static_cast<T>(0);
-        h_XImats[686] = static_cast<T>(0);
-        h_XImats[687] = static_cast<T>(0);
-        h_XImats[688] = static_cast<T>(0);
-        h_XImats[689] = static_cast<T>(0);
-        h_XImats[690] = static_cast<T>(0);
-        h_XImats[691] = static_cast<T>(0);
-        h_XImats[692] = static_cast<T>(0);
-        h_XImats[693] = static_cast<T>(0);
-        h_XImats[694] = static_cast<T>(0);
-        h_XImats[695] = static_cast<T>(0);
-        // dXhom[5]
-        h_XImats[696] = static_cast<T>(0);
-        h_XImats[697] = static_cast<T>(0);
-        h_XImats[698] = static_cast<T>(0);
-        h_XImats[699] = static_cast<T>(0);
-        h_XImats[700] = static_cast<T>(0);
-        h_XImats[701] = static_cast<T>(0);
-        h_XImats[702] = static_cast<T>(0);
-        h_XImats[703] = static_cast<T>(0);
-        h_XImats[704] = static_cast<T>(0);
-        h_XImats[705] = static_cast<T>(0);
-        h_XImats[706] = static_cast<T>(0);
-        h_XImats[707] = static_cast<T>(0);
-        h_XImats[708] = static_cast<T>(0);
-        h_XImats[709] = static_cast<T>(0);
-        h_XImats[710] = static_cast<T>(0);
-        h_XImats[711] = static_cast<T>(0);
-        // dXhom[6]
         h_XImats[712] = static_cast<T>(0);
         h_XImats[713] = static_cast<T>(0);
         h_XImats[714] = static_cast<T>(0);
@@ -1975,7 +1978,7 @@ namespace grid {
         h_XImats[725] = static_cast<T>(0);
         h_XImats[726] = static_cast<T>(0);
         h_XImats[727] = static_cast<T>(0);
-        // d2Xhom[0]
+        // dXhom[1]
         h_XImats[728] = static_cast<T>(0);
         h_XImats[729] = static_cast<T>(0);
         h_XImats[730] = static_cast<T>(0);
@@ -1992,7 +1995,7 @@ namespace grid {
         h_XImats[741] = static_cast<T>(0);
         h_XImats[742] = static_cast<T>(0);
         h_XImats[743] = static_cast<T>(0);
-        // d2Xhom[1]
+        // dXhom[2]
         h_XImats[744] = static_cast<T>(0);
         h_XImats[745] = static_cast<T>(0);
         h_XImats[746] = static_cast<T>(0);
@@ -2009,7 +2012,7 @@ namespace grid {
         h_XImats[757] = static_cast<T>(0);
         h_XImats[758] = static_cast<T>(0);
         h_XImats[759] = static_cast<T>(0);
-        // d2Xhom[2]
+        // dXhom[3]
         h_XImats[760] = static_cast<T>(0);
         h_XImats[761] = static_cast<T>(0);
         h_XImats[762] = static_cast<T>(0);
@@ -2026,7 +2029,7 @@ namespace grid {
         h_XImats[773] = static_cast<T>(0);
         h_XImats[774] = static_cast<T>(0);
         h_XImats[775] = static_cast<T>(0);
-        // d2Xhom[3]
+        // dXhom[4]
         h_XImats[776] = static_cast<T>(0);
         h_XImats[777] = static_cast<T>(0);
         h_XImats[778] = static_cast<T>(0);
@@ -2043,7 +2046,7 @@ namespace grid {
         h_XImats[789] = static_cast<T>(0);
         h_XImats[790] = static_cast<T>(0);
         h_XImats[791] = static_cast<T>(0);
-        // d2Xhom[4]
+        // dXhom[5]
         h_XImats[792] = static_cast<T>(0);
         h_XImats[793] = static_cast<T>(0);
         h_XImats[794] = static_cast<T>(0);
@@ -2060,7 +2063,7 @@ namespace grid {
         h_XImats[805] = static_cast<T>(0);
         h_XImats[806] = static_cast<T>(0);
         h_XImats[807] = static_cast<T>(0);
-        // d2Xhom[5]
+        // dXhom[6]
         h_XImats[808] = static_cast<T>(0);
         h_XImats[809] = static_cast<T>(0);
         h_XImats[810] = static_cast<T>(0);
@@ -2077,7 +2080,7 @@ namespace grid {
         h_XImats[821] = static_cast<T>(0);
         h_XImats[822] = static_cast<T>(0);
         h_XImats[823] = static_cast<T>(0);
-        // d2Xhom[6]
+        // d2Xhom[0]
         h_XImats[824] = static_cast<T>(0);
         h_XImats[825] = static_cast<T>(0);
         h_XImats[826] = static_cast<T>(0);
@@ -2094,8 +2097,110 @@ namespace grid {
         h_XImats[837] = static_cast<T>(0);
         h_XImats[838] = static_cast<T>(0);
         h_XImats[839] = static_cast<T>(0);
-        T *d_XImats; gpuErrchk(cudaMalloc((void**)&d_XImats,840*sizeof(T)));
-        gpuErrchk(cudaMemcpy(d_XImats,h_XImats,840*sizeof(T),cudaMemcpyHostToDevice));
+        // d2Xhom[1]
+        h_XImats[840] = static_cast<T>(0);
+        h_XImats[841] = static_cast<T>(0);
+        h_XImats[842] = static_cast<T>(0);
+        h_XImats[843] = static_cast<T>(0);
+        h_XImats[844] = static_cast<T>(0);
+        h_XImats[845] = static_cast<T>(0);
+        h_XImats[846] = static_cast<T>(0);
+        h_XImats[847] = static_cast<T>(0);
+        h_XImats[848] = static_cast<T>(0);
+        h_XImats[849] = static_cast<T>(0);
+        h_XImats[850] = static_cast<T>(0);
+        h_XImats[851] = static_cast<T>(0);
+        h_XImats[852] = static_cast<T>(0);
+        h_XImats[853] = static_cast<T>(0);
+        h_XImats[854] = static_cast<T>(0);
+        h_XImats[855] = static_cast<T>(0);
+        // d2Xhom[2]
+        h_XImats[856] = static_cast<T>(0);
+        h_XImats[857] = static_cast<T>(0);
+        h_XImats[858] = static_cast<T>(0);
+        h_XImats[859] = static_cast<T>(0);
+        h_XImats[860] = static_cast<T>(0);
+        h_XImats[861] = static_cast<T>(0);
+        h_XImats[862] = static_cast<T>(0);
+        h_XImats[863] = static_cast<T>(0);
+        h_XImats[864] = static_cast<T>(0);
+        h_XImats[865] = static_cast<T>(0);
+        h_XImats[866] = static_cast<T>(0);
+        h_XImats[867] = static_cast<T>(0);
+        h_XImats[868] = static_cast<T>(0);
+        h_XImats[869] = static_cast<T>(0);
+        h_XImats[870] = static_cast<T>(0);
+        h_XImats[871] = static_cast<T>(0);
+        // d2Xhom[3]
+        h_XImats[872] = static_cast<T>(0);
+        h_XImats[873] = static_cast<T>(0);
+        h_XImats[874] = static_cast<T>(0);
+        h_XImats[875] = static_cast<T>(0);
+        h_XImats[876] = static_cast<T>(0);
+        h_XImats[877] = static_cast<T>(0);
+        h_XImats[878] = static_cast<T>(0);
+        h_XImats[879] = static_cast<T>(0);
+        h_XImats[880] = static_cast<T>(0);
+        h_XImats[881] = static_cast<T>(0);
+        h_XImats[882] = static_cast<T>(0);
+        h_XImats[883] = static_cast<T>(0);
+        h_XImats[884] = static_cast<T>(0);
+        h_XImats[885] = static_cast<T>(0);
+        h_XImats[886] = static_cast<T>(0);
+        h_XImats[887] = static_cast<T>(0);
+        // d2Xhom[4]
+        h_XImats[888] = static_cast<T>(0);
+        h_XImats[889] = static_cast<T>(0);
+        h_XImats[890] = static_cast<T>(0);
+        h_XImats[891] = static_cast<T>(0);
+        h_XImats[892] = static_cast<T>(0);
+        h_XImats[893] = static_cast<T>(0);
+        h_XImats[894] = static_cast<T>(0);
+        h_XImats[895] = static_cast<T>(0);
+        h_XImats[896] = static_cast<T>(0);
+        h_XImats[897] = static_cast<T>(0);
+        h_XImats[898] = static_cast<T>(0);
+        h_XImats[899] = static_cast<T>(0);
+        h_XImats[900] = static_cast<T>(0);
+        h_XImats[901] = static_cast<T>(0);
+        h_XImats[902] = static_cast<T>(0);
+        h_XImats[903] = static_cast<T>(0);
+        // d2Xhom[5]
+        h_XImats[904] = static_cast<T>(0);
+        h_XImats[905] = static_cast<T>(0);
+        h_XImats[906] = static_cast<T>(0);
+        h_XImats[907] = static_cast<T>(0);
+        h_XImats[908] = static_cast<T>(0);
+        h_XImats[909] = static_cast<T>(0);
+        h_XImats[910] = static_cast<T>(0);
+        h_XImats[911] = static_cast<T>(0);
+        h_XImats[912] = static_cast<T>(0);
+        h_XImats[913] = static_cast<T>(0);
+        h_XImats[914] = static_cast<T>(0);
+        h_XImats[915] = static_cast<T>(0);
+        h_XImats[916] = static_cast<T>(0);
+        h_XImats[917] = static_cast<T>(0);
+        h_XImats[918] = static_cast<T>(0);
+        h_XImats[919] = static_cast<T>(0);
+        // d2Xhom[6]
+        h_XImats[920] = static_cast<T>(0);
+        h_XImats[921] = static_cast<T>(0);
+        h_XImats[922] = static_cast<T>(0);
+        h_XImats[923] = static_cast<T>(0);
+        h_XImats[924] = static_cast<T>(0);
+        h_XImats[925] = static_cast<T>(0);
+        h_XImats[926] = static_cast<T>(0);
+        h_XImats[927] = static_cast<T>(0);
+        h_XImats[928] = static_cast<T>(0);
+        h_XImats[929] = static_cast<T>(0);
+        h_XImats[930] = static_cast<T>(0);
+        h_XImats[931] = static_cast<T>(0);
+        h_XImats[932] = static_cast<T>(0);
+        h_XImats[933] = static_cast<T>(0);
+        h_XImats[934] = static_cast<T>(0);
+        h_XImats[935] = static_cast<T>(0);
+        T *d_XImats; gpuErrchk(cudaMalloc((void**)&d_XImats,936*sizeof(T)));
+        gpuErrchk(cudaMemcpy(d_XImats,h_XImats,936*sizeof(T),cudaMemcpyHostToDevice));
         free(h_XImats);
         return d_XImats;
     }
@@ -2215,20 +2320,20 @@ namespace grid {
     __host__
     T* init_joint_limits() {
         T *h_joint_limits = (T*)malloc(14*sizeof(T));
-        h_joint_limits[0] = static_cast<T>(-1.6056);
-        h_joint_limits[7] = static_cast<T>(1.6056);
-        h_joint_limits[1] = static_cast<T>(-1.221);
-        h_joint_limits[8] = static_cast<T>(1.518);
-        h_joint_limits[2] = static_cast<T>(-3.14159265);
-        h_joint_limits[9] = static_cast<T>(3.14159265);
-        h_joint_limits[3] = static_cast<T>(-2.251);
-        h_joint_limits[10] = static_cast<T>(2.251);
-        h_joint_limits[4] = static_cast<T>(-3.14159265);
-        h_joint_limits[11] = static_cast<T>(3.14159265);
-        h_joint_limits[5] = static_cast<T>(-2.16);
-        h_joint_limits[12] = static_cast<T>(2.16);
-        h_joint_limits[6] = static_cast<T>(-3.14159265);
-        h_joint_limits[13] = static_cast<T>(3.14159265);
+        h_joint_limits[0] = static_cast<T>(-2.8973);
+        h_joint_limits[7] = static_cast<T>(2.8973);
+        h_joint_limits[1] = static_cast<T>(-1.7628);
+        h_joint_limits[8] = static_cast<T>(1.7628);
+        h_joint_limits[2] = static_cast<T>(-2.8973);
+        h_joint_limits[9] = static_cast<T>(2.8973);
+        h_joint_limits[3] = static_cast<T>(-3.0718);
+        h_joint_limits[10] = static_cast<T>(-0.0698);
+        h_joint_limits[4] = static_cast<T>(-2.8975);
+        h_joint_limits[11] = static_cast<T>(2.8975);
+        h_joint_limits[5] = static_cast<T>(-0.0175);
+        h_joint_limits[12] = static_cast<T>(3.7525);
+        h_joint_limits[6] = static_cast<T>(-2.8973);
+        h_joint_limits[13] = static_cast<T>(2.8973);
         T *d_joint_limits;
         gpuErrchk(cudaMalloc((void**)&d_joint_limits, 14*sizeof(T)));
         gpuErrchk(cudaMemcpy(d_joint_limits, h_joint_limits, 14*sizeof(T), cudaMemcpyHostToDevice));
@@ -2259,60 +2364,56 @@ namespace grid {
             // X[0]
             s_XImats[0] = static_cast<T>(s_temp[7]);
             s_XImats[1] = static_cast<T>(-s_temp[0]);
-            s_XImats[3] = static_cast<T>(-0.72601*s_temp[0]);
-            s_XImats[4] = static_cast<T>(-0.72601*s_temp[7]);
+            s_XImats[3] = static_cast<T>(-0.333*s_temp[0]);
+            s_XImats[4] = static_cast<T>(-0.333*s_temp[7]);
             s_XImats[6] = static_cast<T>(s_temp[0]);
             s_XImats[7] = static_cast<T>(s_temp[7]);
-            s_XImats[9] = static_cast<T>(0.72601*s_temp[7]);
-            s_XImats[10] = static_cast<T>(-0.72601*s_temp[0]);
-            s_XImats[15] = static_cast<T>(0.03265*s_temp[0]);
-            s_XImats[16] = static_cast<T>(0.03265*s_temp[7]);
+            s_XImats[9] = static_cast<T>(0.333*s_temp[7]);
+            s_XImats[10] = static_cast<T>(-0.333*s_temp[0]);
             // X[1]
             s_XImats[36] = static_cast<T>(s_temp[8]);
             s_XImats[37] = static_cast<T>(-s_temp[1]);
-            s_XImats[39] = static_cast<T>(-0.06*s_temp[1]);
-            s_XImats[40] = static_cast<T>(-0.06*s_temp[8]);
-            s_XImats[42] = static_cast<T>(s_temp[1]);
-            s_XImats[43] = static_cast<T>(s_temp[8]);
-            s_XImats[45] = static_cast<T>(0.06*s_temp[8]);
-            s_XImats[46] = static_cast<T>(-0.06*s_temp[1]);
-            s_XImats[51] = static_cast<T>(0.117*s_temp[1]);
-            s_XImats[52] = static_cast<T>(0.117*s_temp[8]);
+            s_XImats[48] = static_cast<T>(-s_temp[1]);
+            s_XImats[49] = static_cast<T>(-s_temp[8]);
             // X[2]
             s_XImats[72] = static_cast<T>(s_temp[9]);
             s_XImats[73] = static_cast<T>(-s_temp[2]);
-            s_XImats[78] = static_cast<T>(s_temp[2]);
-            s_XImats[79] = static_cast<T>(s_temp[9]);
-            s_XImats[87] = static_cast<T>(0.219*s_temp[2]);
-            s_XImats[88] = static_cast<T>(0.219*s_temp[9]);
+            s_XImats[75] = static_cast<T>(-0.316*s_temp[2]);
+            s_XImats[76] = static_cast<T>(-0.316*s_temp[9]);
+            s_XImats[84] = static_cast<T>(s_temp[2]);
+            s_XImats[85] = static_cast<T>(s_temp[9]);
+            s_XImats[87] = static_cast<T>(0.316*s_temp[9]);
+            s_XImats[88] = static_cast<T>(-0.316*s_temp[2]);
             // X[3]
             s_XImats[108] = static_cast<T>(s_temp[10]);
             s_XImats[109] = static_cast<T>(-s_temp[3]);
-            s_XImats[114] = static_cast<T>(s_temp[3]);
-            s_XImats[115] = static_cast<T>(s_temp[10]);
-            s_XImats[123] = static_cast<T>(0.133*s_temp[3]);
-            s_XImats[124] = static_cast<T>(0.133*s_temp[10]);
+            s_XImats[117] = static_cast<T>(-0.0825*s_temp[3]);
+            s_XImats[118] = static_cast<T>(-0.0825*s_temp[10]);
+            s_XImats[120] = static_cast<T>(s_temp[3]);
+            s_XImats[121] = static_cast<T>(s_temp[10]);
             // X[4]
             s_XImats[144] = static_cast<T>(s_temp[11]);
             s_XImats[145] = static_cast<T>(-s_temp[4]);
-            s_XImats[150] = static_cast<T>(s_temp[4]);
-            s_XImats[151] = static_cast<T>(s_temp[11]);
-            s_XImats[159] = static_cast<T>(0.197*s_temp[4]);
-            s_XImats[160] = static_cast<T>(0.197*s_temp[11]);
+            s_XImats[147] = static_cast<T>(-0.384*s_temp[4]);
+            s_XImats[148] = static_cast<T>(-0.384*s_temp[11]);
+            s_XImats[153] = static_cast<T>(-0.0825*s_temp[4]);
+            s_XImats[154] = static_cast<T>(-0.0825*s_temp[11]);
+            s_XImats[156] = static_cast<T>(-s_temp[4]);
+            s_XImats[157] = static_cast<T>(-s_temp[11]);
+            s_XImats[159] = static_cast<T>(-0.384*s_temp[11]);
+            s_XImats[160] = static_cast<T>(0.384*s_temp[4]);
             // X[5]
             s_XImats[180] = static_cast<T>(s_temp[12]);
             s_XImats[181] = static_cast<T>(-s_temp[5]);
-            s_XImats[186] = static_cast<T>(s_temp[5]);
-            s_XImats[187] = static_cast<T>(s_temp[12]);
-            s_XImats[195] = static_cast<T>(0.1245*s_temp[5]);
-            s_XImats[196] = static_cast<T>(0.1245*s_temp[12]);
+            s_XImats[192] = static_cast<T>(s_temp[5]);
+            s_XImats[193] = static_cast<T>(s_temp[12]);
             // X[6]
             s_XImats[216] = static_cast<T>(s_temp[13]);
             s_XImats[217] = static_cast<T>(-s_temp[6]);
-            s_XImats[222] = static_cast<T>(s_temp[6]);
-            s_XImats[223] = static_cast<T>(s_temp[13]);
-            s_XImats[231] = static_cast<T>(0.1385*s_temp[6]);
-            s_XImats[232] = static_cast<T>(0.1385*s_temp[13]);
+            s_XImats[225] = static_cast<T>(-0.088*s_temp[6]);
+            s_XImats[226] = static_cast<T>(-0.088*s_temp[13]);
+            s_XImats[228] = static_cast<T>(s_temp[6]);
+            s_XImats[229] = static_cast<T>(s_temp[13]);
         }
         __syncthreads();
         for(int kcr = threadIdx.x + threadIdx.y*blockDim.x; kcr < 63; kcr += blockDim.x*blockDim.y){
@@ -2334,7 +2435,7 @@ namespace grid {
     template <typename T>
     __device__
     void load_update_XmatsHom_helpers(T *s_XmatsHom, const T *s_q, const robotModel<T> *d_robotModel, T *s_temp) {
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 112; ind += blockDim.x*blockDim.y){
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 208; ind += blockDim.x*blockDim.y){
             s_XmatsHom[ind] = d_robotModel->d_XImats[ind+504];
         }
         for(int k = threadIdx.x + threadIdx.y*blockDim.x; k < 7; k += blockDim.x*blockDim.y){
@@ -2350,34 +2451,34 @@ namespace grid {
             s_XmatsHom[5] = static_cast<T>(s_temp[7]);
             // X_hom[1]
             s_XmatsHom[16] = static_cast<T>(s_temp[8]);
-            s_XmatsHom[17] = static_cast<T>(s_temp[1]);
+            s_XmatsHom[18] = static_cast<T>(-s_temp[1]);
             s_XmatsHom[20] = static_cast<T>(-s_temp[1]);
-            s_XmatsHom[21] = static_cast<T>(s_temp[8]);
+            s_XmatsHom[22] = static_cast<T>(-s_temp[8]);
             // X_hom[2]
             s_XmatsHom[32] = static_cast<T>(s_temp[9]);
-            s_XmatsHom[33] = static_cast<T>(s_temp[2]);
+            s_XmatsHom[34] = static_cast<T>(s_temp[2]);
             s_XmatsHom[36] = static_cast<T>(-s_temp[2]);
-            s_XmatsHom[37] = static_cast<T>(s_temp[9]);
+            s_XmatsHom[38] = static_cast<T>(s_temp[9]);
             // X_hom[3]
             s_XmatsHom[48] = static_cast<T>(s_temp[10]);
-            s_XmatsHom[49] = static_cast<T>(s_temp[3]);
+            s_XmatsHom[50] = static_cast<T>(s_temp[3]);
             s_XmatsHom[52] = static_cast<T>(-s_temp[3]);
-            s_XmatsHom[53] = static_cast<T>(s_temp[10]);
+            s_XmatsHom[54] = static_cast<T>(s_temp[10]);
             // X_hom[4]
             s_XmatsHom[64] = static_cast<T>(s_temp[11]);
-            s_XmatsHom[65] = static_cast<T>(s_temp[4]);
+            s_XmatsHom[66] = static_cast<T>(-s_temp[4]);
             s_XmatsHom[68] = static_cast<T>(-s_temp[4]);
-            s_XmatsHom[69] = static_cast<T>(s_temp[11]);
+            s_XmatsHom[70] = static_cast<T>(-s_temp[11]);
             // X_hom[5]
             s_XmatsHom[80] = static_cast<T>(s_temp[12]);
-            s_XmatsHom[81] = static_cast<T>(s_temp[5]);
+            s_XmatsHom[82] = static_cast<T>(s_temp[5]);
             s_XmatsHom[84] = static_cast<T>(-s_temp[5]);
-            s_XmatsHom[85] = static_cast<T>(s_temp[12]);
+            s_XmatsHom[86] = static_cast<T>(s_temp[12]);
             // X_hom[6]
             s_XmatsHom[96] = static_cast<T>(s_temp[13]);
-            s_XmatsHom[97] = static_cast<T>(s_temp[6]);
+            s_XmatsHom[98] = static_cast<T>(s_temp[6]);
             s_XmatsHom[100] = static_cast<T>(-s_temp[6]);
-            s_XmatsHom[101] = static_cast<T>(s_temp[13]);
+            s_XmatsHom[102] = static_cast<T>(s_temp[13]);
         }
         __syncthreads();
     }
@@ -2394,9 +2495,9 @@ namespace grid {
     template <typename T>
     __device__
     void load_update_XmatsHom_helpers(T *s_XmatsHom, T *s_dXmatsHom, const T *s_q, const robotModel<T> *d_robotModel, T *s_temp) {
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 112; ind += blockDim.x*blockDim.y){
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 208; ind += blockDim.x*blockDim.y){
             s_XmatsHom[ind] = d_robotModel->d_XImats[ind+504];
-            s_dXmatsHom[ind] = d_robotModel->d_XImats[ind+616];
+            s_dXmatsHom[ind] = d_robotModel->d_XImats[ind+712];
         }
         for(int k = threadIdx.x + threadIdx.y*blockDim.x; k < 7; k += blockDim.x*blockDim.y){
             s_temp[k] = static_cast<T>(sin(s_q[k]));
@@ -2411,34 +2512,34 @@ namespace grid {
             s_XmatsHom[5] = static_cast<T>(s_temp[7]);
             // X_hom[1]
             s_XmatsHom[16] = static_cast<T>(s_temp[8]);
-            s_XmatsHom[17] = static_cast<T>(s_temp[1]);
+            s_XmatsHom[18] = static_cast<T>(-s_temp[1]);
             s_XmatsHom[20] = static_cast<T>(-s_temp[1]);
-            s_XmatsHom[21] = static_cast<T>(s_temp[8]);
+            s_XmatsHom[22] = static_cast<T>(-s_temp[8]);
             // X_hom[2]
             s_XmatsHom[32] = static_cast<T>(s_temp[9]);
-            s_XmatsHom[33] = static_cast<T>(s_temp[2]);
+            s_XmatsHom[34] = static_cast<T>(s_temp[2]);
             s_XmatsHom[36] = static_cast<T>(-s_temp[2]);
-            s_XmatsHom[37] = static_cast<T>(s_temp[9]);
+            s_XmatsHom[38] = static_cast<T>(s_temp[9]);
             // X_hom[3]
             s_XmatsHom[48] = static_cast<T>(s_temp[10]);
-            s_XmatsHom[49] = static_cast<T>(s_temp[3]);
+            s_XmatsHom[50] = static_cast<T>(s_temp[3]);
             s_XmatsHom[52] = static_cast<T>(-s_temp[3]);
-            s_XmatsHom[53] = static_cast<T>(s_temp[10]);
+            s_XmatsHom[54] = static_cast<T>(s_temp[10]);
             // X_hom[4]
             s_XmatsHom[64] = static_cast<T>(s_temp[11]);
-            s_XmatsHom[65] = static_cast<T>(s_temp[4]);
+            s_XmatsHom[66] = static_cast<T>(-s_temp[4]);
             s_XmatsHom[68] = static_cast<T>(-s_temp[4]);
-            s_XmatsHom[69] = static_cast<T>(s_temp[11]);
+            s_XmatsHom[70] = static_cast<T>(-s_temp[11]);
             // X_hom[5]
             s_XmatsHom[80] = static_cast<T>(s_temp[12]);
-            s_XmatsHom[81] = static_cast<T>(s_temp[5]);
+            s_XmatsHom[82] = static_cast<T>(s_temp[5]);
             s_XmatsHom[84] = static_cast<T>(-s_temp[5]);
-            s_XmatsHom[85] = static_cast<T>(s_temp[12]);
+            s_XmatsHom[86] = static_cast<T>(s_temp[12]);
             // X_hom[6]
             s_XmatsHom[96] = static_cast<T>(s_temp[13]);
-            s_XmatsHom[97] = static_cast<T>(s_temp[6]);
+            s_XmatsHom[98] = static_cast<T>(s_temp[6]);
             s_XmatsHom[100] = static_cast<T>(-s_temp[6]);
-            s_XmatsHom[101] = static_cast<T>(s_temp[13]);
+            s_XmatsHom[102] = static_cast<T>(s_temp[13]);
             // dX_hom[0]
             s_dXmatsHom[0] = static_cast<T>(-s_temp[0]);
             s_dXmatsHom[1] = static_cast<T>(s_temp[7]);
@@ -2446,34 +2547,34 @@ namespace grid {
             s_dXmatsHom[5] = static_cast<T>(-s_temp[0]);
             // dX_hom[1]
             s_dXmatsHom[16] = static_cast<T>(-s_temp[1]);
-            s_dXmatsHom[17] = static_cast<T>(s_temp[8]);
+            s_dXmatsHom[18] = static_cast<T>(-s_temp[8]);
             s_dXmatsHom[20] = static_cast<T>(-s_temp[8]);
-            s_dXmatsHom[21] = static_cast<T>(-s_temp[1]);
+            s_dXmatsHom[22] = static_cast<T>(s_temp[1]);
             // dX_hom[2]
             s_dXmatsHom[32] = static_cast<T>(-s_temp[2]);
-            s_dXmatsHom[33] = static_cast<T>(s_temp[9]);
+            s_dXmatsHom[34] = static_cast<T>(s_temp[9]);
             s_dXmatsHom[36] = static_cast<T>(-s_temp[9]);
-            s_dXmatsHom[37] = static_cast<T>(-s_temp[2]);
+            s_dXmatsHom[38] = static_cast<T>(-s_temp[2]);
             // dX_hom[3]
             s_dXmatsHom[48] = static_cast<T>(-s_temp[3]);
-            s_dXmatsHom[49] = static_cast<T>(s_temp[10]);
+            s_dXmatsHom[50] = static_cast<T>(s_temp[10]);
             s_dXmatsHom[52] = static_cast<T>(-s_temp[10]);
-            s_dXmatsHom[53] = static_cast<T>(-s_temp[3]);
+            s_dXmatsHom[54] = static_cast<T>(-s_temp[3]);
             // dX_hom[4]
             s_dXmatsHom[64] = static_cast<T>(-s_temp[4]);
-            s_dXmatsHom[65] = static_cast<T>(s_temp[11]);
+            s_dXmatsHom[66] = static_cast<T>(-s_temp[11]);
             s_dXmatsHom[68] = static_cast<T>(-s_temp[11]);
-            s_dXmatsHom[69] = static_cast<T>(-s_temp[4]);
+            s_dXmatsHom[70] = static_cast<T>(s_temp[4]);
             // dX_hom[5]
             s_dXmatsHom[80] = static_cast<T>(-s_temp[5]);
-            s_dXmatsHom[81] = static_cast<T>(s_temp[12]);
+            s_dXmatsHom[82] = static_cast<T>(s_temp[12]);
             s_dXmatsHom[84] = static_cast<T>(-s_temp[12]);
-            s_dXmatsHom[85] = static_cast<T>(-s_temp[5]);
+            s_dXmatsHom[86] = static_cast<T>(-s_temp[5]);
             // dX_hom[6]
             s_dXmatsHom[96] = static_cast<T>(-s_temp[6]);
-            s_dXmatsHom[97] = static_cast<T>(s_temp[13]);
+            s_dXmatsHom[98] = static_cast<T>(s_temp[13]);
             s_dXmatsHom[100] = static_cast<T>(-s_temp[13]);
-            s_dXmatsHom[101] = static_cast<T>(-s_temp[6]);
+            s_dXmatsHom[102] = static_cast<T>(-s_temp[6]);
         }
         __syncthreads();
     }
@@ -2491,10 +2592,10 @@ namespace grid {
     template <typename T>
     __device__
     void load_update_XmatsHom_helpers(T *s_XmatsHom, T *s_dXmatsHom, T *s_d2XmatsHom, const T *s_q, const robotModel<T> *d_robotModel, T *s_temp) {
-        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 112; ind += blockDim.x*blockDim.y){
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 208; ind += blockDim.x*blockDim.y){
             s_XmatsHom[ind] = d_robotModel->d_XImats[ind+504];
-            s_dXmatsHom[ind] = d_robotModel->d_XImats[ind+616];
-            s_d2XmatsHom[ind] = d_robotModel->d_XImats[ind+728];
+            s_dXmatsHom[ind] = d_robotModel->d_XImats[ind+712];
+            s_d2XmatsHom[ind] = d_robotModel->d_XImats[ind+824];
         }
         for(int k = threadIdx.x + threadIdx.y*blockDim.x; k < 7; k += blockDim.x*blockDim.y){
             s_temp[k] = static_cast<T>(sin(s_q[k]));
@@ -2509,34 +2610,34 @@ namespace grid {
             s_XmatsHom[5] = static_cast<T>(s_temp[7]);
             // X_hom[1]
             s_XmatsHom[16] = static_cast<T>(s_temp[8]);
-            s_XmatsHom[17] = static_cast<T>(s_temp[1]);
+            s_XmatsHom[18] = static_cast<T>(-s_temp[1]);
             s_XmatsHom[20] = static_cast<T>(-s_temp[1]);
-            s_XmatsHom[21] = static_cast<T>(s_temp[8]);
+            s_XmatsHom[22] = static_cast<T>(-s_temp[8]);
             // X_hom[2]
             s_XmatsHom[32] = static_cast<T>(s_temp[9]);
-            s_XmatsHom[33] = static_cast<T>(s_temp[2]);
+            s_XmatsHom[34] = static_cast<T>(s_temp[2]);
             s_XmatsHom[36] = static_cast<T>(-s_temp[2]);
-            s_XmatsHom[37] = static_cast<T>(s_temp[9]);
+            s_XmatsHom[38] = static_cast<T>(s_temp[9]);
             // X_hom[3]
             s_XmatsHom[48] = static_cast<T>(s_temp[10]);
-            s_XmatsHom[49] = static_cast<T>(s_temp[3]);
+            s_XmatsHom[50] = static_cast<T>(s_temp[3]);
             s_XmatsHom[52] = static_cast<T>(-s_temp[3]);
-            s_XmatsHom[53] = static_cast<T>(s_temp[10]);
+            s_XmatsHom[54] = static_cast<T>(s_temp[10]);
             // X_hom[4]
             s_XmatsHom[64] = static_cast<T>(s_temp[11]);
-            s_XmatsHom[65] = static_cast<T>(s_temp[4]);
+            s_XmatsHom[66] = static_cast<T>(-s_temp[4]);
             s_XmatsHom[68] = static_cast<T>(-s_temp[4]);
-            s_XmatsHom[69] = static_cast<T>(s_temp[11]);
+            s_XmatsHom[70] = static_cast<T>(-s_temp[11]);
             // X_hom[5]
             s_XmatsHom[80] = static_cast<T>(s_temp[12]);
-            s_XmatsHom[81] = static_cast<T>(s_temp[5]);
+            s_XmatsHom[82] = static_cast<T>(s_temp[5]);
             s_XmatsHom[84] = static_cast<T>(-s_temp[5]);
-            s_XmatsHom[85] = static_cast<T>(s_temp[12]);
+            s_XmatsHom[86] = static_cast<T>(s_temp[12]);
             // X_hom[6]
             s_XmatsHom[96] = static_cast<T>(s_temp[13]);
-            s_XmatsHom[97] = static_cast<T>(s_temp[6]);
+            s_XmatsHom[98] = static_cast<T>(s_temp[6]);
             s_XmatsHom[100] = static_cast<T>(-s_temp[6]);
-            s_XmatsHom[101] = static_cast<T>(s_temp[13]);
+            s_XmatsHom[102] = static_cast<T>(s_temp[13]);
             // dX_hom[0]
             s_dXmatsHom[0] = static_cast<T>(-s_temp[0]);
             s_dXmatsHom[1] = static_cast<T>(s_temp[7]);
@@ -2544,34 +2645,34 @@ namespace grid {
             s_dXmatsHom[5] = static_cast<T>(-s_temp[0]);
             // dX_hom[1]
             s_dXmatsHom[16] = static_cast<T>(-s_temp[1]);
-            s_dXmatsHom[17] = static_cast<T>(s_temp[8]);
+            s_dXmatsHom[18] = static_cast<T>(-s_temp[8]);
             s_dXmatsHom[20] = static_cast<T>(-s_temp[8]);
-            s_dXmatsHom[21] = static_cast<T>(-s_temp[1]);
+            s_dXmatsHom[22] = static_cast<T>(s_temp[1]);
             // dX_hom[2]
             s_dXmatsHom[32] = static_cast<T>(-s_temp[2]);
-            s_dXmatsHom[33] = static_cast<T>(s_temp[9]);
+            s_dXmatsHom[34] = static_cast<T>(s_temp[9]);
             s_dXmatsHom[36] = static_cast<T>(-s_temp[9]);
-            s_dXmatsHom[37] = static_cast<T>(-s_temp[2]);
+            s_dXmatsHom[38] = static_cast<T>(-s_temp[2]);
             // dX_hom[3]
             s_dXmatsHom[48] = static_cast<T>(-s_temp[3]);
-            s_dXmatsHom[49] = static_cast<T>(s_temp[10]);
+            s_dXmatsHom[50] = static_cast<T>(s_temp[10]);
             s_dXmatsHom[52] = static_cast<T>(-s_temp[10]);
-            s_dXmatsHom[53] = static_cast<T>(-s_temp[3]);
+            s_dXmatsHom[54] = static_cast<T>(-s_temp[3]);
             // dX_hom[4]
             s_dXmatsHom[64] = static_cast<T>(-s_temp[4]);
-            s_dXmatsHom[65] = static_cast<T>(s_temp[11]);
+            s_dXmatsHom[66] = static_cast<T>(-s_temp[11]);
             s_dXmatsHom[68] = static_cast<T>(-s_temp[11]);
-            s_dXmatsHom[69] = static_cast<T>(-s_temp[4]);
+            s_dXmatsHom[70] = static_cast<T>(s_temp[4]);
             // dX_hom[5]
             s_dXmatsHom[80] = static_cast<T>(-s_temp[5]);
-            s_dXmatsHom[81] = static_cast<T>(s_temp[12]);
+            s_dXmatsHom[82] = static_cast<T>(s_temp[12]);
             s_dXmatsHom[84] = static_cast<T>(-s_temp[12]);
-            s_dXmatsHom[85] = static_cast<T>(-s_temp[5]);
+            s_dXmatsHom[86] = static_cast<T>(-s_temp[5]);
             // dX_hom[6]
             s_dXmatsHom[96] = static_cast<T>(-s_temp[6]);
-            s_dXmatsHom[97] = static_cast<T>(s_temp[13]);
+            s_dXmatsHom[98] = static_cast<T>(s_temp[13]);
             s_dXmatsHom[100] = static_cast<T>(-s_temp[13]);
-            s_dXmatsHom[101] = static_cast<T>(-s_temp[6]);
+            s_dXmatsHom[102] = static_cast<T>(-s_temp[6]);
             // d2X_hom[0]
             s_d2XmatsHom[0] = static_cast<T>(-s_temp[7]);
             s_d2XmatsHom[1] = static_cast<T>(-s_temp[0]);
@@ -2579,34 +2680,34 @@ namespace grid {
             s_d2XmatsHom[5] = static_cast<T>(-s_temp[7]);
             // d2X_hom[1]
             s_d2XmatsHom[16] = static_cast<T>(-s_temp[8]);
-            s_d2XmatsHom[17] = static_cast<T>(-s_temp[1]);
+            s_d2XmatsHom[18] = static_cast<T>(s_temp[1]);
             s_d2XmatsHom[20] = static_cast<T>(s_temp[1]);
-            s_d2XmatsHom[21] = static_cast<T>(-s_temp[8]);
+            s_d2XmatsHom[22] = static_cast<T>(s_temp[8]);
             // d2X_hom[2]
             s_d2XmatsHom[32] = static_cast<T>(-s_temp[9]);
-            s_d2XmatsHom[33] = static_cast<T>(-s_temp[2]);
+            s_d2XmatsHom[34] = static_cast<T>(-s_temp[2]);
             s_d2XmatsHom[36] = static_cast<T>(s_temp[2]);
-            s_d2XmatsHom[37] = static_cast<T>(-s_temp[9]);
+            s_d2XmatsHom[38] = static_cast<T>(-s_temp[9]);
             // d2X_hom[3]
             s_d2XmatsHom[48] = static_cast<T>(-s_temp[10]);
-            s_d2XmatsHom[49] = static_cast<T>(-s_temp[3]);
+            s_d2XmatsHom[50] = static_cast<T>(-s_temp[3]);
             s_d2XmatsHom[52] = static_cast<T>(s_temp[3]);
-            s_d2XmatsHom[53] = static_cast<T>(-s_temp[10]);
+            s_d2XmatsHom[54] = static_cast<T>(-s_temp[10]);
             // d2X_hom[4]
             s_d2XmatsHom[64] = static_cast<T>(-s_temp[11]);
-            s_d2XmatsHom[65] = static_cast<T>(-s_temp[4]);
+            s_d2XmatsHom[66] = static_cast<T>(s_temp[4]);
             s_d2XmatsHom[68] = static_cast<T>(s_temp[4]);
-            s_d2XmatsHom[69] = static_cast<T>(-s_temp[11]);
+            s_d2XmatsHom[70] = static_cast<T>(s_temp[11]);
             // d2X_hom[5]
             s_d2XmatsHom[80] = static_cast<T>(-s_temp[12]);
-            s_d2XmatsHom[81] = static_cast<T>(-s_temp[5]);
+            s_d2XmatsHom[82] = static_cast<T>(-s_temp[5]);
             s_d2XmatsHom[84] = static_cast<T>(s_temp[5]);
-            s_d2XmatsHom[85] = static_cast<T>(-s_temp[12]);
+            s_d2XmatsHom[86] = static_cast<T>(-s_temp[12]);
             // d2X_hom[6]
             s_d2XmatsHom[96] = static_cast<T>(-s_temp[13]);
-            s_d2XmatsHom[97] = static_cast<T>(-s_temp[6]);
+            s_d2XmatsHom[98] = static_cast<T>(-s_temp[6]);
             s_d2XmatsHom[100] = static_cast<T>(s_temp[6]);
-            s_d2XmatsHom[101] = static_cast<T>(-s_temp[13]);
+            s_d2XmatsHom[102] = static_cast<T>(-s_temp[13]);
         }
         __syncthreads();
     }
@@ -2616,6 +2717,7 @@ namespace grid {
      *
      * Notes:
      *   Assumes the Xhom matricies have already been updated for the given q
+     *   Defaults to all leave nodes if fixed_target_name is not provided
      *
      * @param s_eePos is a pointer to shared memory of size 6*NUM_EE where NUM_EE = 1
      * @param s_q is the vector of joint positions
@@ -2630,7 +2732,7 @@ namespace grid {
         // Keep chaining until reaching the root (starting from the leaves)
         //
         // Serial chain manipulator so optimize as parent is jid-1
-        // First set to leaf transform
+        // First set to leaf (or fixed) transform
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
             s_temp[ind] = s_Xhom[16*6 + ind];
         }
@@ -2704,7 +2806,7 @@ namespace grid {
     template <typename T>
     __device__
     void end_effector_pose_device(T *s_eePos, const T *s_q, const robotModel<T> *d_robotModel) {
-        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_temp = &s_XHomTemp[112];
+        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_temp = &s_XHomTemp[208];
         load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
         end_effector_pose_inner<T>(s_eePos, s_q, s_XmatsHom, s_temp);
     }
@@ -2723,7 +2825,7 @@ namespace grid {
     void end_effector_pose_kernel_single_timing(T *d_eePos, const T *d_q, const int stride_q, const robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
         __shared__ T s_q[7];
         __shared__ T s_eePos[6];
-        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_temp = &s_XHomTemp[112];
+        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_temp = &s_XHomTemp[208];
         // load to shared mem
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
             s_q[ind] = d_q[ind];
@@ -2755,7 +2857,7 @@ namespace grid {
     void end_effector_pose_kernel(T *d_eePos, const T *d_q, const int stride_q, const robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
         __shared__ T s_q[7];
         __shared__ T s_eePos[6];
-        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_temp = &s_XHomTemp[112];
+        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_temp = &s_XHomTemp[208];
         for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
             // load to shared mem
             const T *d_q_k = &d_q[k*stride_q];
@@ -2933,7 +3035,7 @@ namespace grid {
         }
         __syncthreads();
         //
-        // Now extract the eePos from the Tansforms
+        // Now extract the eePos from the Transforms
         // TODO: ADD OFFSETS
         //
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
@@ -2969,7 +3071,7 @@ namespace grid {
     template <typename T>
     __device__
     void end_effector_pose_gradient_device(T *s_deePos, const T *s_q, const robotModel<T> *d_robotModel) {
-        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_dXmatsHom = &s_XHomTemp[112]; T *s_temp = &s_dXmatsHom[112];
+        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_dXmatsHom = &s_XHomTemp[208]; T *s_temp = &s_dXmatsHom[112];
         load_update_XmatsHom_helpers<T>(s_XmatsHom, s_dXmatsHom, s_q, d_robotModel, s_temp);
         end_effector_pose_gradient_inner<T>(s_deePos, s_q, s_XmatsHom, s_dXmatsHom, s_temp);
     }
@@ -2988,7 +3090,7 @@ namespace grid {
     void end_effector_pose_gradient_kernel_single_timing(T *d_deePos, const T *d_q, const int stride_q, const robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
         __shared__ T s_q[7];
         __shared__ T s_deePos[42];
-        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_dXmatsHom = &s_XHomTemp[112]; T *s_temp = &s_dXmatsHom[112];
+        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_dXmatsHom = &s_XHomTemp[208]; T *s_temp = &s_dXmatsHom[112];
         // load to shared mem
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
             s_q[ind] = d_q[ind];
@@ -3020,7 +3122,7 @@ namespace grid {
     void end_effector_pose_gradient_kernel(T *d_deePos, const T *d_q, const int stride_q, const robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
         __shared__ T s_q[7];
         __shared__ T s_deePos[42];
-        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_dXmatsHom = &s_XHomTemp[112]; T *s_temp = &s_dXmatsHom[112];
+        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_dXmatsHom = &s_XHomTemp[208]; T *s_temp = &s_dXmatsHom[112];
         for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
             // load to shared mem
             const T *d_q_k = &d_q[k*stride_q];
@@ -3112,6 +3214,527 @@ namespace grid {
         // then call the kernel
         if (USE_COMPRESSED_MEM) {end_effector_pose_gradient_kernel<T><<<block_dimms,thread_dimms,DEE_POS_DYNAMIC_SHARED_MEM_COUNT*sizeof(T)>>>(hd_data->d_deePos,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
         else                    {end_effector_pose_gradient_kernel<T><<<block_dimms,thread_dimms,DEE_POS_DYNAMIC_SHARED_MEM_COUNT*sizeof(T)>>>(hd_data->d_deePos,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
+        gpuErrchk(cudaDeviceSynchronize());
+    }
+
+    /**
+     * Computes the End Effector Position
+     *
+     * Notes:
+     *   Assumes the Xhom matricies have already been updated for the given q
+     *   Defaults to all leave nodes if fixed_target_name is not provided
+     *
+     * @param s_eePos is a pointer to shared memory of size 6*NUM_EE where NUM_EE = 1
+     * @param s_q is the vector of joint positions
+     * @param s_Xhom is the pointer to the homogenous transformation matricies 
+     * @param s_temp is a pointer to helper shared memory of size 32
+     */
+    template <typename T>
+    __device__
+    void end_effector_pose_inner_panda_grasptarget_hand(T *s_eePos, const T *s_q, const T *s_Xhom, T *s_temp) {
+        //
+        // For each branch in parallel chain up the transform
+        // Keep chaining until reaching the root (starting from the leaves)
+        //
+        // Serial chain manipulator so optimize as parent is jid-1
+        // First set to leaf (or fixed) transform
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            s_temp[ind] = s_Xhom[16*8 + ind];
+        }
+        __syncthreads();
+        // Serial chain manipulator so optimize as parent is jid-1
+        // Update with parent transform until you reach the base [level 1/6]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int row = ind % 4; int col = ind / 4;
+            s_temp[ind + 16] = dot_prod<T,4,4,1>(&s_Xhom[16*6 + row], &s_temp[0 + 4*col]);
+        }
+        __syncthreads();
+        // Serial chain manipulator so optimize as parent is jid-1
+        // Update with parent transform until you reach the base [level 2/6]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int row = ind % 4; int col = ind / 4;
+            s_temp[ind + 0] = dot_prod<T,4,4,1>(&s_Xhom[16*5 + row], &s_temp[16 + 4*col]);
+        }
+        __syncthreads();
+        // Serial chain manipulator so optimize as parent is jid-1
+        // Update with parent transform until you reach the base [level 3/6]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int row = ind % 4; int col = ind / 4;
+            s_temp[ind + 16] = dot_prod<T,4,4,1>(&s_Xhom[16*4 + row], &s_temp[0 + 4*col]);
+        }
+        __syncthreads();
+        // Serial chain manipulator so optimize as parent is jid-1
+        // Update with parent transform until you reach the base [level 4/6]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int row = ind % 4; int col = ind / 4;
+            s_temp[ind + 0] = dot_prod<T,4,4,1>(&s_Xhom[16*3 + row], &s_temp[16 + 4*col]);
+        }
+        __syncthreads();
+        // Serial chain manipulator so optimize as parent is jid-1
+        // Update with parent transform until you reach the base [level 5/6]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int row = ind % 4; int col = ind / 4;
+            s_temp[ind + 16] = dot_prod<T,4,4,1>(&s_Xhom[16*2 + row], &s_temp[0 + 4*col]);
+        }
+        __syncthreads();
+        // Serial chain manipulator so optimize as parent is jid-1
+        // Update with parent transform until you reach the base [level 6/6]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int row = ind % 4; int col = ind / 4;
+            s_temp[ind + 0] = dot_prod<T,4,4,1>(&s_Xhom[16*1 + row], &s_temp[16 + 4*col]);
+        }
+        __syncthreads();
+        // Serial chain manipulator so optimize as parent is jid-1
+        // Update with parent transform until you reach the base [level 7/6]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int row = ind % 4; int col = ind / 4;
+            s_temp[ind + 16] = dot_prod<T,4,4,1>(&s_Xhom[16*0 + row], &s_temp[0 + 4*col]);
+        }
+        __syncthreads();
+        //
+        // Now extract the eePos from the Tansforms
+        // TODO: ADD OFFSETS
+        //
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 3; ind += blockDim.x*blockDim.y){
+            // xyz is easy
+            int xyzInd = ind % 3; int eeInd = ind / 3; T *s_Xmat_hom = &s_temp[16 + 16*eeInd];
+            s_eePos[6*eeInd + xyzInd] = s_Xmat_hom[12 + xyzInd];
+            // roll pitch yaw is a bit more difficult
+            if(xyzInd > 0){continue;}
+            s_eePos[6*eeInd + 3] = atan2(s_Xmat_hom[6],s_Xmat_hom[10]);
+            s_eePos[6*eeInd + 4] = -atan2(s_Xmat_hom[2],sqrt(s_Xmat_hom[6]*s_Xmat_hom[6] + s_Xmat_hom[10]*s_Xmat_hom[10]));
+            s_eePos[6*eeInd + 5] = atan2(s_Xmat_hom[1],s_Xmat_hom[0]);
+        }
+        __syncthreads();
+    }
+
+    /**
+     * Computes the End Effector Position
+     *
+     * @param s_eePos is a pointer to shared memory of size 6*NUM_EE where NUM_EE = 1
+     * @param s_q is the vector of joint positions
+     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
+     */
+    template <typename T>
+    __device__
+    void end_effector_pose_device_panda_grasptarget_hand(T *s_eePos, const T *s_q, const robotModel<T> *d_robotModel) {
+        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_temp = &s_XHomTemp[208];
+        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+        end_effector_pose_inner_panda_grasptarget_hand<T>(s_eePos, s_q, s_XmatsHom, s_temp);
+    }
+
+    /**
+     * Compute the End Effector Position
+     *
+     * @param d_eePos is the vector of end effector positions
+     * @param d_q is the vector of joint positions
+     * @param stride_q is the stide between each q
+     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
+     * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
+     */
+    template <typename T>
+    __global__
+    void end_effector_pose_kernel_panda_grasptarget_hand_single_timing(T *d_eePos, const T *d_q, const int stride_q, const robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
+        __shared__ T s_q[7];
+        __shared__ T s_eePos[6];
+        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_temp = &s_XHomTemp[208];
+        // load to shared mem
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
+            s_q[ind] = d_q[ind];
+        }
+        __syncthreads();
+        // compute with NUM_TIMESTEPS as NUM_REPS for timing
+        for (int rep = 0; rep < NUM_TIMESTEPS; rep++){
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+            end_effector_pose_inner_panda_grasptarget_hand<T>(s_eePos, s_q, s_XmatsHom, s_temp);
+        }
+        // save down to global
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
+            d_eePos[ind] = s_eePos[ind];
+        }
+        __syncthreads();
+    }
+
+    /**
+     * Compute the End Effector Position
+     *
+     * @param d_eePos is the vector of end effector positions
+     * @param d_q is the vector of joint positions
+     * @param stride_q is the stide between each q
+     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
+     * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
+     */
+    template <typename T>
+    __global__
+    void end_effector_pose_kernel_panda_grasptarget_hand(T *d_eePos, const T *d_q, const int stride_q, const robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
+        __shared__ T s_q[7];
+        __shared__ T s_eePos[6];
+        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_temp = &s_XHomTemp[208];
+        for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+            // load to shared mem
+            const T *d_q_k = &d_q[k*stride_q];
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
+                s_q[ind] = d_q_k[ind];
+            }
+            __syncthreads();
+            // compute
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+            end_effector_pose_inner_panda_grasptarget_hand<T>(s_eePos, s_q, s_XmatsHom, s_temp);
+            __syncthreads();
+            // save down to global
+            T *d_eePos_k = &d_eePos[k*6];
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
+                d_eePos_k[ind] = s_eePos[ind];
+            }
+            __syncthreads();
+        }
+    }
+
+    /**
+     * Compute the End Effector Pose
+     *
+     * @param hd_data is the packaged input and output pointers
+     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
+     * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
+     * @param streams are pointers to CUDA streams for async memory transfers (if needed)
+     */
+    template <typename T, bool USE_COMPRESSED_MEM = false>
+    __host__
+    void end_effector_pose_panda_grasptarget_hand(gridData<T> *hd_data, const robotModel<T> *d_robotModel, const int num_timesteps,
+                                const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
+        // start code with memory transfer
+        int stride_q;
+        if (USE_COMPRESSED_MEM) {stride_q = NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q,hd_data->h_q,stride_q*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
+        else {stride_q = 3*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
+        gpuErrchk(cudaDeviceSynchronize());
+        // then call the kernel
+        if (USE_COMPRESSED_MEM) {end_effector_pose_kernel_panda_grasptarget_hand<T><<<block_dimms,thread_dimms,EE_POS_DYNAMIC_SHARED_MEM_COUNT*sizeof(T)>>>(hd_data->d_eePos,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
+        else                    {end_effector_pose_kernel_panda_grasptarget_hand<T><<<block_dimms,thread_dimms,EE_POS_DYNAMIC_SHARED_MEM_COUNT*sizeof(T)>>>(hd_data->d_eePos,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
+        gpuErrchk(cudaDeviceSynchronize());
+        // finally transfer the result back
+        gpuErrchk(cudaMemcpy(hd_data->h_eePos,hd_data->d_eePos,6*NUM_EES*num_timesteps*sizeof(T),cudaMemcpyDeviceToHost));
+        gpuErrchk(cudaDeviceSynchronize());
+    }
+
+    /**
+     * Compute the End Effector Pose
+     *
+     * @param hd_data is the packaged input and output pointers
+     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
+     * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
+     * @param streams are pointers to CUDA streams for async memory transfers (if needed)
+     */
+    template <typename T, bool USE_COMPRESSED_MEM = false>
+    __host__
+    void end_effector_pose_panda_grasptarget_hand_single_timing(gridData<T> *hd_data, const robotModel<T> *d_robotModel, const int num_timesteps,
+                                              const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
+        // start code with memory transfer
+        int stride_q;
+        if (USE_COMPRESSED_MEM) {stride_q = NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q,hd_data->h_q,stride_q*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
+        else {stride_q = 3*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
+        gpuErrchk(cudaDeviceSynchronize());
+        // then call the kernel
+        struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
+        if (USE_COMPRESSED_MEM) {end_effector_pose_kernel_panda_grasptarget_hand_single_timing<T><<<block_dimms,thread_dimms,EE_POS_DYNAMIC_SHARED_MEM_COUNT*sizeof(T)>>>(hd_data->d_eePos,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
+        else                    {end_effector_pose_kernel_panda_grasptarget_hand_single_timing<T><<<block_dimms,thread_dimms,EE_POS_DYNAMIC_SHARED_MEM_COUNT*sizeof(T)>>>(hd_data->d_eePos,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
+        gpuErrchk(cudaDeviceSynchronize());
+        clock_gettime(CLOCK_MONOTONIC,&end);
+        // finally transfer the result back
+        gpuErrchk(cudaMemcpy(hd_data->h_eePos,hd_data->d_eePos,6*NUM_EES*sizeof(T),cudaMemcpyDeviceToHost));
+        gpuErrchk(cudaDeviceSynchronize());
+        printf("Single Call EEPOS %fus\n",time_delta_us_timespec(start,end)/static_cast<double>(num_timesteps));
+    }
+
+    /**
+     * Compute the End Effector Pose
+     *
+     * @param hd_data is the packaged input and output pointers
+     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
+     * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
+     * @param streams are pointers to CUDA streams for async memory transfers (if needed)
+     */
+    template <typename T, bool USE_COMPRESSED_MEM = false>
+    __host__
+    void end_effector_pose_panda_grasptarget_hand_compute_only(gridData<T> *hd_data, const robotModel<T> *d_robotModel, const int num_timesteps,
+                                             const dim3 block_dimms, const dim3 thread_dimms) {
+        int stride_q = USE_COMPRESSED_MEM ? NUM_JOINTS: 3*NUM_JOINTS;
+        // then call the kernel
+        if (USE_COMPRESSED_MEM) {end_effector_pose_kernel_panda_grasptarget_hand<T><<<block_dimms,thread_dimms,EE_POS_DYNAMIC_SHARED_MEM_COUNT*sizeof(T)>>>(hd_data->d_eePos,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
+        else                    {end_effector_pose_kernel_panda_grasptarget_hand<T><<<block_dimms,thread_dimms,EE_POS_DYNAMIC_SHARED_MEM_COUNT*sizeof(T)>>>(hd_data->d_eePos,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
+        gpuErrchk(cudaDeviceSynchronize());
+    }
+
+    /**
+     * Computes the Gradient of the End Effector Pose with respect to joint position
+     *
+     * Notes:
+     *   Assumes the Xhom and dXhom matricies have already been updated for the given q
+     *
+     * @param s_deePos is a pointer to shared memory of size 6*NUM_JOINTS*NUM_EE where NUM_JOINTS = 7 and NUM_EE = 1
+     * @param s_q is the vector of joint positions
+     * @param s_Xhom is the pointer to the homogenous transformation matricies 
+     * @param s_dXhom is the pointer to the gradient of the homogenous transformation matricies 
+     * @param s_temp is a pointer to helper shared memory of size 448
+     */
+    template <typename T>
+    __device__
+    void end_effector_pose_gradient_inner_panda_grasptarget_hand(T *s_deePos, const T *s_q, const T *s_Xhom, const T *s_dXhom, T *s_temp) {
+        //
+        // For each branch/gradient in parallel chain up the transform
+        // Keep chaining until reaching the root (starting from the leaves)
+        //
+        T *s_eeTemp = &s_temp[0]; T *s_deeTemp = &s_temp[224];
+        // Serial chain manipulator so optimize as parent is jid-1
+        // First set the leaf transforms for eePos and deePos
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 112; ind += blockDim.x*blockDim.y){
+            int djid = ind / 16; int rc = ind % 16; int eeIndStart = 16*8;
+            s_eeTemp[ind] = s_Xhom[eeIndStart + rc];
+            s_deeTemp[ind] = (djid == 8) ? s_dXhom[eeIndStart + rc] : s_Xhom[eeIndStart + rc];
+        }
+        __syncthreads();
+        // Serial chain manipulator so optimize as parent is jid-1
+        // Update with parent transform until you reach the base [level 1/6]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 112; ind += blockDim.x*blockDim.y){
+            int djid = ind / 16; int rc = ind % 16; int row = rc % 4; int colInd = ind - row;
+            s_eeTemp[ind + 112] = dot_prod<T,4,4,1>(&s_Xhom[16*6 + row], &s_eeTemp[0 + colInd]);
+            const T *s_Xhom_dXhom = ((djid == 6) ? s_dXhom : s_Xhom);
+            s_deeTemp[ind + 112] = dot_prod<T,4,4,1>(&s_Xhom_dXhom[16*6 + row], &s_deeTemp[0 + colInd]);
+        }
+        __syncthreads();
+        // Serial chain manipulator so optimize as parent is jid-1
+        // Update with parent transform until you reach the base [level 2/6]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 112; ind += blockDim.x*blockDim.y){
+            int djid = ind / 16; int rc = ind % 16; int row = rc % 4; int colInd = ind - row;
+            s_eeTemp[ind + 0] = dot_prod<T,4,4,1>(&s_Xhom[16*5 + row], &s_eeTemp[112 + colInd]);
+            const T *s_Xhom_dXhom = ((djid == 5) ? s_dXhom : s_Xhom);
+            s_deeTemp[ind + 0] = dot_prod<T,4,4,1>(&s_Xhom_dXhom[16*5 + row], &s_deeTemp[112 + colInd]);
+        }
+        __syncthreads();
+        // Serial chain manipulator so optimize as parent is jid-1
+        // Update with parent transform until you reach the base [level 3/6]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 112; ind += blockDim.x*blockDim.y){
+            int djid = ind / 16; int rc = ind % 16; int row = rc % 4; int colInd = ind - row;
+            s_eeTemp[ind + 112] = dot_prod<T,4,4,1>(&s_Xhom[16*4 + row], &s_eeTemp[0 + colInd]);
+            const T *s_Xhom_dXhom = ((djid == 4) ? s_dXhom : s_Xhom);
+            s_deeTemp[ind + 112] = dot_prod<T,4,4,1>(&s_Xhom_dXhom[16*4 + row], &s_deeTemp[0 + colInd]);
+        }
+        __syncthreads();
+        // Serial chain manipulator so optimize as parent is jid-1
+        // Update with parent transform until you reach the base [level 4/6]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 112; ind += blockDim.x*blockDim.y){
+            int djid = ind / 16; int rc = ind % 16; int row = rc % 4; int colInd = ind - row;
+            s_eeTemp[ind + 0] = dot_prod<T,4,4,1>(&s_Xhom[16*3 + row], &s_eeTemp[112 + colInd]);
+            const T *s_Xhom_dXhom = ((djid == 3) ? s_dXhom : s_Xhom);
+            s_deeTemp[ind + 0] = dot_prod<T,4,4,1>(&s_Xhom_dXhom[16*3 + row], &s_deeTemp[112 + colInd]);
+        }
+        __syncthreads();
+        // Serial chain manipulator so optimize as parent is jid-1
+        // Update with parent transform until you reach the base [level 5/6]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 112; ind += blockDim.x*blockDim.y){
+            int djid = ind / 16; int rc = ind % 16; int row = rc % 4; int colInd = ind - row;
+            s_eeTemp[ind + 112] = dot_prod<T,4,4,1>(&s_Xhom[16*2 + row], &s_eeTemp[0 + colInd]);
+            const T *s_Xhom_dXhom = ((djid == 2) ? s_dXhom : s_Xhom);
+            s_deeTemp[ind + 112] = dot_prod<T,4,4,1>(&s_Xhom_dXhom[16*2 + row], &s_deeTemp[0 + colInd]);
+        }
+        __syncthreads();
+        // Serial chain manipulator so optimize as parent is jid-1
+        // Update with parent transform until you reach the base [level 6/6]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 112; ind += blockDim.x*blockDim.y){
+            int djid = ind / 16; int rc = ind % 16; int row = rc % 4; int colInd = ind - row;
+            s_eeTemp[ind + 0] = dot_prod<T,4,4,1>(&s_Xhom[16*1 + row], &s_eeTemp[112 + colInd]);
+            const T *s_Xhom_dXhom = ((djid == 1) ? s_dXhom : s_Xhom);
+            s_deeTemp[ind + 0] = dot_prod<T,4,4,1>(&s_Xhom_dXhom[16*1 + row], &s_deeTemp[112 + colInd]);
+        }
+        __syncthreads();
+        // Serial chain manipulator so optimize as parent is jid-1
+        // Update with parent transform until you reach the base [level 7/6]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 112; ind += blockDim.x*blockDim.y){
+            int djid = ind / 16; int rc = ind % 16; int row = rc % 4; int colInd = ind - row;
+            s_eeTemp[ind + 112] = dot_prod<T,4,4,1>(&s_Xhom[16*0 + row], &s_eeTemp[0 + colInd]);
+            const T *s_Xhom_dXhom = ((djid == 0) ? s_dXhom : s_Xhom);
+            s_deeTemp[ind + 112] = dot_prod<T,4,4,1>(&s_Xhom_dXhom[16*0 + row], &s_deeTemp[0 + colInd]);
+        }
+        __syncthreads();
+        //
+        // Now extract the eePos from the Transforms
+        // TODO: ADD OFFSETS
+        //
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
+            int outputInd = ind % 6; int deeInd = ind / 6;
+            T *s_Xmat_hom = &s_eeTemp[112 + 16*deeInd]; T *s_dXmat_hom = &s_deeTemp[112 + 16*deeInd];
+            // xyz is easy
+            if (outputInd < 3){s_deePos[6*deeInd + outputInd] = s_dXmat_hom[12 + outputInd];}
+            // roll pitch yaw is a bit more difficult
+            // note: d/dz of arctan2(y(z),x(z)) = [-x'(z)y(z)+x(z)y'(z)]/[(x(z)^2 + y(z)^2)]
+            // Also note that d/dz of sqrt(f(z)) = f'(z)/2sqrt(f(z))
+            else {
+                // simpler to recompute
+                T sqrtTerm = sqrt(s_Xmat_hom[10]*s_Xmat_hom[10] + s_Xmat_hom[6]*s_Xmat_hom[6]);
+                T dsqrtTerm = (s_Xmat_hom[10]*s_dXmat_hom[10] + s_Xmat_hom[6]*s_dXmat_hom[6])/sqrtTerm;
+                // branch to get pointer locations
+                T y; T x; T y_prime; T x_prime;
+                     if (outputInd == 3){ y = s_Xmat_hom[6]; x = s_Xmat_hom[10]; y_prime = s_dXmat_hom[6]; x_prime = s_dXmat_hom[10]; }
+                else if (outputInd == 4){ y = -s_Xmat_hom[2]; x = sqrtTerm; y_prime = -s_dXmat_hom[2]; x_prime = dsqrtTerm; }
+                else              { y = s_Xmat_hom[1]; x = s_Xmat_hom[0]; y_prime = s_dXmat_hom[1]; x_prime = s_dXmat_hom[0]; }
+                s_deePos[6*deeInd + outputInd] = (-x_prime*y + x*y_prime)/(x*x + y*y);
+            }
+        }
+        __syncthreads();
+    }
+
+    /**
+     * Computes the Gradient of the End Effector Pose with respect to joint position
+     *
+     * @param s_deePos is a pointer to shared memory of size 6*NUM_JOINTS*NUM_EE where NUM_JOINTS = 7 and NUM_EE = 1
+     * @param s_q is the vector of joint positions
+     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
+     */
+    template <typename T>
+    __device__
+    void end_effector_pose_gradient_device_panda_grasptarget_hand(T *s_deePos, const T *s_q, const robotModel<T> *d_robotModel) {
+        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_dXmatsHom = &s_XHomTemp[208]; T *s_temp = &s_dXmatsHom[112];
+        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_dXmatsHom, s_q, d_robotModel, s_temp);
+        end_effector_pose_gradient_inner_panda_grasptarget_hand<T>(s_deePos, s_q, s_XmatsHom, s_dXmatsHom, s_temp);
+    }
+
+    /**
+     * Computes the Gradient of the End Effector Pose with respect to joint position
+     *
+     * @param d_deePos is the vector of end effector positions gradients
+     * @param d_q is the vector of joint positions
+     * @param stride_q is the stide between each q
+     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
+     * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
+     */
+    template <typename T>
+    __global__
+    void end_effector_pose_gradient_kernel_panda_grasptarget_hand_single_timing(T *d_deePos, const T *d_q, const int stride_q, const robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
+        __shared__ T s_q[7];
+        __shared__ T s_deePos[42];
+        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_dXmatsHom = &s_XHomTemp[208]; T *s_temp = &s_dXmatsHom[112];
+        // load to shared mem
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
+            s_q[ind] = d_q[ind];
+        }
+        __syncthreads();
+        // compute with NUM_TIMESTEPS as NUM_REPS for timing
+        for (int rep = 0; rep < NUM_TIMESTEPS; rep++){
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_dXmatsHom, s_q, d_robotModel, s_temp);
+            end_effector_pose_gradient_inner_panda_grasptarget_hand<T>(s_deePos, s_q, s_XmatsHom, s_dXmatsHom, s_temp);
+        }
+        // save down to global
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
+            d_deePos[ind] = s_deePos[ind];
+        }
+        __syncthreads();
+    }
+
+    /**
+     * Computes the Gradient of the End Effector Pose with respect to joint position
+     *
+     * @param d_deePos is the vector of end effector positions gradients
+     * @param d_q is the vector of joint positions
+     * @param stride_q is the stide between each q
+     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
+     * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
+     */
+    template <typename T>
+    __global__
+    void end_effector_pose_gradient_kernel_panda_grasptarget_hand(T *d_deePos, const T *d_q, const int stride_q, const robotModel<T> *d_robotModel, const int NUM_TIMESTEPS) {
+        __shared__ T s_q[7];
+        __shared__ T s_deePos[42];
+        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_dXmatsHom = &s_XHomTemp[208]; T *s_temp = &s_dXmatsHom[112];
+        for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
+            // load to shared mem
+            const T *d_q_k = &d_q[k*stride_q];
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
+                s_q[ind] = d_q_k[ind];
+            }
+            __syncthreads();
+            // compute
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_dXmatsHom, s_q, d_robotModel, s_temp);
+            end_effector_pose_gradient_inner_panda_grasptarget_hand<T>(s_deePos, s_q, s_XmatsHom, s_dXmatsHom, s_temp);
+            __syncthreads();
+            // save down to global
+            T *d_deePos_k = &d_deePos[k*42];
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
+                d_deePos_k[ind] = s_deePos[ind];
+            }
+            __syncthreads();
+        }
+    }
+
+    /**
+     * Computes the Gradient of the End Effector Pose with respect to joint position
+     *
+     * @param hd_data is the packaged input and output pointers
+     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
+     * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
+     * @param streams are pointers to CUDA streams for async memory transfers (if needed)
+     */
+    template <typename T, bool USE_COMPRESSED_MEM = false>
+    __host__
+    void end_effector_pose_gradient_panda_grasptarget_hand(gridData<T> *hd_data, const robotModel<T> *d_robotModel, const int num_timesteps,
+                                const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
+        // start code with memory transfer
+        int stride_q;
+        if (USE_COMPRESSED_MEM) {stride_q = NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q,hd_data->h_q,stride_q*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
+        else {stride_q = 3*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q*num_timesteps*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
+        gpuErrchk(cudaDeviceSynchronize());
+        // then call the kernel
+        if (USE_COMPRESSED_MEM) {end_effector_pose_gradient_kernel_panda_grasptarget_hand<T><<<block_dimms,thread_dimms,DEE_POS_DYNAMIC_SHARED_MEM_COUNT*sizeof(T)>>>(hd_data->d_deePos,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
+        else                    {end_effector_pose_gradient_kernel_panda_grasptarget_hand<T><<<block_dimms,thread_dimms,DEE_POS_DYNAMIC_SHARED_MEM_COUNT*sizeof(T)>>>(hd_data->d_deePos,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
+        gpuErrchk(cudaDeviceSynchronize());
+        // finally transfer the result back
+        gpuErrchk(cudaMemcpy(hd_data->h_deePos,hd_data->d_deePos,6*NUM_EES*NUM_JOINTS*num_timesteps*sizeof(T),cudaMemcpyDeviceToHost));
+        gpuErrchk(cudaDeviceSynchronize());
+    }
+
+    /**
+     * Computes the Gradient of the End Effector Pose with respect to joint position
+     *
+     * @param hd_data is the packaged input and output pointers
+     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
+     * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
+     * @param streams are pointers to CUDA streams for async memory transfers (if needed)
+     */
+    template <typename T, bool USE_COMPRESSED_MEM = false>
+    __host__
+    void end_effector_pose_gradient_panda_grasptarget_hand_single_timing(gridData<T> *hd_data, const robotModel<T> *d_robotModel, const int num_timesteps,
+                                              const dim3 block_dimms, const dim3 thread_dimms, cudaStream_t *streams) {
+        // start code with memory transfer
+        int stride_q;
+        if (USE_COMPRESSED_MEM) {stride_q = NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q,hd_data->h_q,stride_q*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
+        else {stride_q = 3*NUM_JOINTS; gpuErrchk(cudaMemcpyAsync(hd_data->d_q_qd_u,hd_data->h_q_qd_u,stride_q*sizeof(T),cudaMemcpyHostToDevice,streams[0]));}
+        gpuErrchk(cudaDeviceSynchronize());
+        // then call the kernel
+        struct timespec start, end; clock_gettime(CLOCK_MONOTONIC,&start);
+        if (USE_COMPRESSED_MEM) {end_effector_pose_gradient_kernel_panda_grasptarget_hand_single_timing<T><<<block_dimms,thread_dimms,DEE_POS_DYNAMIC_SHARED_MEM_COUNT*sizeof(T)>>>(hd_data->d_deePos,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
+        else                    {end_effector_pose_gradient_kernel_panda_grasptarget_hand_single_timing<T><<<block_dimms,thread_dimms,DEE_POS_DYNAMIC_SHARED_MEM_COUNT*sizeof(T)>>>(hd_data->d_deePos,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
+        gpuErrchk(cudaDeviceSynchronize());
+        clock_gettime(CLOCK_MONOTONIC,&end);
+        // finally transfer the result back
+        gpuErrchk(cudaMemcpy(hd_data->h_deePos,hd_data->d_deePos,6*NUM_EES*NUM_JOINTS*sizeof(T),cudaMemcpyDeviceToHost));
+        gpuErrchk(cudaDeviceSynchronize());
+        printf("Single Call DEEPOS %fus\n",time_delta_us_timespec(start,end)/static_cast<double>(num_timesteps));
+    }
+
+    /**
+     * Computes the Gradient of the End Effector Pose with respect to joint position
+     *
+     * @param hd_data is the packaged input and output pointers
+     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
+     * @param num_timesteps is the length of the trajectory points we need to compute over (or overloaded as test_iters for timing)
+     * @param streams are pointers to CUDA streams for async memory transfers (if needed)
+     */
+    template <typename T, bool USE_COMPRESSED_MEM = false>
+    __host__
+    void end_effector_pose_gradient_panda_grasptarget_hand_compute_only(gridData<T> *hd_data, const robotModel<T> *d_robotModel, const int num_timesteps,
+                                             const dim3 block_dimms, const dim3 thread_dimms) {
+        int stride_q = USE_COMPRESSED_MEM ? NUM_JOINTS: 3*NUM_JOINTS;
+        // then call the kernel
+        if (USE_COMPRESSED_MEM) {end_effector_pose_gradient_kernel_panda_grasptarget_hand<T><<<block_dimms,thread_dimms,DEE_POS_DYNAMIC_SHARED_MEM_COUNT*sizeof(T)>>>(hd_data->d_deePos,hd_data->d_q,stride_q,d_robotModel,num_timesteps);}
+        else                    {end_effector_pose_gradient_kernel_panda_grasptarget_hand<T><<<block_dimms,thread_dimms,DEE_POS_DYNAMIC_SHARED_MEM_COUNT*sizeof(T)>>>(hd_data->d_deePos,hd_data->d_q_qd_u,stride_q,d_robotModel,num_timesteps);}
         gpuErrchk(cudaDeviceSynchronize());
     }
 
@@ -3327,7 +3950,7 @@ namespace grid {
     template <typename T>
     __device__
     void end_effector_pose_gradient_hessian_device(T *s_d2eePos, T *s_deePos, const T *s_q, const robotModel<T> *d_robotModel) {
-        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_dXmatsHom = &s_XHomTemp[112]; T *s_d2XmatsHom = &s_dXmatsHom[112]; T *s_temp = &s_d2XmatsHom[112];
+        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_dXmatsHom = &s_XHomTemp[208]; T *s_d2XmatsHom = &s_dXmatsHom[112]; T *s_temp = &s_d2XmatsHom[112];
         load_update_XmatsHom_helpers<T>(s_XmatsHom, s_dXmatsHom, s_d2XmatsHom, s_q, d_robotModel, s_temp);
         end_effector_pose_gradient_hessian_inner<T>(s_d2eePos, s_deePos, s_q, s_XmatsHom, s_dXmatsHom, s_d2XmatsHom, s_temp);
     }
@@ -3348,7 +3971,7 @@ namespace grid {
         __shared__ T s_q[7];
         __shared__ T s_d2eePos[294];
         __shared__ T s_deePos[42];
-        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_dXmatsHom = &s_XHomTemp[112]; T *s_d2XmatsHom = &s_dXmatsHom[112]; T *s_temp = &s_d2XmatsHom[112];
+        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_dXmatsHom = &s_XHomTemp[208]; T *s_d2XmatsHom = &s_dXmatsHom[112]; T *s_temp = &s_d2XmatsHom[112];
         // load to shared mem
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 7; ind += blockDim.x*blockDim.y){
             s_q[ind] = d_q[ind];
@@ -3387,7 +4010,7 @@ namespace grid {
         __shared__ T s_q[7];
         __shared__ T s_d2eePos[294];
         __shared__ T s_deePos[42];
-        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_dXmatsHom = &s_XHomTemp[112]; T *s_d2XmatsHom = &s_dXmatsHom[112]; T *s_temp = &s_d2XmatsHom[112];
+        extern __shared__ T s_XHomTemp[]; T *s_XmatsHom = s_XHomTemp; T *s_dXmatsHom = &s_XHomTemp[208]; T *s_d2XmatsHom = &s_dXmatsHom[112]; T *s_temp = &s_d2XmatsHom[112];
         for(int k = blockIdx.x + blockIdx.y*gridDim.x; k < NUM_TIMESTEPS; k += gridDim.x*gridDim.y){
             // load to shared mem
             const T *d_q_k = &d_q[k*stride_q];
@@ -3499,81 +4122,158 @@ namespace grid {
      * @param tid is the joint index up to compute
      */
     template <typename T>
-    __device__
-    void X_single_thread(T *s_jointXforms, T *s_XmatsHom, T *s_q, int tid) {
-        // Update s_XmatsHom from s_q
-        // X_hom[0]
-        s_XmatsHom[0] = static_cast<T>(cos(s_q[0]));
-        s_XmatsHom[1] = static_cast<T>(sin(s_q[0]));
-        s_XmatsHom[4] = static_cast<T>(-sin(s_q[0]));
-        s_XmatsHom[5] = static_cast<T>(cos(s_q[0]));
-        // X_hom[1]
-        s_XmatsHom[16] = static_cast<T>(cos(s_q[1]));
-        s_XmatsHom[17] = static_cast<T>(sin(s_q[1]));
-        s_XmatsHom[20] = static_cast<T>(-sin(s_q[1]));
-        s_XmatsHom[21] = static_cast<T>(cos(s_q[1]));
-        // X_hom[2]
-        s_XmatsHom[32] = static_cast<T>(cos(s_q[2]));
-        s_XmatsHom[33] = static_cast<T>(sin(s_q[2]));
-        s_XmatsHom[36] = static_cast<T>(-sin(s_q[2]));
-        s_XmatsHom[37] = static_cast<T>(cos(s_q[2]));
-        // X_hom[3]
-        s_XmatsHom[48] = static_cast<T>(cos(s_q[3]));
-        s_XmatsHom[49] = static_cast<T>(sin(s_q[3]));
-        s_XmatsHom[52] = static_cast<T>(-sin(s_q[3]));
-        s_XmatsHom[53] = static_cast<T>(cos(s_q[3]));
-        // X_hom[4]
-        s_XmatsHom[64] = static_cast<T>(cos(s_q[4]));
-        s_XmatsHom[65] = static_cast<T>(sin(s_q[4]));
-        s_XmatsHom[68] = static_cast<T>(-sin(s_q[4]));
-        s_XmatsHom[69] = static_cast<T>(cos(s_q[4]));
-        // X_hom[5]
-        s_XmatsHom[80] = static_cast<T>(cos(s_q[5]));
-        s_XmatsHom[81] = static_cast<T>(sin(s_q[5]));
-        s_XmatsHom[84] = static_cast<T>(-sin(s_q[5]));
-        s_XmatsHom[85] = static_cast<T>(cos(s_q[5]));
-        // X_hom[6]
-        s_XmatsHom[96] = static_cast<T>(cos(s_q[6]));
-        s_XmatsHom[97] = static_cast<T>(sin(s_q[6]));
-        s_XmatsHom[100] = static_cast<T>(-sin(s_q[6]));
-        s_XmatsHom[101] = static_cast<T>(cos(s_q[6]));
-        // Accumulate global transforms up to 'tid'
-        if (tid >= 7) tid = 7-1;
-        if (tid < 0) { return; }
+    __device__ __forceinline__
+    void X_single_thread(
+        T* __restrict__ s_jointXforms,  // (NJ + 1)*16 if you want EE stored too
+        T* __restrict__ s_XmatsHom,     // (NJ + 1)*16 if you want X_fixed stored too (optional)
+        const T* __restrict__ s_q,
+        int tid)
+    {
+        constexpr int NJ         = 7;   // joints 0..6
+        constexpr int EE_IDX = 7;   // intermediate
+        constexpr int FLANGE_IDX     = 8;   // true EE
+        constexpr int FIXED_IDX  = 8;   // chosen fixed/tool transform in s_XmatsHom
+
+
+
+        // Clamp to last joint
+        int up = tid;
+        if (up < 0) return;
+        if (up > NJ-1) up = NJ-1;
+
+
+        // ------------------------------------------------------------------
+        // 1) Update q-dependent entries of X_hom[0..6]
+        // Assumes other entries (translations, constants, etc) are already in s_XmatsHom
+        // ------------------------------------------------------------------
         {
-          const T* c0 = &s_XmatsHom[0];
-          T* o0 = &s_jointXforms[0];
-          o0[0]=c0[0];  o0[1]=c0[1];  o0[2]=c0[2];
-          o0[4]=c0[4];  o0[5]=c0[5];  o0[6]=c0[6];
-          o0[8]=c0[8];  o0[9]=c0[9];  o0[10]=c0[10];
-          o0[12]=c0[12]; o0[13]=c0[13]; o0[14]=c0[14];
-          o0[15]=(T)1;
+            // joint 0
+            const T c0 = (T)cos(s_q[0]);
+            const T s0 = (T)sin(s_q[0]);
+            T* X0 = &s_XmatsHom[0 * 16];
+            X0[0] = c0;  X0[1] = s0;
+            X0[4] = -s0; X0[5] = c0;
+
+            // joint 1
+            const T c1 = (T)cos(s_q[1]);
+            const T s1 = (T)sin(s_q[1]);
+            T* X1 = &s_XmatsHom[1 * 16];
+            X1[0] = c1;   X1[2] = -s1;
+            X1[4] = -s1;  X1[6] = -c1;
+
+            // joint 2
+            const T c2 = (T)cos(s_q[2]);
+            const T s2 = (T)sin(s_q[2]);
+            T* X2 = &s_XmatsHom[2 * 16];
+            X2[0] = c2;  X2[2] = s2;
+            X2[4] = -s2; X2[6] = c2;
+
+            // joint 3
+            const T c3 = (T)cos(s_q[3]);
+            const T s3 = (T)sin(s_q[3]);
+            T* X3 = &s_XmatsHom[3 * 16];
+            X3[0] = c3;  X3[2] = s3;
+            X3[4] = -s3; X3[6] = c3;
+
+            // joint 4
+            const T c4 = (T)cos(s_q[4]);
+            const T s4 = (T)sin(s_q[4]);
+            T* X4 = &s_XmatsHom[4 * 16];
+            X4[0] = c4;   X4[2] = -s4;
+            X4[4] = -s4;  X4[6] = -c4;
+
+            // joint 5
+            const T c5 = (T)cos(s_q[5]);
+            const T s5 = (T)sin(s_q[5]);
+            T* X5 = &s_XmatsHom[5 * 16];
+            X5[0] = c5;  X5[2] = s5;
+            X5[4] = -s5; X5[6] = c5;
+
+            // joint 6
+            const T c6 = (T)cos(s_q[6]);
+            const T s6 = (T)sin(s_q[6]);
+            T* X6 = &s_XmatsHom[6 * 16];
+            X6[0] = c6;  X6[2] = s6;
+            X6[4] = -s6; X6[6] = c6;
         }
-        if (tid == 0) { return; }
+
+        // ------------------------------------------------------------------
+        // 2) Accumulate T0..Ttid into s_jointXforms
+        // ------------------------------------------------------------------
+        {
+            const T* X0 = &s_XmatsHom[0 * 16];
+            T* T0       = &s_jointXforms[0 * 16];
+
+            // copy minimal used entries (same pattern as your code)
+            T0[0]  = X0[0];  T0[1]  = X0[1];  T0[2]  = X0[2];
+            T0[4]  = X0[4];  T0[5]  = X0[5];  T0[6]  = X0[6];
+            T0[8]  = X0[8];  T0[9]  = X0[9];  T0[10] = X0[10];
+            T0[12] = X0[12]; T0[13] = X0[13]; T0[14] = X0[14];
+            T0[3] = (T)0; T0[7] = (T)0; T0[11] = (T)0; T0[15] = (T)1;
+        }
+
         #pragma unroll
-        for (int j = 1; j <= tid; ++j) {
-          const T* p = &s_jointXforms[(j-1)*16];
-          const T* c = &s_XmatsHom[j*16];
-          T r0  = p[0]*c[0]  + p[4]*c[1]  + p[8]*c[2];
-          T r1  = p[1]*c[0]  + p[5]*c[1]  + p[9]*c[2];
-          T r2  = p[2]*c[0]  + p[6]*c[1]  + p[10]*c[2];
-          T r4  = p[0]*c[4]  + p[4]*c[5]  + p[8]*c[6];
-          T r5  = p[1]*c[4]  + p[5]*c[5]  + p[9]*c[6];
-          T r6  = p[2]*c[4]  + p[6]*c[5]  + p[10]*c[6];
-          T r8  = p[0]*c[8]  + p[4]*c[9]  + p[8]*c[10];
-          T r9  = p[1]*c[8]  + p[5]*c[9]  + p[9]*c[10];
-          T r10 = p[2]*c[8]  + p[6]*c[9]  + p[10]*c[10];
-          T r12 = p[0]*c[12] + p[4]*c[13] + p[8]*c[14] + p[12];
-          T r13 = p[1]*c[12] + p[5]*c[13] + p[9]*c[14] + p[13];
-          T r14 = p[2]*c[12] + p[6]*c[13] + p[10]*c[14] + p[14];
-          T* o = &s_jointXforms[j*16];
-          o[0]=r0;  o[1]=r1;  o[2]=r2;
-          o[4]=r4;  o[5]=r5;  o[6]=r6;
-          o[8]=r8;  o[9]=r9;  o[10]=r10;
-          o[12]=r12; o[13]=r13; o[14]=r14;
-          o[15]=(T)1;
+        for (int j = 1; j <= up; ++j) {
+            const T* p = &s_jointXforms[(j - 1) * 16];
+            const T* c = &s_XmatsHom[j * 16];
+            T*       o = &s_jointXforms[j * 16];
+
+            // R = Rp * Rc
+            const T r0  = p[0]*c[0]  + p[4]*c[1]  + p[8]*c[2];
+            const T r1  = p[1]*c[0]  + p[5]*c[1]  + p[9]*c[2];
+            const T r2  = p[2]*c[0]  + p[6]*c[1]  + p[10]*c[2];
+
+            const T r4  = p[0]*c[4]  + p[4]*c[5]  + p[8]*c[6];
+            const T r5  = p[1]*c[4]  + p[5]*c[5]  + p[9]*c[6];
+            const T r6  = p[2]*c[4]  + p[6]*c[5]  + p[10]*c[6];
+
+            const T r8  = p[0]*c[8]  + p[4]*c[9]  + p[8]*c[10];
+            const T r9  = p[1]*c[8]  + p[5]*c[9]  + p[9]*c[10];
+            const T r10 = p[2]*c[8]  + p[6]*c[9]  + p[10]*c[10];
+
+            // p = Rp*pc + pp
+            const T r12 = p[0]*c[12] + p[4]*c[13] + p[8]*c[14] + p[12];
+            const T r13 = p[1]*c[12] + p[5]*c[13] + p[9]*c[14] + p[13];
+            const T r14 = p[2]*c[12] + p[6]*c[13] + p[10]*c[14] + p[14];
+
+            o[0]=r0;  o[1]=r1;  o[2]=r2;
+            o[4]=r4;  o[5]=r5;  o[6]=r6;
+            o[8]=r8;  o[9]=r9;  o[10]=r10;
+            o[12]=r12; o[13]=r13; o[14]=r14;
+            o[3]=(T)0; o[7]=(T)0; o[11]=(T)0; o[15]=(T)1;
         }
+        
+        bool apply_fixed = true;
+        // ------------------------------------------------------------------
+        // 3) Write flange (slot 7) and EE (slot 8)
+        // flange = T6
+        // ee     = flange * X_fixed  (or flange if apply_fixed=false)
+        // ------------------------------------------------------------------
+        if (up == NJ - 1) {
+            const T* T6 = &s_jointXforms[(NJ - 1) * 16];
+
+            // slot 7 = flange
+            T* Tfl = &s_jointXforms[FLANGE_IDX * 16];
+            #pragma unroll
+            for (int k = 0; k < 16; ++k) Tfl[k] = T6[k];
+
+            // slot 8 = EE
+            T* Tee = &s_jointXforms[EE_IDX * 16];
+
+            if (apply_fixed) {
+                const T* Xfix = &s_XmatsHom[FIXED_IDX * 16];
+                mat4_mul(Tfl, Xfix, Tee);   // uses your generic mat4_mul
+            } else {
+                #pragma unroll
+                for (int k = 0; k < 16; ++k) Tee[k] = Tfl[k];
+            }
+
+            Tee[3]=(T)0; Tee[7]=(T)0; Tee[11]=(T)0; Tee[15]=(T)1;
+        }
+
     }
+
+
 
     /**
      * Warp-cooperative joint transformation matrix accumulation up to joint (tid)
@@ -3584,103 +4284,143 @@ namespace grid {
      * @param tid is the joint index up to compute
      */
     template <typename T>
-    __device__ inline void X_warp(
-        T* __restrict__ s_jointXforms,
-        T* __restrict__ s_XmatsHom,
+    __device__ __forceinline__
+    void X_warp(
+        T* __restrict__ s_jointXforms,  // (NJ + 1)*16 if you want EE stored too
+        T* __restrict__ s_XmatsHom,     // (NJ + 1)*16 if you want X_fixed stored too (optional)
         const T* __restrict__ s_q,
         int tid)
     {
-          const int lane = threadIdx.x & 31;
-          const unsigned mask = 0xFFFFFFFFu;
-          if (tid >= 7) tid = 7-1;
-          if (tid < 0)  return;
-        
-          if (lane <= 6) {
+        constexpr int NJ         = 7;   // joints 0..6
+        constexpr int EE_IDX = 7;   // intermediate
+        constexpr int FLANGE_IDX     = 8;   // true EE
+        constexpr int FIXED_IDX  = 8;   // chosen fixed/tool transform in s_XmatsHom
+
+
+
+        const int lane = threadIdx.x & 31;
+        const unsigned mask = 0xFFFFFFFFu;
+
+        // Clamp to joints only
+        int up = tid;
+        if (up < 0) return;
+        if (up > NJ-1) up = NJ-1;
+
+
+        // ------------------------------------------------------------------
+        // 1) Build q-dependent parts of X_hom[0..6] in parallel (lanes 0..6)
+        // Assumes constants/translations already exist in s_XmatsHom.
+        // ------------------------------------------------------------------
+        if (lane <= 6) {
             const int j = lane;
-            const T c = static_cast<T>(cos(s_q[j]));
-            const T s = static_cast<T>(sin(s_q[j]));
+            const T c = (T)cos(s_q[j]);
+            const T s = (T)sin(s_q[j]);
             T* X = &s_XmatsHom[j * 16];
-            if (j == 0) {
-              X[0] = static_cast<T>(c);
-              X[1] = static_cast<T>(s);
-              X[4] = static_cast<T>(-s);
-              X[5] = static_cast<T>(c);
+
+            if (j == 0) {          // matches your pattern
+                X[0] = c; X[1] = s; X[4] = -s; X[5] = c;
+            } else if (j == 1) {
+                X[0] = c; X[2] = -s; X[4] = -s; X[6] = -c;
+            } else if (j == 2) {
+                X[0] = c; X[2] = s;  X[4] = -s; X[6] = c;
+            } else if (j == 3) {
+                X[0] = c; X[2] = s;  X[4] = -s; X[6] = c;
+            } else if (j == 4) {
+                X[0] = c; X[2] = -s; X[4] = -s; X[6] = -c;
+            } else if (j == 5) {
+                X[0] = c; X[2] = s;  X[4] = -s; X[6] = c;
+            } else { // j == 6
+                X[0] = c; X[2] = s;  X[4] = -s; X[6] = c;
             }
-            else if (j == 1) {
-              X[0] = static_cast<T>(c);
-              X[1] = static_cast<T>(s);
-              X[4] = static_cast<T>(-s);
-              X[5] = static_cast<T>(c);
-            }
-            else if (j == 2) {
-              X[0] = static_cast<T>(c);
-              X[1] = static_cast<T>(s);
-              X[4] = static_cast<T>(-s);
-              X[5] = static_cast<T>(c);
-            }
-            else if (j == 3) {
-              X[0] = static_cast<T>(c);
-              X[1] = static_cast<T>(s);
-              X[4] = static_cast<T>(-s);
-              X[5] = static_cast<T>(c);
-            }
-            else if (j == 4) {
-              X[0] = static_cast<T>(c);
-              X[1] = static_cast<T>(s);
-              X[4] = static_cast<T>(-s);
-              X[5] = static_cast<T>(c);
-            }
-            else if (j == 5) {
-              X[0] = static_cast<T>(c);
-              X[1] = static_cast<T>(s);
-              X[4] = static_cast<T>(-s);
-              X[5] = static_cast<T>(c);
-            }
-            else if (j == 6) {
-              X[0] = static_cast<T>(c);
-              X[1] = static_cast<T>(s);
-              X[4] = static_cast<T>(-s);
-              X[5] = static_cast<T>(c);
-            }
-          }
-          __syncwarp(mask);
-        
-          {
-            const T* c = &s_XmatsHom[0];
-            T*       o = &s_jointXforms[0];
-            if (lane == 0) { o[0]  = c[0];  o[4]  = c[4];  o[8]  = c[8];  o[12] = c[12]; }
-            else if (lane == 1) { o[1]  = c[1];  o[5]  = c[5];  o[9]  = c[9];  o[13] = c[13]; }
-            else if (lane == 2) { o[2]  = c[2];  o[6]  = c[6];  o[10] = c[10]; o[14] = c[14]; }
-            if (lane == 0) { o[3]=(T)0; o[7]=(T)0; o[11]=(T)0; o[15]=(T)1; }
-          }
-          __syncwarp(mask);
-          if (tid == 0) return;
-        
-          #pragma unroll
-          for (int j = 1; j <= tid; ++j) {
-            const T* p = &s_jointXforms[(j - 1) * 16];
-            const T* c = &s_XmatsHom[ j      * 16];
-            T*       o = &s_jointXforms[ j      * 16];
+        }
+        __syncwarp(mask);
+
+        // ------------------------------------------------------------------
+        // 2) Initialize T0 = X0 (written by lanes 0..2)
+        // ------------------------------------------------------------------
+        {
+            const T* X0 = &s_XmatsHom[0 * 16];
+            T* T0       = &s_jointXforms[0 * 16];
+
             if (lane == 0) {
-              o[0]  = p[0]*c[0]  + p[4]*c[1]  + p[8]*c[2];
-              o[4]  = p[0]*c[4]  + p[4]*c[5]  + p[8]*c[6];
-              o[8]  = p[0]*c[8]  + p[4]*c[9]  + p[8]*c[10];
-              o[12] = p[0]*c[12] + p[4]*c[13] + p[8]*c[14] + p[12];
+                T0[0]  = X0[0];  T0[4]  = X0[4];  T0[8]  = X0[8];  T0[12] = X0[12];
+                T0[3]  = (T)0;   T0[7]  = (T)0;   T0[11] = (T)0;   T0[15] = (T)1;
             } else if (lane == 1) {
-              o[1]  = p[1]*c[0]  + p[5]*c[1]  + p[9]*c[2];
-              o[5]  = p[1]*c[4]  + p[5]*c[5]  + p[9]*c[6];
-              o[9]  = p[1]*c[8]  + p[5]*c[9]  + p[9]*c[10];
-              o[13] = p[1]*c[12] + p[5]*c[13] + p[9]*c[14] + p[13];
+                T0[1]  = X0[1];  T0[5]  = X0[5];  T0[9]  = X0[9];  T0[13] = X0[13];
             } else if (lane == 2) {
-              o[2]  = p[2]*c[0]  + p[6]*c[1]  + p[10]*c[2];
-              o[6]  = p[2]*c[4]  + p[6]*c[5]  + p[10]*c[6];
-              o[10] = p[2]*c[8]  + p[6]*c[9]  + p[10]*c[10];
-              o[14] = p[2]*c[12] + p[6]*c[13] + p[10]*c[14] + p[14];
+                T0[2]  = X0[2];  T0[6]  = X0[6];  T0[10] = X0[10]; T0[14] = X0[14];
             }
-            if (lane == 0) { o[3]=(T)0; o[7]=(T)0; o[11]=(T)0; o[15]=(T)1; }
+        }
+        __syncwarp(mask);
+
+        // ------------------------------------------------------------------
+        // 3) Accumulate Tj = T(j-1) * Xj (lanes 0..2 do rows)
+        // ------------------------------------------------------------------
+        #pragma unroll
+        for (int j = 1; j <= up; ++j) {
+            const T* p = &s_jointXforms[(j - 1) * 16];
+            const T* c = &s_XmatsHom[j * 16];
+            T*       o = &s_jointXforms[j * 16];
+
+            if (lane == 0) {
+                o[0]  = p[0]*c[0]  + p[4]*c[1]  + p[8]*c[2];
+                o[4]  = p[0]*c[4]  + p[4]*c[5]  + p[8]*c[6];
+                o[8]  = p[0]*c[8]  + p[4]*c[9]  + p[8]*c[10];
+                o[12] = p[0]*c[12] + p[4]*c[13] + p[8]*c[14] + p[12];
+
+                o[3]=(T)0; o[7]=(T)0; o[11]=(T)0; o[15]=(T)1;
+            } else if (lane == 1) {
+                o[1]  = p[1]*c[0]  + p[5]*c[1]  + p[9]*c[2];
+                o[5]  = p[1]*c[4]  + p[5]*c[5]  + p[9]*c[6];
+                o[9]  = p[1]*c[8]  + p[5]*c[9]  + p[9]*c[10];
+                o[13] = p[1]*c[12] + p[5]*c[13] + p[9]*c[14] + p[13];
+            } else if (lane == 2) {
+                o[2]  = p[2]*c[0]  + p[6]*c[1]  + p[10]*c[2];
+                o[6]  = p[2]*c[4]  + p[6]*c[5]  + p[10]*c[6];
+                o[10] = p[2]*c[8]  + p[6]*c[9]  + p[10]*c[10];
+                o[14] = p[2]*c[12] + p[6]*c[13] + p[10]*c[14] + p[14];
+            }
+
             __syncwarp(mask);
-          }
+        }
+
+        bool apply_fixed = true;
+        // ------------------------------------------------------------------
+        // 4) Compute EE transform Tee = T6 * X_fixed into s_jointXforms[EE_IDX]
+        // Only when tid == 6
+        // ------------------------------------------------------------------
+        if (up == NJ - 1) {
+            const unsigned mask = 0xFFFFFFFFu;
+            const T* T6 = &s_jointXforms[(NJ - 1) * 16];
+
+            // slot 7 = flange copy (lane0 does the copy)
+            if (lane == 0) {
+                T* Tfl = &s_jointXforms[FLANGE_IDX * 16];
+                #pragma unroll
+                for (int k = 0; k < 16; ++k) Tfl[k] = T6[k];
+            }
+            __syncwarp(mask);
+
+            // slot 8 = EE
+            if (lane == 0) {
+                T* Tfl = &s_jointXforms[FLANGE_IDX * 16];
+                T* Tee = &s_jointXforms[EE_IDX * 16];
+
+                if (apply_fixed) {
+                    const T* Xfix = &s_XmatsHom[FIXED_IDX * 16];
+                    mat4_mul(Tfl, Xfix, Tee);
+                } else {
+                    #pragma unroll
+                    for (int k = 0; k < 16; ++k) Tee[k] = Tfl[k];
+                }
+
+                Tee[3]=(T)0; Tee[7]=(T)0; Tee[11]=(T)0; Tee[15]=(T)1;
+            }
+            __syncwarp(mask);
+        }
+
     }
+
 
     /**
      * Compute the RNEA (Recursive Newton-Euler Algorithm)
@@ -3705,8 +4445,8 @@ namespace grid {
         // Forward Pass
         //
         // s_v, s_a where parent is base
-        //     joints are: shoulder_pan_joint
-        //     links are: shoulder_pan_link
+        //     joints are: panda_joint1
+        //     links are: panda_link1
         // s_v[k] = S[k]*qd[k] and s_a[k] = X[k]*gravityS[k]*qdd[k]
         for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
             int jid6 = 6*0;
@@ -3716,8 +4456,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 1
-        //     joints are: shoulder_lift_joint
-        //     links are: shoulder_lift_link
+        //     joints are: panda_joint2
+        //     links are: panda_link2
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + S[k]*qdd[k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -3733,8 +4473,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 2
-        //     joints are: upperarm_roll_joint
-        //     links are: upperarm_roll_link
+        //     joints are: panda_joint3
+        //     links are: panda_link3
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + S[k]*qdd[k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -3750,8 +4490,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 3
-        //     joints are: elbow_flex_joint
-        //     links are: elbow_flex_link
+        //     joints are: panda_joint4
+        //     links are: panda_link4
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + S[k]*qdd[k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -3767,8 +4507,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 4
-        //     joints are: forearm_roll_joint
-        //     links are: forearm_roll_link
+        //     joints are: panda_joint5
+        //     links are: panda_link5
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + S[k]*qdd[k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -3784,8 +4524,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 5
-        //     joints are: wrist_flex_joint
-        //     links are: wrist_flex_link
+        //     joints are: panda_joint6
+        //     links are: panda_link6
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + S[k]*qdd[k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -3801,8 +4541,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 6
-        //     joints are: wrist_roll_joint
-        //     links are: wrist_roll_link
+        //     joints are: panda_joint7
+        //     links are: panda_link7
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + S[k]*qdd[k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -3840,8 +4580,8 @@ namespace grid {
         // Backward Pass
         //
         // s_f update where bfs_level is 6
-        //     joints are: wrist_roll_joint
-        //     links are: wrist_roll_link
+        //     joints are: panda_joint7
+        //     links are: panda_link7
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -3851,8 +4591,8 @@ namespace grid {
         }
         __syncthreads();
         // s_f update where bfs_level is 5
-        //     joints are: wrist_flex_joint
-        //     links are: wrist_flex_link
+        //     joints are: panda_joint6
+        //     links are: panda_link6
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -3862,8 +4602,8 @@ namespace grid {
         }
         __syncthreads();
         // s_f update where bfs_level is 4
-        //     joints are: forearm_roll_joint
-        //     links are: forearm_roll_link
+        //     joints are: panda_joint5
+        //     links are: panda_link5
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -3873,8 +4613,8 @@ namespace grid {
         }
         __syncthreads();
         // s_f update where bfs_level is 3
-        //     joints are: elbow_flex_joint
-        //     links are: elbow_flex_link
+        //     joints are: panda_joint4
+        //     links are: panda_link4
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -3884,8 +4624,8 @@ namespace grid {
         }
         __syncthreads();
         // s_f update where bfs_level is 2
-        //     joints are: upperarm_roll_joint
-        //     links are: upperarm_roll_link
+        //     joints are: panda_joint3
+        //     links are: panda_link3
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -3895,8 +4635,8 @@ namespace grid {
         }
         __syncthreads();
         // s_f update where bfs_level is 1
-        //     joints are: shoulder_lift_joint
-        //     links are: shoulder_lift_link
+        //     joints are: panda_joint2
+        //     links are: panda_link2
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -3937,8 +4677,8 @@ namespace grid {
         // Forward Pass
         //
         // s_v, s_a where parent is base
-        //     joints are: shoulder_pan_joint
-        //     links are: shoulder_pan_link
+        //     joints are: panda_joint1
+        //     links are: panda_link1
         // s_v[k] = S[k]*qd[k] and s_a[k] = X[k]*gravity
         for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
             int jid6 = 6*0;
@@ -3948,8 +4688,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 1
-        //     joints are: shoulder_lift_joint
-        //     links are: shoulder_lift_link
+        //     joints are: panda_joint2
+        //     links are: panda_link2
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -3965,8 +4705,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 2
-        //     joints are: upperarm_roll_joint
-        //     links are: upperarm_roll_link
+        //     joints are: panda_joint3
+        //     links are: panda_link3
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -3982,8 +4722,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 3
-        //     joints are: elbow_flex_joint
-        //     links are: elbow_flex_link
+        //     joints are: panda_joint4
+        //     links are: panda_link4
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -3999,8 +4739,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 4
-        //     joints are: forearm_roll_joint
-        //     links are: forearm_roll_link
+        //     joints are: panda_joint5
+        //     links are: panda_link5
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -4016,8 +4756,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 5
-        //     joints are: wrist_flex_joint
-        //     links are: wrist_flex_link
+        //     joints are: panda_joint6
+        //     links are: panda_link6
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -4033,8 +4773,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 6
-        //     joints are: wrist_roll_joint
-        //     links are: wrist_roll_link
+        //     joints are: panda_joint7
+        //     links are: panda_link7
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -4072,8 +4812,8 @@ namespace grid {
         // Backward Pass
         //
         // s_f update where bfs_level is 6
-        //     joints are: wrist_roll_joint
-        //     links are: wrist_roll_link
+        //     joints are: panda_joint7
+        //     links are: panda_link7
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -4083,8 +4823,8 @@ namespace grid {
         }
         __syncthreads();
         // s_f update where bfs_level is 5
-        //     joints are: wrist_flex_joint
-        //     links are: wrist_flex_link
+        //     joints are: panda_joint6
+        //     links are: panda_link6
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -4094,8 +4834,8 @@ namespace grid {
         }
         __syncthreads();
         // s_f update where bfs_level is 4
-        //     joints are: forearm_roll_joint
-        //     links are: forearm_roll_link
+        //     joints are: panda_joint5
+        //     links are: panda_link5
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -4105,8 +4845,8 @@ namespace grid {
         }
         __syncthreads();
         // s_f update where bfs_level is 3
-        //     joints are: elbow_flex_joint
-        //     links are: elbow_flex_link
+        //     joints are: panda_joint4
+        //     links are: panda_link4
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -4116,8 +4856,8 @@ namespace grid {
         }
         __syncthreads();
         // s_f update where bfs_level is 2
-        //     joints are: upperarm_roll_joint
-        //     links are: upperarm_roll_link
+        //     joints are: panda_joint3
+        //     links are: panda_link3
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -4127,8 +4867,8 @@ namespace grid {
         }
         __syncthreads();
         // s_f update where bfs_level is 1
-        //     joints are: shoulder_lift_joint
-        //     links are: shoulder_lift_link
+        //     joints are: panda_joint2
+        //     links are: panda_link2
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -4169,8 +4909,8 @@ namespace grid {
         // Forward Pass
         //
         // s_v, s_a where parent is base
-        //     joints are: shoulder_pan_joint
-        //     links are: shoulder_pan_link
+        //     joints are: panda_joint1
+        //     links are: panda_link1
         // s_v[k] = S[k]*qd[k] and s_a[k] = X[k]*gravityS[k]*qdd[k]
         for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
             int jid6 = 6*0;
@@ -4180,8 +4920,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 1
-        //     joints are: shoulder_lift_joint
-        //     links are: shoulder_lift_link
+        //     joints are: panda_joint2
+        //     links are: panda_link2
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + S[k]*qdd[k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -4197,8 +4937,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 2
-        //     joints are: upperarm_roll_joint
-        //     links are: upperarm_roll_link
+        //     joints are: panda_joint3
+        //     links are: panda_link3
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + S[k]*qdd[k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -4214,8 +4954,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 3
-        //     joints are: elbow_flex_joint
-        //     links are: elbow_flex_link
+        //     joints are: panda_joint4
+        //     links are: panda_link4
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + S[k]*qdd[k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -4231,8 +4971,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 4
-        //     joints are: forearm_roll_joint
-        //     links are: forearm_roll_link
+        //     joints are: panda_joint5
+        //     links are: panda_link5
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + S[k]*qdd[k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -4248,8 +4988,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 5
-        //     joints are: wrist_flex_joint
-        //     links are: wrist_flex_link
+        //     joints are: panda_joint6
+        //     links are: panda_link6
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + S[k]*qdd[k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -4265,8 +5005,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 6
-        //     joints are: wrist_roll_joint
-        //     links are: wrist_roll_link
+        //     joints are: panda_joint7
+        //     links are: panda_link7
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + S[k]*qdd[k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -4304,8 +5044,8 @@ namespace grid {
         // Backward Pass
         //
         // s_f update where bfs_level is 6
-        //     joints are: wrist_roll_joint
-        //     links are: wrist_roll_link
+        //     joints are: panda_joint7
+        //     links are: panda_link7
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -4315,8 +5055,8 @@ namespace grid {
         }
         __syncthreads();
         // s_f update where bfs_level is 5
-        //     joints are: wrist_flex_joint
-        //     links are: wrist_flex_link
+        //     joints are: panda_joint6
+        //     links are: panda_link6
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -4326,8 +5066,8 @@ namespace grid {
         }
         __syncthreads();
         // s_f update where bfs_level is 4
-        //     joints are: forearm_roll_joint
-        //     links are: forearm_roll_link
+        //     joints are: panda_joint5
+        //     links are: panda_link5
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -4337,8 +5077,8 @@ namespace grid {
         }
         __syncthreads();
         // s_f update where bfs_level is 3
-        //     joints are: elbow_flex_joint
-        //     links are: elbow_flex_link
+        //     joints are: panda_joint4
+        //     links are: panda_link4
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -4348,8 +5088,8 @@ namespace grid {
         }
         __syncthreads();
         // s_f update where bfs_level is 2
-        //     joints are: upperarm_roll_joint
-        //     links are: upperarm_roll_link
+        //     joints are: panda_joint3
+        //     links are: panda_link3
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -4359,8 +5099,8 @@ namespace grid {
         }
         __syncthreads();
         // s_f update where bfs_level is 1
-        //     joints are: shoulder_lift_joint
-        //     links are: shoulder_lift_link
+        //     joints are: panda_joint2
+        //     links are: panda_link2
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -4394,8 +5134,8 @@ namespace grid {
         // Forward Pass
         //
         // s_v, s_a where parent is base
-        //     joints are: shoulder_pan_joint
-        //     links are: shoulder_pan_link
+        //     joints are: panda_joint1
+        //     links are: panda_link1
         // s_v[k] = S[k]*qd[k] and s_a[k] = X[k]*gravity
         for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
             int jid6 = 6*0;
@@ -4405,8 +5145,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 1
-        //     joints are: shoulder_lift_joint
-        //     links are: shoulder_lift_link
+        //     joints are: panda_joint2
+        //     links are: panda_link2
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -4422,8 +5162,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 2
-        //     joints are: upperarm_roll_joint
-        //     links are: upperarm_roll_link
+        //     joints are: panda_joint3
+        //     links are: panda_link3
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -4439,8 +5179,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 3
-        //     joints are: elbow_flex_joint
-        //     links are: elbow_flex_link
+        //     joints are: panda_joint4
+        //     links are: panda_link4
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -4456,8 +5196,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 4
-        //     joints are: forearm_roll_joint
-        //     links are: forearm_roll_link
+        //     joints are: panda_joint5
+        //     links are: panda_link5
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -4473,8 +5213,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 5
-        //     joints are: wrist_flex_joint
-        //     links are: wrist_flex_link
+        //     joints are: panda_joint6
+        //     links are: panda_link6
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -4490,8 +5230,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v and s_a where bfs_level is 6
-        //     joints are: wrist_roll_joint
-        //     links are: wrist_roll_link
+        //     joints are: panda_joint7
+        //     links are: panda_link7
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k] and s_a[k] = X[k]*a[parent_k] + mxS[k](v[k])*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int comp = ind / 6; int comp_mod = comp % 1; int vFlag = comp == comp_mod;
@@ -4529,8 +5269,8 @@ namespace grid {
         // Backward Pass
         //
         // s_f update where bfs_level is 6
-        //     joints are: wrist_roll_joint
-        //     links are: wrist_roll_link
+        //     joints are: panda_joint7
+        //     links are: panda_link7
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -4540,8 +5280,8 @@ namespace grid {
         }
         __syncthreads();
         // s_f update where bfs_level is 5
-        //     joints are: wrist_flex_joint
-        //     links are: wrist_flex_link
+        //     joints are: panda_joint6
+        //     links are: panda_link6
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -4551,8 +5291,8 @@ namespace grid {
         }
         __syncthreads();
         // s_f update where bfs_level is 4
-        //     joints are: forearm_roll_joint
-        //     links are: forearm_roll_link
+        //     joints are: panda_joint5
+        //     links are: panda_link5
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -4562,8 +5302,8 @@ namespace grid {
         }
         __syncthreads();
         // s_f update where bfs_level is 3
-        //     joints are: elbow_flex_joint
-        //     links are: elbow_flex_link
+        //     joints are: panda_joint4
+        //     links are: panda_link4
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -4573,8 +5313,8 @@ namespace grid {
         }
         __syncthreads();
         // s_f update where bfs_level is 2
-        //     joints are: upperarm_roll_joint
-        //     links are: upperarm_roll_link
+        //     joints are: panda_joint3
+        //     links are: panda_link3
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -4584,8 +5324,8 @@ namespace grid {
         }
         __syncthreads();
         // s_f update where bfs_level is 1
-        //     joints are: shoulder_lift_joint
-        //     links are: shoulder_lift_link
+        //     joints are: panda_joint2
+        //     links are: panda_link2
         // s_f[parent_k] += X[k]^T*f[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -4958,8 +5698,8 @@ namespace grid {
         // Backward Pass
         //
         // backward pass updates where bfs_level is 6
-        //     joints are: wrist_roll_joint
-        //     links are: wrist_roll_link
+        //     joints are: panda_joint7
+        //     links are: panda_link7
         // U = IA*S, D = S^T*U, DInv = 1/D, Minv[i,i] = Dinv
         for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
             s_temp[546 + 36 + row] = s_temp[294 + 6*36 + 6*2 + row];
@@ -5002,8 +5742,8 @@ namespace grid {
         }
         __syncthreads();
         // backward pass updates where bfs_level is 5
-        //     joints are: wrist_flex_joint
-        //     links are: wrist_flex_link
+        //     joints are: panda_joint6
+        //     links are: panda_link6
         // U = IA*S, D = S^T*U, DInv = 1/D, Minv[i,i] = Dinv
         for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
             s_temp[546 + 30 + row] = s_temp[294 + 6*30 + 6*2 + row];
@@ -5047,8 +5787,8 @@ namespace grid {
         }
         __syncthreads();
         // backward pass updates where bfs_level is 4
-        //     joints are: forearm_roll_joint
-        //     links are: forearm_roll_link
+        //     joints are: panda_joint5
+        //     links are: panda_link5
         // U = IA*S, D = S^T*U, DInv = 1/D, Minv[i,i] = Dinv
         for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
             s_temp[546 + 24 + row] = s_temp[294 + 6*24 + 6*2 + row];
@@ -5092,8 +5832,8 @@ namespace grid {
         }
         __syncthreads();
         // backward pass updates where bfs_level is 3
-        //     joints are: elbow_flex_joint
-        //     links are: elbow_flex_link
+        //     joints are: panda_joint4
+        //     links are: panda_link4
         // U = IA*S, D = S^T*U, DInv = 1/D, Minv[i,i] = Dinv
         for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
             s_temp[546 + 18 + row] = s_temp[294 + 6*18 + 6*2 + row];
@@ -5137,8 +5877,8 @@ namespace grid {
         }
         __syncthreads();
         // backward pass updates where bfs_level is 2
-        //     joints are: upperarm_roll_joint
-        //     links are: upperarm_roll_link
+        //     joints are: panda_joint3
+        //     links are: panda_link3
         // U = IA*S, D = S^T*U, DInv = 1/D, Minv[i,i] = Dinv
         for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
             s_temp[546 + 12 + row] = s_temp[294 + 6*12 + 6*2 + row];
@@ -5182,8 +5922,8 @@ namespace grid {
         }
         __syncthreads();
         // backward pass updates where bfs_level is 1
-        //     joints are: shoulder_lift_joint
-        //     links are: shoulder_lift_link
+        //     joints are: panda_joint2
+        //     links are: panda_link2
         // U = IA*S, D = S^T*U, DInv = 1/D, Minv[i,i] = Dinv
         for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
             s_temp[546 + 6 + row] = s_temp[294 + 6*6 + 6*2 + row];
@@ -5227,8 +5967,8 @@ namespace grid {
         }
         __syncthreads();
         // backward pass updates where bfs_level is 0
-        //     joints are: shoulder_pan_joint
-        //     links are: shoulder_pan_link
+        //     joints are: panda_joint1
+        //     links are: panda_link1
         // U = IA*S, D = S^T*U, DInv = 1/D, Minv[i,i] = Dinv
         for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
             s_temp[546 + 0 + row] = s_temp[294 + 6*0 + 6*2 + row];
@@ -5797,8 +6537,8 @@ namespace grid {
         // We start with dv/du noting that we only have values
         //    for ancestors and for the current index else 0
         // dv/du where bfs_level is 0
-        //     joints are: shoulder_pan_joint
-        //     links are: shoulder_pan_link
+        //     joints are: panda_joint1
+        //     links are: panda_link1
         // when parent is base dv_dq = 0, dv_dqd = S
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int dq_flag = (ind / 6) == 0;
@@ -5807,8 +6547,8 @@ namespace grid {
         }
         __syncthreads();
         // dv/du where bfs_level is 1
-        //     joints are: shoulder_lift_joint
-        //     links are: shoulder_lift_link
+        //     joints are: panda_joint2
+        //     links are: panda_link2
         // dv/du = Xmat*dv_parent/du + {Mx(Xv) or S for col ind}
         // first compute dv/du = Xmat*dv_parent/du
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
@@ -5823,8 +6563,8 @@ namespace grid {
         }
         __syncthreads();
         // dv/du where bfs_level is 2
-        //     joints are: upperarm_roll_joint
-        //     links are: upperarm_roll_link
+        //     joints are: panda_joint3
+        //     links are: panda_link3
         // dv/du = Xmat*dv_parent/du + {Mx(Xv) or S for col ind}
         // first compute dv/du = Xmat*dv_parent/du
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 24; ind += blockDim.x*blockDim.y){
@@ -5841,8 +6581,8 @@ namespace grid {
         }
         __syncthreads();
         // dv/du where bfs_level is 3
-        //     joints are: elbow_flex_joint
-        //     links are: elbow_flex_link
+        //     joints are: panda_joint4
+        //     links are: panda_link4
         // dv/du = Xmat*dv_parent/du + {Mx(Xv) or S for col ind}
         // first compute dv/du = Xmat*dv_parent/du
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
@@ -5859,8 +6599,8 @@ namespace grid {
         }
         __syncthreads();
         // dv/du where bfs_level is 4
-        //     joints are: forearm_roll_joint
-        //     links are: forearm_roll_link
+        //     joints are: panda_joint5
+        //     links are: panda_link5
         // dv/du = Xmat*dv_parent/du + {Mx(Xv) or S for col ind}
         // first compute dv/du = Xmat*dv_parent/du
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 48; ind += blockDim.x*blockDim.y){
@@ -5877,8 +6617,8 @@ namespace grid {
         }
         __syncthreads();
         // dv/du where bfs_level is 5
-        //     joints are: wrist_flex_joint
-        //     links are: wrist_flex_link
+        //     joints are: panda_joint6
+        //     links are: panda_link6
         // dv/du = Xmat*dv_parent/du + {Mx(Xv) or S for col ind}
         // first compute dv/du = Xmat*dv_parent/du
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 60; ind += blockDim.x*blockDim.y){
@@ -5895,8 +6635,8 @@ namespace grid {
         }
         __syncthreads();
         // dv/du where bfs_level is 6
-        //     joints are: wrist_roll_joint
-        //     links are: wrist_roll_link
+        //     joints are: panda_joint7
+        //     links are: panda_link7
         // dv/du = Xmat*dv_parent/du + {Mx(Xv) or S for col ind}
         // first compute dv/du = Xmat*dv_parent/du
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 72; ind += blockDim.x*blockDim.y){
@@ -5931,8 +6671,8 @@ namespace grid {
         // Finish da/du with parent updates noting that we only have values
         //    for ancestors and for the current index and nothing for bfs 0
         // da/du where bfs_level is 1
-        //     joints are: shoulder_lift_joint
-        //     links are: shoulder_lift_link
+        //     joints are: panda_joint2
+        //     links are: panda_link2
         // da/du += Xmat*da_parent/du
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 12; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int col = ind / 6; int col_du = col % 1;
@@ -5943,8 +6683,8 @@ namespace grid {
         }
         __syncthreads();
         // da/du where bfs_level is 2
-        //     joints are: upperarm_roll_joint
-        //     links are: upperarm_roll_link
+        //     joints are: panda_joint3
+        //     links are: panda_link3
         // da/du += Xmat*da_parent/du
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 24; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int col = ind / 6; int col_du = col % 2;
@@ -5955,8 +6695,8 @@ namespace grid {
         }
         __syncthreads();
         // da/du where bfs_level is 3
-        //     joints are: elbow_flex_joint
-        //     links are: elbow_flex_link
+        //     joints are: panda_joint4
+        //     links are: panda_link4
         // da/du += Xmat*da_parent/du
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int col = ind / 6; int col_du = col % 3;
@@ -5967,8 +6707,8 @@ namespace grid {
         }
         __syncthreads();
         // da/du where bfs_level is 4
-        //     joints are: forearm_roll_joint
-        //     links are: forearm_roll_link
+        //     joints are: panda_joint5
+        //     links are: panda_link5
         // da/du += Xmat*da_parent/du
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 48; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int col = ind / 6; int col_du = col % 4;
@@ -5979,8 +6719,8 @@ namespace grid {
         }
         __syncthreads();
         // da/du where bfs_level is 5
-        //     joints are: wrist_flex_joint
-        //     links are: wrist_flex_link
+        //     joints are: panda_joint6
+        //     links are: panda_link6
         // da/du += Xmat*da_parent/du
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 60; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int col = ind / 6; int col_du = col % 5;
@@ -5991,8 +6731,8 @@ namespace grid {
         }
         __syncthreads();
         // da/du where bfs_level is 6
-        //     joints are: wrist_roll_joint
-        //     links are: wrist_roll_link
+        //     joints are: panda_joint7
+        //     links are: panda_link7
         // da/du += Xmat*da_parent/du
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 72; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int col = ind / 6; int col_du = col % 6;
@@ -6053,8 +6793,8 @@ namespace grid {
         // BACKWARD Pass
         //
         // df/du update where bfs_level is 6
-        //     joints are: wrist_roll_joint
-        //     links are: wrist_roll_link
+        //     joints are: panda_joint7
+        //     links are: panda_link7
         // df_lambda/du += X^T * df/du + {Xmx(f), 0}
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 84; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int col = ind / 6; int col_du = col % 7;
@@ -6068,8 +6808,8 @@ namespace grid {
         }
         __syncthreads();
         // df/du update where bfs_level is 5
-        //     joints are: wrist_flex_joint
-        //     links are: wrist_flex_link
+        //     joints are: panda_joint6
+        //     links are: panda_link6
         // df_lambda/du += X^T * df/du + {Xmx(f), 0}
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 84; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int col = ind / 6; int col_du = col % 7;
@@ -6083,8 +6823,8 @@ namespace grid {
         }
         __syncthreads();
         // df/du update where bfs_level is 4
-        //     joints are: forearm_roll_joint
-        //     links are: forearm_roll_link
+        //     joints are: panda_joint5
+        //     links are: panda_link5
         // df_lambda/du += X^T * df/du + {Xmx(f), 0}
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 84; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int col = ind / 6; int col_du = col % 7;
@@ -6098,8 +6838,8 @@ namespace grid {
         }
         __syncthreads();
         // df/du update where bfs_level is 3
-        //     joints are: elbow_flex_joint
-        //     links are: elbow_flex_link
+        //     joints are: panda_joint4
+        //     links are: panda_link4
         // df_lambda/du += X^T * df/du + {Xmx(f), 0}
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 84; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int col = ind / 6; int col_du = col % 7;
@@ -6113,8 +6853,8 @@ namespace grid {
         }
         __syncthreads();
         // df/du update where bfs_level is 2
-        //     joints are: upperarm_roll_joint
-        //     links are: upperarm_roll_link
+        //     joints are: panda_joint3
+        //     links are: panda_link3
         // df_lambda/du += X^T * df/du + {Xmx(f), 0}
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 84; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int col = ind / 6; int col_du = col % 7;
@@ -6128,8 +6868,8 @@ namespace grid {
         }
         __syncthreads();
         // df/du update where bfs_level is 1
-        //     joints are: shoulder_lift_joint
-        //     links are: shoulder_lift_link
+        //     joints are: panda_joint2
+        //     links are: panda_link2
         // df_lambda/du += X^T * df/du + {Xmx(f), 0}
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 84; ind += blockDim.x*blockDim.y){
             int row = ind % 6; int col = ind / 6; int col_du = col % 7;
@@ -6879,8 +7619,8 @@ namespace grid {
         // Forward Pass
         //
         // s_v where parent is base
-        //     joints are: shoulder_pan_joint
-        //     links are: shoulder_pan_link
+        //     joints are: panda_joint1
+        //     links are: panda_link1
         // s_v[k] = S[k]*qd[k]
         for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
             int jid = 0;
@@ -6890,8 +7630,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v where bfs_level is 1
-        //     joints are: shoulder_lift_joint
-        //     links are: shoulder_lift_link
+        //     joints are: panda_joint2
+        //     links are: panda_link2
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -6902,8 +7642,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v where bfs_level is 2
-        //     joints are: upperarm_roll_joint
-        //     links are: upperarm_roll_link
+        //     joints are: panda_joint3
+        //     links are: panda_link3
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -6914,8 +7654,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v where bfs_level is 3
-        //     joints are: elbow_flex_joint
-        //     links are: elbow_flex_link
+        //     joints are: panda_joint4
+        //     links are: panda_link4
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -6926,8 +7666,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v where bfs_level is 4
-        //     joints are: forearm_roll_joint
-        //     links are: forearm_roll_link
+        //     joints are: panda_joint5
+        //     links are: panda_link5
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -6938,8 +7678,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v where bfs_level is 5
-        //     joints are: wrist_flex_joint
-        //     links are: wrist_flex_link
+        //     joints are: panda_joint6
+        //     links are: panda_link6
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -6950,8 +7690,8 @@ namespace grid {
         }
         __syncthreads();
         // s_v where bfs_level is 6
-        //     joints are: wrist_roll_joint
-        //     links are: wrist_roll_link
+        //     joints are: panda_joint7
+        //     links are: panda_link7
         // s_v[k] = X[k]*v[parent_k] + S[k]*qd[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -6995,8 +7735,8 @@ namespace grid {
         // Backward Pass
         //
         // Backward pass where bfs_level is 6
-        //     joints are: wrist_roll_joint
-        //     links are: wrist_roll_link
+        //     joints are: panda_joint7
+        //     links are: panda_link7
         // U[k] = IA[k]*S[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -7059,8 +7799,8 @@ namespace grid {
         }
         __syncthreads();
         // Backward pass where bfs_level is 5
-        //     joints are: wrist_flex_joint
-        //     links are: wrist_flex_link
+        //     joints are: panda_joint6
+        //     links are: panda_link6
         // U[k] = IA[k]*S[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -7123,8 +7863,8 @@ namespace grid {
         }
         __syncthreads();
         // Backward pass where bfs_level is 4
-        //     joints are: forearm_roll_joint
-        //     links are: forearm_roll_link
+        //     joints are: panda_joint5
+        //     links are: panda_link5
         // U[k] = IA[k]*S[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -7187,8 +7927,8 @@ namespace grid {
         }
         __syncthreads();
         // Backward pass where bfs_level is 3
-        //     joints are: elbow_flex_joint
-        //     links are: elbow_flex_link
+        //     joints are: panda_joint4
+        //     links are: panda_link4
         // U[k] = IA[k]*S[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -7251,8 +7991,8 @@ namespace grid {
         }
         __syncthreads();
         // Backward pass where bfs_level is 2
-        //     joints are: upperarm_roll_joint
-        //     links are: upperarm_roll_link
+        //     joints are: panda_joint3
+        //     links are: panda_link3
         // U[k] = IA[k]*S[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -7315,8 +8055,8 @@ namespace grid {
         }
         __syncthreads();
         // Backward pass where bfs_level is 1
-        //     joints are: shoulder_lift_joint
-        //     links are: shoulder_lift_link
+        //     joints are: panda_joint2
+        //     links are: panda_link2
         // U[k] = IA[k]*S[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -7379,8 +8119,8 @@ namespace grid {
         }
         __syncthreads();
         // Backward pass where bfs_level is 0
-        //     joints are: shoulder_pan_joint
-        //     links are: shoulder_pan_link
+        //     joints are: panda_joint1
+        //     links are: panda_link1
         // U[k] = IA[k]*S[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -7419,8 +8159,8 @@ namespace grid {
         // Second Forward Pass
         //
         // s_a, qdd where parent is base
-        //     joints are: shoulder_pan_joint
-        //     links are: shoulder_pan_link
+        //     joints are: panda_joint1
+        //     links are: panda_link1
         // a[k] = X[k]*gravity_vec + c[k]
         for(int row = threadIdx.x + threadIdx.y*blockDim.x; row < 6; row += blockDim.x*blockDim.y){
             int jid = 0;
@@ -7447,8 +8187,8 @@ namespace grid {
         }
         __syncthreads();
         // s_a, s_qdd where bfs_level is 1
-        //     joints are: shoulder_lift_joint
-        //     links are: shoulder_lift_link
+        //     joints are: panda_joint2
+        //     links are: panda_link2
         // a[k] = X[k]*a[parent] + c[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -7475,8 +8215,8 @@ namespace grid {
         }
         __syncthreads();
         // s_a, s_qdd where bfs_level is 2
-        //     joints are: upperarm_roll_joint
-        //     links are: upperarm_roll_link
+        //     joints are: panda_joint3
+        //     links are: panda_link3
         // a[k] = X[k]*a[parent] + c[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -7503,8 +8243,8 @@ namespace grid {
         }
         __syncthreads();
         // s_a, s_qdd where bfs_level is 3
-        //     joints are: elbow_flex_joint
-        //     links are: elbow_flex_link
+        //     joints are: panda_joint4
+        //     links are: panda_link4
         // a[k] = X[k]*a[parent] + c[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -7531,8 +8271,8 @@ namespace grid {
         }
         __syncthreads();
         // s_a, s_qdd where bfs_level is 4
-        //     joints are: forearm_roll_joint
-        //     links are: forearm_roll_link
+        //     joints are: panda_joint5
+        //     links are: panda_link5
         // a[k] = X[k]*a[parent] + c[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -7559,8 +8299,8 @@ namespace grid {
         }
         __syncthreads();
         // s_a, s_qdd where bfs_level is 5
-        //     joints are: wrist_flex_joint
-        //     links are: wrist_flex_link
+        //     joints are: panda_joint6
+        //     links are: panda_link6
         // a[k] = X[k]*a[parent] + c[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -7587,8 +8327,8 @@ namespace grid {
         }
         __syncthreads();
         // s_a, s_qdd where bfs_level is 6
-        //     joints are: wrist_roll_joint
-        //     links are: wrist_roll_link
+        //     joints are: panda_joint7
+        //     links are: panda_link7
         // a[k] = X[k]*a[parent] + c[k]
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 6; ind += blockDim.x*blockDim.y){
             int row = ind % 6;
@@ -7804,8 +8544,8 @@ namespace grid {
         // each bfs level runs in parallel
         //
         // pass updates where bfs_level is 6
-        //     joints are: wrist_roll_joint
-        //     links are: wrist_roll_link
+        //     joints are: panda_joint7
+        //     links are: panda_link7
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
             int jid = 6 ;
             int row = ind % 6; int col = (ind / 6) % 6; int jid6 = jid * 6;
@@ -7821,8 +8561,8 @@ namespace grid {
         }
         __syncthreads();
         // pass updates where bfs_level is 5
-        //     joints are: wrist_flex_joint
-        //     links are: wrist_flex_link
+        //     joints are: panda_joint6
+        //     links are: panda_link6
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
             int jid = 5 ;
             int row = ind % 6; int col = (ind / 6) % 6; int jid6 = jid * 6;
@@ -7838,8 +8578,8 @@ namespace grid {
         }
         __syncthreads();
         // pass updates where bfs_level is 4
-        //     joints are: forearm_roll_joint
-        //     links are: forearm_roll_link
+        //     joints are: panda_joint5
+        //     links are: panda_link5
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
             int jid = 4 ;
             int row = ind % 6; int col = (ind / 6) % 6; int jid6 = jid * 6;
@@ -7855,8 +8595,8 @@ namespace grid {
         }
         __syncthreads();
         // pass updates where bfs_level is 3
-        //     joints are: elbow_flex_joint
-        //     links are: elbow_flex_link
+        //     joints are: panda_joint4
+        //     links are: panda_link4
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
             int jid = 3 ;
             int row = ind % 6; int col = (ind / 6) % 6; int jid6 = jid * 6;
@@ -7872,8 +8612,8 @@ namespace grid {
         }
         __syncthreads();
         // pass updates where bfs_level is 2
-        //     joints are: upperarm_roll_joint
-        //     links are: upperarm_roll_link
+        //     joints are: panda_joint3
+        //     links are: panda_link3
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
             int jid = 2 ;
             int row = ind % 6; int col = (ind / 6) % 6; int jid6 = jid * 6;
@@ -7889,8 +8629,8 @@ namespace grid {
         }
         __syncthreads();
         // pass updates where bfs_level is 1
-        //     joints are: shoulder_lift_joint
-        //     links are: shoulder_lift_link
+        //     joints are: panda_joint2
+        //     links are: panda_link2
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 36; ind += blockDim.x*blockDim.y){
             int jid = 1 ;
             int row = ind % 6; int col = (ind / 6) % 6; int jid6 = jid * 6;

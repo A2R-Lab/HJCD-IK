@@ -1,8 +1,29 @@
-/*
-    Settings for HJCD-IK algorithm
-*/
-
 #pragma once 
+
+// Generated GRiD headers call this helper while defining template bodies.
+template<typename T>
+__device__ __forceinline__
+void mat4_mul(const T* A, const T* B, T* C) {
+    T tmp[16];
+
+    #pragma unroll
+    for (int c = 0; c < 4; ++c) {
+        #pragma unroll
+        for (int r = 0; r < 4; ++r) {
+            tmp[c * 4 + r] =
+                A[0 * 4 + r] * B[c * 4 + 0] +
+                A[1 * 4 + r] * B[c * 4 + 1] +
+                A[2 * 4 + r] * B[c * 4 + 2] +
+                A[3 * 4 + r] * B[c * 4 + 3];
+        }
+    }
+
+    #pragma unroll
+    for (int i = 0; i < 16; ++i) {
+        C[i] = tmp[i];
+    }
+}
+
 #include "grid.cuh"
 
 #ifndef WARP_SIZE
@@ -26,40 +47,26 @@ namespace hjcd {
 }
 
 struct RefineSchedule {
-    float  top_frac;
+    int    top_k;
     int    repeats;
     double sigma_frac;
     bool   keep_one;
 };
 
 inline RefineSchedule schedule_for_B(int B) {
-    RefineSchedule s; s.keep_one = true;
+    RefineSchedule s;
+    s.keep_one   = true;
+    s.sigma_frac = 0.1;
+    s.repeats    = 16;
 
-    if (B <= 8) {           
-        s.repeats   = 24;
-        s.sigma_frac= 0.25;
-        s.top_frac = 1.0;
-    } else if (B <= 16) {
+    if (B <= 16) {
+        s.top_k     = B;
         s.repeats   = 16;
-        s.sigma_frac= 0.15;
-        s.top_frac = 0.5;
-    } else if (B <= 128) {
-        s.repeats   = 5;
-        s.sigma_frac= 0.15;
-        s.top_frac = 0.2;
-    } else if (B <= 1024) {
-        s.repeats   = 5;
-        s.sigma_frac= 0.15;
-        s.top_frac = 0.02;
-    } else if (B <= 2048) {
-        s.repeats   = 5;
-        s.sigma_frac= 0.15;
-        s.top_frac = 0.01;
+        s.sigma_frac= 0.25;
     } else {
-        s.repeats   = 2;
-        s.sigma_frac= 0.15;
-        s.top_frac = 0.01;
+        s.top_k = 16 + (int)((B - 1000)/1000 * 8);
     }
+
     return s;
 }
 
@@ -67,10 +74,9 @@ template<typename T>
 struct HJCDSettings {
     // Coarse phase settings
     static constexpr T epsilon = static_cast<T>(20e-3);   // 20 mm
-    static constexpr T  nu = static_cast<T>(90 * PI / 180.0);
+    static constexpr T nu = static_cast<T>(90 * PI / 180.0);
     static constexpr int k_max  = 20;
 
     // Refine phase settings
     static constexpr T lambda_init = static_cast<T>(5e-3);
 };
-
