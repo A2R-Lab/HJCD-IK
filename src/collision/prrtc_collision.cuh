@@ -5,6 +5,7 @@
 #include "utils.cuh"
 #include "environment.hh"
 #include "robots/panda.cuh"
+#include "robots/fetch.cuh"
 
 __device__ __forceinline__ void clear_link_CC(int* link_CC) {
     for (int i = threadIdx.x; i < 640; i += blockDim.x) link_CC[i] = 0;

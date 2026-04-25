@@ -21,5 +21,9 @@ git -C external/GRiD submodule sync --recursive || exit /b 1
 echo [bootstrap] init/update all nested submodules recursively...
 git submodule update --init --recursive || exit /b 1
 
+echo [bootstrap] temporarily overriding GRiDCodeGenerator commit...
+git -C external/GRiD/GRiDCodeGenerator fetch origin || exit /b 1
+git -C external/GRiD/GRiDCodeGenerator checkout 78312a66b50e623515d654c1ba983ff471237adf || exit /b 1
+
 echo [OK] submodules ready
 endlocal

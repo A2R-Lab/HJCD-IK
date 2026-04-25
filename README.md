@@ -19,7 +19,7 @@ cd HJCD-IK
 
 HJCD-IK relies on [GRiD](https://github.com/A2R-Lab/GRiD), a GPU-accelerated library for rigid body dynamics and analytical gradients.
 
-(Mac/Linux)
+(Linux)
 ```bash
 chmod +x scripts/bootstrap.sh
 ./scripts/bootstrap.sh
@@ -36,10 +36,19 @@ You can install `hjcdik` with `pip` on Python &ge; 3.9:
 python -m pip install -e .
 ```
 
-## Benchmark
-To run IK benchmarks, use:
+## Using different robots
+At installation, HJCD-IK creates a new GRiD header file for the Franka Panda Arm and sets `panda_grasptarget_hand` as its end-effector flange. To use a different robot, you must first create a new `grid.cuh` header file using:
 ```bash
-python benchmarks/ik_benchmark.py --skip-grid-codegen
+python scripts/generate_grid.py <PATH_TO_URDF> -t <FIXED_TARGET_NAME>
+```
+* `PATH_TO_URDF`: the path to the new robot URDF file
+* `FIXED_TARGET_NAME`: the name of the robot end-effector flange (e.g. Franka: `panda_grasptarget_hand`)
+  * Note: GRiD prints out possible fixed joint names found (if any) during code generation
+
+## Benchmark
+To run IK benchmark, use:
+```bash
+python benchmark/ik_benchmark.py --skip-grid-codegen
 ```
 which performs IK using the Panda Arm with batches of `1, 10, 100, 1000, 2000`. Results are written to a `results.yml`.
 
@@ -54,6 +63,8 @@ which performs IK using the Panda Arm with batches of `1, 10, 100, 1000, 2000`. 
   * Output result file. Default: `results.yml`
 * `--urdf <path>`
   * URDF path used if running GRiD codegen. Default: `include/test_urdf/panda.urdf`
+* `--grid-target <FIXED_TARGET_NAME>`
+  * The name of the robot end-effector flange offset
 * `--skip-grid-codegen`
   * Skips creating GRiD header file and immediately runs benchmarks. Default: off
 * `--seed <int>`
@@ -62,7 +73,7 @@ which performs IK using the Panda Arm with batches of `1, 10, 100, 1000, 2000`. 
 ### Usage Examples
 * Custom batches/targets/solutions, out file name:
 ```bash
-python benchmarks/ik_benchmark.py \
+python benchmark/ik_benchmark.py \
   --batches "1,32,256,2048" \
   --num-targets 250 \
   --num-solutions 4 \
@@ -71,11 +82,67 @@ python benchmarks/ik_benchmark.py \
 ```
 * To generate a new GRiD header on a different robot, run:
 ```bash
-python benchmarks/ik_benchmark.py --urdf include/test_urdf/fetch.urdf
+python benchmark/ik_benchmark.py --urdf include/test_urdf/fetch.urdf
 ```
 
-### Note on custom robots:
-HJCD-IK and GRiD currently only support robots using revolute, prismatic, and fixed joints without any closed kinematics loops.
+### Collision-Free Benchmark
+To run collision-free benchmark on the [MotionBenchMaker](https://github.com/KavrakiLab/motion_bench_maker) dataset, run:
+```bash
+python benchmark/ik_benchmark.py --skip-grid-codegen --collision-free --problems-json tests/mb_problems.json --problem-set bookshelf_thin_panda
+```
+
+### Collision-Free Benchmark Additional Usage
+* `--collision-free`
+  * Enable collision filter on solutions.
+* `--problems-json <path>` 
+  * Path to json problem file for collision-free benchmarking.
+* `--problem-set <str>`
+  * Problem set within json file to run benchmarking.
+* `--problem-idx <int>`
+  * Run collision-free benchmarking on specific problem index within problem set.
+  
+## Creating Collision Environments
+Collision environments are specified in the Motion Benchmarker-style JSON problem format. Each problem contains a `goal_pose`, `start` configuration, `world_frame`, and an optional `obstacles` field. Examples of environments can be found in the `tests` folder.
+
+Obstacles are grouped by primitive type. Currently only `cuboid` and `cylinder` primitives are supported.
+
+### Cuboid obstacles
+Cuboids are specified under `obstacles.cuboid`:
+
+```json
+"cuboid": {
+  "cube_robot_stand": {
+    "dims": [0.30, 0.25, 0.80],
+    "pose": [-0.05, 0.00, -0.40, 1, 0, 0, 0]
+  }
+}
+```
+
+Each cuboid requires:
+* `dims`: `[x, y, z]` sides lengths in meters
+* `pose`: `[x, y, z, qw, qx, qy, qz]` in the problem's `world_frame`
+
+### Cylinder obstacles
+Cylinders are specificed under `obstacles.cylinder`:
+
+```json
+"cylinder": {
+  "goal_post": {
+    "radius": 0.035,
+    "height": 0.24,
+    "pose": [0.35, 0.15, 0.12, 1, 0, 0, 0]
+  }
+}
+```
+
+Each cylinder requires:
+* `radius`: cylinder radius in meters
+* `height`: cylinder height in meters
+* `pose`: `[x, y, z, qw, qx, qy, qz]` in the problem's `world_frame`
+
+### Additional Notes
+* HJCD-IK currently only supports robots using revolute, prismatic, and fixed joints without any closed kinematic loops.
+* Collision-Free support is currently limited to the Franka Panda and Fetch Arms with support for additional and custom robots coming soon!
 
 ## Cite
 Please cite HCJD-IK if you found this work useful:

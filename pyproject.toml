@@ -28,3 +28,4 @@ dependencies = [
 [tool.scikit-build]
 cmake.version = ">=3.23"
 build-dir = "build"
+cmake.define.HJCDIK_AUTO_CODEGEN = "ON"

@@ -40,7 +40,7 @@ if(NOT EXISTS "${GRID_HEADER_GENERATED}" AND HJCDIK_AUTO_CODEGEN)
   set(HJCDIK_CODEGEN_URDF "${CMAKE_SOURCE_DIR}/include/test_urdf/panda.urdf")
 
   execute_process(
-    COMMAND ${Python3_EXECUTABLE} "${GRID_CODEGEN_SCRIPT}" "${HJCDIK_CODEGEN_URDF}"
+    COMMAND ${Python3_EXECUTABLE} "${GRID_CODEGEN_SCRIPT}" "${HJCDIK_CODEGEN_URDF}" -t panda_grasptarget_hand
     WORKING_DIRECTORY ${GRID_DIR}
     RESULT_VARIABLE _codegen_result
   )

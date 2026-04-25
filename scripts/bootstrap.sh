@@ -26,4 +26,8 @@ rm -rf external/GRiD/GRiDCodeGenerator \
 echo "[bootstrap] init/update all nested submodules recursively..."
 git submodule update --init --recursive
 
+echo "[bootstrap] temporarily overriding GRiDCodeGenerator commit..."
+git -C external/GRiD/GRiDCodeGenerator fetch origin
+git -C external/GRiD/GRiDCodeGenerator checkout 78312a66b50e623515d654c1ba983ff471237adf
+
 echo "[OK] submodules ready"
