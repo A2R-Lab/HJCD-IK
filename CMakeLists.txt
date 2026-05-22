@@ -19,6 +19,14 @@ find_package(CUDAToolkit REQUIRED)
 find_package(yaml-cpp CONFIG REQUIRED)
 find_package(Eigen3 CONFIG REQUIRED)
 
+if(TARGET yaml-cpp::yaml-cpp)
+  set(HJCDIK_YAML_CPP_TARGET yaml-cpp::yaml-cpp)
+elseif(TARGET yaml-cpp)
+  set(HJCDIK_YAML_CPP_TARGET yaml-cpp)
+else()
+  message(FATAL_ERROR "yaml-cpp was found, but no usable CMake target was exported")
+endif()
+
 set(PYBIND11_FINDPYTHON ON)
 if(BUILD_PYTHON)
   find_package(pybind11 CONFIG REQUIRED)
@@ -82,7 +90,6 @@ set(HJCDIK_HEADERS
 
 set(HJCDIK_COMMON_SOURCES
   src/hjcd_kernel.cu
-  src/collision/prrtc_collision.cu 
   src/collision/prrtc_env_from_json.cpp
   ${HJCDIK_HEADERS}
 )
@@ -105,6 +112,7 @@ endif()
 set(HJCDIK_CUDA_FLAGS
   $<$<COMPILE_LANGUAGE:CUDA>:-use_fast_math>
   $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-O3>
+  $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-fcommon>
 )
 
 # Native Executable
@@ -120,7 +128,7 @@ set_target_properties(hjcdik PROPERTIES CUDA_RUNTIME_LIBRARY Static)
 
 target_link_libraries(hjcdik PRIVATE
   CUDA::cudart
-  yaml-cpp::yaml-cpp
+  ${HJCDIK_YAML_CPP_TARGET}
   Eigen3::Eigen
 )
 
@@ -142,7 +150,7 @@ if(BUILD_PYTHON)
 
   target_link_libraries(_hjcdik PRIVATE
     CUDA::cudart
-    yaml-cpp::yaml-cpp
+    ${HJCDIK_YAML_CPP_TARGET}
     Eigen3::Eigen
   )
 
