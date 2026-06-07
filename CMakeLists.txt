@@ -1,4 +1,17 @@
 cmake_minimum_required(VERSION 3.23)
+
+if(NOT DEFINED CMAKE_CUDA_HOST_COMPILER)
+  find_program(HJCDIK_GXX10 g++-10)
+  if(HJCDIK_GXX10)
+    message(STATUS "HJCD-IK: using g++-10 as CUDA host compiler: ${HJCDIK_GXX10}")
+    set(CMAKE_CUDA_HOST_COMPILER
+        "${HJCDIK_GXX10}"
+        CACHE FILEPATH "CUDA host compiler")
+  else()
+    message(STATUS "HJCD-IK: g++-10 not found; using default CUDA host compiler")
+  endif()
+endif()
+
 project(hjcdik LANGUAGES CXX CUDA)
 
 option(HJCDIK_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
