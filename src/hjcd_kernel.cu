@@ -38,7 +38,7 @@ enum : int {
 };
 extern "C" int grid_num_joints() { return N; }
 
-constexpr int FLANGE_IDX = 8;
+constexpr int FLANGE_IDX = N + 1;
 constexpr int EE_IDX     = N;
 constexpr int NX         = FLANGE_IDX + 1;
 
