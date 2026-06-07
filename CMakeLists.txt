@@ -95,7 +95,6 @@ endif()
 set(HJCDIK_HEADERS
   include/hjcd_settings.h
   include/device_utils.cuh
-  include/math.cuh 
   src/collision/prrtc_collision.cuh
   src/collision/prrtc_env_from_json.hpp
   src/collision/prrtc_env_cache.hpp

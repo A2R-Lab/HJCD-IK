@@ -66,3 +66,6 @@ x64/
 
 # Generated output
 hjcd_ik_per_batch.yml
+
+# Python venv
+*.venv
