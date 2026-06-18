@@ -1,33 +1,45 @@
 #!/usr/bin/env bash
+# Initialize HJCD-IK's submodules and put each on our feature branch:
+#   external/GLASS                    -> feat/warp-primitives  (off GLASS main)
+#   external/GRiD                     -> feat/hjcd-warp-fk      (off GRiD modernizing-tests)
+#   external/GRiD/{GRiDCodeGenerator,URDFParser,GLASS} -> feat/hjcd-warp-fk
+#
+# Idempotent: already-initialized submodules are left on their branch (not detached).
+# Heavy GRiD submodules (RBDReference, pinocchio baselines) are skipped — not needed
+# for codegen/build. Run scripts/setup_dev.sh for the full venv+build flow.
 set -euo pipefail
-
-# Go to repo root (parent of scripts/)
 cd "$(dirname "$0")/.."
 
-echo "[bootstrap] syncing top-level submodules..."
-git submodule sync --recursive
+GRID_BRANCH="${GRID_BRANCH:-feat/hjcd-warp-fk}"
+GLASS_BRANCH="${GLASS_BRANCH:-feat/warp-primitives}"
 
-echo "[bootstrap] init/update GRiD submodule (top-level)..."
-git submodule update --init external/GRiD
+# Check out (or create at the current pin) a branch in a submodule, without
+# detaching an existing branch checkout.
+checkout_branch() { # <dir> <branch>
+  local d="$1" b="$2"
+  [ -e "$d/.git" ] || return 0
+  if [ "$(git -C "$d" symbolic-ref --short -q HEAD || true)" = "$b" ]; then return 0; fi
+  if git -C "$d" rev-parse --verify --quiet "refs/heads/$b" >/dev/null; then
+    git -C "$d" checkout -q "$b"
+  else
+    git -C "$d" checkout -q -b "$b"
+  fi
+}
 
-echo "[bootstrap] rewriting GRiD nested submodule URLs to HTTPS..."
-git config -f external/GRiD/.gitmodules submodule.GRiDCodeGenerator.url https://github.com/A2R-Lab/GRiDCodeGenerator.git
-git config -f external/GRiD/.gitmodules submodule.RBDReference.url      https://github.com/A2R-Lab/RBDReference.git
-git config -f external/GRiD/.gitmodules submodule.URDFParser.url        https://github.com/A2R-Lab/URDFParser.git
+echo "[bootstrap] init external/GLASS + external/GRiD (if needed)..."
+[ -e external/GLASS/.git ] || git submodule update --init external/GLASS
+[ -e external/GRiD/.git ]  || git submodule update --init external/GRiD
 
-echo "[bootstrap] syncing GRiD nested submodules..."
-git -C external/GRiD submodule sync --recursive
+echo "[bootstrap] init GRiD codegen submodules (GRiDCodeGenerator, URDFParser, GLASS)..."
+for s in GRiDCodeGenerator URDFParser GLASS; do
+  [ -e "external/GRiD/$s/.git" ] || git -C external/GRiD submodule update --init "$s"
+done
 
-echo "[bootstrap] cleaning partial nested submodule dirs (if any)..."
-rm -rf external/GRiD/GRiDCodeGenerator \
-       external/GRiD/RBDReference \
-       external/GRiD/URDFParser || true
+echo "[bootstrap] putting submodules on feature branches..."
+checkout_branch external/GLASS "$GLASS_BRANCH"
+checkout_branch external/GRiD  "$GRID_BRANCH"
+checkout_branch external/GRiD/GRiDCodeGenerator "$GRID_BRANCH"
+checkout_branch external/GRiD/URDFParser        "$GRID_BRANCH"
+checkout_branch external/GRiD/GLASS             "$GRID_BRANCH"
 
-echo "[bootstrap] init/update all nested submodules recursively..."
-git submodule update --init --recursive
-
-echo "[bootstrap] temporarily overriding GRiDCodeGenerator commit..."
-git -C external/GRiD/GRiDCodeGenerator fetch origin
-git -C external/GRiD/GRiDCodeGenerator checkout 78312a66b50e623515d654c1ba983ff471237adf
-
-echo "[OK] submodules ready"
+echo "[OK] submodules ready (GLASS off main, GRiD + nested off modernizing-tests)"

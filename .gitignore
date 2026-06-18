@@ -69,3 +69,6 @@ hjcd_ik_per_batch.yml
 
 # Python venv
 *.venv
+# Local agent working notes (not project artifacts)
+docs/open-tasks/
+docs/HANDOFF.md

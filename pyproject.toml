@@ -28,4 +28,6 @@ dependencies = [
 [tool.scikit-build]
 cmake.version = ">=3.23"
 build-dir = "build"
-cmake.define.HJCDIK_AUTO_CODEGEN = "ON"
+# The committed include/test_cuh/grid.cuh is the build default; regenerate it explicitly
+# with scripts/generate_grid.py (or build with -DHJCDIK_AUTO_CODEGEN=ON to regenerate here).
+cmake.define.HJCDIK_AUTO_CODEGEN = "OFF"

@@ -1,0 +1,9 @@
+{
+  "sampled_unconstrained": {
+    "num_targets": 64,
+    "batch_size": 2000,
+    "solved_rate": 1.0,
+    "mean_pos_err": 0.0002909750766258984,
+    "mean_ori_err": 6.976648334389778e-08
+  }
+}

@@ -21,7 +21,9 @@ struct Result {
     int count;
 };
 
-template<typename T>
+// RT = LM-refine compute precision (speed/accuracy knob): RT=double (default) is full fp64;
+// RT=float runs FK/Jacobian/residual/line-search in fp32 with the Cholesky solve still fp64.
+template<typename T, typename RT = double>
 Result<T> generate_ik_solutions(
     T* target_pose,
     const grid::robotModel<T>* d_robotModel,

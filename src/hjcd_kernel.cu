@@ -26,6 +26,8 @@
 #include <vector>
 #include <chrono>
 #include <limits>
+#include <type_traits>
+#include <cstdlib>
 
 // Collision checking
 #include "collision/prrtc_env_from_json.hpp"
@@ -466,7 +468,7 @@ void recompute_cost_scaled(T* xcur,
     const T* tp, const T* q_goal,
     T& cost_sq, T& pos_err_m, T& ori_err_rad)
 {
-    grid::X_single_thread<T>(s_jointX, s_XmatsHom, xcur, FLANGE_IDX);
+    ee_fk_thread<T>(s_jointX, s_XmatsHom, xcur, EE_IDX, s_XmatsHom);
     const T* Cn = &s_jointX[EE_IDX * 16];
     const T dx = tp[0] - Cn[12];
     const T dy = tp[1] - Cn[13];
@@ -481,48 +483,6 @@ void recompute_cost_scaled(T* xcur,
     cost_sq = (T)0.5 * (rt0 * rt0 + rt1 * rt1 + rt2 * rt2 + rt3 * rt3 + rt4 * rt4 + rt5 * rt5);
     pos_err_m = sqrt(dx * dx + dy * dy + dz * dz);
     ori_err_rad = sqrt(wv[0] * wv[0] + wv[1] * wv[1] + wv[2] * wv[2]);
-}
-
-template<typename T, int DIM>
-__device__ __forceinline__
-void build_solve_NE_warp(const T* __restrict__ J,
-    const T* __restrict__ r_scaled,
-    T lambda,
-    T* __restrict__ dq,
-    T* __restrict__ s_diagA,
-    T* __restrict__ s_gvec,
-    double* __restrict__ Ad_sh,
-    double* __restrict__ rhsd_sh)
-{
-    const int lane = threadIdx.x & 31;
-    if (threadIdx.x < 32) {
-        for (int t = lane; t < DIM * (DIM + 1) / 2; t += 32) {
-            int r, c; upper_index_to_rc(t, DIM, r, c);
-            double acc = 0.0;
-#pragma unroll
-            for (int k = 0; k < 6; ++k) acc += (double)J[k * DIM + r] * (double)J[k * DIM + c];
-            Ad_sh[r * DIM + c] = acc;
-            Ad_sh[c * DIM + r] = acc;
-        }
-        for (int r = lane; r < DIM; r += 32) {
-            double accb = 0.0;
-#pragma unroll
-            for (int k = 0; k < 6; ++k) accb += (double)J[k * DIM + r] * (double)r_scaled[k];
-            rhsd_sh[r] = accb;
-        }
-    }
-    __syncthreads();
-
-    if (threadIdx.x == 0) {
-        for (int i = 0; i < DIM; ++i) {
-            s_diagA[i] = (T)Ad_sh[i * DIM + i];
-            s_gvec[i] = (T)rhsd_sh[i];
-            Ad_sh[i * DIM + i] += (double)lambda * (double)s_diagA[i];
-        }
-        bool ok = chol_solve<double, DIM>(Ad_sh, rhsd_sh);
-        for (int i = 0; i < DIM; ++i) dq[i] = ok ? (T)rhsd_sh[i] : (T)0;
-    }
-    __syncthreads();
 }
 
 template<typename T>
@@ -639,75 +599,6 @@ __device__ bool try_coord_linesearch(
     }
 }
 
-// Factor A and solve A x = b
-template<int DIM>
-__device__ inline bool warp_cholesky_solve_inplace(double* __restrict__ A, double* __restrict__ b) {
-    const unsigned mask = FULL_WARP_MASK;
-    const int lane = threadIdx.x & 31;
-
-    // Factorization
-    #pragma unroll
-    for (int k = 0; k < DIM; ++k) {
-        double Lkk;
-        if (lane == k) {
-            // s = A[k,k] - sum_{p<k} L[k,p]^2
-            double s = A[k*DIM + k];
-            #pragma unroll
-            for (int p = 0; p < k; ++p) {
-                double Lkp = A[k*DIM + p];
-                s -= Lkp * Lkp;
-            }
-            if (s <= 0.0) { Lkk = 0.0; }
-            else          { Lkk = sqrt(s); }
-            A[k*DIM + k] = Lkk;
-        }
-        // Broadcast Lkk to all lanes
-        Lkk = __shfl_sync(mask, Lkk, k);
-        if (Lkk <= 0.0) return false;
-
-        // Compute column k below diagonal
-        if (lane > k && lane < DIM) {
-            // t = A[i,k] - sum_{p<k} L[i,p]*L[k,p]
-            double t = A[lane*DIM + k];
-            #pragma unroll
-            for (int p = 0; p < k; ++p) {
-                double Lip = A[lane*DIM + p];
-                double Lkp = A[k*DIM + p];
-                t -= Lip * Lkp;
-            }
-            A[lane*DIM + k] = t / Lkk;
-        }
-
-        // Zero upper triangle entries in row k
-        if (lane == k) {
-            #pragma unroll
-            for (int j = k+1; j < DIM; ++j) A[k*DIM + j] = 0.0;
-        }
-        __syncwarp(mask);
-    }
-
-    // Forward & back substitution
-    if (lane == 0) {
-        double y[DIM];
-        // Forward: L y = b
-        #pragma unroll
-        for (int i = 0; i < DIM; ++i) {
-            double s = b[i];
-            #pragma unroll
-            for (int p = 0; p < i; ++p) s -= A[i*DIM + p] * y[p];
-            y[i] = s / A[i*DIM + i];
-        }
-        // Backward: L^T x = y
-        for (int i = DIM-1; i >= 0; --i) {
-            double s = y[i];
-            #pragma unroll
-            for (int p = i+1; p < DIM; ++p) s -= A[p*DIM + i] * b[p];
-            b[i] = s / A[i*DIM + i];
-        }
-    }
-    __syncwarp(mask);
-    return true;
-}
 
 // Warp-cooperative NE build
 template<typename T, int DIM>
@@ -718,26 +609,27 @@ __device__ inline void build_ne_and_solve_warp(
     T* __restrict__ dq,
     T* __restrict__ diagA,
     T* __restrict__ gvec,
-    double* __restrict__ A_sh,
-    double* __restrict__ b_sh
+    T* __restrict__ A_sh,
+    T* __restrict__ b_sh
 ) {
     const unsigned mask = FULL_WARP_MASK;
     const int lane = threadIdx.x & 31;
 
-    // Build A = J^T J
+    // Build A = J^T J  (solve precision = T: fp64 by default, fp32 when the refine knob is on,
+    // with no fp32<->fp64 casts in the hot path).
     if (lane < DIM) {
         const int r = lane;
         #pragma unroll
         for (int c = 0; c < DIM; ++c) {
-            double acc = 0.0;
+            T acc = (T)0;
             #pragma unroll
-            for (int k = 0; k < 6; ++k) acc += (double)J[k*DIM + r] * (double)J[k*DIM + c];
+            for (int k = 0; k < 6; ++k) acc += J[k*DIM + r] * J[k*DIM + c];
             A_sh[r*DIM + c] = acc;
         }
         // b = J^T r
-        double accb = 0.0;
+        T accb = (T)0;
         #pragma unroll
-        for (int k = 0; k < 6; ++k) accb += (double)J[k*DIM + r] * (double)r_scaled[k];
+        for (int k = 0; k < 6; ++k) accb += J[k*DIM + r] * r_scaled[k];
         b_sh[r] = accb;
     }
     __syncwarp(mask);
@@ -745,20 +637,52 @@ __device__ inline void build_ne_and_solve_warp(
     // Damping: Ad = A + lambda*diag(A)
     if (lane < DIM) {
         const int i = lane;
-        double di = A_sh[i*DIM + i];
-        diagA[i] = (T)di;
-        gvec[i]  = (T)b_sh[i];
-        A_sh[i*DIM + i] = di + (double)lambda * di;
+        T di = A_sh[i*DIM + i];
+        diagA[i] = di;
+        gvec[i]  = b_sh[i];
+        A_sh[i*DIM + i] = di + lambda * di;
     }
     __syncwarp(mask);
 
-    // Warp Cholesky
-    bool ok = warp_cholesky_solve_inplace<DIM>(A_sh, b_sh);
+    // Warp Cholesky via GLASS warp primitives (Phase 3), in precision T. __restrict__ is safe
+    // here since GLASS now broadcasts the pivot via __shfl_sync (was an nvcc stale-cache
+    // miscompile under restrict; fixed in GLASS main 1df6e40).
+    glass::warp::cholDecomp_InPlace<T, DIM>(A_sh);   // A_sh <- L (col-major lower)
+    glass::warp::trsm<T, DIM>(A_sh, b_sh);           // L y = b
+    glass::warp::trsm_transpose<T, DIM>(A_sh, b_sh); // L^T x = y
+    __syncwarp(mask);
+
+    // Non-SPD safety net (glass cholDecomp has no Lkk<=0 bail; A = J^T J is rank-deficient
+    // for a 6x7 Jacobian and can lose definiteness near singularities): if the solve went
+    // non-finite, fall back to dq=0 so LM grows lambda and retries — matches the hand-rolled
+    // solver's old `ok ? x : 0` behavior.
+    int bad = (lane < DIM) && !isfinite(b_sh[lane]);
+    bool spd_ok = (__ballot_sync(mask, bad) == 0);
 
     // Write
-    if (lane < DIM) dq[lane] = ok ? (T)b_sh[lane] : (T)0;
+    if (lane < DIM) dq[lane] = spd_ok ? (T)b_sh[lane] : (T)0;
     __syncwarp(mask);
 }
+
+// Per-warp scratch for the multi-warp LM refine: one independent LM candidate per warp,
+// W warps per block. All of solve_lm_batched's former __shared__ arrays/scalars live here,
+// placed W-wide in dynamic shared and indexed by warp_id, so each warp has a private copy
+// and the iteration loop is fully warp-independent (every barrier __syncwarp, never
+// __syncthreads). The constant cells of s_XmatsHom are q-independent (identical across
+// candidates) and loaded once block-cooperatively in the prologue; ee_pose_inner_warp
+// refreshes the q-dependent cells per-warp.
+template<typename T>
+struct LMWarpScratch {
+    T s_x[N], x_old[N];
+    T s_XmatsHom[grid::XHOM_T_COUNT], s_jointX[NX*16];
+    T J[6*N], r_scaled[6], row_s[6], q_goal[4];
+    T dq[N], diagA[N], gvec[N];
+    T best_x_pos[N];
+    T Ad_sh[N*N], rhsd_sh[N];
+    T row_norm2[6];
+    T pos_err_m, ori_err_rad, cost_sq, prev_cost, best_pos_seen;
+    int s_break, stall, accepted;
+};
 
 template<typename T>
 __device__ void solve_lm_batched(
@@ -775,21 +699,71 @@ __device__ void solve_lm_batched(
     const int B,
     int stop_on_first)
 {
-    #define SYNC() do { if (blockDim.x <= warpSize) { __syncwarp(); } else { __syncthreads(); } } while (0)
+    // Multi-warp LM: one independent candidate per warp, W warps per block. All barriers
+    // inside the iteration loop are warp-scoped (the only __syncthreads are in the one-time
+    // constant-load prologue below, where the whole block genuinely participates).
+    #define SYNC() __syncwarp(FULL_WARP_MASK)
 
-    __shared__ T s_x[N], x_old[N];
-    __shared__ T s_XmatsHom[NX*16], s_jointX[NX*16], s_tmp[NX*2];
-    __shared__ T J[6*N], r_scaled[6], row_s[6], q_goal[4];
-    __shared__ T pos_err_m, ori_err_rad, cost_sq, prev_cost;
-    __shared__ T dq[N], diagA[N], gvec[N];
-    __shared__ T best_x_pos[N], best_pos_seen;
-    __shared__ double Ad_sh[N*N], rhsd_sh[N];
-    __shared__ int s_break, stall;
-
+    const int lane = threadIdx.x & 31;
     const int warp_id = threadIdx.x >> 5;
-    const int gp  = blockIdx.x;
-    const int tid = threadIdx.x;
-    if (gp >= B || !x || !pose || !target_poses || !pos_error || !ori_error || !d_robotModel) return;
+    const int warps_per_block = max(1, (int)(blockDim.x >> 5));
+    const int gp  = blockIdx.x * warps_per_block + warp_id;
+    const int tid = lane;   // all per-candidate work is now lane-indexed within the warp
+    if (!x || !pose || !target_poses || !pos_error || !ori_error || !d_robotModel) return;
+
+    // Per-warp scratch slice in dynamic shared (compiler computes per-warp offsets).
+    extern __shared__ __align__(16) unsigned char s_lm_dyn_raw[];
+    LMWarpScratch<T>* all_st = reinterpret_cast<LMWarpScratch<T>*>(s_lm_dyn_raw);
+    LMWarpScratch<T>* st = &all_st[warp_id];
+
+    // --- one-time block-cooperative constant-XmatsHom prologue ---
+    // ee_pose_inner_warp refreshes the q-DEPENDENT cells of s_XmatsHom per-warp; only the
+    // q-INDEPENDENT (constant) cells must be pre-present, and those are identical across all
+    // candidates. Load once (any valid q -> only the constant cells are consumed) and
+    // replicate into every warp slice. Block barriers are confined to this prologue.
+    {
+        __shared__ T s_xhom_tmpl[grid::XHOM_T_COUNT];
+        __shared__ T s_q_tmpl[N];
+        __shared__ T s_tmp_tmpl[NX*2];
+        const int base0 = min(blockIdx.x * warps_per_block, B - 1);
+        if (threadIdx.x < N) s_q_tmpl[threadIdx.x] = x[base0 * N + threadIdx.x];
+        __syncthreads();
+        grid::load_update_XmatsHom_helpers<T>(s_xhom_tmpl, s_q_tmpl, d_robotModel, s_tmp_tmpl);
+        __syncthreads();
+        for (int i = threadIdx.x; i < warps_per_block * grid::XHOM_T_COUNT; i += blockDim.x) {
+            const int w = i / grid::XHOM_T_COUNT;
+            const int c = i - w * grid::XHOM_T_COUNT;
+            all_st[w].s_XmatsHom[c] = s_xhom_tmpl[c];
+        }
+        __syncthreads();
+    }
+
+    if (gp >= B) return;   // partial last block: excess warps exit cleanly (no block barrier below)
+
+    // Per-warp aliases: the body below is unchanged (tid==lane, arrays/scalars are this warp's).
+    T* s_x         = st->s_x;
+    T* x_old       = st->x_old;
+    T* s_XmatsHom  = st->s_XmatsHom;
+    T* s_jointX    = st->s_jointX;
+    T* J           = st->J;
+    T* r_scaled    = st->r_scaled;
+    T* row_s       = st->row_s;
+    T* q_goal      = st->q_goal;
+    T* dq          = st->dq;
+    T* diagA       = st->diagA;
+    T* gvec        = st->gvec;
+    T* best_x_pos  = st->best_x_pos;
+    T* Ad_sh       = st->Ad_sh;
+    T* rhsd_sh     = st->rhsd_sh;
+    T* row_norm2   = st->row_norm2;
+    T& pos_err_m   = st->pos_err_m;
+    T& ori_err_rad = st->ori_err_rad;
+    T& cost_sq     = st->cost_sq;
+    T& prev_cost   = st->prev_cost;
+    T& best_pos_seen = st->best_pos_seen;
+    int& s_break   = st->s_break;
+    int& stall     = st->stall;
+    int& accepted  = st->accepted;
 
     const T  lambda_min = (T)1e-12, lambda_max = (T)1e6;
     const int stall_lim = 5;
@@ -806,12 +780,8 @@ __device__ void solve_lm_batched(
 
     T lambda = lambda_init;
 
-    grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, s_x, d_robotModel, s_tmp);
-    SYNC();
-
-    if (warp_id == 0) {
-        grid::X_warp<T>(s_jointX, s_XmatsHom, s_x, FLANGE_IDX);
-    }
+    // q-dependent cells refreshed per-warp by the FK (constants came from the prologue).
+    ee_fk_warp<T>(s_jointX, s_XmatsHom, s_x, EE_IDX);
     SYNC();
 
     if (tid == 0) {
@@ -826,7 +796,7 @@ __device__ void solve_lm_batched(
     SYNC(); if (s_break) goto WRITE_OUT;
 
     for (int it = 0; it < k_max; ++it) {
-        if (stop_on_first && threadIdx.x == 0 && ((it & 1) == 0)) {
+        if (stop_on_first && tid == 0 && ((it & 1) == 0)) {
             if (atomicAdd(&g_stop, 0)) s_break = 1;
         }
         SYNC(); if (s_break) break;
@@ -845,8 +815,7 @@ __device__ void solve_lm_batched(
         }
         SYNC();
 
-        // Build J and row-norms
-        __shared__ T row_norm2[6];
+        // Build J and row-norms (row_norm2 is per-warp, aliased from the scratch struct)
         if (tid < 6) row_norm2[tid] = (T)0;
         SYNC();
 
@@ -875,16 +844,14 @@ __device__ void solve_lm_batched(
             p0 = j0*j0; p1 = j1*j1; p2 = j2*j2; p3 = j3*j3; p4 = j4*j4; p5 = j5*j5;
         }
 
-        unsigned mask = __activemask();
-#pragma unroll
-        for (int off = 16; off > 0; off >>= 1) {
-            p0 += __shfl_down_sync(mask, p0, off);
-            p1 += __shfl_down_sync(mask, p1, off);
-            p2 += __shfl_down_sync(mask, p2, off);
-            p3 += __shfl_down_sync(mask, p3, off);
-            p4 += __shfl_down_sync(mask, p4, off);
-            p5 += __shfl_down_sync(mask, p5, off);
-        }
+        // Warp row-norm reductions via glass::warp::reduce (returns the warp-wide sum
+        // on every lane; equivalent to the previous __shfl_down_sync ladder, full warp).
+        p0 = glass::warp::reduce(p0);
+        p1 = glass::warp::reduce(p1);
+        p2 = glass::warp::reduce(p2);
+        p3 = glass::warp::reduce(p3);
+        p4 = glass::warp::reduce(p4);
+        p5 = glass::warp::reduce(p5);
 
         // Lane per warp accumulate into shared row sums
         if ((threadIdx.x & 31) == 0) {
@@ -951,10 +918,8 @@ __device__ void solve_lm_batched(
         }
         SYNC();
 
-        // Build normal equations and solve in warp 0
-        if (warp_id == 0) {
-            build_ne_and_solve_warp<T, N>(J, r_scaled, lambda, dq, diagA, gvec, Ad_sh, rhsd_sh);
-        }
+        // Build normal equations and solve (per-warp: each warp solves its own candidate)
+        build_ne_and_solve_warp<T, N>(J, r_scaled, lambda, dq, diagA, gvec, Ad_sh, rhsd_sh);
         SYNC();
 
         if (tid == 0) {
@@ -977,7 +942,7 @@ __device__ void solve_lm_batched(
         }
         SYNC();
 
-        __shared__ int accepted;
+        // accepted is per-warp (aliased from the scratch struct)
         if (tid == 0) accepted = 0;
         SYNC();
 
@@ -995,9 +960,7 @@ __device__ void solve_lm_batched(
             }
             SYNC();
 
-            if (warp_id == 0) {
-                grid::X_warp<T>(s_jointX, s_XmatsHom, s_x, FLANGE_IDX);
-            }
+            ee_fk_warp<T>(s_jointX, s_XmatsHom, s_x, EE_IDX);
             SYNC();
 
             if (tid == 0) {
@@ -1089,7 +1052,7 @@ __device__ void solve_lm_batched(
                     T xi = s_x[i] + kick;
                     s_x[i] = fmin(fmax(xi,(T)L.x),(T)L.y);
                 }
-                grid::X_single_thread(s_jointX,s_XmatsHom,s_x,FLANGE_IDX);
+                ee_fk_thread<T>(s_jointX, s_XmatsHom, s_x, EE_IDX, s_XmatsHom);
                 pos_err_m   = compute_pos_err(s_jointX,tp);
                 ori_err_rad = compute_ori_err(s_jointX,&tp[3]);
                 stall = 0;
@@ -1100,9 +1063,7 @@ __device__ void solve_lm_batched(
         SYNC();
         if (s_break) break;
 
-        if (warp_id == 0) {
-            grid::X_warp<T>(s_jointX, s_XmatsHom, s_x, FLANGE_IDX);
-        }
+        ee_fk_warp<T>(s_jointX, s_XmatsHom, s_x, EE_IDX);
         SYNC();
 
         if (tid == 0) {
@@ -1118,10 +1079,9 @@ WRITE_OUT:
     {
         const T MAX_DRIFT = (T)2e-4;
         if (pos_err_m > best_pos_seen + MAX_DRIFT) {
-            for (int i=0; i<N; ++i) s_x[i] = best_x_pos[i];
-            if (warp_id == 0) {
-                grid::X_warp<T>(s_jointX, s_XmatsHom, s_x, FLANGE_IDX);
-            }
+            if (tid < N) s_x[tid] = best_x_pos[tid];
+            SYNC();
+            ee_fk_warp<T>(s_jointX, s_XmatsHom, s_x, EE_IDX);
             SYNC();
         }
     }
@@ -1181,7 +1141,7 @@ __global__ void coarse_search(
     __shared__ T s_pos_theta1[N], s_ori_theta1[N];
     __shared__ T s_pos_err[N],    s_ori_err[N];
 
-    __shared__ T s_XmatsHom[NX*16];
+    __shared__ T s_XmatsHom[grid::XHOM_T_COUNT];
     __shared__ T s_jointXforms[NX*16];
     __shared__ T s_temp[NX*2];
 
@@ -1209,7 +1169,7 @@ __global__ void coarse_search(
     __syncthreads();
 
     if ((threadIdx.x >> 5) == 0) { // warp 0
-        grid::X_warp<T>(s_jointXforms, s_XmatsHom, s_x, FLANGE_IDX);
+        ee_fk_warp<T>(s_jointXforms, s_XmatsHom, s_x, EE_IDX);
     }
     __syncthreads();
 
@@ -1233,7 +1193,7 @@ __global__ void coarse_search(
         if (stop_on_first && s_stop) break;
 
         if ((threadIdx.x >> 5) == 0) { // warp 0
-            grid::X_warp<T>(s_jointXforms, s_XmatsHom, s_x, FLANGE_IDX);
+            ee_fk_warp<T>(s_jointXforms, s_XmatsHom, s_x, EE_IDX);
         }
         __syncthreads();
 
@@ -1291,7 +1251,7 @@ __global__ void coarse_search(
                     // C1: apply p on top of s_XmatsHom -> l_C
                     #pragma unroll
                     for (int m = 0; m < NX * 16; ++m) l_tmp[m] = s_XmatsHom[m];
-                    grid::X_single_thread(l_C, l_tmp, cand, FLANGE_IDX);
+                    ee_fk_thread<T>(l_C, l_tmp, cand, EE_IDX, s_XmatsHom);
 
                     // Compute theta2 using C1
                     T theta2 = (T)0;
@@ -1309,7 +1269,7 @@ __global__ void coarse_search(
                     // C2: reapply full cand (p and j) on top of s_XmatsHom -> l_C
                     #pragma unroll
                     for (int m = 0; m < NX * 16; ++m) l_tmp[m] = s_XmatsHom[m];
-                    grid::X_single_thread(l_C, l_tmp, cand, FLANGE_IDX);
+                    ee_fk_thread<T>(l_C, l_tmp, cand, EE_IDX, s_XmatsHom);
 
                     const T err = pos_phase
                         ? compute_pos_err(l_C, target_pose_local)
@@ -1375,7 +1335,7 @@ __global__ void coarse_search(
 
         // Update global err and pose, early-exit
         if ((threadIdx.x >> 5) == 0) { // warp 0
-            grid::X_warp<T>(s_jointXforms, s_XmatsHom, s_x, FLANGE_IDX);
+            ee_fk_warp<T>(s_jointXforms, s_XmatsHom, s_x, EE_IDX);
         }
         __syncthreads();
 
@@ -1431,9 +1391,10 @@ __global__ void lm_tuner(
     T eps_ori_rad,
     T lambda_init,
     int k_max,
+    int B,
     int stop_on_first
 ) {
-    const int B = gridDim.x;
+    // B = total candidates (Krep). grid = ceil(B / warps_per_block); each warp does one candidate.
     solve_lm_batched<T>(
         x,
         pose,
@@ -1477,7 +1438,7 @@ __global__ void forward_kinematics_kernel(
     if (!q || !RM || b >= B) return;
 
     __shared__ T s_q[N];
-    __shared__ T s_XmatsHom[NX*16];
+    __shared__ T s_XmatsHom[grid::XHOM_T_COUNT];
     __shared__ T s_jointX[NX * 16];
     __shared__ T s_tmp[NX * 2];
 
@@ -1489,7 +1450,7 @@ __global__ void forward_kinematics_kernel(
     __syncthreads();
 
     if (threadIdx.x == 0) {
-        grid::X_single_thread<T>(s_jointX, s_XmatsHom, s_q, FLANGE_IDX);
+        ee_fk_thread<T>(s_jointX, s_XmatsHom, s_q, EE_IDX, s_XmatsHom);
 
         if (ee_pose7) {
             const T* Cee = &s_jointX[EE_IDX * 16];
@@ -1839,7 +1800,11 @@ const double ENV_COLLISION_COST_W = 1.5;
 const double ORI_TARGET_RAD = 1.1e-4;
 const double ORI_OUTLIER_W  = 7000.0;
 
-template<typename T>
+// RT = LM-refine compute precision (the user-facing speed/accuracy knob). RT=double is the
+// full-fp64 default; RT=float runs FK/Jacobian/residual/line-search in fp32 (~2.4x cheaper FK,
+// cf. coarse_search) while the normal-equations Cholesky stays fp64 inside build_ne_and_solve_warp.
+// (Default RT=double is declared in the header; not repeated here.)
+template<typename T, typename RT>
 Result<T> generate_ik_solutions(
     T* target_pose,
     const grid::robotModel<T>* d_robotModel,
@@ -1929,7 +1894,9 @@ Result<T> generate_ik_solutions(
     const size_t num_elems_x  = (size_t)B * N;
     const size_t num_elems_p7 = (size_t)B * 7;
 
-    const grid::robotModel<TC>* d_robotModel_f = grid::init_robotModel<TC>();
+    // Robot model is a process-lifetime constant (baked from the URDF). Cache it once instead of
+    // malloc+H2D every call; the previous per-call init_robotModel was also never freed (leak).
+    static const grid::robotModel<TC>* d_robotModel_f = grid::init_robotModel<TC>();
 
     TC *d_x_c=nullptr, *d_pose_c=nullptr, *d_pos_mm_c=nullptr, *d_ori_r_c=nullptr;
     TC *d_target7_c=nullptr, *d_targets_coarse_c=nullptr;
@@ -2110,59 +2077,52 @@ Result<T> generate_ik_solutions(
         cudaGetLastError();
     }
 
-    // Refined targets in float
-    TC* d_targets_refined_c = nullptr;
-    CUDA_OK(cudaMalloc(&d_targets_refined_c, sizeof(TC) * 7 * (size_t)Krep));
-    {
-        const int blocks = Krep, tpb = 32;
-        replicate_target7_kernel<TC><<<blocks, tpb>>>(
-            d_target7_c, d_targets_refined_c, Krep);
-        cudaGetLastError();
-    }
     CUDA_OK(cudaDeviceSynchronize());
 
-    // JACOBIAN LM TUNER
-    double *dx64=nullptr, *dtgt64=nullptr, *dpose64=nullptr;
-    double *dposmm64=nullptr, *dori64=nullptr;
+    // JACOBIAN LM TUNER — runs in the refine precision RT (double by default; float = the
+    // fp32 speed knob). The Cholesky solve inside build_ne_and_solve_warp stays fp64 regardless.
+    // (Array names keep the "64" suffix for continuity; their element type is RT.)
+    RT *dx64=nullptr, *dtgt64=nullptr, *dpose64=nullptr;
+    RT *dposmm64=nullptr, *dori64=nullptr;
     const size_t KrepN = (size_t)Krep * N;
     const size_t Krep7 = (size_t)Krep * 7;
 
-    CUDA_OK(cudaMalloc(&dx64,    sizeof(double) * KrepN));
-    CUDA_OK(cudaMalloc(&dtgt64,  sizeof(double) * Krep7));
-    CUDA_OK(cudaMalloc(&dpose64, sizeof(double) * Krep7));
-    CUDA_OK(cudaMalloc(&dposmm64,sizeof(double) * Krep));
-    CUDA_OK(cudaMalloc(&dori64,  sizeof(double) * Krep));
+    CUDA_OK(cudaMalloc(&dx64,    sizeof(RT) * KrepN));
+    CUDA_OK(cudaMalloc(&dtgt64,  sizeof(RT) * Krep7));
+    CUDA_OK(cudaMalloc(&dpose64, sizeof(RT) * Krep7));
+    CUDA_OK(cudaMalloc(&dposmm64,sizeof(RT) * Krep));
+    CUDA_OK(cudaMalloc(&dori64,  sizeof(RT) * Krep));
 
-    // cast float -> double
+    // cast coarse float -> RT
     {
         const int tpb = 256;
         int gpb = (int)((KrepN + tpb - 1) / tpb);
-        cast_array<double, TC><<<gpb, tpb>>>(d_x_rep_c, dx64, KrepN);
+        cast_array<RT, TC><<<gpb, tpb>>>(d_x_rep_c, dx64, KrepN);
         cudaGetLastError();
         CUDA_OK(cudaDeviceSynchronize());
     }
 
-    // build double targets
-    double h_target7d[7];
+    // build RT targets
+    RT h_target7d[7];
     for (int i = 0; i < 7; ++i)
-        h_target7d[i] = static_cast<double>(target_pose[i]);
+        h_target7d[i] = static_cast<RT>(target_pose[i]);
 
-    double* d_target7_d = nullptr;
-    CUDA_OK(cudaMalloc(&d_target7_d, sizeof(double) * 7));
+    RT* d_target7_d = nullptr;
+    CUDA_OK(cudaMalloc(&d_target7_d, sizeof(RT) * 7));
     CUDA_OK(cudaMemcpy(d_target7_d, h_target7d,
-                       sizeof(double) * 7,
+                       sizeof(RT) * 7,
                        cudaMemcpyHostToDevice));
 
     {
         const int blocks = Krep;
         const int tpb    = 32;
-        replicate_target7_kernel<double><<<blocks, tpb>>>(
+        replicate_target7_kernel<RT><<<blocks, tpb>>>(
             d_target7_d, dtgt64, Krep);
         cudaGetLastError();
         CUDA_OK(cudaDeviceSynchronize());
     }
 
-    auto* d_robotModel64 = grid::init_robotModel<double>();
+    static auto* d_robotModel_rt = grid::init_robotModel<RT>();  // cached once per RT instantiation
     {
         int zero = 0, neg1 = -1;
         CUDA_OK(cudaMemcpyToSymbol(g_stop,   &zero, sizeof(int)));
@@ -2170,13 +2130,42 @@ Result<T> generate_ik_solutions(
     }
 
     {
-        const int TPB_lm   = 32;
         const int max_iters = 40;
         int stop_on_first_lm  = (num_solutions > 1) ? 0 : 1;
 
-        lm_tuner<double><<<Krep, TPB_lm>>>(
-            dx64, dpose64, dtgt64, dposmm64, dori64, d_robotModel64,
-            1e-8, 1e-8, 5e-3, max_iters, stop_on_first_lm
+        // Multi-warp LM: W independent candidates per block (one per warp). grid=ceil(Krep/W),
+        // block=32*W, dynamic shared = W * sizeof(LMWarpScratch<RT>) (opt-in >48KB).
+        // DEFAULT W=1 (fastest). MEASURED on the RTX 5090 (correct binary, 2026-06-18): W>1 is strictly
+        // SLOWER here — up to 41% (ns=1) / 63% (ns=4) at W=8 — because bigger blocks (32*W threads,
+        // W*~4KB smem) cut resident blocks/SM and the workload is far below GPU saturation, so there's no
+        // occupancy gain to offset it. W>1 is retained ONLY as an opt-in (env HJCD_LM_WARPS) for low-SM
+        // devices (e.g. Jetson) where few SMs saturate at low Krep — UNTESTED there. Clamp by Krep and by
+        // device max opt-in shared memory.
+        int W = 1;
+        if (const char* e = std::getenv("HJCD_LM_WARPS")) { int v = std::atoi(e); if (v >= 1 && v <= 32) W = v; }
+        if (Krep > 0 && W > Krep) W = Krep;
+        int lm_dev = 0; cudaGetDevice(&lm_dev);
+        int smem_optin = 48 * 1024;
+        cudaDeviceGetAttribute(&smem_optin, cudaDevAttrMaxSharedMemoryPerBlockOptin, lm_dev);
+        while (W > 1 && (size_t)W * sizeof(LMWarpScratch<RT>) > (size_t)smem_optin) W >>= 1;
+        const int TPB_lm  = 32 * W;
+        const int grid_lm = (Krep + W - 1) / W;
+        const size_t lm_smem = (size_t)W * sizeof(LMWarpScratch<RT>);
+        if (lm_smem > (size_t)48 * 1024) {
+            CUDA_OK(cudaFuncSetAttribute(lm_tuner<RT>,
+                cudaFuncAttributeMaxDynamicSharedMemorySize, (int)lm_smem));
+        }
+
+        // Convergence / early-stop tolerance (pos in m, ori in rad). Default 1e-8 m is far below the
+        // fp32 representable floor at ~0.5 m coords, so fp32 can't early-stop and grinds all iters at
+        // num_solutions=1 -> env knobs let us sweep a precision-appropriate looser tol.
+        RT eps_pos = (RT)1e-8, eps_ori = (RT)1e-8;
+        if (const char* e = std::getenv("HJCD_LM_EPS_POS")) { double v = std::atof(e); if (v > 0) eps_pos = (RT)v; }
+        if (const char* e = std::getenv("HJCD_LM_EPS_ORI")) { double v = std::atof(e); if (v > 0) eps_ori = (RT)v; }
+
+        lm_tuner<RT><<<grid_lm, TPB_lm, lm_smem>>>(
+            dx64, dpose64, dtgt64, dposmm64, dori64, d_robotModel_rt,
+            eps_pos, eps_ori, (RT)5e-3, max_iters, Krep, stop_on_first_lm
         );
         cudaGetLastError();
         CUDA_OK(cudaDeviceSynchronize());
@@ -2202,7 +2191,18 @@ Result<T> generate_ik_solutions(
         }
         {
             const int CC_TPB = 4;
-            score_environment_costs_panda<<<Krep, CC_TPB>>>(dx64, Krep, d_env_cost_refined, d_env);
+            if constexpr (std::is_same_v<RT, double>) {
+                score_environment_costs_panda<<<Krep, CC_TPB>>>(dx64, Krep, d_env_cost_refined, d_env);
+            } else {
+                // score_environment_costs_panda is fp64-only; cast the RT refined x up to double.
+                double* dx_ref_d = nullptr;
+                CUDA_OK(cudaMalloc(&dx_ref_d, sizeof(double) * KrepN));
+                cast_array<double, RT><<<(int)((KrepN + 255) / 256), 256>>>(dx64, dx_ref_d, KrepN);
+                score_environment_costs_panda<<<Krep, CC_TPB>>>(dx_ref_d, Krep, d_env_cost_refined, d_env);
+                cudaGetLastError();
+                CUDA_OK(cudaDeviceSynchronize());
+                cudaFree(dx_ref_d);
+            }
             cudaGetLastError();
             CUDA_OK(cudaDeviceSynchronize());
         }
@@ -2221,16 +2221,25 @@ Result<T> generate_ik_solutions(
                            cudaMemcpyDeviceToHost));
     }
 
+    // Read the RT device results back into double host buffers (downstream stays fp64).
     std::vector<double> h_posmm64(Krep), h_orir64(Krep);
     std::vector<double> h_pose64(Krep7), h_x64(KrepN);
-    CUDA_OK(cudaMemcpy(h_posmm64.data(), dposmm64,
-                       sizeof(double)*Krep,  cudaMemcpyDeviceToHost));
-    CUDA_OK(cudaMemcpy(h_orir64 .data(), dori64,
-                       sizeof(double)*Krep,  cudaMemcpyDeviceToHost));
-    CUDA_OK(cudaMemcpy(h_pose64 .data(), dpose64,
-                       sizeof(double)*Krep7, cudaMemcpyDeviceToHost));
-    CUDA_OK(cudaMemcpy(h_x64    .data(), dx64,
-                       sizeof(double)*KrepN, cudaMemcpyDeviceToHost));
+    if constexpr (std::is_same_v<RT, double>) {
+        CUDA_OK(cudaMemcpy(h_posmm64.data(), dposmm64, sizeof(double)*Krep,  cudaMemcpyDeviceToHost));
+        CUDA_OK(cudaMemcpy(h_orir64 .data(), dori64,   sizeof(double)*Krep,  cudaMemcpyDeviceToHost));
+        CUDA_OK(cudaMemcpy(h_pose64 .data(), dpose64,  sizeof(double)*Krep7, cudaMemcpyDeviceToHost));
+        CUDA_OK(cudaMemcpy(h_x64    .data(), dx64,      sizeof(double)*KrepN, cudaMemcpyDeviceToHost));
+    } else {
+        std::vector<RT> t_posmm(Krep), t_orir(Krep), t_pose(Krep7), t_x(KrepN);
+        CUDA_OK(cudaMemcpy(t_posmm.data(), dposmm64, sizeof(RT)*Krep,  cudaMemcpyDeviceToHost));
+        CUDA_OK(cudaMemcpy(t_orir .data(), dori64,   sizeof(RT)*Krep,  cudaMemcpyDeviceToHost));
+        CUDA_OK(cudaMemcpy(t_pose .data(), dpose64,  sizeof(RT)*Krep7, cudaMemcpyDeviceToHost));
+        CUDA_OK(cudaMemcpy(t_x    .data(), dx64,      sizeof(RT)*KrepN, cudaMemcpyDeviceToHost));
+        std::copy(t_posmm.begin(), t_posmm.end(), h_posmm64.begin());
+        std::copy(t_orir .begin(), t_orir .end(), h_orir64 .begin());
+        std::copy(t_pose .begin(), t_pose .end(), h_pose64 .begin());
+        std::copy(t_x    .begin(), t_x    .end(), h_x64    .begin());
+    }
 
     // GET SOLUTIONS
     const int S_target = std::max(1, num_solutions);
@@ -2324,7 +2333,6 @@ Result<T> generate_ik_solutions(
     cudaFree(d_scores_c);
     cudaFree(d_x_top_c);
     cudaFree(d_x_rep_c);
-    cudaFree(d_targets_refined_c);
 
     cudaFree(d_targets_coarse_c);
     cudaFree(d_x_c);
@@ -2350,7 +2358,18 @@ Result<T> generate_ik_solutions(
     return result;
 }
 
-template Result<double> generate_ik_solutions<double>(
+template Result<double> generate_ik_solutions<double>(   // RT=double (full fp64, default)
+    double* target_pose,
+    const grid::robotModel<double>* d_robotModel,
+    int b_size,
+    int num_solutions,
+    bool collision_free,
+    const char* problems_json_text,
+    const char* problem_set_name,
+    int problem_idx
+);
+
+template Result<double> generate_ik_solutions<double, float>(   // RT=float (fp32 refine knob)
     double* target_pose,
     const grid::robotModel<double>* d_robotModel,
     int b_size,

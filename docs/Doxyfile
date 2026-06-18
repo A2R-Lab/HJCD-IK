@@ -1,0 +1,17 @@
+# Minimal Doxygen config for HJCD-IK — emits XML for Breathe/Sphinx.
+PROJECT_NAME           = "HJCD-IK"
+PROJECT_BRIEF          = "Hybrid Jacobian Coordinate Descent Inverse Kinematics (GPU)"
+OUTPUT_DIRECTORY       = doxygen
+INPUT                  = ../src ../include
+FILE_PATTERNS          = *.cu *.cuh *.h *.hpp *.cpp
+RECURSIVE              = YES
+# The generated GRiD header and vendored deps are not part of HJCD-IK's API.
+EXCLUDE                = ../include/test_cuh ../external
+EXTENSION_MAPPING      = cu=C++ cuh=C++
+GENERATE_HTML          = NO
+GENERATE_LATEX         = NO
+GENERATE_XML           = YES
+XML_PROGRAMLISTING     = NO
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = NO
+JAVADOC_AUTOBRIEF      = YES

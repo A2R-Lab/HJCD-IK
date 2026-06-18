@@ -6,10 +6,15 @@ This repository contains the code from ["HJCD-IK: GPU-Accelerated Inverse Kinema
 
 ## Requirements
 
-- NVIDIA GPU + **CUDA Toolkit 12.x**
+- NVIDIA GPU + **CUDA Toolkit 12.x or 13.x**
 - **Python &ge; 3.9**
 - **CMake &ge; 3.23**
 - **Visual Studio 2022** (Windows) or **GCC/Clang** (Linux)
+- System header libraries **Eigen3** and **nlohmann-json**. On Debian/Ubuntu:
+  ```bash
+  sudo apt install -y libeigen3-dev nlohmann-json3-dev
+  ```
+  (`scripts/setup_dev.sh` installs these for you on apt-based systems.)
 
 ## Installation
 ```bash

@@ -485,7 +485,10 @@ inline void printCUDADeviceInfo() {
                 << prop.maxGridSize[2] << "\n";
         
         // Memory Clock and Bus Width
-        std::cout << "Memory Clock Rate: " << prop.memoryClockRate / 1000.0 << " MHz\n";
+        // Queried via the attribute API: cudaDeviceProp::memoryClockRate was removed in CUDA 13.
+        int memClockKHz = 0;
+        cudaDeviceGetAttribute(&memClockKHz, cudaDevAttrMemoryClockRate, device);
+        std::cout << "Memory Clock Rate: " << memClockKHz / 1000.0 << " MHz\n";
         std::cout << "Memory Bus Width: " << prop.memoryBusWidth << " bits\n";
         
         // Additional Features
