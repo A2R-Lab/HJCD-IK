@@ -15,7 +15,11 @@ solutions in parallel for a 6-DOF end-effector target, with optional collision a
 **One CUDA block per IK problem; warp-per-candidate inside.** The solver is **warp-scoped throughout**
 (`warp_id = threadIdx.x >> 5`, `lane = threadIdx.x & 31`), not block-scoped — this is the core performance
 contract. Two phases (`src/hjcd_kernel.cu`):
-1. **Coarse search** (`coarse_search`): random restarts + greedy per-joint coordinate descent to get near the target.
+1. **Coarse search** (`coarse_search`): random restarts + greedy pairwise coordinate descent. The candidate
+   sweep over the second joint runs **lane-parallel across the warp** (`for j = lane; j < N; j += WARP_SIZE`
+   + warp min-reduce); each candidate recomputes only the **FK suffix** from its perturbed joint
+   (`ee_fk_suffix_thread`, built on `grid::update_XmatHom_joint`) rather than a full chain — this is what
+   makes high-DoF scale (was O(N³) serial-on-lane-0; see `docs/agent_debugging_guide.md` §5).
 2. **LM refine** (`solve_lm_batched` / `lm_tuner`): single-warp Levenberg–Marquardt — build the 6×N geometric
    Jacobian (cross-products), form & solve the normal equations `(JᵀJ + λ·diag)Δq = Jᵀr` via a hand-rolled
    `__shfl` warp-Cholesky, with dogleg/line-search backtracking.
@@ -29,7 +33,7 @@ joints, `EE_IDX = 7`, `FLANGE_IDX = 8`, `NX = 9` stored frames.
 | Path | What it is |
 |---|---|
 | `src/hjcd_kernel.cu` | The solver: coarse search + LM refine, all warp-scoped. **The file you'll edit most.** |
-| `include/hjcd_settings.h` | `HJCDSettings<T>` (epsilon/nu/k_max), `mat4_mul`, `#include "grid.cuh"`, `N = grid::NUM_JOINTS`. |
+| `include/hjcd_settings.h` | `HJCDSettings<T>`, `mat4_mul`, FK helpers (`ee_fk_warp`/`ee_fk_thread`/`ee_fk_suffix_thread`), `#include "grid.cuh"`, `N`/`FLANGE_JID`/`GRASP_FIXED_IDX`. |
 | `include/test_cuh/grid.cuh` | **Generated** GRiD kinematics header (FK, robot model). Do **not** hand-edit. |
 | `external/GRiD/` | Submodule: GRiD codegen (emits `grid.cuh` from a URDF). |
 | `external/GLASS/` | Submodule: GLASS single-block / warp linear algebra. |
