@@ -97,6 +97,44 @@ void ee_fk_thread(T* s_jointX, T* s_XmatsHom, T* s_q, int ee_slot, const T* s_fi
              &s_jointX[16 * ee_slot]);
 }
 
+// Single-joint SUFFIX FK for coordinate-descent candidates. Computes the EE world
+// transform (grasptarget applied, written to out_ee16[0..15]) of a config that equals an
+// ANCHOR config EXCEPT joint `jovr` is set to angle `aovr`. Reuses the anchor's cumulative
+// world chain (l_anchorX) and per-joint locals (l_anchorLoc) for joints before/after jovr
+// and recomputes only joints jovr..FLANGE_JID via grid::update_XmatHom_joint. O(1) scratch
+// (a running 4x4 + one overridden local) — independent of DoF, so it scales to large robots
+// where a full per-candidate chain copy would not fit shared memory.
+//
+// BIT-IDENTICAL to a full thread FK of the candidate when the anchor was itself built by a
+// thread FK (same locals, same compose order; only joint jovr's local differs).
+// Assumes a SERIAL chain (parent(j) == j-1) — true for all current robots (Panda + DoF
+// variants + the Fetch arm). Tree/branched robots (humanoids) need the parent table and a
+// subtree walk (follow-up); the grid::update_XmatHom_joint primitive itself is general.
+template<typename T>
+__device__ __forceinline__
+void ee_fk_suffix_thread(T* out_ee16, const T* l_anchorX, const T* l_anchorLoc,
+                         const T* s_XmatsHom_full, int jovr, T aovr) {
+    T W[16];
+    if (jovr <= 0) {
+        #pragma unroll
+        for (int m = 0; m < 16; ++m) W[m] = (T)0;
+        W[0] = W[5] = W[10] = W[15] = (T)1;                 // identity: no parent
+    } else {
+        #pragma unroll
+        for (int m = 0; m < 16; ++m) W[m] = l_anchorX[16 * (jovr - 1) + m];
+    }
+    T locbuf[16], Wt[16];
+    for (int kk = (jovr > 0 ? jovr : 0); kk <= hjcd::FLANGE_JID; ++kk) {
+        const T* loc;
+        if (kk == jovr) { grid::update_XmatHom_joint<T>(locbuf, l_anchorLoc, kk, aovr); loc = locbuf; }
+        else            { loc = &l_anchorLoc[16 * kk]; }
+        mat4_mul(W, loc, Wt);
+        #pragma unroll
+        for (int m = 0; m < 16; ++m) W[m] = Wt[m];
+    }
+    mat4_mul(W, &s_XmatsHom_full[16 * hjcd::GRASP_FIXED_IDX], out_ee16);
+}
+
 struct RefineSchedule {
     int    top_k;
     int    repeats;

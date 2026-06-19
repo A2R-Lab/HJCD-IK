@@ -10122,6 +10122,72 @@ namespace grid {
     }
 
     /**
+     * Single-joint homogeneous-transform builder: writes joint j's 4x4 local transform (16 cells) into s_Xj at an EXPLICIT angle theta, sourcing the constant cells from the pre-loaded s_XmatsHom and overriding only the q-dependent cells. Robot-general (switch over the parser's per-joint Xmats). Lets a caller re-evaluate one perturbed joint without recomputing the whole chain (coordinate-descent candidate FK / suffix recompute).
+     *
+     * Notes:
+     *   Assumes the constant (q-independent) cells of s_XmatsHom are pre-loaded.
+     *
+     * @param s_Xj is the 16-element destination for joint j's local transform
+     * @param s_XmatsHom is the pointer to the per-joint homogeneous transforms (16 per joint)
+     * @param j is the joint id to (re)build
+     * @param theta is the joint angle to evaluate at
+     */
+    template <typename T>
+    __device__ __forceinline__
+    void update_XmatHom_joint(T *s_Xj, const T *s_XmatsHom, int j, T theta) {
+        const T s = static_cast<T>(sin(theta));
+        const T c = static_cast<T>(cos(theta));
+        (void)s; (void)c;
+        #pragma unroll
+        for (int m = 0; m < 16; ++m) { s_Xj[m] = s_XmatsHom[16*j + m]; }
+        switch (j) {
+            case 0: {
+                s_Xj[0] = static_cast<T>(c);
+                s_Xj[1] = static_cast<T>(s);
+                s_Xj[4] = static_cast<T>(-s);
+                s_Xj[5] = static_cast<T>(c);
+            } break;
+            case 1: {
+                s_Xj[0] = static_cast<T>(c);
+                s_Xj[2] = static_cast<T>(-s);
+                s_Xj[4] = static_cast<T>(-s);
+                s_Xj[6] = static_cast<T>(-c);
+            } break;
+            case 2: {
+                s_Xj[0] = static_cast<T>(c);
+                s_Xj[2] = static_cast<T>(s);
+                s_Xj[4] = static_cast<T>(-s);
+                s_Xj[6] = static_cast<T>(c);
+            } break;
+            case 3: {
+                s_Xj[0] = static_cast<T>(c);
+                s_Xj[2] = static_cast<T>(s);
+                s_Xj[4] = static_cast<T>(-s);
+                s_Xj[6] = static_cast<T>(c);
+            } break;
+            case 4: {
+                s_Xj[0] = static_cast<T>(c);
+                s_Xj[2] = static_cast<T>(-s);
+                s_Xj[4] = static_cast<T>(-s);
+                s_Xj[6] = static_cast<T>(-c);
+            } break;
+            case 5: {
+                s_Xj[0] = static_cast<T>(c);
+                s_Xj[2] = static_cast<T>(s);
+                s_Xj[4] = static_cast<T>(-s);
+                s_Xj[6] = static_cast<T>(c);
+            } break;
+            case 6: {
+                s_Xj[0] = static_cast<T>(c);
+                s_Xj[2] = static_cast<T>(s);
+                s_Xj[4] = static_cast<T>(-s);
+                s_Xj[6] = static_cast<T>(c);
+            } break;
+            default: break;
+        }
+    }
+
+    /**
      * Warp-per-sample forward kinematics: warp-cooperative chain walk that fills the full cumulative (world-frame) joint transforms s_jointXforms from s_q. Robot-general (any DoF / joint types). 3 lanes own the matrix rows; __syncwarp between levels. Reads s_jointXforms[16*target_idx] for the world pose of frame target_idx.
      *
      * Notes:

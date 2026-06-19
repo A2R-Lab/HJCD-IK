@@ -312,6 +312,28 @@ __device__ T compute_pos_err(const T* C, const T* target_pose) {
     return sqrt(dx * dx + dy * dy + dz * dz);
 }
 
+// Variants taking a standalone 16-cell EE transform (offset 0) rather than a full chain
+// indexed at EE_IDX — used by the lane-parallel coarse candidates, which keep each
+// candidate's EE pose in a per-lane register buffer instead of a shared frame array.
+template<typename T>
+__device__ __forceinline__ T compute_pos_err_at(const T* ee16, const T* target_pose) {
+    const T dx = ee16[12] - target_pose[0];
+    const T dy = ee16[13] - target_pose[1];
+    const T dz = ee16[14] - target_pose[2];
+    return sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+template<typename T>
+__device__ __forceinline__ T compute_ori_err_at(const T* ee16, const T* q_goal) {
+    T qee[4];
+    mat_to_quat(ee16, qee);
+    if (qee[0]*q_goal[0]+qee[1]*q_goal[1]+qee[2]*q_goal[2]+qee[3]*q_goal[3] < (T)0) {
+        qee[0]=-qee[0]; qee[1]=-qee[1]; qee[2]=-qee[2]; qee[3]=-qee[3];
+    }
+    T wv[3]; quat_err_rotvec(qee, q_goal, wv);
+    return sqrt(wv[0]*wv[0] + wv[1]*wv[1] + wv[2]*wv[2]);
+}
+
 // SOLVE
 template<typename T>
 __device__ T solve_pos(const T* s_jointXforms, const T* pos, const T* target_pose_local, int joint, int k, int k_max, T delta_min = 0.35, T delta_max = 0.75) {
@@ -1122,13 +1144,16 @@ __global__ void coarse_search(
     if (!x || !pose || !targetsB || !pos_errors || !ori_errors || !d_robotModel) return;
     if (warps_per_block == 0) return;
 
-    // Two per-warp scratch blocks only: l_tmp (copy buffer) and l_C (computed transforms)
+    // Two per-warp scratch blocks: l_tmp (anchor-p locals) and l_C1 (anchor-p world chain).
+    // The anchor FK (cand_p) is computed ONCE per anchor; every candidate j then recomputes
+    // only the suffix from j into a PER-LANE register buffer (no shared per-candidate frame
+    // array needed), so candidates parallelize across the warp's lanes.
     extern __shared__ __align__(16) unsigned char s_dyn_raw[];
     T* s_dyn = reinterpret_cast<T*>(s_dyn_raw);
     const size_t per_warp_elems = (size_t)(2 * NX * 16);
     T* warp_base = s_dyn + (size_t)warp * per_warp_elems;
     T* l_tmp = warp_base;
-    T* l_C   = warp_base + (size_t)(NX * 16);
+    T* l_C1  = warp_base + (size_t)(NX * 16);
 
     __shared__ int  s_stop;
     __shared__ int  s_allow_ori;
@@ -1237,48 +1262,62 @@ __global__ void coarse_search(
             T best_err_lane = pos_phase ? s_glob_pos_err : s_glob_ori_err;
             int best_j_lane = -1;
 
+            // cand_p = s_x with the anchor perturbation on joint p — shared by every candidate j.
+            // C1 (the FK of cand_p) is computed ONCE on lane 0 into per-warp l_C1 (world chain)
+            // + l_tmp (locals), then published to the whole warp; the N candidates then run in
+            // PARALLEL across the warp's lanes (strided, so N > 32 / humanoids are supported),
+            // each recomputing only the suffix from its joint j into a per-lane EE buffer.
+            const T delta1 = pos_phase ? s_pos_theta1[p] : s_ori_theta1[p];
             if (lane == 0) {
-                for (int j = 0; j < N; ++j) {
-                    // Build candidate vector in registers
-                    T cand[N];
-                    #pragma unroll
-                    for (int m = 0; m < N; ++m) cand[m] = s_x[m];
+                T cand_p[N];
+                #pragma unroll
+                for (int m = 0; m < N; ++m) cand_p[m] = s_x[m];
+                cand_p[p] = clamp_val<T>(cand_p[p] + delta1,
+                                         (T)c_joint_limits[p].x, (T)c_joint_limits[p].y);
+                #pragma unroll
+                for (int m = 0; m < NX * 16; ++m) l_tmp[m] = s_XmatsHom[m];
+                ee_fk_thread<T>(l_C1, l_tmp, cand_p, EE_IDX, s_XmatsHom);
+            }
+            __syncwarp(FULL_WARP_MASK);   // publish l_C1 / l_tmp (lane 0 -> all lanes)
 
-                    const T delta1 = pos_phase ? s_pos_theta1[p] : s_ori_theta1[p];
-                    cand[p] = clamp_val<T>(cand[p] + delta1,
+            const int ee = EE_IDX * 16;
+            const T pos1[3] = { l_C1[ee + 12], l_C1[ee + 13], l_C1[ee + 14] };
+            const T cand_pp = clamp_val<T>(s_x[p] + delta1,
                                            (T)c_joint_limits[p].x, (T)c_joint_limits[p].y);
 
-                    // C1: apply p on top of s_XmatsHom -> l_C
-                    #pragma unroll
-                    for (int m = 0; m < NX * 16; ++m) l_tmp[m] = s_XmatsHom[m];
-                    ee_fk_thread<T>(l_C, l_tmp, cand, EE_IDX, s_XmatsHom);
-
-                    // Compute theta2 using C1
-                    T theta2 = (T)0;
-                    if (pos_phase) {
-                        const int ee = EE_IDX * 16;
-                        T pos1[3] = { l_C[ee + 12], l_C[ee + 13], l_C[ee + 14] };
-                        theta2 = solve_pos<T>(l_C, pos1, target_pose_local, j, k, HJCDSettings<T>::k_max);
-                    } else {
-                        theta2 = s_allow_ori ? solve_ori<T>(l_C, q_t, j, k, HJCDSettings<T>::k_max) : (T)0;
-                    }
-
-                    cand[j] = clamp_val<T>(cand[j] + theta2,
-                                           (T)c_joint_limits[j].x, (T)c_joint_limits[j].y);
-
-                    // C2: reapply full cand (p and j) on top of s_XmatsHom -> l_C
-                    #pragma unroll
-                    for (int m = 0; m < NX * 16; ++m) l_tmp[m] = s_XmatsHom[m];
-                    ee_fk_thread<T>(l_C, l_tmp, cand, EE_IDX, s_XmatsHom);
-
-                    const T err = pos_phase
-                        ? compute_pos_err(l_C, target_pose_local)
-                        : compute_ori_err(l_C, q_t);
-
-                    if (err < best_err_lane) { best_err_lane = err; best_j_lane = j; }
+            for (int j = lane; j < N; j += WARP_SIZE) {
+                // theta2 from C1 (all lanes read the shared anchor FK read-only)
+                T theta2 = (T)0;
+                if (pos_phase) {
+                    theta2 = solve_pos<T>(l_C1, pos1, target_pose_local, j, k, HJCDSettings<T>::k_max);
+                } else {
+                    theta2 = s_allow_ori ? solve_ori<T>(l_C1, q_t, j, k, HJCDSettings<T>::k_max) : (T)0;
                 }
+                const T candp_j = (j == p) ? cand_pp : s_x[j];   // cand_p[j]
+                const T aj = clamp_val<T>(candp_j + theta2,
+                                          (T)c_joint_limits[j].x, (T)c_joint_limits[j].y);
+
+                // C2 = cand_p with only joint j perturbed -> reuse C1's chain/locals, recompute
+                // only the suffix from j into a per-lane EE transform. Bit-identical to a full FK.
+                T ee16[16];
+                ee_fk_suffix_thread<T>(ee16, l_C1, l_tmp, s_XmatsHom, j, aj);
+                const T err = pos_phase ? compute_pos_err_at(ee16, target_pose_local)
+                                        : compute_ori_err_at(ee16, q_t);
+
+                if (err < best_err_lane) { best_err_lane = err; best_j_lane = j; }
             }
 
+            // warp min-reduce over candidates; tie-break to the LOWEST j to match the serial
+            // "first strict-improvement wins" selection exactly.
+            #pragma unroll
+            for (int off = WARP_SIZE >> 1; off > 0; off >>= 1) {
+                const T   o_err = __shfl_down_sync(FULL_WARP_MASK, best_err_lane, off);
+                const int o_j   = __shfl_down_sync(FULL_WARP_MASK, best_j_lane,   off);
+                if (o_err < best_err_lane ||
+                    (o_err == best_err_lane && o_j >= 0 && (best_j_lane < 0 || o_j < best_j_lane))) {
+                    best_err_lane = o_err; best_j_lane = o_j;
+                }
+            }
             best_err_lane = __shfl_sync(FULL_WARP_MASK, best_err_lane, 0);
             best_j_lane   = __shfl_sync(FULL_WARP_MASK, best_j_lane,   0);
 
