@@ -115,5 +115,21 @@ Full data: [`open-tasks/multiwarp_timing_result.md`](open-tasks/multiwarp_timing
   gate on foreign *apps* only. *Lesson: a process can't use util to tell if IT is the one keeping the GPU
   busy; gate on foreign pids, not aggregate util, once you're running.*
 
+- **⚠️ nsys-SPLIT before attributing a high-DoF / scaling cost to a kernel.** When 24-DoF was ~13× slower
+  than 7-DoF, the "obvious" suspect was the fp64 O(DoF³) warp-Cholesky in `lm_tuner` — **wrong.** A
+  fp32-vs-fp64 A/B (fp32 came out *slower* at every DoF) refuted it, and the per-kernel nsys split
+  (`scripts/perf/dof_scaling_ab.sh --nsys`) showed `coarse_search` is **88%** of the 24-DoF wall and scales
+  ~O(N³), while `lm_tuner` only grows 2.5×. Root cause: the greedy candidate loop (`hjcd_kernel.cu:1231-
+  1289`) runs O(N³) work **serialized on `lane==0`** (the FK scratch `l_C`/`l_tmp` is per-warp, so 31/32
+  lanes idle) with **two full O(N) `ee_fk_thread` chains per candidate** — the suffix/partial-FK recompute
+  that was deferred during the GRiD-FK migration. *Lesson: a kernel's name and the most-numerically-scary
+  line are not evidence; split the wall by kernel (nsys `cuda_gpu_kern_sum`) and A/B the suspected lever
+  before believing a cause. The fix for a warp kernel that scales badly is almost always restoring
+  warp-parallelism (here: parallelize the inner loop + partial FK), not changing precision.*
+- **Tolerance is a per-regime lever, and looser tol can be a trap.** The LM early-stop (`:796/802`) only
+  shortens `lm_tuner`; at high DoF where `coarse_search` dominates, a looser tol buys ~1.05× *and* craters
+  accuracy (11–140 mm — it returns coarse-quality solutions). Keep tight 1e-8 unless you've confirmed via
+  nsys that the LM loop is the bottleneck for your DoF/num_solutions.
+
 ## 6. Lessons log
 *(Append new bug classes / tricks here as they emerge — keep this guide the single source of truth.)*
