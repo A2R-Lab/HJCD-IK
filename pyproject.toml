@@ -25,6 +25,28 @@ dependencies = [
   "lxml>=4.2.1",
 ]
 
+# OPTIONAL extras. Base install stays lightweight (HJCD-IK needs none of these). The competitor
+# baselines are heavy and skippable — see docs/BASELINES.md.
+[project.optional-dependencies]
+# Lightweight tooling + PyRoki's pure-python friends that pip CAN resolve. The solver stacks
+# themselves (PyRoki, cuRobo) and their JAX-CUDA / torch deps are NOT plain-PyPI installs — run
+# scripts/install_baselines.sh, which installs this extra and then the git/source solvers.
+baselines = [
+  "pyyaml>=5.4",                # goal_file / world yaml parsing
+  "pandas>=1.3",                # baseline results CSV
+  "tabulate>=0.8",              # console summary tables
+  "jaxlie>=1.4",                # SE3/SO3 pose-error metrics (PyRoki path)
+  "yourdfpy>=0.0.56",           # URDF load (PyRoki path)
+  "robot_descriptions>=1.10",   # panda_description (PyRoki path)
+]
+plots = [
+  "matplotlib>=3.5",   # benchmark/plot_pareto.py (Figs 4/5). make_tables.py needs nothing extra.
+]
+dev = [
+  "pytest>=7.0",
+  "scipy>=1.7",
+]
+
 [tool.scikit-build]
 cmake.version = ">=3.23"
 build-dir = "build"
