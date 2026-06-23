@@ -13,6 +13,7 @@ from __future__ import annotations  # lazy annotations: cuRobo types in signatur
 
 # Disable JAX prealloc etc
 import os
+import gc
 import tempfile
 from pathlib import Path
 
@@ -1073,23 +1074,28 @@ if __name__ == "__main__":
         instances = load_mb_problem_set(MB_JSON_PATH, args.problem_set)[:args.num_instances]
 
         if args.mode == "curobo":
+            # FAIR cuRobo collision timing: build the solver ONCE per seed count (mirroring cuRobo's own
+            # benchmark/ik_benchmark.py) and swap the obstacle scene per instance via update_world(), which
+            # writes in-place into the pre-allocated collision_cache buffers and therefore keeps the captured
+            # CUDA graph valid (no per-scene re-capture). All bookshelf instances share one obstacle topology
+            # (12 cuboids + 10 cylinders << the 64/64 cache), so update_world never reallocates. Rebuilding a
+            # solver per scene (the old path) both lost graph amortization AND hit cudaErrorStreamCaptureInvalidated.
             for num_seeds in seed_list:
                 print(f"  curobo num_seeds: {num_seeds}")
+                ik_solver, tensor_args = make_curobo_solver_from_world_dict(
+                    robot_file=robot_file, world_dict=mb_instance_to_world_dict(instances[0]),
+                    collision_free=True, high_precision=args.high_precision,
+                    use_cuda_graph=args.use_cuda_graph, num_seeds=num_seeds,
+                    # MB problems are posed in the grasp frame; match it (else ~100 mm wrong-frame error).
+                    robot_urdf=args.robot_urdf, base_link=args.base_link, ee_link=args.ee_link,
+                )
+                # Warm up (and capture the graph) once on the first instance's scene + goal.
+                wx0, wp0 = mb_instance_to_cylinder_goal(instances[0], eps=1e-4, rot_sign=+1)
+                warmup_curobo_solver(ik_solver, tensor_args, np.concatenate([wp0, wx0]), repeat=3)
                 for idx, inst in enumerate(instances):
-                    world_dict = mb_instance_to_world_dict(inst)
-                    ik_solver, tensor_args = make_curobo_solver_from_world_dict(
-                        robot_file=robot_file, world_dict=world_dict,
-                        collision_free=True, high_precision=args.high_precision,
-                        # CUDA-graph capture is rebuilt per collision scene here and can hit
-                        # cudaErrorStreamCaptureInvalidated on some scenes; the per-instance solver
-                        # rebuild already negates the graph's amortization, so disable it for stability.
-                        use_cuda_graph=False, num_seeds=num_seeds,
-                        # MB problems are posed in the grasp frame; match it (else ~100 mm wrong-frame error).
-                        robot_urdf=args.robot_urdf, base_link=args.base_link, ee_link=args.ee_link,
-                    )
+                    ik_solver.update_world(_world_dict_to_scene(mb_instance_to_world_dict(inst)))
                     target_wxyz, target_pos = mb_instance_to_cylinder_goal(inst, eps=1e-4, rot_sign=+1)
                     goal7 = np.concatenate([target_pos, target_wxyz])
-                    warmup_curobo_solver(ik_solver, tensor_args, goal7, repeat=2)
                     dt_s, succ_pct, pos98, ori98, sols, pos_errs, ori_errs = run_curobo_on_goal_batch(ik_solver, goal7[None, :], tensor_args)
                     record_row(problem_idx=idx, num_seeds=num_seeds, solver_name="curobo",
                                time_ms=dt_s * 1000.0, pos_err_mm=pos98 * 1000.0, ori_err_rad=ori98, succ_pct=succ_pct)
@@ -1104,6 +1110,12 @@ if __name__ == "__main__":
                         print(f"ori_err_rad: {ori_errs[0]:.6e}")
                         print(f"succ(%):     {succ_pct:.1f}")
                         print("=====================================\n")
+                # Free this seed-count's collision solver (+ its captured graph/collision buffers) before
+                # building the next. Without this, 5 accumulated collision solvers fragment the CUDA graph
+                # memory pool and a later capture forces a disallowed cudaMalloc -> StreamCaptureInvalidated.
+                del ik_solver
+                gc.collect()
+                torch.cuda.empty_cache()
         else:
             for num_seeds_init in seed_list:
                 print(f"  pyroki num_seeds_init: {num_seeds_init}")
