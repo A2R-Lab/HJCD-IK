@@ -18,7 +18,7 @@ Built on GRiD (kinematics codegen) + GLASS (single-block/warp linear algebra).
 
 **Where things live:** solver `src/hjcd_kernel.cu`; generated kinematics `include/test_cuh/grid.cuh`
 (from `external/GRiD`); warp linalg `external/GLASS`; robot collision `src/robots/{panda,fetch}.cuh`;
-Python API `hjcdik/__init__.py` + `src/pybind_module.cpp`; benchmark `benchmark/ik_benchmark.py`.
+Python API `hjcdik/__init__.py` + `src/pybind_module.cpp`; benchmark `benchmark/hjcd_ik_bench.py`.
 
 **Discipline:** never hand-edit `grid.cuh`; keep `FLANGE_IDX`/target consistent; keep math warp-scoped;
 short single-line commits, no Co-Authored-By footer.

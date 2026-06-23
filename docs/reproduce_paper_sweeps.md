@@ -26,12 +26,12 @@ offset — this arm URDF has no gripper geometry).
 ```bash
 python scripts/generate_grid.py include/test_urdf/<robot>.urdf -t <target>   # injects EE_FIXED_FRAME_IDX
 bash scripts/rebuild.sh                                                        # ninja + install (NOT ninja alone)
-python benchmark/ik_benchmark.py --skip-grid-codegen --batches 1,10,100,1000,2000 \
+python benchmark/hjcd_ik_bench.py --skip-grid-codegen --batches 1,10,100,1000,2000 \
     --num-targets 100 --num-solutions 1 --csv-out /tmp/<robot>.csv
 # collision-free (Panda): add  --collision-free --problems-json tests/mb_problems.json --problem-set bookshelf_thin_panda
 # restore Panda afterward: generate_grid.py panda.urdf -t panda_grasptarget_hand && scripts/rebuild.sh
 ```
-(The in-repo `benchmark/ik_benchmark.py` built-in codegen path imports a stale `GRiD.GRiDCodeGenerator`
+(The in-repo `benchmark/hjcd_ik_bench.py` built-in codegen path imports a stale `GRiD.GRiDCodeGenerator`
 layout and fails with our integration — always codegen via `scripts/generate_grid.py`.)
 
 ## Reproduced results

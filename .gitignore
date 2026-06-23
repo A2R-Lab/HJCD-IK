@@ -66,6 +66,9 @@ x64/
 
 # Generated output
 hjcd_ik_per_batch.yml
+# Benchmark run outputs + generated shared targets (regenerable per run/machine)
+benchmark/results/
+benchmark/targets/
 
 # Python venv
 *.venv

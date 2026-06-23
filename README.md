@@ -41,6 +41,15 @@ You can install `hjcdik` with `pip` on Python &ge; 3.9:
 python -m pip install -e .
 ```
 
+### Optional: competitor baselines (PyRoki / cuRobo)
+The base install is lightweight and needs none of the baselines. To benchmark HJCD-IK against the
+paper's competitors, install them with the helper (each stage is skippable — some are heavy):
+```bash
+./scripts/install_baselines.sh                 # PyRoki + cuRobo
+SKIP_CUROBO=1 ./scripts/install_baselines.sh   # PyRoki only
+```
+See [`docs/BASELINES.md`](docs/BASELINES.md) for the full install/run guide and reproduction coverage.
+
 ## Using different robots
 At installation, HJCD-IK creates a new GRiD header file for the Franka Panda Arm and sets `panda_grasptarget_hand` as its end-effector flange. To use a different robot, you must first create a new `grid.cuh` header file using:
 ```bash
@@ -53,7 +62,7 @@ python scripts/generate_grid.py <PATH_TO_URDF> -t <FIXED_TARGET_NAME>
 ## Benchmark
 To run IK benchmark, use:
 ```bash
-python benchmark/ik_benchmark.py --skip-grid-codegen
+python benchmark/hjcd_ik_bench.py --skip-grid-codegen
 ```
 which performs IK using the Panda Arm with batches of `1, 10, 100, 1000, 2000`. Results are written to a `results.yml`.
 
@@ -78,7 +87,7 @@ which performs IK using the Panda Arm with batches of `1, 10, 100, 1000, 2000`. 
 ### Usage Examples
 * Custom batches/targets/solutions, out file name:
 ```bash
-python benchmark/ik_benchmark.py \
+python benchmark/hjcd_ik_bench.py \
   --batches "1,32,256,2048" \
   --num-targets 250 \
   --num-solutions 4 \
@@ -87,13 +96,13 @@ python benchmark/ik_benchmark.py \
 ```
 * To generate a new GRiD header on a different robot, run:
 ```bash
-python benchmark/ik_benchmark.py --urdf include/test_urdf/fetch.urdf
+python benchmark/hjcd_ik_bench.py --urdf include/test_urdf/fetch.urdf
 ```
 
 ### Collision-Free Benchmark
 To run collision-free benchmark on the [MotionBenchMaker](https://github.com/KavrakiLab/motion_bench_maker) dataset, run:
 ```bash
-python benchmark/ik_benchmark.py --skip-grid-codegen --collision-free --problems-json tests/mb_problems.json --problem-set bookshelf_thin_panda
+python benchmark/hjcd_ik_bench.py --skip-grid-codegen --collision-free --problems-json tests/mb_problems.json --problem-set bookshelf_thin_panda
 ```
 
 ### Collision-Free Benchmark Additional Usage

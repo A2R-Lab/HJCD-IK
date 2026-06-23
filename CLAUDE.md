@@ -40,7 +40,13 @@ joints, `EE_IDX = 7`, `FLANGE_IDX = 8`, `NX = 9` stored frames.
 | `src/robots/{panda,fetch}.cuh` | Per-robot collision spheres + fixed transforms (Panda/Fetch only). |
 | `src/collision/` | pRRTC per-block collision checking. |
 | `src/pybind_module.cpp` | Python bindings → `generate_solutions`, `sample_targets`, `num_joints`. |
-| `benchmark/ik_benchmark.py` | Benchmark harness: solved-rate, position/orientation error, timing. |
+| `benchmark/hjcd_ik_bench.py` | HJCD-IK benchmark harness: solved-rate, position/orientation error, timing. |
+| `benchmark/baseline_bench.py` | Competitor baselines (PyRoki/cuRobo, `--mode`); optional, see `docs/BASELINES.md`. |
+| `benchmark/baseline_ikflow.py` | IKFlow baseline (standalone, torch); same CSV/MMD-dump schema. |
+| `benchmark/check_ee_frames.py` | Gated smoke test: do all solvers agree on the EE (panda_hand) frame? |
+| `benchmark/gen_targets.py` | Neutral Halton + numpy-FK shared open-world targets (fair cross-solver compare). |
+| `benchmark/{make_tables,plot_pareto}.py` | Merge per-solver CSVs → paper tables / accuracy-latency Pareto (Figs 4/5). |
+| `benchmark/{mmd,run_mmd,gen_groundtruth_tracik}.py` | MMD/MMD² (Table IV): config dumps + TRAC-IK ground truth. |
 | `tests/{mb,wall}_problems.json` | MotionBenchMaker / wall collision problem sets. |
 
 ## Build & test
@@ -51,7 +57,7 @@ CMake 3.23+ / CUDA 12.x / pybind11 (scikit-build-core). GRiD codegen runs at con
 sudo apt install -y libeigen3-dev nlohmann-json3-dev   # system header deps (Eigen3 + nlohmann-json)
 git submodule update --init --recursive          # GRiD + GLASS
 python -m pip install -e .                        # builds the _hjcdik extension (CUDA arch auto-detected)
-python benchmark/ik_benchmark.py --skip-grid-codegen   # run the solver
+python benchmark/hjcd_ik_bench.py --skip-grid-codegen   # run the solver
 ```
 
 `./scripts/setup_dev.sh` does all of the above (system deps + submodules on our branches + venv + codegen + build).

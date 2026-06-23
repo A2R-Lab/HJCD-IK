@@ -13,7 +13,7 @@ math throughout. Companion docs: [`CLAUDE.md`](../CLAUDE.md), [`STARTUP_PROMPT.m
 2. **`FLANGE_IDX` / target agreement** across `grid.cuh`, `src/hjcd_kernel.cu`, and any benchmark problem.
 3. **Build clean** and import: `python -c "import hjcdik; print(hjcdik.num_joints())"`.
 4. **Run the benchmark** and compare to the committed baseline (do not eyeball):
-   `python benchmark/ik_benchmark.py --skip-grid-codegen` → solved-rate, pos/ori error, timing.
+   `python benchmark/hjcd_ik_bench.py --skip-grid-codegen` → solved-rate, pos/ori error, timing.
 5. **Thread/warp sweep** if you touched the solver loop: validate at 1 warp (32) and multi-warp block sizes;
    confirm results are batch-size-invariant (divergence at larger blocks ⇒ missing sync).
 6. **No GPU contention during timing.** Other agents run heavy GPU work on this machine — isolate timing runs.

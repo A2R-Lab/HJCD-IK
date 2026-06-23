@@ -6,7 +6,7 @@ HJCD-IK ships MotionBenchMaker-style problem sets under `tests/`:
 
 ## Run
 ```bash
-python benchmark/ik_benchmark.py \
+python benchmark/hjcd_ik_bench.py \
     --collision-free \
     --problems-json tests/mb_problems.json \
     --batches "1,10,100,1000"
