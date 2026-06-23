@@ -322,6 +322,9 @@ def main() -> None:
     ap.add_argument("--solutions-batch", type=int, default=-1,help="Batch size to dump solutions from. If -1, uses the last batch in --batches.")
     ap.add_argument("--solutions-count", type=int, default=50,help="Max number of solutions to write (default 50).")
 
+    ap.add_argument("--mmd-dump", type=str, default="", help="Write a per-target joint-config dump (JSON) for MMD/Table IV (see benchmark/run_mmd.py), then exit.")
+    ap.add_argument("--mmd-batch", type=int, default=2000, help="Batch size for the MMD dump (paper: 50 best of 2000).")
+
     args = ap.parse_args()
     batches = list(args.batches) 
     S = int(args.num_solutions)
@@ -385,18 +388,46 @@ def main() -> None:
             raise RuntimeError("No targets built (goal_pose missing or empty problem set).")
 
     else:
-        # Non-collision: random targets sampled from model
+        # Non-collision (open-world): a shared targets file (fair head-to-head with the baselines;
+        # see benchmark/gen_targets.py) or random targets sampled from the model.
         try:
             N = int(hjcdik.num_joints())
             print(f"[info] robot with {N} joints")
         except Exception:
             print("[info] loaded hjcdik")
 
-        T = int(args.num_targets)
-        targets = hjcdik.sample_targets(T, seed=0)
-        problem_indices = [None] * T
+        if args.filtered_targets:
+            targets, _ = _load_filtered_targets(Path(args.filtered_targets))
+            problem_indices = [None] * len(targets)
+            print(f"[info] loaded {len(targets)} shared targets from {args.filtered_targets}")
+        else:
+            T = int(args.num_targets)
+            targets = hjcdik.sample_targets(T, seed=0)
+            problem_indices = [None] * T
 
     print(f"[info] running {len(targets)} targets, batches={batches}, num_solutions={S}, collision_free={args.collision_free}")
+
+    # MMD / Table IV: dump up to K solutions per target (paper: 50 best of a batch of 2000), then exit.
+    if args.mmd_dump:
+        from mmd import save_config_dump
+        K = int(args.solutions_count)
+        Bd = int(args.mmd_batch)
+        per_target = []
+        for ti, target in enumerate(targets):
+            eff_pidx = int(problem_indices[ti]) if (args.collision_free and problem_indices[ti] is not None) else -1
+            res = hjcdik.generate_solutions(
+                target, batch_size=Bd, num_solutions=K,
+                collision_free=args.collision_free, problems_json_text=problems_text,
+                problem_set_name=args.problem_set, problem_idx=eff_pidx,
+            )
+            jc = res.get("joint_config")
+            if jc is None:
+                jc = []
+            cnt = int(res.get("count", len(jc)))
+            per_target.append([list(jc[r]) for r in range(min(cnt, K, len(jc)))])
+        save_config_dump(args.mmd_dump, args.solver, per_target, num_dof=int(hjcdik.num_joints()))
+        print(f"[OK] wrote MMD dump {args.mmd_dump} ({len(per_target)} targets x up to {K} configs)")
+        return
 
     # Benchmark loop
     y_batch = []
