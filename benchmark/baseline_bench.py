@@ -830,12 +830,21 @@ def make_curobo_solver_from_world_dict(
     high_precision: bool,
     use_cuda_graph: bool,
     num_seeds: int,
+    robot_urdf: str = "",
+    base_link: str = "panda_link0",
+    ee_link: str = "",
 ):
     """cuRobo v2 IK solver for a bundled robot config (default franka.yml == Panda). When collision_free,
-    the MB obstacles (world_dict) are loaded as a v2 Scene and the optimizer enforces collision avoidance."""
+    the MB obstacles (world_dict) are loaded as a v2 Scene and the optimizer enforces collision avoidance.
+
+    When `robot_urdf`+`ee_link` are given, the robot is built from that URDF with that tool frame instead of
+    the bundled `robot_file`. This is required for the collision-free (Table II) MotionBenchMaker problems,
+    which are posed in the `panda_grasptarget` frame — franka.yml's bundled tool is `panda_hand` (~10 cm
+    offset), which otherwise yields a constant ~100 mm error at 0% success."""
     scene = _world_dict_to_scene(world_dict) if collision_free else None
+    robot = _curobo_robot_yml_from_urdf(robot_urdf, base_link, ee_link) if (robot_urdf and ee_link) else robot_file
     return _build_ik_solver(
-        robot_file, scene=scene, num_seeds=num_seeds,
+        robot, scene=scene, num_seeds=num_seeds,
         position_threshold=0.001 if high_precision else 0.005,
         use_cuda_graph=use_cuda_graph, self_collision=collision_free)
 
@@ -1071,7 +1080,12 @@ if __name__ == "__main__":
                     ik_solver, tensor_args = make_curobo_solver_from_world_dict(
                         robot_file=robot_file, world_dict=world_dict,
                         collision_free=True, high_precision=args.high_precision,
-                        use_cuda_graph=args.use_cuda_graph, num_seeds=num_seeds,
+                        # CUDA-graph capture is rebuilt per collision scene here and can hit
+                        # cudaErrorStreamCaptureInvalidated on some scenes; the per-instance solver
+                        # rebuild already negates the graph's amortization, so disable it for stability.
+                        use_cuda_graph=False, num_seeds=num_seeds,
+                        # MB problems are posed in the grasp frame; match it (else ~100 mm wrong-frame error).
+                        robot_urdf=args.robot_urdf, base_link=args.base_link, ee_link=args.ee_link,
                     )
                     target_wxyz, target_pos = mb_instance_to_cylinder_goal(inst, eps=1e-4, rot_sign=+1)
                     goal7 = np.concatenate([target_pos, target_wxyz])

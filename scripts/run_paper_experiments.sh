@@ -117,7 +117,9 @@ if [ "${SKIP_CUROBO:-0}" != "1" ]; then
   echo "--- cuRobo ---"
   MB_JSON_PATH="$MB_JSON" "$PY" benchmark/baseline_bench.py --mode curobo --collision_free \
     --problem_set "$PROBLEM_SET" --num_instances "$NUM_TARGETS" \
-    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name collfree
+    --robot-urdf include/test_urdf/panda.urdf --base-link panda_link0 --ee-link panda_grasptarget \
+    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name collfree \
+    || echo "(cuRobo Table II skipped — solver error; column left blank, run continues)"
 fi
 
 if [ "${RUN_DOF:-0}" = "1" ]; then
@@ -135,7 +137,8 @@ if [ "${RUN_DOF:-0}" = "1" ]; then
     [ "${SKIP_PYROKI:-0}" = "1" ] || "$PY" benchmark/baseline_bench.py --mode pyroki --goal_file "$dtgt.yml" \
       --robot-urdf "$urdf" --ee-link panda_hand --base-link panda_link0 --seed_list "$DOF_B" --save_path "$OUT_DIR" --file_name "dof${d}"
     [ "${SKIP_CUROBO:-0}" = "1" ] || "$PY" benchmark/baseline_bench.py --mode curobo --goal_file "$dtgt.yml" \
-      --robot-urdf "$urdf" --ee-link panda_hand --base-link panda_link0 --seed_list "$DOF_B" --save_path "$OUT_DIR" --file_name "dof${d}"
+      --robot-urdf "$urdf" --ee-link panda_hand --base-link panda_link0 --seed_list "$DOF_B" --save_path "$OUT_DIR" --file_name "dof${d}" \
+      || echo "(cuRobo DoF=$d skipped — solver error; run continues)"
     "$PY" benchmark/make_tables.py $OUT_DIR/dof${d}_*.csv --title "DoF=$d (Table III)" --out "$OUT_DIR/table_dof${d}.md" || true
   done
 fi
@@ -155,7 +158,8 @@ if [ "${RUN_MMD:-0}" = "1" ]; then
   [ "${SKIP_PYROKI:-0}" = "1" ] || "$PY" benchmark/baseline_bench.py --mode pyroki \
       --goal_file "$TGT.yml" --mmd_dump "$DUMPS/pyroki.json" --solutions_seed 2000 --solutions_k 50
   [ "${SKIP_CUROBO:-0}" = "1" ] || "$PY" benchmark/baseline_bench.py --mode curobo \
-      --goal_file "$TGT.yml" --mmd_dump "$DUMPS/curobo.json" --solutions_seed 2000 --solutions_k 50
+      --goal_file "$TGT.yml" --mmd_dump "$DUMPS/curobo.json" --solutions_seed 2000 --solutions_k 50 \
+      || echo "(cuRobo MMD dump skipped — solver error; run continues)"
   [ "${SKIP_IKFLOW:-0}" = "1" ] || "$PY" benchmark/baseline_ikflow.py --goal_file "$TGT.yml" \
       --mmd-dump "$DUMPS/ikflow.json" --mmd-batch 2000 --solutions-count 50 || echo "(ikflow mmd dump skipped)"
   "$PY" benchmark/gen_groundtruth_tracik.py --targets "$TGT.json" --tip panda_hand \
