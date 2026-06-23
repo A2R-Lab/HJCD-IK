@@ -750,7 +750,7 @@ __device__ void solve_lm_batched(
         const int base0 = min(blockIdx.x * warps_per_block, B - 1);
         if (threadIdx.x < N) s_q_tmpl[threadIdx.x] = x[base0 * N + threadIdx.x];
         __syncthreads();
-        grid::load_update_XmatsHom_helpers<T>(s_xhom_tmpl, s_q_tmpl, d_robotModel, s_tmp_tmpl);
+        grid::load_update_XmatsHom_helpers<T>(s_xhom_tmpl, /*s_topology_helpers=*/nullptr, s_q_tmpl, d_robotModel, s_tmp_tmpl);
         __syncthreads();
         for (int i = threadIdx.x; i < warps_per_block * grid::XHOM_T_COUNT; i += blockDim.x) {
             const int w = i / grid::XHOM_T_COUNT;
@@ -1190,7 +1190,7 @@ __global__ void coarse_search(
     }
     __syncthreads();
 
-    grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, s_x, d_robotModel, s_temp);
+    grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, /*s_topology_helpers=*/nullptr, s_x, d_robotModel, s_temp);
     __syncthreads();
 
     if ((threadIdx.x >> 5) == 0) { // warp 0
@@ -1485,7 +1485,7 @@ __global__ void forward_kinematics_kernel(
         s_q[j] = q[b * N + j];
     __syncthreads();
 
-    grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, RM, s_tmp);
+    grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, /*s_topology_helpers=*/nullptr, s_q, RM, s_tmp);
     __syncthreads();
 
     if (threadIdx.x == 0) {

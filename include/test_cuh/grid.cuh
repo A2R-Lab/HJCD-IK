@@ -5149,16 +5149,32 @@ namespace grid {
     }
 
     /**
+     * Cooperatively fill s_topology_helpers from the model (no-op when TOPOLOGY_HELPERS_COUNT == 0); for external callers of the *_inner functions
+     *
+     * @param s_topology_helpers is the (shared) int buffer to fill (size TOPOLOGY_HELPERS_COUNT; nullptr/unused when 0)
+     * @param d_robotModel holds d_topology_helpers
+     */
+    template <typename T>
+    __device__ __forceinline__
+    void load_topology_helpers(int *s_topology_helpers, const robotModel<T> *d_robotModel) {
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 0; ind += blockDim.x*blockDim.y){
+            s_topology_helpers[ind] = d_robotModel->d_topology_helpers[ind];
+        }
+        __syncthreads();
+    }
+
+    /**
      * Updates the (d)XmatsHom in (shared) GPU memory acording to the configuration
      *
      * @param s_XmatsHom is the (shared) memory destination location for the XmatsHom
      * @param s_q is the (shared) memory location of the current configuration
+     * @param s_topology_helpers is the (shared) memory location for the topology_helpers (nullptr/unused for serial chains with identical Ss)
      * @param d_robotModel is the pointer to the initialized model specific helpers (XImats, mxfuncs, topology_helpers, etc.)
      * @param s_temp is temporary (shared) memory used to compute sin and cos if needed of size: 14
      */
     template <typename T>
     __device__ __forceinline__
-    void load_update_XmatsHom_helpers(T *s_XmatsHom, const T *s_q, const robotModel<T> *d_robotModel, T *s_temp) {
+    void load_update_XmatsHom_helpers(T *s_XmatsHom, int *s_topology_helpers, const T *s_q, const robotModel<T> *d_robotModel, T *s_temp) {
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 208; ind += blockDim.x*blockDim.y){
             s_XmatsHom[ind] = d_robotModel->d_XImats[ind+504];
         }
@@ -5213,12 +5229,13 @@ namespace grid {
      * @param s_XmatsHom is the (shared) memory destination location for the XmatsHom
      * @param s_dXmatsHom is the (shared) memory destination location for the dXmatsHom
      * @param s_q is the (shared) memory location of the current configuration
+     * @param s_topology_helpers is the (shared) memory location for the topology_helpers (nullptr/unused for serial chains with identical Ss)
      * @param d_robotModel is the pointer to the initialized model specific helpers (XImats, mxfuncs, topology_helpers, etc.)
      * @param s_temp is temporary (shared) memory used to compute sin and cos if needed of size: 14
      */
     template <typename T>
     __device__ __forceinline__
-    void load_update_XmatsHom_helpers(T *s_XmatsHom, T *s_dXmatsHom, const T *s_q, const robotModel<T> *d_robotModel, T *s_temp) {
+    void load_update_XmatsHom_helpers(T *s_XmatsHom, T *s_dXmatsHom, int *s_topology_helpers, const T *s_q, const robotModel<T> *d_robotModel, T *s_temp) {
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 208; ind += blockDim.x*blockDim.y){
             s_XmatsHom[ind] = d_robotModel->d_XImats[ind+504];
         }
@@ -5315,12 +5332,13 @@ namespace grid {
      * @param s_d2XmatsHom is the (shared) memory destination location for the d2XmatsHom
      * @param s_dXmatsHom is the (shared) memory destination location for the dXmatsHom
      * @param s_q is the (shared) memory location of the current configuration
+     * @param s_topology_helpers is the (shared) memory location for the topology_helpers (nullptr/unused for serial chains with identical Ss)
      * @param d_robotModel is the pointer to the initialized model specific helpers (XImats, mxfuncs, topology_helpers, etc.)
      * @param s_temp is temporary (shared) memory used to compute sin and cos if needed of size: 14
      */
     template <typename T>
     __device__ __forceinline__
-    void load_update_XmatsHom_helpers(T *s_XmatsHom, T *s_dXmatsHom, T *s_d2XmatsHom, const T *s_q, const robotModel<T> *d_robotModel, T *s_temp) {
+    void load_update_XmatsHom_helpers(T *s_XmatsHom, T *s_dXmatsHom, T *s_d2XmatsHom, int *s_topology_helpers, const T *s_q, const robotModel<T> *d_robotModel, T *s_temp) {
         for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 208; ind += blockDim.x*blockDim.y){
             s_XmatsHom[ind] = d_robotModel->d_XImats[ind+504];
         }
@@ -5572,7 +5590,7 @@ namespace grid {
         assert(s_arena_offset == grid_shared_arena_bytes<T>(240, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
         #endif
         (void)s_arena_offset;
-        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
         end_effector_pose_inner<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
     }
 
@@ -5646,7 +5664,7 @@ namespace grid {
                 reinterpret_cast<volatile T *>(s_q)[(rep + 3) % (7)] += _aopt_fb3;
             }
             __syncthreads();
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
             end_effector_pose_inner<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
             __syncthreads();
             if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose)[rep & 7]; }
@@ -5710,7 +5728,7 @@ namespace grid {
             }
             __syncthreads();
             // compute
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
             end_effector_pose_inner<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
             __syncthreads();
             // save down to global
@@ -6047,7 +6065,7 @@ namespace grid {
         assert(s_arena_offset == grid_shared_arena_bytes<T>(462, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
         #endif
         (void)s_arena_offset;
-        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
         end_effector_pose_gradient_inner<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
     }
 
@@ -6124,7 +6142,7 @@ namespace grid {
                     reinterpret_cast<volatile T *>(s_q)[(rep + 3) % (7)] += _aopt_fb3;
                 }
                 __syncthreads();
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_gradient_inner<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_gradient)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_gradient)[rep & 7]; }
@@ -6194,7 +6212,7 @@ namespace grid {
                     reinterpret_cast<volatile T *>(s_q)[(rep + 3) % (7)] += _aopt_fb3;
                 }
                 __syncthreads();
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_gradient_inner<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_gradient)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_gradient)[rep & 7]; }
@@ -6260,7 +6278,7 @@ namespace grid {
                     reinterpret_cast<volatile T *>(s_q)[(rep + 3) % (7)] += _aopt_fb3;
                 }
                 __syncthreads();
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_gradient_inner<T, false>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, s_eegrad_temp, s_linalg_smem);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_gradient)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_gradient)[rep & 7]; }
@@ -6323,7 +6341,7 @@ namespace grid {
                 }
                 __syncthreads();
                 // compute
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_gradient_inner<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
                 __syncthreads();
                 // save down to global
@@ -6375,7 +6393,7 @@ namespace grid {
                 }
                 __syncthreads();
                 // compute
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_gradient_inner<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
                 __syncthreads();
                 // save down to global
@@ -6423,7 +6441,7 @@ namespace grid {
                 T *s_eegrad_temp = reinterpret_cast<T *>(&d_workspace[k*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_END_EFFECTOR_POSE_GRADIENT_WORKSPACE_DXHOM_OFFSET_BYTES<T>() + sizeof(T) * static_cast<size_t>(DXHOM_T_COUNT)]);
                 s_temp = s_eegrad_temp;
                 // compute
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_gradient_inner<T, false>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, s_eegrad_temp, s_linalg_smem);
                 __syncthreads();
             }
@@ -7639,7 +7657,7 @@ namespace grid {
         assert(s_arena_offset == grid_shared_arena_bytes<T>(532, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
         #endif
         (void)s_arena_offset;
-        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
         end_effector_pose_hessian_inner<T, D2EE_OUT_IN_SMEM<RESOURCE_TIER>()>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, d_workspace, d_robotModel, s_linalg_smem);
     }
 
@@ -7724,7 +7742,7 @@ namespace grid {
                     reinterpret_cast<volatile T *>(s_q)[(rep + 3) % (7)] += _aopt_fb3;
                 }
                 __syncthreads();
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_hessian_inner<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel, s_linalg_smem);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_hessian)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_hessian)[rep & 7]; }
@@ -7803,7 +7821,7 @@ namespace grid {
                     reinterpret_cast<volatile T *>(s_q)[(rep + 3) % (7)] += _aopt_fb3;
                 }
                 __syncthreads();
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_hessian_inner<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel, s_linalg_smem);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_hessian)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_hessian)[rep & 7]; }
@@ -7876,7 +7894,7 @@ namespace grid {
                     reinterpret_cast<volatile T *>(s_q)[(rep + 3) % (7)] += _aopt_fb3;
                 }
                 __syncthreads();
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_hessian_inner<T, false>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, s_end_effector_pose_hessian_ws, d_robotModel, s_linalg_smem);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_hessian)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_hessian)[rep & 7]; }
@@ -7952,7 +7970,7 @@ namespace grid {
                 __syncthreads();
                 (void)d_workspace;
                 // compute
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_hessian_inner<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel, s_linalg_smem);
                 __syncthreads();
                 // save down to global
@@ -8014,7 +8032,7 @@ namespace grid {
                 __syncthreads();
                 (void)d_workspace;
                 // compute
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_hessian_inner<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel, s_linalg_smem);
                 __syncthreads();
                 // save down to global
@@ -8071,7 +8089,7 @@ namespace grid {
                 // Use d_end_effector_pose_hessian directly as the spill target so the inner writes into the persistent output buffer (one allocation, no extra copy).
                 T *s_end_effector_pose_hessian_ws = &d_end_effector_pose_hessian[k*294];
                 // compute
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_hessian_inner<T, false>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, s_end_effector_pose_hessian_ws, d_robotModel, s_linalg_smem);
                 __syncthreads();
                 // save down to global
@@ -8297,7 +8315,7 @@ namespace grid {
         assert(s_arena_offset == grid_shared_arena_bytes<T>(240, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
         #endif
         (void)s_arena_offset;
-        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
         end_effector_pose_inner_panda_grasptarget_hand<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
     }
 
@@ -8371,7 +8389,7 @@ namespace grid {
                 reinterpret_cast<volatile T *>(s_q)[(rep + 3) % (7)] += _aopt_fb3;
             }
             __syncthreads();
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
             end_effector_pose_inner_panda_grasptarget_hand<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
             __syncthreads();
             if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose)[rep & 7]; }
@@ -8435,7 +8453,7 @@ namespace grid {
             }
             __syncthreads();
             // compute
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
             end_effector_pose_inner_panda_grasptarget_hand<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
             __syncthreads();
             // save down to global
@@ -8784,7 +8802,7 @@ namespace grid {
         assert(s_arena_offset == grid_shared_arena_bytes<T>(462, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
         #endif
         (void)s_arena_offset;
-        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
         end_effector_pose_gradient_inner_panda_grasptarget_hand<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
     }
 
@@ -8861,7 +8879,7 @@ namespace grid {
                     reinterpret_cast<volatile T *>(s_q)[(rep + 3) % (7)] += _aopt_fb3;
                 }
                 __syncthreads();
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_gradient_inner_panda_grasptarget_hand<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_gradient)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_gradient)[rep & 7]; }
@@ -8931,7 +8949,7 @@ namespace grid {
                     reinterpret_cast<volatile T *>(s_q)[(rep + 3) % (7)] += _aopt_fb3;
                 }
                 __syncthreads();
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_gradient_inner_panda_grasptarget_hand<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_gradient)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_gradient)[rep & 7]; }
@@ -8997,7 +9015,7 @@ namespace grid {
                     reinterpret_cast<volatile T *>(s_q)[(rep + 3) % (7)] += _aopt_fb3;
                 }
                 __syncthreads();
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_gradient_inner_panda_grasptarget_hand<T, false>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, s_eegrad_temp, s_linalg_smem);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_gradient)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_gradient)[rep & 7]; }
@@ -9060,7 +9078,7 @@ namespace grid {
                 }
                 __syncthreads();
                 // compute
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_gradient_inner_panda_grasptarget_hand<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
                 __syncthreads();
                 // save down to global
@@ -9112,7 +9130,7 @@ namespace grid {
                 }
                 __syncthreads();
                 // compute
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_gradient_inner_panda_grasptarget_hand<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
                 __syncthreads();
                 // save down to global
@@ -9160,7 +9178,7 @@ namespace grid {
                 T *s_eegrad_temp = reinterpret_cast<T *>(&d_workspace[k*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_END_EFFECTOR_POSE_GRADIENT_WORKSPACE_DXHOM_OFFSET_BYTES<T>() + sizeof(T) * static_cast<size_t>(DXHOM_T_COUNT)]);
                 s_temp = s_eegrad_temp;
                 // compute
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_gradient_inner_panda_grasptarget_hand<T, false>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, s_eegrad_temp, s_linalg_smem);
                 __syncthreads();
             }
@@ -10388,7 +10406,7 @@ namespace grid {
         assert(s_arena_offset == grid_shared_arena_bytes<T>(532, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
         #endif
         (void)s_arena_offset;
-        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
         end_effector_pose_hessian_inner_panda_grasptarget_hand<T, D2EE_OUT_IN_SMEM<RESOURCE_TIER>()>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, d_workspace, d_robotModel, s_linalg_smem);
     }
 
@@ -10473,7 +10491,7 @@ namespace grid {
                     reinterpret_cast<volatile T *>(s_q)[(rep + 3) % (7)] += _aopt_fb3;
                 }
                 __syncthreads();
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_hessian_inner_panda_grasptarget_hand<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel, s_linalg_smem);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_hessian)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_hessian)[rep & 7]; }
@@ -10552,7 +10570,7 @@ namespace grid {
                     reinterpret_cast<volatile T *>(s_q)[(rep + 3) % (7)] += _aopt_fb3;
                 }
                 __syncthreads();
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_hessian_inner_panda_grasptarget_hand<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel, s_linalg_smem);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_hessian)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_hessian)[rep & 7]; }
@@ -10625,7 +10643,7 @@ namespace grid {
                     reinterpret_cast<volatile T *>(s_q)[(rep + 3) % (7)] += _aopt_fb3;
                 }
                 __syncthreads();
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_hessian_inner_panda_grasptarget_hand<T, false>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, s_end_effector_pose_hessian_ws, d_robotModel, s_linalg_smem);
                 __syncthreads();
                 if ((threadIdx.x | threadIdx.y | threadIdx.z) == 0) { reinterpret_cast<volatile T *>(d_end_effector_pose_hessian)[rep & 1023] = reinterpret_cast<const volatile T *>(s_end_effector_pose_hessian)[rep & 7]; }
@@ -10701,7 +10719,7 @@ namespace grid {
                 __syncthreads();
                 (void)d_workspace;
                 // compute
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_hessian_inner_panda_grasptarget_hand<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel, s_linalg_smem);
                 __syncthreads();
                 // save down to global
@@ -10763,7 +10781,7 @@ namespace grid {
                 __syncthreads();
                 (void)d_workspace;
                 // compute
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_hessian_inner_panda_grasptarget_hand<T, true>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, d_robotModel, s_linalg_smem);
                 __syncthreads();
                 // save down to global
@@ -10820,7 +10838,7 @@ namespace grid {
                 // Use d_end_effector_pose_hessian directly as the spill target so the inner writes into the persistent output buffer (one allocation, no extra copy).
                 T *s_end_effector_pose_hessian_ws = &d_end_effector_pose_hessian[k*294];
                 // compute
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 end_effector_pose_hessian_inner_panda_grasptarget_hand<T, false>(s_end_effector_pose_hessian, s_end_effector_pose_gradient, s_q, s_XmatsHom, s_topology_helpers, s_temp, s_end_effector_pose_hessian_ws, d_robotModel, s_linalg_smem);
                 __syncthreads();
                 // save down to global
@@ -11244,10 +11262,11 @@ namespace grid {
         __shared__ T s_XmatsHom[208];
         __shared__ T s_jointXforms[112];
         __shared__ T s_temp[14];
+        int *s_topology_helpers = nullptr;
         for (int b = blockIdx.x; b < B; b += gridDim.x) {
             for (int j = threadIdx.x; j < 7; j += blockDim.x) { s_q[j] = d_q[b*stride_q + j]; }
             __syncthreads();
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
             __syncthreads();
             if (USE_WARP) {
                 if ((threadIdx.x >> 5) == 0) { ee_pose_inner_warp<T>(s_jointXforms, s_XmatsHom, s_q, target_idx); }
@@ -14002,7 +14021,7 @@ namespace grid {
         assert(s_arena_offset == grid_shared_arena_bytes<T>(320, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
         #endif
         (void)s_arena_offset;
-        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
         potential_energy_regressor_inner<T>(s_y_pe, s_q, s_XmatsHom, d_robotModel, s_temp, gravity);
         __syncthreads();
     }
@@ -14060,7 +14079,7 @@ namespace grid {
             }
             __syncthreads();
             // compute
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
             potential_energy_regressor_inner<T>(s_y_pe, s_q, s_XmatsHom, d_robotModel, s_temp, gravity);
             __syncthreads();
             // save down to global
@@ -14124,7 +14143,7 @@ namespace grid {
         __syncthreads();
         // compute with NUM_TIMESTEPS as NUM_REPS for timing
         for (int rep = 0; rep < NUM_TIMESTEPS; rep++){
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
             potential_energy_regressor_inner<T>(s_y_pe, s_q, s_XmatsHom, d_robotModel, s_temp, gravity);
             __syncthreads();
         }
@@ -14214,7 +14233,7 @@ namespace grid {
      * Compute the inverse of the mass matrix
      *
      * Notes:
-     *   Assumes the XI matricies have already been updated for the given q
+     *   CALLER CONTRACT (direct *_inner callers): s_XImats must ALREADY be populated for the current s_q (READ-only here) via load_update_XImats_helpers(...) + __syncthreads(), and s_temp MUST be MINV_INNER_SMEM_BYTES<T, F_IN_SMEM>() bytes -- at F_IN_SMEM=true the 6*NV*NV F-band lives in the TAIL of s_temp (d_workspace=0/nullptr does NOT mean the band is free). Under-populating XImats or under-sizing s_temp reads never-written shared -> NaN (race-clean, DoF-specific since the band scales as 6*NV*NV). Prefer minv_device, which handles both.
      *   Outputs a SYMMETRIC_UPPER triangular matrix for Minv
      *   Inner-controlled placement: F_IN_SMEM selects where the 6*NV*NV F-region lives.
      *     true  -> tail of s_temp (shared; fastest, default).  false -> d_workspace (global).
@@ -15173,7 +15192,8 @@ namespace grid {
      * Computes forward dynamics
      *
      * Notes:
-     *   Assumes s_XImats is updated already for the current s_q
+     *   CALLER CONTRACT (direct *_inner callers): s_XImats must ALREADY be populated for the current s_q -- the inner READS but never writes it. Call load_update_XImats_helpers(s_XImats, s_q, s_topology_helpers, d_robotModel, s_temp) then __syncthreads() first, or just call forward_dynamics_device (which does this for you). Skipping it reads uninitialized shared -> NaN (race-clean, initcheck-fixable).
+     *   CALLER CONTRACT (sizing): s_temp MUST be FD_INNER_SMEM_BYTES<T, MINV_F_IN_SMEM>() bytes. At MINV_F_IN_SMEM=true the 6*NV*NV Minv-F band lives in the TAIL of s_temp (the macro includes it); d_workspace is 0/nullptr but that does NOT mean the band is free -- it just moved into s_temp. Under-sizing s_temp (e.g. reusing a fewer-DoF constant) makes the inner read its own never-written band -> NaN, and the failure is DoF-specific because the band scales as 6*NV*NV.
      *   Does not internally sync the thread group, so it should be called after all threads have finished computing their values
      *   Inner-controlled placement: MINV_F_IN_SMEM selects where the internal Minv 6*NV*NV F-region lives (s_temp tail vs d_workspace). Decided here; caller sizes both arenas from FD_INNER_*_BYTES and hands both pointers in.
      *
@@ -27213,7 +27233,7 @@ namespace grid {
             assert(s_arena_offset == grid_shared_arena_bytes<T>(993, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
             #endif
             (void)s_arena_offset;
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
             centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
             __syncthreads();
             if(threadIdx.x == 0 && threadIdx.y == 0){
@@ -27300,7 +27320,7 @@ namespace grid {
                     reinterpret_cast<volatile T *>(s_q)[(rep + 3) % (7)] += _aopt_fb3;
                 }
                 __syncthreads();
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
                 __syncthreads();
                 if(threadIdx.x == 0 && threadIdx.y == 0){
@@ -27379,7 +27399,7 @@ namespace grid {
                 }
                 __syncthreads();
                 // compute
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
                 __syncthreads();
                 if(threadIdx.x == 0 && threadIdx.y == 0){
@@ -27505,7 +27525,7 @@ namespace grid {
             assert(s_arena_offset == grid_shared_arena_bytes<T>(993, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
             #endif
             (void)s_arena_offset;
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
             centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
             __syncthreads();
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
@@ -27595,7 +27615,7 @@ namespace grid {
                     reinterpret_cast<volatile T *>(s_q_qd)[(rep + 3) % (14)] += _aopt_fb3;
                 }
                 __syncthreads();
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
                 __syncthreads();
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
@@ -27677,7 +27697,7 @@ namespace grid {
                 }
                 __syncthreads();
                 // compute
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
                 __syncthreads();
                 for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 42; ind += blockDim.x*blockDim.y){
@@ -27811,7 +27831,7 @@ namespace grid {
             assert(s_arena_offset == grid_shared_arena_bytes<T>(993, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
             #endif
             (void)s_arena_offset;
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
             centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
             __syncthreads();
             if(threadIdx.x == 0 && threadIdx.y == 0){
@@ -27906,7 +27926,7 @@ namespace grid {
                     reinterpret_cast<volatile T *>(s_q_qd)[(rep + 3) % (14)] += _aopt_fb3;
                 }
                 __syncthreads();
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
                 __syncthreads();
                 if(threadIdx.x == 0 && threadIdx.y == 0){
@@ -27991,7 +28011,7 @@ namespace grid {
                 }
                 __syncthreads();
                 // compute
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
                 __syncthreads();
                 if(threadIdx.x == 0 && threadIdx.y == 0){
@@ -28317,7 +28337,7 @@ namespace grid {
             assert(s_arena_offset == grid_shared_arena_bytes<T>(1035, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
             #endif
             (void)s_arena_offset;
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
             cmm_time_variation_inner<T>(s_adot, s_A, s_com, s_extra, s_q, s_qd, s_XmatsHom, d_robotModel, s_temp, s_J, s_linalg_smem);
             __syncthreads();
         }
@@ -28409,7 +28429,7 @@ namespace grid {
                     reinterpret_cast<volatile T *>(s_q_qd)[(rep + 3) % (14)] += _aopt_fb3;
                 }
                 __syncthreads();
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 cmm_time_variation_inner<T>(s_out, s_A, s_com, s_extra, s_q, s_qd, s_XmatsHom, d_robotModel, s_temp, s_J, s_linalg_smem);
                 __syncthreads();
                 __syncthreads();
@@ -28492,7 +28512,7 @@ namespace grid {
                     s_J = reinterpret_cast<T *>(&d_workspace[k*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_DCCRBA_J_OFFSET_BYTES<T>()]);
                 }
                 // compute
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 cmm_time_variation_inner<T>(s_out, s_A, s_com, s_extra, s_q, s_qd, s_XmatsHom, d_robotModel, s_temp, s_J, s_linalg_smem);
                 __syncthreads();
                 // save down to global
@@ -28801,7 +28821,7 @@ namespace grid {
             assert(s_arena_offset == grid_shared_arena_bytes<T>(1035, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
             #endif
             (void)s_arena_offset;
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
             dccrba_inner<T>(s_dccrba, s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, s_J, s_linalg_smem);
             __syncthreads();
         }
@@ -28878,7 +28898,7 @@ namespace grid {
                 s_J = reinterpret_cast<T *>(&d_workspace[GRID_DCCRBA_J_OFFSET_BYTES<T>()]);
             }
             for (int rep = 0; rep < NUM_TIMESTEPS; rep++){
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 dccrba_inner<T>(s_dccrba, s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, s_J, s_linalg_smem);
                 __syncthreads();
             }
@@ -28963,7 +28983,7 @@ namespace grid {
                     s_J = reinterpret_cast<T *>(&d_workspace[k*GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_DCCRBA_J_OFFSET_BYTES<T>()]);
                 }
                 // compute
-                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+                load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
                 dccrba_inner<T>(s_dccrba, s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, s_J, s_linalg_smem);
                 __syncthreads();
                 // save down to global
@@ -30615,7 +30635,7 @@ namespace grid {
             assert(s_arena_offset == grid_shared_arena_bytes<T>(240, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
             #endif
             (void)s_arena_offset;
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
             end_effector_pose_inner<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
             __syncthreads();
             if(threadIdx.x == 0 && threadIdx.y == 0){
@@ -30667,7 +30687,7 @@ namespace grid {
             assert(s_arena_offset == grid_shared_arena_bytes<T>(462, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
             #endif
             (void)s_arena_offset;
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
             end_effector_pose_inner<T, true>(s_end_effector_pose, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
             __syncthreads();
             end_effector_pose_gradient_inner<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
@@ -30729,7 +30749,7 @@ namespace grid {
             assert(s_arena_offset == grid_shared_arena_bytes<T>(462, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
             #endif
             (void)s_arena_offset;
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
             end_effector_pose_gradient_inner<T, true>(s_end_effector_pose_gradient, s_q, s_XmatsHom, nullptr, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
             __syncthreads();
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 196; ind += blockDim.x*blockDim.y){
@@ -30907,7 +30927,7 @@ namespace grid {
             assert(s_arena_offset == grid_shared_arena_bytes<T>(993, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
             #endif
             (void)s_arena_offset;
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
             centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
             __syncthreads();
             if(threadIdx.x == 0 && threadIdx.y == 0){
@@ -30967,7 +30987,7 @@ namespace grid {
             assert(s_arena_offset == grid_shared_arena_bytes<T>(993, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
             #endif
             (void)s_arena_offset;
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
             centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
             __syncthreads();
             T inv_m = static_cast<T>(1) / s_extra[0];
@@ -31034,7 +31054,7 @@ namespace grid {
             assert(s_arena_offset == grid_shared_arena_bytes<T>(993, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
             #endif
             (void)s_arena_offset;
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
             centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
             __syncthreads();
             T inv_m = static_cast<T>(1) / s_extra[0];
@@ -31102,7 +31122,7 @@ namespace grid {
             assert(s_arena_offset == grid_shared_arena_bytes<T>(993, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
             #endif
             (void)s_arena_offset;
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
             centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
             __syncthreads();
             __shared__ T s_e[6];
@@ -31170,7 +31190,7 @@ namespace grid {
             assert(s_arena_offset == grid_shared_arena_bytes<T>(993, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
             #endif
             (void)s_arena_offset;
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
             centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
             __syncthreads();
             __shared__ T s_e[6];
@@ -31244,7 +31264,7 @@ namespace grid {
             assert(s_arena_offset == grid_shared_arena_bytes<T>(993, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
             #endif
             (void)s_arena_offset;
-            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_q, d_robotModel, s_temp);
+            load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
             centroidal_inner<T, true>(s_A, s_com, s_extra, s_q, s_XmatsHom, d_robotModel, s_temp, nullptr, s_linalg_smem);
             __syncthreads();
             for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 196; ind += blockDim.x*blockDim.y){
