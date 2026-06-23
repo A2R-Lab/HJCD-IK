@@ -1,27 +1,27 @@
-"""Maximum Mean Discrepancy (MMD / MMD²) between joint-configuration distributions — paper Table IV.
+"""Joint-config *dump* I/O for the MMD / Table IV pipeline.
 
-MMD measures how close a solver's returned batch of IK solutions is to a ground-truth distribution of
-solutions (paper: TRAC-IK seeded samples). Lower = the solver covers the solution manifold better.
+Each solver (and the TRAC-IK ground truth) emits a per-target *config dump* over the SAME target set;
+`benchmark/run_mmd.py` then scores them with the CANONICAL estimator in `benchmark/compute_mmd.py`
+(the co-author's IMQ / multi-bandwidth / unbiased MMD²). This module is just the shared dump schema +
+a CSV exporter into the layout `compute_mmd.py` expects (`solver,pose_id,q1..qN`).
 
-Gaussian kernel  k(a,b) = exp(-||a-b||² / (2σ²)).  Biased V-statistic estimate:
-    MMD²(X,Y) = mean(k(X,X)) + mean(k(Y,Y)) − 2·mean(k(X,Y))
-σ via the median heuristic over pooled pairwise distances (shared across targets for stability).
-
-NOTE (confirm vs paper for an exact-number match): kernel choice + bandwidth fix the absolute MMD. The
-median-heuristic Gaussian here is the standard default; the *ranking* (which solver is lowest) is robust
-to this, which is the claim in Table IV. Stdlib + numpy only.
+NOTE: the old Gaussian/biased-V-statistic MMD that used to live here was NON-canonical and has been
+removed — `compute_mmd.py` is the single source of truth for the metric. Stdlib + numpy only.
 """
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
-
-import numpy as np
 
 
 # ---- config-dump I/O (shared by the harnesses + run_mmd.py) ----
 def save_config_dump(path, solver, configs_per_target, num_dof=None):
-    """Write a config dump: per-target lists of K joint vectors. See run_mmd.py for the schema."""
+    """Write a config dump: per-target lists of K joint vectors.
+
+    Schema: {"solver": <name>, "num_dof": <int|null>,
+             "configs": [ [ [q1..qd], ...up to K ], ...one list per target ]}.
+    """
     data = {
         "solver": str(solver),
         "num_dof": int(num_dof) if num_dof is not None else None,
@@ -37,55 +37,23 @@ def load_config_dump(path):
     return json.loads(Path(path).read_text())
 
 
-def _sq_dists(A, B):
-    """Pairwise squared Euclidean distances, A:(n,d) B:(m,d) -> (n,m)."""
-    A = np.asarray(A, float)
-    B = np.asarray(B, float)
-    return (A * A).sum(1)[:, None] + (B * B).sum(1)[None, :] - 2.0 * A @ B.T
+def config_dump_to_csv(dump, csv_path):
+    """Flatten a config dump into the CSV `compute_mmd.py` consumes: `solver,pose_id,q1..qN`.
 
-
-def median_sigma(samples):
-    """Median-heuristic bandwidth σ from a pool of points (n,d)."""
-    Z = np.asarray(samples, float)
-    if len(Z) < 2:
-        return 1.0
-    d2 = _sq_dists(Z, Z)
-    iu = np.triu_indices(len(Z), k=1)
-    med = float(np.median(d2[iu]))
-    return float(np.sqrt(med / 2.0)) if med > 0 else 1.0
-
-
-def mmd2_gaussian(X, Y, sigma):
-    """Biased MMD² (V-statistic) with a Gaussian kernel of bandwidth σ."""
-    X = np.asarray(X, float)
-    Y = np.asarray(Y, float)
-    if len(X) == 0 or len(Y) == 0:
-        return float("nan")
-    g = 1.0 / (2.0 * sigma * sigma)
-    kxx = np.exp(-g * _sq_dists(X, X)).mean()
-    kyy = np.exp(-g * _sq_dists(Y, Y)).mean()
-    kxy = np.exp(-g * _sq_dists(X, Y)).mean()
-    return float(kxx + kyy - 2.0 * kxy)
-
-
-def mmd_over_targets(solver_configs, gt_configs, sigma=None):
-    """Mean MMD² / MMD over matched per-target config sets.
-
-    solver_configs, gt_configs: lists (one entry per target) of (k, dof) joint-config arrays.
-    Returns dict {mmd2, mmd, n_targets, sigma}. σ is shared across targets (median heuristic over the
-    pooled solver+gt points) unless given.
+    `dump` is a path or an already-loaded dict. One row per (target, joint vector); `pose_id` is the
+    target index (the group column for `compute_mmd.py --group_col pose_id`). Returns the written path.
     """
-    pairs = [(np.asarray(s, float), np.asarray(g, float))
-             for s, g in zip(solver_configs, gt_configs)
-             if len(s) and len(g)]
-    if not pairs:
-        return dict(mmd2=float("nan"), mmd=float("nan"), n_targets=0, sigma=float("nan"))
-
-    if sigma is None:
-        pool = np.vstack([np.vstack([s, g]) for s, g in pairs])
-        sigma = median_sigma(pool)
-
-    vals = [mmd2_gaussian(s, g, sigma) for s, g in pairs]
-    vals = [v for v in vals if np.isfinite(v)]
-    mmd2 = float(np.mean(vals)) if vals else float("nan")
-    return dict(mmd2=mmd2, mmd=float(np.sqrt(max(mmd2, 0.0))), n_targets=len(vals), sigma=float(sigma))
+    if not isinstance(dump, dict):
+        dump = load_config_dump(dump)
+    solver = dump.get("solver", "solver")
+    configs = dump.get("configs", [])
+    ndof = dump.get("num_dof") or max((len(q) for tgt in configs for q in tgt), default=0)
+    csv_path = Path(csv_path)
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    with csv_path.open("w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["solver", "pose_id"] + [f"q{j + 1}" for j in range(ndof)])
+        for pose_id, tgt in enumerate(configs):
+            for q in tgt:
+                w.writerow([solver, pose_id] + [f"{float(v):.10g}" for v in q])
+    return csv_path

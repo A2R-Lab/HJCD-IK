@@ -69,6 +69,8 @@ hjcd_ik_per_batch.yml
 # Benchmark run outputs + generated shared targets (regenerable per run/machine)
 benchmark/results/
 benchmark/targets/
+# Large pretrained baseline weights (staged into the solver's own cache; not a repo artifact)
+benchmark/assets/ikflow/weights/
 
 # Python venv
 *.venv

@@ -86,7 +86,7 @@ if [ "${RUN_FETCH:-0}" = "1" ]; then
     --robot-urdf include/test_urdf/fetch.urdf --ee-link ee_link --base-link arm_mount_link \
     --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name fetch_open
   [ "${SKIP_IKFLOW:-0}" = "1" ] || "$PY" benchmark/baseline_ikflow.py --goal_file "$FTGT.yml" \
-    --model fetch_full_temp_tpm --seed_list "$BATCHES" --csv-out "$OUT_DIR/fetch_open_ikflow.csv" || echo "(IKFlow fetch skipped)"
+    --model fetch_full_temp_nsc_tpm --seed_list "$BATCHES" --csv-out "$OUT_DIR/fetch_open_ikflow.csv" || echo "(IKFlow fetch skipped)"
   "$PY" benchmark/make_tables.py $OUT_DIR/fetch_open_*.csv --title "Fetch open-world (Table I)" \
     --out "$OUT_DIR/table_fetch.md" || true
   "$PY" benchmark/plot_pareto.py $OUT_DIR/fetch_open_*.csv --out "$OUT_DIR/pareto_fetch.png" \

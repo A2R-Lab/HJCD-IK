@@ -13,10 +13,10 @@ Core deps only (numpy + stdlib xml/json) — no GPU and no PyRoki/cuRobo/JAX nee
 targets. The numpy FK here is the same independent reference validated in tests/test_fk_equivalence.py
 (<0.1 mm / <1e-3 quat vs the GRiD kernel), so the emitted grasptarget poses match HJCD-IK's EE frame.
 
-NOTE (confirm with paper authors): the paper samples "feasible target poses from a Halton sequence".
-This uses an unscrambled van-der-Corput/Halton over joint limits with no self-collision feasibility
-filter. Exact prime/scramble choice and any reachability/collision filtering are worth matching to the
-paper's generator if we want the *same* 100 poses (vs. merely a fair shared set).
+Halton spec (co-author): one prime per joint dimension — Panda {2,3,5,7,11,13,17} — with random
+scrambling, across the FULL joint limits. Implemented here as a seeded digit-scramble (see `_halton`);
+`--no-scramble` reverts to raw Halton. No self-collision/reachability filter is applied (a fair shared
+set, not necessarily the paper's exact 100 poses — that would also need their seed).
 """
 from __future__ import annotations
 
@@ -137,17 +137,25 @@ def _fk(chain, q):
     return T
 
 
-def _halton(n, dim, skip):
+def _halton(n, dim, skip, scramble=True, seed=0):
+    """Scrambled Halton: one prime per joint dim (co-author spec: Panda {2,3,5,7,11,13,17}).
+
+    Scrambling = a seeded random permutation of the digit alphabet {0..base-1} per dimension applied to
+    every digit (random linear / Faure-Tezuka-style digit scramble) — breaks the well-known correlation
+    artifacts of raw van-der-Corput while staying low-discrepancy and fully reproducible from `seed`.
+    """
     if dim > len(_PRIMES):
         raise SystemExit(f"need {dim} Halton dims but only {len(_PRIMES)} primes available")
+    rng = np.random.default_rng(seed)
+    perms = [rng.permutation(_PRIMES[d]) if scramble else np.arange(_PRIMES[d]) for d in range(dim)]
     pts = np.empty((n, dim))
     for k in range(n):
         i = k + skip + 1                          # skip index 0 (always the origin)
         for d in range(dim):
-            base, f, r, ii = _PRIMES[d], 1.0, 0.0, i
+            base, perm, f, r, ii = _PRIMES[d], perms[d], 1.0, 0.0, i
             while ii > 0:
                 f /= base
-                r += f * (ii % base)
+                r += f * perm[ii % base]          # scramble the digit
                 ii //= base
             pts[k, d] = r
     return pts
@@ -163,7 +171,11 @@ def main():
                          "Default panda_hand_joint = the `panda_hand` link, matching the baselines' "
                          "open-world EE (PyRoki ik_beam_hand). Use panda_grasptarget_hand for the TCP frame.")
     ap.add_argument("--num-targets", type=int, default=100)
-    ap.add_argument("--seed", type=int, default=0, help="Halton skip offset (deterministic).")
+    ap.add_argument("--seed", type=int, default=0,
+                    help="seed for the Halton digit-scramble (deterministic).")
+    ap.add_argument("--skip", type=int, default=0, help="Halton start-index offset.")
+    ap.add_argument("--no-scramble", action="store_true",
+                    help="disable random digit-scrambling (raw Halton; not recommended).")
     ap.add_argument("--out", type=str, default=str(root / "benchmark" / "targets" / "panda_open"),
                     help="Output path prefix; writes <out>.json (HJCD) and <out>.yml (baselines).")
     args = ap.parse_args()
@@ -174,7 +186,7 @@ def main():
     dof = len(lo)
     print(f"[gen_targets] {args.urdf} -> '{args.target}': {dof} actuated joints on chain")
 
-    u = _halton(args.num_targets, dof, args.seed)
+    u = _halton(args.num_targets, dof, args.skip, scramble=not args.no_scramble, seed=args.seed)
     configs = lo + u * (hi - lo)
 
     targets = []   # [x,y,z, qw,qx,qy,qz]
