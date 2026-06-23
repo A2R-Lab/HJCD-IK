@@ -13,6 +13,7 @@ from __future__ import annotations  # lazy annotations: cuRobo types in signatur
 
 # Disable JAX prealloc etc
 import os
+import tempfile
 from pathlib import Path
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
@@ -25,28 +26,29 @@ import time
 import numpy as np
 import torch
 
-# CuRobo (optional): only needed for --mode curobo and for the PyRoki collision-free collision check.
-# Imported lazily so PyRoki open-world / DoF runs work without cuRobo (which is backlogged / may not
-# build on newer CUDA — see docs/BASELINES.md). _HAS_CUROBO gates the cuRobo-dependent code paths.
+# cuRobo (optional, v2 API): only needed for --mode curobo and the PyRoki collision-free collision check.
+# Imported lazily so PyRoki open-world / DoF runs work without cuRobo. The harness targets the cuRobo v2
+# API (curobo>=0.8 / main — the classic curobo.wrap.reacher.ik_solver path is gone); see docs/BASELINES.md.
+# v2 runtime needs a kernel backend: `pip install 'cuda-core[cu13]'` (no compile) — handled by the installer.
+# _HAS_CUROBO gates every cuRobo-dependent path.
 try:
-    from curobo.geom.types import WorldConfig
-    from curobo.types.base import TensorDeviceType
-    from curobo.types.math import Pose
-    from curobo.types.robot import RobotConfig
-    from curobo.util.logger import setup_curobo_logger
-    from curobo.util_file import (
-        get_robot_configs_path,
-        get_world_configs_path,
-        join_path,
-        load_yaml,
-        write_yaml,
-    )
-    from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig
-    from curobo.wrap.model.robot_world import RobotWorld, RobotWorldConfig
+    from curobo.inverse_kinematics import InverseKinematics, InverseKinematicsCfg
+    from curobo.types import DeviceCfg, GoalToolPose, Pose
+    from curobo.scene import Cuboid, Cylinder, Scene
+    from curobo.robot_builder import RobotBuilder
     _HAS_CUROBO = True
 except ImportError as _curobo_err:
     _HAS_CUROBO = False
     _CUROBO_IMPORT_ERR = _curobo_err
+
+
+def setup_curobo_logger(level="error"):
+    """Quiet cuRobo logging (v2-safe; no-op if the logging hook moved)."""
+    try:
+        from curobo._src.util.logging import setup_logger
+        setup_logger(level)
+    except Exception:
+        pass
 
 # set seeds
 torch.manual_seed(2)
@@ -203,37 +205,30 @@ def mb_instance_to_goal(inst: dict):
 
 
 def _collision_free_or_unknown(robot_file: str, world_dict: dict, q_torch) -> "bool | None":
-    """cuRobo-based collision check, or None when cuRobo isn't installed (collision-freeness unknown).
-    Lets PyRoki collision-free IK still report timing/accuracy without the (backlogged) cuRobo collision
-    checker; the None propagates to a blank 'collision_free' so Table II stays honest about what was measured."""
+    """cuRobo-based collision check, or None when it can't be computed (collision-freeness unknown).
+    Lets PyRoki collision-free IK still report timing/accuracy; the None propagates to a blank
+    'collision_free' so Table II stays honest about what was measured. Returns None if cuRobo is absent
+    OR the (v2) external sphere-collision query isn't wired (see check_collision_free_curobo)."""
     if not _HAS_CUROBO:
         return None
-    return bool(check_collision_free_curobo(robot_file, world_dict, q_torch)[0])
+    try:
+        return bool(check_collision_free_curobo(robot_file, world_dict, q_torch)[0])
+    except NotImplementedError:
+        return None
 
 
-def check_collision_free_curobo(robot_file: str, world_dict: dict, q: torch.Tensor) -> np.ndarray:
-    """
-    Returns mask (N,) where True means collision-free.
-    cuRobo signed distance: positive => collision penetration depth. 
-    """
-    tensor_args = TensorDeviceType()
-    cfg = RobotWorldConfig.load_from_config(
-        robot_file,
-        world_dict,
-        collision_activation_distance=0.0,
+def check_collision_free_curobo(robot_file: str, world_dict: dict, q) -> np.ndarray:
+    """Mask (N,) where True == collision-free, for externally-supplied joint configs q against world_dict.
+
+    cuRobo v2 follow-up: this validates *another* solver's q (PyRoki's) against the scene, which needs the
+    robot's collision spheres at q (kinematics) fed into `scene_collision_checker.get_sphere_distance`. The
+    v2 sphere-export path is not yet wired here, so we raise NotImplementedError and the caller degrades to
+    'unknown' (blank Table II PyRoki collision column). cuRobo's OWN collision-free IK (Table II --mode
+    curobo) is fully supported — it uses the in-optimizer collision cost (self_collision_check + scene)."""
+    raise NotImplementedError(
+        "cuRobo-v2 external sphere-collision check (for the PyRoki Table II column) not wired yet; "
+        "cuRobo's own collision-free IK is supported. See docs/BASELINES.md."
     )
-    rw = RobotWorld(cfg)
-
-    if q.device.type != "cuda":
-        q = q.to(device=tensor_args.device)
-    q = q.to(dtype=tensor_args.dtype)
-
-    d_world, d_self = rw.get_world_self_collision_distance_from_joints(q)
-
-    # collision if penetration depth > 0
-    d_world_np = d_world.detach().cpu().numpy().reshape(-1)
-    free = d_world_np <= 0.0
-    return free
 
 def benchmark_pyroki_on_mb_problems(
     robot_file: str,
@@ -625,56 +620,6 @@ def eval_one_mb_instance(robot_file: str, inst: dict, batched_ik_fn):
 
     return dt_ms, pos_err, ori_err, pose_success, collision_free
 
-def evaluate_pyroki_ik(q_sample: torch.Tensor):
-    # Get target poses.
-    q_sample = q_sample.numpy(force=True)
-    target_wxyz_xyz = batched_fk(q_sample)
-    target_wxyz_jax = target_wxyz_xyz[..., 0:4]
-    target_position_jax = target_wxyz_xyz[..., 4:7]
-
-    # JIT compile
-    jax.block_until_ready(batched_ik(target_wxyz_jax, target_position_jax))
-
-    # Run the function
-    start = time.time()
-    solution = batched_ik(target_wxyz_jax, target_position_jax)
-    jax.block_until_ready(solution)
-    total_time = (time.time() - start) / target_wxyz_jax.shape[0]
-
-    # Do FK
-    fk_result = batched_fk(solution)
-    assert fk_result.shape == (target_wxyz_jax.shape[0], 7)
-    position_error = np.linalg.norm(
-        np.array(fk_result[:, 4:7]) - np.array(target_position_jax),
-        axis=-1,
-    )
-    assert position_error.shape == (target_wxyz_jax.shape[0],)
-
-    # Copied from cuRobo
-    position_threshold: float = 0.005
-    rotation_threshold: float = 0.05
-
-    orientation_error = np.linalg.norm(
-        np.array(
-            (
-                jaxlie.SO3(target_wxyz_jax).inverse() @ jaxlie.SO3(fk_result[:, 0:4])
-            ).log()
-        ),
-        axis=-1,
-    )
-    assert orientation_error.shape == (target_wxyz_jax.shape[0],)
-
-    success_mask = np.logical_and(
-        position_error < position_threshold,
-        orientation_error < rotation_threshold,
-    )
-    return (
-        total_time,
-        np.mean(success_mask) * 100.0,
-        np.percentile(position_error[success_mask], 98),
-        np.percentile(orientation_error[success_mask], 98),
-    )
-
 def print_one_solution(robot_file: str, inst: dict, batched_ik_fn, idx: int):
     world_dict = mb_instance_to_world_dict(inst)
     #target_wxyz, target_pos = mb_instance_to_goal(inst)
@@ -718,55 +663,6 @@ def print_one_solution(robot_file: str, inst: dict, batched_ik_fn, idx: int):
     print(f"collision_free: {collision_free}")
     print("====================================\n")
 
-def run_full_config_collision_free_ik(
-    robot_file,
-    world_file,
-    batch_size,
-    use_cuda_graph=False,
-    collision_free=True,
-    high_precision=False,
-    num_seeds=12,
-):
-    tensor_args = TensorDeviceType()
-    robot_data = load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
-    if not collision_free:
-        robot_data["kinematics"]["collision_link_names"] = None
-        robot_data["kinematics"]["lock_joints"] = {}
-    robot_cfg = RobotConfig.from_dict(robot_data)
-    world_cfg = WorldConfig.from_dict(
-        load_yaml(join_path(get_world_configs_path(), world_file))
-    )
-    position_threshold = 0.005
-    grad_iters = None
-    if high_precision:
-        position_threshold = 0.001
-        grad_iters = 100
-    ik_config = IKSolverConfig.load_from_robot_config(
-        robot_cfg,
-        world_cfg,
-        position_threshold=position_threshold,
-        num_seeds=num_seeds,
-        self_collision_check=collision_free,
-        self_collision_opt=collision_free,
-        tensor_args=tensor_args,
-        use_cuda_graph=use_cuda_graph,
-        high_precision=high_precision,
-        regularization=False,
-        grad_iters=grad_iters,
-    )
-    ik_solver = IKSolver(ik_config)
-
-    for i in range(3):
-        q_sample = ik_solver.sample_configs(batch_size)
-        while q_sample.shape[0] == 0:
-            q_sample = ik_solver.sample_configs(batch_size)
-
-        torch.cuda.synchronize()
-        if i == 0:
-            pyroki_out = evaluate_pyroki_ik(q_sample)
-
-    return pyroki_out
-
 
 # ======================== cuRobo benchmark helpers ========================
 
@@ -779,14 +675,15 @@ def load_goal_yaml(goal_file: str) -> np.ndarray:
     return np.array(goals, dtype=np.float32)
 
 
-def sample_fk_goals_with_curobo(ik_solver: IKSolver, num_goals: int) -> np.ndarray:
-    """Sample joint configs, run FK, return [N,7] as [x,y,z,qw,qx,qy,qz] (wxyz)."""
+def sample_fk_goals_with_curobo(ik_solver, num_goals: int) -> np.ndarray:
+    """Sample joint configs, run FK, return [N,7] as [x,y,z,qw,qx,qy,qz] (wxyz). (cuRobo v2.)"""
     q_sample = ik_solver.sample_configs(num_goals)
     while q_sample.shape[0] == 0:
         q_sample = ik_solver.sample_configs(num_goals)
-    kin_state = ik_solver.fk(q_sample)
-    pos_np  = kin_state.ee_position.detach().cpu().numpy()
-    quat_np = kin_state.ee_quaternion.detach().cpu().numpy()
+    tool = ik_solver.tool_frames[0]
+    pose = ik_solver.kinematics.get_link_poses(q_sample, [tool])   # Pose: pos (N,1,3), quat (N,1,4) wxyz
+    pos_np  = pose.position.reshape(-1, 3).detach().cpu().numpy()
+    quat_np = pose.quaternion.reshape(-1, 4).detach().cpu().numpy()
     return np.concatenate([pos_np, quat_np], axis=1)
 
 
@@ -839,6 +736,7 @@ def convert_numpy_scalars(data):
 def _write_yaml_safe(data, path):
     """Dump the aux .yml results without cuRobo's write_yaml. Falls back to .json if PyYAML is absent.
     (The canonical CSV is the artifact make_tables.py consumes; this .yml is just a convenience copy.)"""
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     try:
         import yaml
         with open(path, "w") as f:
@@ -850,6 +748,81 @@ def _write_yaml_safe(data, path):
             json.dump(data, f, indent=2)
 
 
+# ---- cuRobo v2 plumbing (replaces the classic curobo.wrap.reacher.ik_solver path) ----
+# The benchmark always solves ONE target pose per call (B=1) with many seeds; we keep that contract.
+# `tensor_args` is a v2 DeviceCfg (has .device / .dtype) so the warmup/run helpers stay unchanged.
+
+def _world_dict_to_scene(world_dict):
+    """MB/world dict ({'cuboid': {name:{dims,pose}}, 'cylinder': {name:{radius,height,pose}}}) -> v2 Scene.
+    Poses are [x,y,z, qw,qx,qy,qz]. Returns None for an empty world."""
+    if not world_dict:
+        return None
+    cuboids, cylinders = [], []
+    for name, o in (world_dict.get("cuboid") or {}).items():
+        cuboids.append(Cuboid(name=str(name), pose=list(o["pose"]), dims=list(o["dims"])))
+    for name, o in (world_dict.get("cylinder") or {}).items():
+        cylinders.append(Cylinder(name=str(name), pose=list(o["pose"]),
+                                  radius=float(o["radius"]), height=float(o["height"])))
+    if not cuboids and not cylinders:
+        return None
+    return Scene(cuboid=cuboids or None, cylinder=cylinders or None)
+
+
+def _subtree_urdf(urdf_path, base_link):
+    """Return a URDF path whose kinematic root is `base_link` (trim links/joints outside its subtree).
+
+    cuRobo v2's RobotBuilder builds from the full URDF tree; restricting to base_link's subtree keeps the
+    DoF count fair (e.g. Fetch arm rooted at arm_mount_link, not the mobile base). No-op (returns the input
+    path) when base_link is already the URDF root."""
+    import tempfile
+    import xml.etree.ElementTree as ET
+    tree = ET.parse(urdf_path)
+    root = tree.getroot()
+    children = {}
+    for j in root.findall("joint"):
+        children.setdefault(j.find("parent").get("link"), []).append(j)
+    keep_links, keep_joints, stack = {base_link}, [], [base_link]
+    while stack:
+        for j in children.get(stack.pop(), []):
+            c = j.find("child").get("link")
+            keep_joints.append(j); keep_links.add(c); stack.append(c)
+    all_links = {l.get("name") for l in root.findall("link")}
+    if keep_links == all_links:
+        return urdf_path                          # base_link already roots the whole tree
+    new_root = ET.Element("robot", root.attrib)
+    for m in root.findall("material"):
+        new_root.append(m)
+    for l in root.findall("link"):
+        if l.get("name") in keep_links:
+            new_root.append(l)
+    keep_ids = {id(j) for j in keep_joints}
+    for j in root.findall("joint"):
+        if id(j) in keep_ids:
+            new_root.append(j)
+    fd, out = tempfile.mkstemp(prefix="curobo_subtree_", suffix=".urdf")
+    os.close(fd)
+    ET.ElementTree(new_root).write(out)
+    return out
+
+
+def _build_ik_solver(robot, *, scene, num_seeds, position_threshold, use_cuda_graph, self_collision):
+    """Create a v2 InverseKinematics solver. `robot` is a v2 robot spec (yml name / dict / built-robot
+    yml path). Returns (ik_solver, device_cfg)."""
+    tensor_args = DeviceCfg()
+    kwargs = dict(
+        robot=robot,
+        num_seeds=num_seeds,
+        position_tolerance=position_threshold,
+        use_cuda_graph=use_cuda_graph,
+        self_collision_check=self_collision,
+        max_batch_size=1,                          # benchmark solves one pose per call
+    )
+    if scene is not None:
+        kwargs["scene_model"] = scene
+        kwargs["collision_cache"] = {"cuboid": 64, "cylinder": 64, "mesh": 16}
+    return InverseKinematics(InverseKinematicsCfg.create(**kwargs)), tensor_args
+
+
 def make_curobo_solver_from_world_dict(
     robot_file: str,
     world_dict: dict,
@@ -858,103 +831,87 @@ def make_curobo_solver_from_world_dict(
     use_cuda_graph: bool,
     num_seeds: int,
 ):
-    tensor_args = TensorDeviceType()
-    robot_data = load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"]
+    """cuRobo v2 IK solver for a bundled robot config (default franka.yml == Panda). When collision_free,
+    the MB obstacles (world_dict) are loaded as a v2 Scene and the optimizer enforces collision avoidance."""
+    scene = _world_dict_to_scene(world_dict) if collision_free else None
+    return _build_ik_solver(
+        robot_file, scene=scene, num_seeds=num_seeds,
+        position_threshold=0.001 if high_precision else 0.005,
+        use_cuda_graph=use_cuda_graph, self_collision=collision_free)
 
-    if not collision_free:
-        robot_data["kinematics"]["collision_link_names"] = None
-        robot_data["kinematics"]["lock_joints"] = {}
 
-    robot_cfg = RobotConfig.from_dict(robot_data)
-    world_cfg = WorldConfig.from_dict(world_dict)
+def make_curobo_solver_from_urdf(urdf_path, base_link, ee_link, *, high_precision, use_cuda_graph, num_seeds):
+    """Open-world cuRobo v2 IK solver from an arbitrary URDF (Fetch + the DoF variants for Table III).
+    Builds a robot config via RobotBuilder rooted at base_link, no collisions."""
+    robot_yml = _curobo_robot_yml_from_urdf(urdf_path, base_link, ee_link)
+    return _build_ik_solver(
+        robot_yml, scene=None, num_seeds=num_seeds,
+        position_threshold=0.001 if high_precision else 0.005,
+        use_cuda_graph=use_cuda_graph, self_collision=False)
 
-    position_threshold = 0.005
-    grad_iters = None
-    if high_precision:
-        position_threshold = 0.001
-        grad_iters = 100
 
-    ik_config = IKSolverConfig.load_from_robot_config(
-        robot_cfg,
-        world_cfg,
-        position_threshold=position_threshold,
-        num_seeds=num_seeds,
-        self_collision_check=collision_free,
-        self_collision_opt=collision_free,
-        tensor_args=tensor_args,
-        use_cuda_graph=use_cuda_graph,
-        high_precision=high_precision,
-        regularization=False,
-        grad_iters=grad_iters,
-    )
-    return IKSolver(ik_config), tensor_args
+_URDF_ROBOT_CACHE = {}
+
+def _curobo_robot_yml_from_urdf(urdf_path, base_link, ee_link):
+    """Build (once, cached) a cuRobo v2 robot config .yml from a URDF + base/ee links; return its path."""
+    key = (os.path.abspath(urdf_path), base_link, ee_link)
+    if key in _URDF_ROBOT_CACHE:
+        return _URDF_ROBOT_CACHE[key]
+    sub = _subtree_urdf(urdf_path, base_link)
+    builder = RobotBuilder(urdf_path=os.path.abspath(sub), tool_frames=[ee_link])
+    cfg = builder.build()
+    out = os.path.join(tempfile.gettempdir(),
+                       f"curobo_robot_{os.path.splitext(os.path.basename(urdf_path))[0]}_{ee_link}.yml")
+    builder.save(cfg, out)
+    _URDF_ROBOT_CACHE[key] = out
+    return out
+
+
+def _solve_one_pose(ik_solver, goal7_wxyz, return_seeds):
+    """Solve a single pose [x,y,z, qw,qx,qy,qz] (wxyz) and return the raw v2 result."""
+    pos = torch.tensor(goal7_wxyz[None, :3], dtype=torch.float32, device="cuda")
+    quat = torch.tensor(goal7_wxyz[None, 3:7], dtype=torch.float32, device="cuda")
+    tool = ik_solver.tool_frames[0]
+    goal = GoalToolPose.from_poses({tool: Pose(position=pos, quaternion=quat)}, num_goalset=1)
+    return ik_solver.solve_pose(goal, return_seeds=return_seeds)
 
 
 def warmup_curobo_solver(ik_solver, tensor_args, goal7_wxyz: np.ndarray, repeat: int = 2):
     assert goal7_wxyz.shape == (7,)
-    goal_batch_np = goal7_wxyz[None, :]
-    pos = torch.tensor(goal_batch_np[:, :3], dtype=torch.float32, device=tensor_args.device)
-    quat = torch.tensor(goal_batch_np[:, 3:], dtype=torch.float32, device=tensor_args.device)
-    goal = Pose(pos, quat)
     for _ in range(max(1, int(repeat))):
-        _ = ik_solver.solve_batch(goal)
+        _ = _solve_one_pose(ik_solver, goal7_wxyz, return_seeds=1)
         torch.cuda.synchronize()
 
 
 def run_curobo_on_goal_batch(ik_solver, goal_batch_np: np.ndarray, tensor_args, print_k: int = 1):
-    pos = torch.tensor(goal_batch_np[:, :3], dtype=torch.float32, device=tensor_args.device)
-    quat = torch.tensor(goal_batch_np[:, 3:], dtype=torch.float32, device=tensor_args.device)
-    goal = Pose(pos, quat)
-
+    """Solve one pose (goal_batch_np is [1,7]) returning up to print_k best seeds. Mirrors the classic
+    return tuple: (time_s, succ_pct, pos98_m, ori98_rad, sols[K,dof], pos_errs[K], ori_errs[K])."""
+    k = max(1, int(print_k))
+    goal7 = goal_batch_np.reshape(-1)
     st_time = time.time()
-    result = ik_solver.solve_batch(goal)
+    result = _solve_one_pose(ik_solver, goal7, return_seeds=k)
     torch.cuda.synchronize()
     total_time = time.time() - st_time
 
-    success_mask = result.success
-    succ = torch.count_nonzero(success_mask).item()
-    succ_pct = 100.0 * succ / len(goal)
+    # v2 shapes: success/position_error/rotation_error (B=1, K); solution (B=1, K, dof)
+    success = result.success.reshape(-1).detach().cpu().numpy().astype(bool)
+    pos_all = result.position_error.reshape(-1).detach().cpu().numpy()
+    ori_all = result.rotation_error.reshape(-1).detach().cpu().numpy()
+    sol_all = result.solution.reshape(success.shape[0], -1).detach().cpu().numpy()
 
-    pos_all = result.position_error.detach().cpu().numpy().reshape(-1)
-    ori_all = result.rotation_error.detach().cpu().numpy().reshape(-1)
-    sol_all = result.solution.squeeze(1).detach().cpu().numpy()
-
-    total_all = pos_all + ori_all
-    order_all = np.argsort(total_all)
-
+    succ = int(success.sum())
+    succ_pct = 100.0 * succ / success.shape[0]
+    order_all = np.argsort(pos_all + ori_all)
     if succ > 0:
-        succ_idx = torch.where(success_mask)[0].detach().cpu().numpy()
-        total_succ = pos_all[succ_idx] + ori_all[succ_idx]
-        order = succ_idx[np.argsort(total_succ)]
+        succ_idx = np.where(success)[0]
+        order = succ_idx[np.argsort(pos_all[succ_idx] + ori_all[succ_idx])]
         pos98 = float(np.percentile(pos_all[succ_idx], 98))
         ori98 = float(np.percentile(ori_all[succ_idx], 98))
     else:
         best_i = int(order_all[0])
-        pos98 = float(pos_all[best_i])
-        ori98 = float(ori_all[best_i])
-        order = order_all
-
-    k = max(1, int(print_k))
+        pos98, ori98, order = float(pos_all[best_i]), float(ori_all[best_i]), order_all
     pick = order[:k]
     return total_time, succ_pct, pos98, ori98, sol_all[pick], pos_all[pick], ori_all[pick]
-
-
-def make_curobo_solver_from_urdf(urdf_path, base_link, ee_link, *, high_precision, use_cuda_graph, num_seeds):
-    """Open-world cuRobo IK solver from an arbitrary URDF (the DoF variants for Table III). No collisions.
-    CONFIRM vs your cuRobo version: RobotConfig.from_basic(urdf, base, ee, tensor_args)."""
-    from curobo.types.robot import RobotConfig
-    tensor_args = TensorDeviceType()
-    robot_cfg = RobotConfig.from_basic(urdf_path, base_link, ee_link, tensor_args)
-    world_cfg = WorldConfig.from_dict({"cuboid": {}, "cylinder": {}})
-    position_threshold = 0.001 if high_precision else 0.005
-    grad_iters = 100 if high_precision else None
-    ik_config = IKSolverConfig.load_from_robot_config(
-        robot_cfg, world_cfg, position_threshold=position_threshold, num_seeds=num_seeds,
-        self_collision_check=False, self_collision_opt=False, tensor_args=tensor_args,
-        use_cuda_graph=use_cuda_graph, high_precision=high_precision, regularization=False,
-        grad_iters=grad_iters,
-    )
-    return IKSolver(ik_config), tensor_args
 
 
 if __name__ == "__main__":
@@ -1052,7 +1009,7 @@ if __name__ == "__main__":
         if args.goal_file is not None:
             goal_dataset = load_goal_yaml(args.goal_file)
         else:
-            world_dict0 = load_yaml(join_path(get_world_configs_path(), args.world_file))
+            world_dict0 = {}  # open-world: cuRobo v2 solver ignores the world when collision_free=False
             base_solver, _ = make_curobo_solver_from_world_dict(
                 robot_file=robot_file, world_dict=world_dict0, collision_free=False,
                 high_precision=args.high_precision, use_cuda_graph=False, num_seeds=12)
@@ -1061,7 +1018,7 @@ if __name__ == "__main__":
 
         per_target = []
         if args.mode == "curobo":
-            world_dict = load_yaml(join_path(get_world_configs_path(), args.world_file))
+            world_dict = {}  # open-world: cuRobo v2 solver ignores the world when collision_free=False
             ik_solver, tensor_args = make_curobo_solver_from_world_dict(
                 robot_file=robot_file, world_dict=world_dict, collision_free=False,
                 high_precision=args.high_precision, use_cuda_graph=args.use_cuda_graph, num_seeds=seeds)
@@ -1157,7 +1114,7 @@ if __name__ == "__main__":
             goal_dataset = load_goal_yaml(args.goal_file)
         else:
             print(f"  sampling {args.num_goals} FK goals via cuRobo FK (panda_hand_tcp)")
-            world_dict = load_yaml(join_path(get_world_configs_path(), args.world_file))
+            world_dict = {}  # open-world: cuRobo v2 solver ignores the world when collision_free=False
             base_solver, _ = make_curobo_solver_from_world_dict(
                 robot_file=robot_file, world_dict=world_dict,
                 collision_free=False, high_precision=args.high_precision,
@@ -1177,7 +1134,7 @@ if __name__ == "__main__":
                         args.robot_urdf, args.base_link, args.ee_link,
                         high_precision=args.high_precision, use_cuda_graph=args.use_cuda_graph, num_seeds=num_seeds)
                 else:
-                    world_dict = load_yaml(join_path(get_world_configs_path(), args.world_file))
+                    world_dict = {}  # open-world: cuRobo v2 solver ignores the world when collision_free=False
                     ik_solver, tensor_args = make_curobo_solver_from_world_dict(
                         robot_file=robot_file, world_dict=world_dict,
                         collision_free=False, high_precision=args.high_precision,

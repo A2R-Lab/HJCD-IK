@@ -10,15 +10,14 @@ the experiments, and what is/isn't wired up yet.
 |---|---|---|
 | **HJCD-IK** | `benchmark/hjcd_ik_bench.py` | core (built extension) |
 | **PyRoki** | `benchmark/baseline_bench.py --mode pyroki` | optional extra (JAX) |
-| **cuRobo** | `benchmark/baseline_bench.py --mode curobo` | optional extra (torch, source build) |
-| **IKFlow** | `benchmark/baseline_ikflow.py` | optional extra (torch + ikflow); **confirm model name/API** |
+| **cuRobo** (v2 API) | `benchmark/baseline_bench.py --mode curobo` | optional extra (torch + curobo@main + cuda-core) |
+| **IKFlow** | `benchmark/baseline_ikflow.py` | optional extra (torch + ikflow); weights load **offline** from `benchmark/assets/ikflow/` |
 | **TRAC-IK** (MMD ground truth) | `benchmark/gen_groundtruth_tracik.py` | optional extra (`tracikpy`) |
-| MMD / MMD² metric | `benchmark/{mmd,run_mmd}.py` | core (numpy); reads `--mmd-dump` config dumps |
+| MMD / MMD² metric | `benchmark/{compute_mmd,run_mmd}.py` | core (numpy/pandas); canonical IMQ MMD, reads config dumps |
 
-> The baseline harness imports both the PyRoki and cuRobo stacks at module load, and uses cuRobo's
-> `RobotWorld` for collision-checking even in `--mode pyroki`. So running *either* mode currently needs
-> *both* stacks installed. (Making the imports mode-lazy so PyRoki can run without cuRobo is a tracked
-> follow-up.)
+> cuRobo + PyRoki imports are **mode-lazy** (`_HAS_CUROBO`): `--mode pyroki` runs with no cuRobo installed,
+> and `--mode curobo` runs with no JAX/PyRoki concerns. The only remaining cuRobo coupling is the optional
+> collision-validation of PyRoki's Table II solutions (see the collision note below).
 
 ## Install
 
@@ -36,9 +35,12 @@ SKIP_PYROKI=1 ./scripts/install_baselines.sh   # cuRobo only
 It installs the `baselines`+`plots` package extras then the solver stacks pip can't resolve directly,
 each independently skippable (`SKIP_PYROKI` / `SKIP_CUROBO` / `SKIP_IKFLOW` / `SKIP_TRACIK`):
 - **PyRoki**: `jax[cuda12]` + `jaxls` (git, brentyi) + `pyroki` (git, chungmin99).
-- **cuRobo**: `torch` + `NVlabs/curobo@v0.7.6` from source (`--no-build-isolation`), cloned to a persistent
-  `$CUROBO_SRC` (`~/.cache/curobo_src`).
-- **IKFlow**: `torch` + `ikflow` (downloads pretrained weights on first use).
+- **cuRobo (v2)**: `torch` + `NVlabs/curobo@main` from source (`--no-build-isolation`, cloned to a persistent
+  `$CUROBO_SRC` = `~/.cache/curobo_src`) + **`cuda-core[cu13]`** (the runtime kernel backend — v2 JIT-compiles
+  CUDA kernels, no C++ build). On CUDA 12 set `CUDA_CORE_EXTRA=cu12`.
+- **IKFlow**: `torch` + `ikflow`. Weights are loaded **offline** by `baseline_ikflow.py` from
+  `benchmark/assets/ikflow/` (registry yaml committed; `.pkl` weights gitignored under `weights/`) — no
+  download (the public GCS bucket 403s here).
 - **TRAC-IK**: `mjd3/tracikpy` built **ROS-free** — apt `swig liborocos-kdl-dev libnlopt-dev liburdfdom-dev`,
   then the script vendors two shims (`benchmark/vendor/tracik/`) and patches `setup.py` (see issue below).
   Cloned to a persistent `$TRACIK_SRC` (`~/.cache/tracikpy_src`).
@@ -46,20 +48,27 @@ each independently skippable (`SKIP_PYROKI` / `SKIP_CUROBO` / `SKIP_IKFLOW` / `S
 Git refs / CUDA extra are overridable (`PYROKI_REF`, `JAXLS_REF`, `CUROBO_REF`, `CUROBO_SRC`, `JAX_CUDA`).
 Pins are best-effort; for an exact paper-matching environment reconcile against the co-author's `pip freeze`.
 
-### Known install issues (verified 2026-06-22 on an RTX 5090 / CUDA 13.2 box)
+### Known install issues (verified 2026-06-23 on an RTX 5090 / CUDA 13.2 box)
 - **PyRoki, IKFlow, jax(GPU), torch(GPU) install cleanly.** PyRoki passes the EE-frame check at 0.000 mm.
-- **cuRobo API split:** `v0.8.0`+ and `main` are the **rewrite** (no `curobo.wrap.reacher.ik_solver`); the
-  harness uses the **classic API = v0.7.x and earlier**, hence the `v0.7.6` pin. (`v0.8.0` builds fine but
-  imports the wrong API.) **Blackwell caveat:** classic v0.7.x predates RTX 50xx (sm_120)/CUDA 13 and may
-  not build/run there; the paper used an RTX 4060 / CUDA 12.5. If v0.7.6 fails on this box, match the
-  co-author's cuRobo+torch+CUDA, or collect the cuRobo column on a CUDA-12 GPU. Changing `CUROBO_REF`
-  re-clones `$CUROBO_SRC` automatically.
-- **`baseline_bench.py` runs without cuRobo.** cuRobo imports are lazy (`_HAS_CUROBO`), so `--mode pyroki`
-  open-world (Table I) and the DoF variants (Table III) work with PyRoki alone — no torch/cuRobo needed.
-  Two cuRobo-only couplings remain by design: (1) `--mode curobo` exits early with a clear message if cuRobo
-  is absent; (2) the **collision-free check for Table II uses cuRobo's `RobotWorld`** — with cuRobo absent,
-  PyRoki collision-free still reports IK timing/accuracy but the `collision_free` column is left blank (you'll
-  see a one-line WARNING). HJCD-IK uses its own collision filter, so the HJCD Table II column is unaffected.
+- **cuRobo = v2 API (`curobo@main`), builds + runs on Blackwell.** The harness was ported from the classic
+  `curobo.wrap.reacher.ik_solver` API to v2 (`curobo.inverse_kinematics.InverseKinematics`,
+  `curobo.scene.Scene`, `curobo.robot_builder.RobotBuilder`). The classic `v0.7.6` is abandoned here: it does
+  **not** build on CUDA 13 / gcc 13 (`lerp` vs C++23 `std::lerp`) and predates sm_120. v2/main installs as a
+  pure-Python package and JIT-compiles kernels at runtime via **cuda-core** — so `pip install 'cuda-core[cu13]'`
+  is required (without it you get `ModuleNotFoundError: No module named 'cuda.core'` on first solve). Verified:
+  open-world Panda (franka.yml) ~2 ms/solve sub-mm; URDF/DoF path (RobotBuilder) ~2 ms sub-mm; MMD dump and
+  collision-free Table II both run.
+- **cuRobo robots:** v2 bundles `franka.yml` (= Panda, tool `panda_hand`) — used directly for Panda Tables
+  I/II/IV. Fetch and the DoF variants go through `--robot-urdf`: `RobotBuilder` builds a robot config from the
+  URDF, rooted at `--base-link` (the harness trims the URDF to that subtree so the DoF count is fair, e.g.
+  Fetch arm at `arm_mount_link`, not the mobile base).
+- **`baseline_bench.py` runs without cuRobo.** Imports are lazy (`_HAS_CUROBO`), so `--mode pyroki` works with
+  no cuRobo. `--mode curobo` exits early with a clear message if cuRobo is absent.
+- **Table II PyRoki collision column — v2 follow-up.** Validating PyRoki's returned joints as collision-free
+  used the classic `RobotWorld`; the v2 equivalent (export robot spheres at a config → `scene_collision_checker.
+  get_sphere_distance`) is **not yet wired**, so that check returns "unknown" and the `collision_free` column is
+  left blank for PyRoki (honest, not a crash). cuRobo's **own** collision-free IK (Table II `--mode curobo`) is
+  fully supported via the in-optimizer collision cost. HJCD-IK uses its own collision filter (unaffected).
 - **`tracikpy` is NOT on PyPI and assumes ROS.** Its C++ `#include`s `<kdl_parser/kdl_parser.hpp>` and
   `<urdf/model.h>` — both ROS packages, absent on a bare Linux box (you'll see
   `fatal error: kdl_parser/kdl_parser.hpp: No such file or directory`, then a missing `urdf::Model`). We build
@@ -70,9 +79,12 @@ Pins are best-effort; for an exact paper-matching environment reconcile against 
   `-I/usr/include/urdfdom`. The one apt package most non-ROS boxes lack is **`liburdfdom-dev`** (provides
   `urdf_parser.h` + `liburdfdom_model.so`); `liborocos-kdl-dev`/`libnlopt-dev`/`swig` are the others.
   Verified 2026-06-22: builds + FK→IK round-trips to 0.0 mm on `panda.urdf` (base `panda_link0`, tip `panda_hand`).
-- **IKFlow model names** are the `model_descriptions.yaml` keys: `panda_full_tpm` (default), `panda_lite_tpm`,
-  and Fetch IS supported (`fetch_full_temp_tpm`). Weights download from a GCS bucket on first use; a
-  network-restricted box may get HTTP 403 (have the co-author share the `.pkl` weights if so).
+- **IKFlow models load offline** from the co-author's registry `benchmark/assets/ikflow/model_descriptions.yaml`
+  (merged into the installed ikflow package at runtime). Panda default = **`panda__full__lp191_5.25m`** (12
+  nodes, latent dim 7 — the stock ikflow `panda_full_tpm` is a *different* architecture/weights, so do not use
+  it for these `.pkl`s); Fetch = **`fetch_full_temp_nsc_tpm`**. Drop the `.pkl`s in
+  `benchmark/assets/ikflow/weights/` (gitignored) and `baseline_ikflow.py` stages them into ikflow's cache by
+  URL basename — no network. Override the search dir with `IKFLOW_WEIGHTS_DIR` or `--weights-dir`.
 
 ## Fair targets (shared across solvers)
 
@@ -166,14 +178,20 @@ python benchmark/baseline_bench.py --mode pyroki --goal_file benchmark/targets/p
 # ground truth (needs tracikpy)
 python benchmark/gen_groundtruth_tracik.py --targets benchmark/targets/panda_open.json --tip panda_hand \
     --num-samples 50 --out dumps/groundtruth.json
+# IKFlow dump (offline weights)
+python benchmark/baseline_ikflow.py --goal_file benchmark/targets/panda_open.yml \
+    --mmd-dump dumps/ikflow.json --mmd-batch 2000 --solutions-count 50
 # Table IV
 python benchmark/run_mmd.py --groundtruth dumps/groundtruth.json \
-    --solver-dump dumps/hjcdik.json dumps/pyroki.json dumps/curobo.json --out results/table4_mmd.md
+    --solver-dump dumps/hjcdik.json dumps/pyroki.json dumps/curobo.json dumps/ikflow.json --out results/table4_mmd.md
 ```
-`mmd.py` uses a Gaussian kernel with a shared median-heuristic bandwidth (the *ranking* is robust; confirm
-the exact kernel/bandwidth with the authors only if you need to match the absolute MMD values). The config
-dump is a small JSON schema (see `run_mmd.py`), so **IKFlow drops in by writing the same dump** — the
-remaining missing piece is the IKFlow solver itself (a `--mode ikflow` adapter + its pretrained weights).
+The **canonical metric is `benchmark/compute_mmd.py`** (co-author's): joint-space MMD with an inverse
+multi-quadric (IMQ) kernel, multi-bandwidth (median × {0.2,0.5,1,2,5}), **unbiased** MMD², averaged per pose.
+`run_mmd.py` drives it from the per-solver config dumps and also writes a flat `<dump>.csv`
+(`solver,pose_id,q1..qN`) next to each dump, so you can reproduce one column directly:
+`python benchmark/compute_mmd.py --ref dumps/groundtruth.csv --cmp dumps/hjcdik.csv --group_col pose_id`.
+(`mmd.py` is now just the dump-I/O + CSV exporter; the old Gaussian estimator there was non-canonical and
+was removed.) Every solver — HJCD, PyRoki, cuRobo, IKFlow — writes the same dump schema.
 
 ## Metrics / units
 
@@ -188,7 +206,7 @@ remaining missing piece is the IKFlow solver itself (a `--mode ikflow` adapter +
 | Paper item | State |
 |---|---|
 | Table I — open-world, **Panda** | HJCD ✓; PyRoki/cuRobo/IKFlow wired (shared targets) |
-| Table I — open-world, **Fetch** | ✓ HJCD + PyRoki/cuRobo via `--robot-urdf` + IKFlow (`fetch_full_temp_tpm`); `RUN_FETCH=1` |
+| Table I — open-world, **Fetch** | ✓ HJCD + PyRoki/cuRobo via `--robot-urdf` + IKFlow (`fetch_full_temp_nsc_tpm`, offline); `RUN_FETCH=1` |
 | Table II — collision-free, Panda | HJCD ✓; PyRoki/cuRobo wired |
 | Table III — **DoF 7/12/18/24** | ✓ all solvers — HJCD per-robot codegen + baselines via `--robot-urdf`; run with `RUN_DOF=1` |
 | Table IV — **MMD / MMD²** | compute ✓; TRAC-IK ground truth ✓ (`gen_groundtruth_tracik.py`); HJCD/PyRoki/cuRobo/IKFlow dumps ✓ — all wired, unrun |

@@ -28,11 +28,13 @@ echo "[install_baselines] using interpreter: $PY"
 
 PYROKI_REF="${PYROKI_REF:-main}"
 JAXLS_REF="${JAXLS_REF:-main}"
-# cuRobo API note: v0.8.0+ (and `main`) are the rewrite — NO `curobo.wrap.reacher.ik_solver`. The harness
-# (baseline_bench.py) uses the CLASSIC API, which is v0.7.x and earlier -> pin v0.7.6.
-# Blackwell caveat: classic cuRobo predates RTX 50xx (sm_120)/CUDA 13 and may not build/run there; the
-# paper used a 4060/CUDA 12.5. Match the co-author's cuRobo+torch+CUDA for an exact build (or use a CUDA-12 GPU).
-CUROBO_REF="${CUROBO_REF:-v0.7.6}"
+# cuRobo API note: baseline_bench.py targets the cuRobo v2 API (curobo.inverse_kinematics.InverseKinematics
+# + curobo.scene.Scene + curobo.robot_builder.RobotBuilder). That API is v0.8.0+ / `main` — the rewrite.
+# (The classic v0.7.x curobo.wrap.reacher.ik_solver path is gone, and v0.7.6 won't build on CUDA13/gcc13:
+# `lerp` vs C++23 `std::lerp`.) v2/main BUILDS + RUNS on Blackwell (sm_120). v2 needs a kernel backend at
+# runtime: install `cuda-core` (no compilation) — done below.
+CUROBO_REF="${CUROBO_REF:-main}"
+CUDA_CORE_EXTRA="${CUDA_CORE_EXTRA:-cu13}"   # cuda-core wheel extra: cu13 (CUDA 13) or cu12
 CUROBO_SRC="${CUROBO_SRC:-$HOME/.cache/curobo_src}"   # persistent (editable install points here; NOT /tmp)
 JAX_CUDA="${JAX_CUDA:-jax[cuda12]}"
 
@@ -83,31 +85,42 @@ else
   echo "[install_baselines] (2/3) SKIP_PYROKI=1 — skipping PyRoki stack"
 fi
 
-# ---- cuRobo: torch first, then a (no-build-isolation) source install of a classic-API release ----
+# ---- cuRobo v2 (curobo@main): torch, a no-build-isolation source install, + the cuda-core runtime backend ----
 if [ "${SKIP_CUROBO:-0}" != "1" ]; then
-  echo "[install_baselines] (3/3) cuRobo stack (torch + NVlabs/curobo@${CUROBO_REF} from source -> ${CUROBO_SRC})"
+  echo "[install_baselines] (3/3) cuRobo v2 stack (torch + NVlabs/curobo@${CUROBO_REF} from source -> ${CUROBO_SRC})"
   "$PY" -m pip install torch
-  # Re-clone if an existing checkout is at a different ref (shallow clones can't easily switch tags).
+  # Re-clone if an existing checkout is at a different ref.
   if [ -d "$CUROBO_SRC/.git" ]; then
-    cur="$(git -C "$CUROBO_SRC" describe --tags --always 2>/dev/null || echo none)"
+    cur="$(git -C "$CUROBO_SRC" rev-parse --abbrev-ref HEAD 2>/dev/null || echo none)"
     [ "$cur" = "$CUROBO_REF" ] || { echo "[install_baselines] cuRobo clone at '$cur' != '$CUROBO_REF' — re-cloning"; rm -rf "$CUROBO_SRC"; }
   fi
   if [ ! -d "$CUROBO_SRC/.git" ]; then
     git clone --depth 1 --branch "$CUROBO_REF" https://github.com/NVlabs/curobo.git "$CUROBO_SRC" \
       || echo "[install_baselines] WARNING: cuRobo clone of ${CUROBO_REF} failed."
   fi
-  "$PY" -m pip install -e "$CUROBO_SRC" --no-build-isolation \
-    || echo "[install_baselines] WARNING: cuRobo build failed — usually a torch/CUDA mismatch (cuRobo ${CUROBO_REF} may need an older torch than the auto-installed one; pin e.g. 'pip install torch==2.4.*'). See docs/BASELINES.md. cuRobo column will be absent."
+  if MAX_JOBS="${CUROBO_MAX_JOBS:-4}" "$PY" -m pip install -e "$CUROBO_SRC" --no-build-isolation; then
+    # v2 compiles no C++ by default — it JIT-compiles kernels at runtime via the cuda-core backend.
+    "$PY" -m pip install "cuda-core[${CUDA_CORE_EXTRA}]" \
+      || echo "[install_baselines] WARNING: cuda-core install failed — cuRobo will error at runtime ('No module named cuda.core'). Try CUDA_CORE_EXTRA=cu12."
+  else
+    echo "[install_baselines] WARNING: cuRobo build failed — see docs/BASELINES.md. cuRobo column will be absent."
+  fi
 else
   echo "[install_baselines] (3/3) SKIP_CUROBO=1 — skipping cuRobo stack"
 fi
 
-# ---- IKFlow: normalizing-flow IK baseline (Tables I + IV); torch model, downloads weights on first use ----
+# ---- IKFlow: normalizing-flow IK baseline (Tables I + IV); torch model. Weights are loaded OFFLINE: ----
+# baseline_ikflow.py merges benchmark/assets/ikflow/model_descriptions.yaml (co-author's registry) into the
+# installed package and stages the local .pkl from benchmark/assets/ikflow/weights/ into ikflow's cache, so
+# no download is needed (the public GCS bucket 403s). Drop the co-author's .pkl in that weights/ dir first.
 if [ "${SKIP_IKFLOW:-0}" != "1" ]; then
   echo "[install_baselines] (extra) IKFlow"
   "$PY" -m pip install torch    # no-op if cuRobo stage already installed it
   "$PY" -m pip install ikflow \
     || echo "[install_baselines] WARNING: ikflow install failed (see docs/BASELINES.md); Tables I/IV IKFlow column will be absent."
+  if ! ls benchmark/assets/ikflow/weights/*.pkl >/dev/null 2>&1; then
+    echo "[install_baselines] NOTE: no IKFlow weights in benchmark/assets/ikflow/weights/ — add the co-author's .pkl there for offline load."
+  fi
 else
   echo "[install_baselines] (extra) SKIP_IKFLOW=1 — skipping IKFlow"
 fi
