@@ -1,5 +1,55 @@
+Examples & Results
+==================
+
+Runnable examples for the Python API, then the published benchmark results and how to reproduce them.
+
+Examples
+--------
+
+Self-contained, runnable programs live in the repository's ``examples/`` directory. Each is included in
+full below (so the docs never drift from the code). Run any with the project's virtual environment
+active, e.g. ``python examples/01_open_world_solve.py``.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 28 52 20
+
+   * - Example
+     - Shows
+     - Needs
+   * - ``01_open_world_solve``
+     - Batch-solve one 6-DOF target; inspect the best returned solutions
+     - built ``hjcdik``
+   * - ``02_collision_free_solve``
+     - Collision-free solve against a MotionBenchMaker scene (obstacles on GPU)
+     - ``grasptarget`` build
+   * - ``03_batch_sweep``
+     - How the best-solution accuracy improves with batch size
+     - built ``hjcdik``
+
+01 — Open-world solve
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. literalinclude:: ../../../../examples/01_open_world_solve.py
+   :language: python
+
+02 — Collision-free solve
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The scene and goal come from ``tests/mb_problems.json``; the GPU filters candidates against the obstacles
+in the chosen problem set (the **Results** section below covers the benchmark harness and reproduction).
+
+.. literalinclude:: ../../../../examples/02_collision_free_solve.py
+   :language: python
+
+03 — Batch-size sweep
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. literalinclude:: ../../../../examples/03_batch_sweep.py
+   :language: python
+
 Results
-=======
+-------
 
 HJCD-IK generates large batches of IK solutions in parallel and stays on or near the **accuracy–latency
 Pareto frontier** across every batch size and degree-of-freedom count, with order-of-magnitude gains over

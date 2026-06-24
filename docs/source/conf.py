@@ -69,3 +69,11 @@ html_context = {
     "conf_py_path": "/docs/source/",
     "doc_path": "docs/source",
 }
+
+# Hide the redundant left "Section Navigation" on single-page sections (it would just list the page
+# you're already on). The navbar still provides top-level navigation.
+html_sidebars = {
+    "user_guide/concepts/hjcd_algorithm": [],
+    "user_guide/benchmarks/results": [],
+    "developer_guide/contribution_guidelines": [],
+}

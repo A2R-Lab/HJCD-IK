@@ -78,7 +78,6 @@ Quick start
    :hidden:
    :caption: Examples & Results
 
-   user_guide/tutorials/examples
    user_guide/benchmarks/results
 
 .. toctree::

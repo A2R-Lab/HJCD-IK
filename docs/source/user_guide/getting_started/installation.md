@@ -65,6 +65,6 @@ print("best position error:", out["pos_errors"].min())
 print("joint configs shape:", out["joint_config"].shape)
 ```
 
-For collision-free solving, pass `collision_free=True` with a MotionBenchMaker problem set — see
-{doc}`../tutorials/examples` (example 02) and the {doc}`../benchmarks/results` page. To target a different
-robot or end-effector frame, see {doc}`../tutorials/custom_robot`.
+For collision-free solving, pass `collision_free=True` with a MotionBenchMaker problem set — see the
+{doc}`../benchmarks/results` page (runnable examples + benchmarks). To target a different robot or
+end-effector frame, see {doc}`../tutorials/custom_robot`.
