@@ -1,38 +1,31 @@
-# `web/assets/` — media for the landing page
+# Where to drop project media
 
-Drop project media here; the landing page (`web/landing/`) references these files. **Until the real
-assets land, the landing uses placeholders** — we do **not** substitute our local benchmark plots into
-any public page.
+The landing page (`web/landing/index.html`) and the docs reference media by **exact filename**. Drop files
+at the paths below and they are picked up with **no code changes** — each currently shows a placeholder.
 
-## Source-of-truth rule (important)
+## Source-of-truth rule
 
-Every public-facing number, table, and plot — on the landing page **and** in the docs — must come from
-and **match the camera-ready paper exactly**. The benchmark plots/tables produced on our machines
-(`benchmark/results/`) are **local run-reference only** and are gitignored; they are never published.
+Every public number/table/plot must match the **camera-ready paper** exactly. The result *tables* are
+already transcribed from the paper (landing + `docs/.../benchmarks/results.rst`). The benchmark plots we
+generated locally (`benchmark/results/`) are **gitignored run-reference only** — never publish them.
 
-## What to provide
+## Landing-page media → `web/landing/static/`
 
-| File / item | Used for | Notes |
+| Put the file here | What it is | Notes |
 |---|---|---|
-| `paper.pdf` (camera-ready) | **Authoritative** source for all public figures/tables | Result + method figures are extracted from here; tables transcribed verbatim. Also used to refresh authors / abstract / BibTeX. |
-| `teaser.mp4` **or** a YouTube link | Hero / teaser video | Prefer a YouTube embed or git-LFS if the file is large (avoid a heavy binary in git — see below). ≤~30 s, ≥720p. |
-| `method.(png\|svg)` | "Approach / Method" figure(s) | High-res; pipeline / warp-layout figure. Provide separately if not cleanly extractable from the PDF. |
-| `results/*.png` | "Results" section figures | Extracted from the camera-ready paper (Pareto / scaling / tables). |
-| `logo.(png\|svg)`, `favicon.ico` | Branding (optional) | Falls back to the A2R-Lab logo. |
-| hardware / qualitative photos (optional) | Extra results / demo imagery | |
+| `web/landing/static/videos/teaser.mp4` | Hero/teaser video (Franka hardware demo) | Or give me a **YouTube link** and I'll embed it instead (preferred if the file is large — keeps it out of git; otherwise we'll use git-LFS). ≤~30 s, ≥720p. |
+| `web/landing/static/images/method.png` | Method / pipeline figure (paper Fig. 3) | High-res PNG/SVG. |
+| `web/landing/static/images/teaser.png` | Social-preview / hero still (og:image) | Optional; a still from the video or Fig. 1. |
+| `web/landing/static/images/a2r_lab.png` | A2R Lab logo | **Already in place** (reused from GLASS). Replace if you have an HJCD-specific logo. |
+| `web/landing/static/images/favicon.ico` | Favicon | **Already in place.** |
+
+## Optional paper figures for the docs → `docs/source/_static/paper/`
+
+| Put the file here | What it is |
+|---|---|
+| `docs/source/_static/paper/*.png` | Pareto / DoF-study / qualitative figures (paper Figs. 1, 4–6), if you want them embedded on the docs Results page alongside the tables. Tell me the filenames and I'll wire the `.. figure::` directives. |
 
 ## Video hosting
 
-A raw `.mp4` bloats the git history. Preferred order: **YouTube/Vimeo embed** → **git-LFS** → raw mp4.
-Tell me which you want when you drop the asset and I'll wire it accordingly.
-
-## Layout
-
-```
-web/assets/
-  paper.pdf
-  teaser.mp4            (or a youtube link in this README)
-  method.png
-  results/             figures extracted from the camera-ready paper
-  logo.png  favicon.ico
-```
+Raw `.mp4` bloats git history. Preference order: **YouTube/Vimeo embed** → **git-LFS** → raw mp4 in
+`static/videos/`. Tell me which when you drop it.

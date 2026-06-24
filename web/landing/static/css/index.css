@@ -1,0 +1,75 @@
+/* HJCD-IK project page — light custom styles on top of Bulma.
+   Color scheme follows the A2R Lab sites: Dartmouth green primary, with HJCD-IK's
+   warm-orange plot color as a secondary data-emphasis accent. */
+
+:root {
+  --lab-green: #00693e;       /* Dartmouth green — lab brand */
+  --lab-green-dark: #004f2f;
+  --hjcd-orange: #d2691e;     /* HJCD-IK's series color in the paper plots */
+}
+
+body { font-family: "Noto Sans", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+
+.hero { padding-top: 2rem; }
+
+.lab-logo { height: 46px; width: auto; margin-bottom: 1.25rem; }
+
+.iros-badge {
+  background-color: var(--lab-green);
+  color: #fff;
+  margin-bottom: 1.25rem;
+}
+
+.publication-title { line-height: 1.2; margin-bottom: 1.5rem; color: #1a1a1a; }
+
+.publication-authors { margin-bottom: 0.4rem; }
+.publication-authors .author-block { display: inline-block; margin: 0 0.15rem; }
+.publication-authors a { color: var(--lab-green); font-weight: 600; }
+
+.publication-affiliations { color: #555; margin-bottom: 1.75rem; }
+
+.publication-links { margin-top: 0.5rem; }
+.publication-links .button {
+  margin: 0.25rem;
+  background-color: var(--lab-green);
+  border-color: var(--lab-green);
+  color: #fff;
+}
+.publication-links .button:hover { background-color: var(--lab-green-dark); border-color: var(--lab-green-dark); }
+
+.teaser-section { padding-top: 2rem; padding-bottom: 1rem; }
+
+/* Section headings get the lab-green underline accent. */
+.section .title.is-3 { color: var(--lab-green); }
+
+/* Neutral placeholder boxes for pending media/figures. */
+.placeholder-box {
+  border: 2px dashed #cdcdcd;
+  border-radius: 8px;
+  background: #fafafa;
+  color: #888;
+  padding: 2.5rem 1rem;
+  text-align: center;
+  font-size: 1.05rem;
+}
+
+.stage-box { height: 100%; border-top: 4px solid var(--lab-green); }
+.stage-box .title { color: var(--lab-green); }
+
+/* Result tables — HJCD-IK column highlighted (matches the paper's shading). */
+table.result-table { margin: 0 auto; font-size: 0.92rem; }
+table.result-table th { background: var(--lab-green); color: #fff; }
+table.result-table td.hjcd, table.result-table th.hjcd { background: #eaf4ee; font-weight: 600; }
+table.result-table td.hjcd { color: var(--lab-green-dark); }
+
+pre.bibtex {
+  background: #2b2b2b;
+  color: #f5f5f5;
+  border-radius: 8px;
+  padding: 1.25rem;
+  overflow-x: auto;
+  font-size: 0.9rem;
+}
+pre.bibtex code { background: transparent; color: inherit; padding: 0; }
+
+footer.footer { background: #fafafa; border-top: 3px solid var(--lab-green); }

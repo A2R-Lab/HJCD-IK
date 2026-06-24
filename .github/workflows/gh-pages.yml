@@ -7,6 +7,8 @@ on:
       - 'docs/**'
       - 'src/**'
       - 'include/**'
+      - 'web/**'
+      - 'examples/**'
       - '.github/workflows/gh-pages.yml'
   workflow_dispatch:
 
@@ -39,10 +41,17 @@ jobs:
         run: |
           cd docs
           make all
+      # OSQP-model layout: the static landing page at the site root, the Sphinx docs under /docs/.
+      - name: Assemble site (landing at root, docs under /docs/)
+        run: |
+          rm -rf _site && mkdir -p _site
+          cp -r web/landing/. _site/
+          cp -r docs/build/html _site/docs
+          touch _site/.nojekyll
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: docs/build/html
+          path: _site
 
   deploy:
     needs: build

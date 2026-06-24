@@ -86,3 +86,6 @@ web/assets/*
 # Generated docs output (Sphinx HTML + Doxygen XML)
 docs/build/
 docs/doxygen/
+
+# Assembled Pages site (landing + docs), built by CI
+_site/
