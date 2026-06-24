@@ -10,8 +10,8 @@ the GPU baselines cuRobo, PyRoki, and IKFlow, while returning the most diverse (
    **All numbers below are from the camera-ready paper** (`arXiv:2510.07514
    <https://arxiv.org/abs/2510.07514>`_, IROS 2026) — the single source of truth. They were collected on
    an NVIDIA RTX 4060 (Intel i7-14700HX, WSL Ubuntu 24.04, CUDA 12.5) over 100 Halton open-world poses and
-   the *bookshelf_thin_panda* MotionBenchMaker scene. Benchmarks you run locally (see :doc:`reproduce`) are
-   for your own validation and will differ with hardware. Position error is in **mm**, orientation error in
+   the *bookshelf_thin_panda* MotionBenchMaker scene. Benchmarks you run locally (see *Reproducing these
+   results*, below) are for your own validation and will differ with hardware. Position error is in **mm**, orientation error in
    **rad**, time in **ms**; **bold** marks the best (HJCD-IK) value.
 
 Open-world IK — Panda (Table I)
@@ -342,6 +342,83 @@ ground-truth samples, over 100 target poses — lower is a closer match to the f
 
    Distribution of collision-free IK solutions for a representative target — cuRobo (left), PyRoki
    (center), HJCD-IK (right). HJCD-IK returns a broader, more diverse spread of locally-optimal solutions.
+
+Reproducing these results
+-------------------------
+
+The numbers above are the paper's; you can regenerate the **HJCD-IK** columns on your own GPU (absolute
+timings will differ — see the note at the top). The competitor baselines are optional and heavy.
+
+**One command (all tables, all installed solvers):**
+
+.. code-block:: bash
+
+   ./scripts/setup/install_baselines.sh                 # optional: PyRoki, cuRobo, IKFlow, TRAC-IK (each skippable)
+   RUN_DOF=1 RUN_MMD=1 ./scripts/bench/run_paper_experiments.sh   # Tables I–IV + Pareto figures into benchmark/results/
+   # HJCD-IK only (no baselines):  SKIP_CUROBO=1 SKIP_PYROKI=1 SKIP_IKFLOW=1 ./scripts/bench/run_paper_experiments.sh
+
+The baselines (PyRoki / cuRobo v2 / IKFlow / TRAC-IK) install behind the optional ``baselines`` extra plus
+some git/source steps; ``scripts/setup/install_baselines.sh`` handles each (and documents the per-solver
+gotchas — cuRobo's ``cuda-core`` backend, IKFlow's offline weights, TRAC-IK's ROS-free build). Each stage
+is independently skippable, and every solver runs the **same** shared open-world Halton targets for a fair
+comparison.
+
+**HJCD-IK on its own** (no baselines needed) — open-world or a collision-free MotionBenchMaker scene:
+
+.. code-block:: bash
+
+   python benchmark/hjcd_ik_bench.py --skip-grid-codegen --batches 1,10,100,1000,2000 --num-targets 100
+   # collision-free (Panda bookshelf):
+   python benchmark/hjcd_ik_bench.py --skip-grid-codegen --collision-free \
+       --problems-json tests/mb_problems.json --problem-set bookshelf_thin_panda --batches 1,10,100,1000
+
+The harness reports solved-rate, mean position / orientation error, and timing per batch size — the metrics
+``tests/test_regression.py`` asserts against a committed baseline. Isolate timing runs (no concurrent GPU
+load).
+
+Per-robot end-effector frame
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The end-effector is a **named fixed-joint frame**, robot-specific. GRiD's codegen places it at an
+``s_XmatsHom`` index that **shifts with DoF**, so ``scripts/codegen/generate_grid.py`` resolves that index
+and injects ``grid::EE_FIXED_FRAME_IDX`` into ``grid.cuh`` (``include/hjcd_settings.h`` consumes it — never
+hardcode the index). To switch robots: regenerate, then rebuild.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Robot
+     - URDF
+     - ``-t`` target (fixed joint)
+     - ``EE_FIXED_FRAME_IDX``
+   * - Panda 7-DoF
+     - ``panda.urdf``
+     - ``panda_grasptarget_hand``
+     - 10
+   * - Panda 12-DoF
+     - ``panda_ext_12dof.urdf``
+     - ``panda_hand_joint``
+     - 14
+   * - Panda 18-DoF
+     - ``panda_ext_18dof.urdf``
+     - ``panda_hand_joint``
+     - 20
+   * - Panda 24-DoF
+     - ``panda_ext_24dof.urdf``
+     - ``panda_grasptarget_hand``
+     - 27
+   * - Fetch 7-DoF
+     - ``fetch.urdf``
+     - ``ee_fixed`` (→ ``ee_link``)
+     - 7
+
+.. code-block:: bash
+
+   python scripts/codegen/generate_grid.py include/test_urdf/<robot>.urdf -t <target>   # injects EE_FIXED_FRAME_IDX
+   bash scripts/setup/rebuild.sh                                                         # ninja + install (NOT ninja alone)
+
+The hardware results (Fig. 6) require the physical Franka Research 3 setup and are not reproducible from
+this repository.
 
 .. list-table::
    :header-rows: 1

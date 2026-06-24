@@ -41,7 +41,7 @@ joints, `EE_IDX = 7`, `FLANGE_IDX = 8`, `NX = 9` stored frames.
 | `src/collision/` | pRRTC per-block collision checking. |
 | `src/pybind_module.cpp` | Python bindings → `generate_solutions`, `sample_targets`, `num_joints`. |
 | `benchmark/hjcd_ik_bench.py` | HJCD-IK benchmark harness: solved-rate, position/orientation error, timing. |
-| `benchmark/baseline_bench.py` | Competitor baselines (PyRoki/cuRobo, `--mode`); optional, see `docs/source/user_guide/benchmarks/baselines.md`. |
+| `benchmark/baseline_bench.py` | Competitor baselines (PyRoki/cuRobo, `--mode`); optional, see `docs/source/user_guide/benchmarks/results.rst`. |
 | `benchmark/baseline_ikflow.py` | IKFlow baseline (standalone, torch); same CSV/MMD-dump schema. |
 | `benchmark/check_ee_frames.py` | Gated smoke test: do all solvers agree on the EE (panda_hand) frame? |
 | `benchmark/gen_targets.py` | Neutral Halton + numpy-FK shared open-world targets (fair cross-solver compare). |
@@ -88,7 +88,7 @@ upstreamable performance. The bespoke Panda-only FK (`X_warp` / `X_single_thread
 the vendored `grid.cuh`) is being replaced by GRiD's stock warp FK (`grid::ee_pose_inner_warp`), and the
 hand-rolled math (`mat4_mul`, warp reduce, warp Cholesky) moved onto a new `glass::warp::` sub-namespace.
 The end-effector frame is now **per-robot** (codegen resolves `grid::EE_FIXED_FRAME_IDX` from the named
-target and injects it; `hjcd_settings.h` consumes it) — see [`docs/source/user_guide/benchmarks/reproduce.md`](docs/source/user_guide/benchmarks/reproduce.md)
+target and injects it; `hjcd_settings.h` consumes it) — see [`docs/source/user_guide/benchmarks/results.rst`](docs/source/user_guide/benchmarks/results.rst)
 for the per-robot EE map + how to regenerate the paper sweeps.
 
 > **Build/test gotcha:** `ninja -C build` does NOT update the imported `.so` (it's the editable copy in
@@ -96,4 +96,4 @@ for the per-robot EE map + how to regenerate the paper sweeps.
 
 **Detailed working state lives in local, untracked notes** (`docs/HANDOFF.md` + `docs/open-tasks/`, gitignored —
 they're agent scratch, not project artifacts). Tracked project docs: this file, `docs/development/agent_debugging_guide.md`,
-`docs/source/user_guide/benchmarks/reproduce.md`, and the sphinx docs.
+`docs/source/user_guide/benchmarks/results.rst`, and the sphinx docs.

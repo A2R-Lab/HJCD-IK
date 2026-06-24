@@ -32,7 +32,7 @@ environment active, e.g. ``python examples/01_open_world_solve.py``.
 -------------------------
 
 The scene and goal come from ``tests/mb_problems.json``; the GPU filters candidates against the obstacles
-in the chosen problem set. See :doc:`collision_free_benchmark` for the benchmark harness around this.
+in the chosen problem set. See :doc:`../benchmarks/results` for the benchmark harness and how to reproduce.
 
 .. literalinclude:: ../../../../examples/02_collision_free_solve.py
    :language: python

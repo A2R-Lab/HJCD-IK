@@ -48,7 +48,7 @@ paper's competitors, install them with the helper (each stage is skippable — s
 ./scripts/setup/install_baselines.sh                 # PyRoki + cuRobo
 SKIP_CUROBO=1 ./scripts/setup/install_baselines.sh   # PyRoki only
 ```
-See [`docs/source/user_guide/benchmarks/baselines.md`](docs/source/user_guide/benchmarks/baselines.md) for the full install/run guide and reproduction coverage.
+See [`docs/source/user_guide/benchmarks/results.rst`](docs/source/user_guide/benchmarks/results.rst) for the full install/run guide and reproduction coverage.
 
 ## Using different robots
 At installation, HJCD-IK creates a new GRiD header file for the Franka Panda Arm and sets `panda_grasptarget_hand` as its end-effector flange. To use a different robot, you must first create a new `grid.cuh` header file using:

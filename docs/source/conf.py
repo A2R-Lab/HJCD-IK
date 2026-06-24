@@ -6,7 +6,7 @@
 
 # -- Project information -----------------------------------------------------
 project = "HJCD-IK"
-copyright = "2025, A2R Lab"
+copyright = "2026, A2R Lab"
 author = "A2R Lab"
 release = "0.1.0"
 
@@ -56,10 +56,9 @@ html_theme_options = {
     "header_links_before_dropdown": 6,
     "navbar_end": ["search-button", "theme-switcher", "navbar-icon-links"],
     "show_version_warning_banner": True,
-    # Quick links back to the project landing page + paper (the landing lives at the site root).
+    # Quick link back to the project landing page (the landing lives at the site root).
     "external_links": [
         {"name": "Project page", "url": "https://a2r-lab.org/HJCD-IK/"},
-        {"name": "Paper (arXiv)", "url": "https://arxiv.org/abs/2510.07514"},
     ],
 }
 html_context = {

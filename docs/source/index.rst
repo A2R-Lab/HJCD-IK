@@ -24,25 +24,25 @@ Project page: `a2r-lab.org/HJCD-IK <https://a2r-lab.org/HJCD-IK/>`_.
       :link: user_guide/concepts/hjcd_algorithm
       :link-type: doc
 
-      Coarse coordinate-descent search + warp-scoped Levenberg–Marquardt refine.
+      The three-phase algorithm: coordinate-descent init, Jacobian polish, collision filter.
 
-   .. grid-item-card:: Tutorials & examples
-      :link: user_guide/tutorials/examples
+   .. grid-item-card:: Examples & results
+      :link: user_guide/benchmarks/results
       :link-type: doc
 
-      Custom robots, collision-free solving, and runnable example programs.
+      Runnable examples, benchmark results vs. cuRobo / PyRoki / IKFlow, and how to reproduce.
+
+   .. grid-item-card:: Custom robots
+      :link: user_guide/tutorials/custom_robot
+      :link-type: doc
+
+      Generate kinematics for a new URDF / end-effector frame.
 
    .. grid-item-card:: API reference
       :link: api_reference/index
       :link-type: doc
 
       The Python API and the Doxygen-generated C++/CUDA reference.
-
-   .. grid-item-card:: Benchmarks
-      :link: user_guide/benchmarks/results
-      :link-type: doc
-
-      Results vs. cuRobo / PyRoki / IKFlow, and how to reproduce the paper.
 
    .. grid-item-card:: Developer guide
       :link: developer_guide/contribution_guidelines
@@ -65,33 +65,21 @@ Quick start
    :hidden:
    :caption: Getting Started
 
-   user_guide/getting_started/overview
    user_guide/getting_started/installation
-   user_guide/getting_started/quickstart
+   user_guide/tutorials/custom_robot
 
 .. toctree::
    :hidden:
-   :caption: Concepts
+   :caption: Algorithm
 
    user_guide/concepts/hjcd_algorithm
-   user_guide/concepts/batch_execution
-   user_guide/concepts/collision_avoidance
 
 .. toctree::
    :hidden:
-   :caption: Tutorials
+   :caption: Examples & Results
 
-   user_guide/tutorials/custom_robot
-   user_guide/tutorials/collision_free_benchmark
    user_guide/tutorials/examples
-
-.. toctree::
-   :hidden:
-   :caption: Benchmarks
-
    user_guide/benchmarks/results
-   user_guide/benchmarks/baselines
-   user_guide/benchmarks/reproduce
 
 .. toctree::
    :hidden:
@@ -104,4 +92,3 @@ Quick start
    :caption: Developer Guide
 
    developer_guide/contribution_guidelines
-   developer_guide/sphinx_edit_guide

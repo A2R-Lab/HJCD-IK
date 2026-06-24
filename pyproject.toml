@@ -26,7 +26,7 @@ dependencies = [
 ]
 
 # OPTIONAL extras. Base install stays lightweight (HJCD-IK needs none of these). The competitor
-# baselines are heavy and skippable — see docs/source/user_guide/benchmarks/baselines.md.
+# baselines are heavy and skippable — see docs/source/user_guide/benchmarks/results.rst.
 [project.optional-dependencies]
 # Lightweight tooling + PyRoki's pure-python friends that pip CAN resolve. The solver stacks
 # themselves (PyRoki, cuRobo) and their JAX-CUDA / torch deps are NOT plain-PyPI installs — run

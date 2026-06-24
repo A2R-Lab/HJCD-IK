@@ -35,7 +35,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# DoF -> URDF + GRiD fixed-target name (authoritative map: docs/source/user_guide/benchmarks/reproduce.md)
+# DoF -> URDF + GRiD fixed-target name (authoritative map: docs/source/user_guide/benchmarks/results.rst)
 urdf_for()   { case "$1" in 7) echo include/test_urdf/panda.urdf ;;
                             12) echo include/test_urdf/panda_ext_12dof.urdf ;;
                             18) echo include/test_urdf/panda_ext_18dof.urdf ;;
