@@ -1,5 +1,13 @@
 # The HJCD algorithm
 
+```{figure} /_static/paper/design.png
+:alt: HJCD-IK three-phase pipeline — initialization, polishing, collision filter
+:width: 100%
+
+The HJCD-IK pipeline: orientation-aware greedy coordinate-descent initialization (PO-CCD), parallel
+Jacobian-based polishing (PJ-IK), and a parallel collision filter.
+```
+
 Hybrid Jacobian Coordinate Descent combines cheap per-joint coordinate updates with Jacobian-based refinement:
 
 1. **Coarse search.** From random restarts, greedily pick per-joint moves that most reduce position/orientation

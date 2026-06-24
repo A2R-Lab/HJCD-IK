@@ -186,6 +186,12 @@ Open-world IK — Fetch (Table I)
      - 1.52e1
      - 4.87e-2
 
+.. figure:: /_static/paper/pareto_batch.png
+   :width: 100%
+   :alt: Open-world accuracy–latency Pareto frontier across batch sizes
+
+   Open-world accuracy–latency frontier (Table I) — HJCD-IK (orange), cuRobo (blue), PyRoki (green).
+
 Collision-free IK — Panda, bookshelf_thin_panda (Table II)
 ----------------------------------------------------------
 
@@ -254,6 +260,12 @@ Collision-free IK — Panda, bookshelf_thin_panda (Table II)
      - 7.92
      - 2.94e-3
 
+.. figure:: /_static/paper/pareto_collfree.png
+   :width: 100%
+   :alt: Collision-free accuracy–latency Pareto frontier
+
+   Collision-free frontier on the *bookshelf_thin_panda* scene (Fig. 4, Table II).
+
 DoF scalability — Panda variants, B = 1000 (Table III)
 ------------------------------------------------------
 
@@ -312,11 +324,24 @@ DoF scalability — Panda variants, B = 1000 (Table III)
      - 7.50e-1
      - 3.58e-2
 
+.. figure:: /_static/paper/pareto_dof.png
+   :width: 100%
+   :alt: DoF-scaling accuracy–latency Pareto frontier
+
+   DoF scaling, 7–24 DoF (Fig. 5, Table III) — HJCD-IK keeps the lowest error and latency at every DoF.
+
 Solution diversity — MMD vs. TRAC-IK (Table IV)
 -----------------------------------------------
 
 Maximum Mean Discrepancy between each solver's 50 best configurations (of a batch of 2000) and 50
 ground-truth samples, over 100 target poses — lower is a closer match to the full IK manifold.
+
+.. figure:: /_static/paper/solution_distributions.png
+   :width: 100%
+   :alt: Distribution of collision-free IK solutions: cuRobo, PyRoki, HJCD-IK
+
+   Distribution of collision-free IK solutions for a representative target — cuRobo (left), PyRoki
+   (center), HJCD-IK (right). HJCD-IK returns a broader, more diverse spread of locally-optimal solutions.
 
 .. list-table::
    :header-rows: 1

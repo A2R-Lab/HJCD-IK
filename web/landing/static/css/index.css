@@ -38,6 +38,13 @@ body { font-family: "Noto Sans", -apple-system, "Segoe UI", Roboto, Helvetica, A
 .publication-links .button:hover { background-color: var(--lab-green-dark); border-color: var(--lab-green-dark); }
 
 .teaser-section { padding-top: 2rem; padding-bottom: 1rem; }
+.teaser-video {
+  max-width: 960px;
+  width: 100%;
+  border-radius: 10px;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.15);
+}
+figure.image img { border-radius: 8px; }
 
 /* Section headings get the lab-green underline accent. */
 .section .title.is-3 { color: var(--lab-green); }

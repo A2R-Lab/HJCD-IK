@@ -15,7 +15,7 @@
   <meta property="og:title" content="HJCD-IK: GPU-Accelerated Inverse Kinematics through Batched Hybrid Jacobian Coordinate Descent">
   <meta property="og:description" content="A GPU-accelerated hybrid IK solver on the accuracy-latency Pareto frontier. IROS 2026.">
   <meta property="og:url" content="https://a2r-lab.org/HJCD-IK/">
-  <meta property="og:image" content="https://a2r-lab.org/HJCD-IK/static/images/teaser.png">
+  <meta property="og:image" content="https://a2r-lab.org/HJCD-IK/static/images/solution_distributions.png">
 
   <link rel="icon" href="static/images/favicon.ico">
 
@@ -76,10 +76,11 @@
 <!-- ===================== TEASER ===================== -->
 <section class="section teaser-section">
   <div class="container is-max-desktop has-text-centered">
-    <!-- TODO(asset): drop a teaser video at static/videos/teaser.mp4 (or embed YouTube). Placeholder below. -->
-    <div class="placeholder-box">
-      <p><i class="fas fa-video"></i>&nbsp; Teaser video pending — hardware demo on the Franka Research 3.</p>
-    </div>
+    <video class="teaser-video" autoplay muted loop playsinline controls
+           poster="static/images/solution_distributions.png">
+      <source src="static/videos/teaser.mp4" type="video/mp4">
+      Your browser does not support the video tag.
+    </video>
     <p class="is-size-6 has-text-grey mt-2">
       Real-time, collision-free IK tracking a target amid moving obstacles on a 7-DoF Franka Research 3.
     </p>
@@ -116,10 +117,10 @@
       thread-level parallelism.
     </p>
 
-    <!-- TODO(asset): drop the method/pipeline figure at static/images/method.png -->
-    <div class="placeholder-box mb-5">
-      <p><i class="fas fa-diagram-project"></i>&nbsp; Method figure (pipeline) pending — see paper Fig. 3.</p>
-    </div>
+    <figure class="image mb-5">
+      <img src="static/images/design.png"
+           alt="HJCD-IK pipeline: orientation-aware CCD initialization, parallel Jacobian polishing, and a parallel collision filter.">
+    </figure>
 
     <div class="columns">
       <div class="column">
@@ -153,6 +154,17 @@
 <section class="section">
   <div class="container is-max-desktop">
     <h2 class="title is-3 has-text-centered">Results</h2>
+
+    <figure class="image mb-2">
+      <img src="static/images/solution_distributions.png"
+           alt="Distribution of collision-free IK solutions for cuRobo, PyRoki, and HJCD-IK at a representative target.">
+    </figure>
+    <p class="has-text-centered is-size-6 has-text-grey mb-5">
+      Distribution of collision-free IK solutions for a representative target — cuRobo (left), PyRoki
+      (center), HJCD-IK (right). HJCD-IK returns a broader spread of locally-optimal solutions, and a more
+      accurate final result, in less time.
+    </p>
+
     <p class="content has-text-justified">
       We benchmark HJCD-IK against three GPU-parallel solvers — <strong>cuRobo</strong>,
       <strong>IKFlow</strong>, and <strong>PyRoki</strong> — on the 7-DoF Franka Panda and Fetch arms
@@ -202,9 +214,47 @@
         <p class="is-size-7 has-text-grey has-text-centered">Closest match to the full IK manifold.</p>
       </div>
     </div>
+    <h3 class="title is-5 has-text-centered mt-6">Accuracy–latency Pareto frontier</h3>
+    <p class="has-text-centered is-size-6 has-text-grey mb-4">
+      Position / orientation / combined error vs. solve time — HJCD-IK (orange), cuRobo (blue),
+      PyRoki (green). HJCD-IK stays on or near the frontier across batch sizes, collision-free problems,
+      and degrees of freedom.
+    </p>
+    <div class="columns is-multiline">
+      <div class="column is-one-third has-text-centered">
+        <img src="static/images/pareto_batch.png" alt="Open-world batch-size accuracy-latency Pareto plot">
+        <p class="is-size-7 has-text-grey">Open-world, by batch size (Table I)</p>
+      </div>
+      <div class="column is-one-third has-text-centered">
+        <img src="static/images/pareto_collfree.png" alt="Collision-free accuracy-latency Pareto plot">
+        <p class="is-size-7 has-text-grey">Collision-free, bookshelf (Fig. 4, Table II)</p>
+      </div>
+      <div class="column is-one-third has-text-centered">
+        <img src="static/images/pareto_dof.png" alt="DoF scaling accuracy-latency Pareto plot">
+        <p class="is-size-7 has-text-grey">DoF scaling, 7–24 (Fig. 5, Table III)</p>
+      </div>
+    </div>
+
     <p class="has-text-centered is-size-6 mt-4">
       Full per-batch open-world and collision-free tables (Tables I–II) are in the
       <a href="docs/user_guide/benchmarks/results.html">documentation</a>.
+    </p>
+  </div>
+</section>
+
+<!-- ===================== HARDWARE ===================== -->
+<section class="section has-background-light">
+  <div class="container is-max-desktop">
+    <h2 class="title is-3 has-text-centered">Hardware deployment</h2>
+    <figure class="image mb-3">
+      <img src="static/images/hardware.png"
+           alt="HJCD-IK running on a 7-DoF Franka Research 3, tracking a target around obstacles in real time.">
+    </figure>
+    <p class="content has-text-justified">
+      We deploy HJCD-IK on a 7-DoF Franka Research 3. Each camera frame yields the target and obstacle
+      poses; HJCD-IK solves with a batch size of 1000 to obtain a diverse set of collision-free
+      configurations on the self-motion manifold, and we move toward the one nearest the current
+      configuration for smooth, real-time, collision-free tracking of moving obstacles.
     </p>
   </div>
 </section>
