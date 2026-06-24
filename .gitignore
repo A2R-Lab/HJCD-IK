@@ -82,3 +82,7 @@ docs/HANDOFF.md
 # Keep the manifest; never commit the media or local benchmark output here.
 web/assets/*
 !web/assets/README.md
+
+# Generated docs output (Sphinx HTML + Doxygen XML)
+docs/build/
+docs/doxygen/

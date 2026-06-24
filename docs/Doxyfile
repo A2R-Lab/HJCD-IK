@@ -14,4 +14,22 @@ GENERATE_XML           = YES
 XML_PROGRAMLISTING     = NO
 QUIET                  = YES
 WARN_IF_UNDOCUMENTED   = NO
+WARN_NO_PARAMDOC       = NO
 JAVADOC_AUTOBRIEF      = YES
+QT_AUTOBRIEF           = YES
+
+# Only surface symbols that carry a Doxygen comment block — undocumented internal
+# helpers stay out of the API reference (no Breathe noise / broken references).
+EXTRACT_ALL            = NO
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = YES
+HIDE_UNDOC_MEMBERS     = YES
+HIDE_UNDOC_CLASSES     = YES
+
+# Strip CUDA execution-space qualifiers (and HJCD launch macros) so the C++ domain
+# can parse the signatures cleanly — mirrors the GLASS docs.
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = NO
+PREDEFINED             = __device__= __host__= __global__= __forceinline__= \
+                         __restrict__= __launch_bounds__(x)= SYNC()=

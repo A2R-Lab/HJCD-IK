@@ -1,8 +1,12 @@
 # Reproducing the HJCD-IK paper sweeps
 
-Regenerates the HJCD-IK columns of the IROS-2026 paper (Tables I–III). Baselines (PyRoki/cuRobo/IKFlow,
-TRAC-IK for MMD) are NOT installed here, so only HJCD-IK's own numbers are reproduced. Measured on an
-RTX 5090 (the paper used an RTX 4060, so our absolute times are lower).
+How to regenerate the HJCD-IK sweeps from the IROS-2026 paper (Tables I–III) on your own hardware.
+
+:::{note}
+The **published values are in the paper** (see {doc}`results`) — this page is the *procedure*, not the
+numbers. Absolute timings depend on your GPU and will differ from the paper's; use this to confirm the
+pipeline runs and the relative trends hold, then cite the paper's tables for values.
+:::
 
 ## Per-robot EE target frame (the key per-robot config)
 The end-effector is a **named fixed-joint frame**, robot-specific. GRiD's codegen places it at an

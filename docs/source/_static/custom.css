@@ -1,0 +1,15 @@
+/* HJCD-IK docs — light overrides on top of pydata-sphinx-theme (mirrors the GLASS docs). */
+
+/* Size the A2R Lab navbar logo consistently in light/dark mode. */
+.navbar-brand img {
+    height: 40px;
+    width: auto;
+}
+
+/* Give Breathe-rendered C++/CUDA signatures a little more breathing room. */
+dl.cpp.function > dt,
+dl.cpp.struct > dt,
+dl.cpp.class > dt {
+    border-left: 3px solid var(--pst-color-primary);
+    padding-left: 0.6rem;
+}

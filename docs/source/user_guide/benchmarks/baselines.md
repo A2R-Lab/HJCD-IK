@@ -1,8 +1,14 @@
 # Competitor baselines & reproducing the paper experiments
 
 HJCD-IK is benchmarked against other GPU-parallel IK solvers (paper Tables I–IV). The baselines are
-**optional and heavy** — HJCD-IK itself needs none of them. This doc covers installing them, running
-the experiments, and what is/isn't wired up yet.
+**optional and heavy** — HJCD-IK itself needs none of them. This page covers installing them, running
+the experiments, and the comparison methodology.
+
+:::{note}
+This is a **methodology / how-to** page. The published numbers and figures live on the {doc}`results`
+page and come **verbatim from the camera-ready paper** — the single source of truth. Any timings
+mentioned below are setup/sanity checks, not benchmark results, and a run on your hardware will differ.
+:::
 
 ## Solvers
 

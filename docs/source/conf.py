@@ -39,10 +39,28 @@ numfig = True
 
 # -- HTML output -------------------------------------------------------------
 html_theme = "pydata_sphinx_theme"
+html_favicon = "_static/favicon/favicon.ico"
+html_static_path = ["_static"]
+html_css_files = ["custom.css"]
+# The docs are served at <site>/docs/; the project landing page lives at the site root.
+html_baseurl = "https://a2r-lab.org/HJCD-IK/docs/"
 html_theme_options = {
     "navigation_depth": 4,
     "github_url": "https://github.com/A2R-Lab/HJCD-IK",
+    "use_edit_page_button": True,
+    "logo": {
+        "image_light": "_static/a2r_lab.png",
+        "image_dark": "_static/a2r_lab.png",
+    },
     "collapse_navigation": True,
+    "header_links_before_dropdown": 6,
+    "navbar_end": ["search-button", "theme-switcher", "navbar-icon-links"],
+    "show_version_warning_banner": True,
+    # Quick links back to the project landing page + paper (the landing lives at the site root).
+    "external_links": [
+        {"name": "Project page", "url": "https://a2r-lab.org/HJCD-IK/"},
+        {"name": "Paper (arXiv)", "url": "https://arxiv.org/abs/2510.07514"},
+    ],
 }
 html_context = {
     "display_github": True,
