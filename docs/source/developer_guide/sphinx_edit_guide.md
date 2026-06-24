@@ -27,10 +27,15 @@ docs/development/     un-published support docs (agent_debugging_guide, STARTUP_
 ```bash
 ./scripts/setup/setup_dev.sh        # installs the docs toolchain into .venv (+ doxygen via apt)
 source .venv/bin/activate
-cd docs && make all                 # → docs/build/html/index.html
+
+cd docs && make all                 # docs only → docs/build/html/index.html
+#   — or —
+./scripts/build_site.sh             # full site → _site/ (landing at /, docs under /docs/)
 ```
 
 `make all` runs Doxygen first (header doc-comments → XML), then Sphinx (Breathe renders the XML).
+`scripts/build_site.sh` wraps that and assembles the landing page + docs into `_site/` — it is the
+**same script CI runs**, so a local build matches the deployed site exactly.
 
 ## Conventions
 
@@ -46,6 +51,10 @@ cd docs && make all                 # → docs/build/html/index.html
 
 ## Deploy
 
-Pushes to `main` that touch `docs/**`, `src/**`, `include/**`, or `web/**` trigger
-`.github/workflows/gh-pages.yml`, which builds the docs, assembles the static landing page at the site
-root with the docs under `/docs/`, and publishes to GitHub Pages.
+Deployment is **automatic**: any push to `main` touching `docs/**`, `src/**`, `include/**`, `web/**`, or
+`examples/**` triggers `.github/workflows/gh-pages.yml`, which runs `scripts/build_site.sh` and publishes
+`_site/` to GitHub Pages. No manual regeneration — edit, commit to `main`, and the site rebuilds. (You can
+also trigger it by hand from the Actions tab via `workflow_dispatch`.)
+
+Requirements: the repo's **Settings → Pages → Source** must be **"GitHub Actions"**, and the workflow only
+runs on the `main` branch.
