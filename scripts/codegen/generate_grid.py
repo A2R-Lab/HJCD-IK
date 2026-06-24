@@ -4,7 +4,7 @@
 Uses the modern GRiD codegen API (URDFParser + GRiDCodeGenerator.gen_all_code);
 the legacy top-level generateGRiD.py was removed upstream. The GRiD submodule
 (external/GRiD) and its nested GRiDCodeGenerator / URDFParser must be initialized
-(run scripts/setup_dev.sh, or git submodule update --init --recursive).
+(run scripts/setup/setup_dev.sh, or git submodule update --init --recursive).
 
 By default writes to include/test_cuh/grid.cuh (the committed, build-default header).
 """
@@ -12,7 +12,7 @@ import argparse
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 GRID_DIR = REPO_ROOT / "external" / "GRiD"
 DEFAULT_OUT = REPO_ROOT / "include" / "test_cuh" / "grid.cuh"
 
@@ -34,7 +34,7 @@ def main():
         print(f"[error] URDF not found: {urdf}", file=sys.stderr)
         sys.exit(1)
     if not (GRID_DIR / "GRiDCodeGenerator").exists():
-        print(f"[error] GRiD codegen not initialized at {GRID_DIR}. Run scripts/setup_dev.sh", file=sys.stderr)
+        print(f"[error] GRiD codegen not initialized at {GRID_DIR}. Run scripts/setup/setup_dev.sh", file=sys.stderr)
         sys.exit(1)
 
     # Import from the GRiD submodule.

@@ -2,11 +2,11 @@
 # Install the competitor IK baselines (PyRoki, cuRobo) for benchmark/baseline_bench.py.
 #
 # These are OPTIONAL and heavy — HJCD-IK itself needs none of them. Install only the ones you want;
-# each stage is independently skippable. See docs/BASELINES.md for what each baseline covers.
+# each stage is independently skippable. See docs/source/user_guide/benchmarks/baselines.md for what each baseline covers.
 #
-#   ./scripts/install_baselines.sh                 # install everything (PyRoki + cuRobo)
-#   SKIP_CUROBO=1 ./scripts/install_baselines.sh   # PyRoki only (no torch/cuRobo build)
-#   SKIP_PYROKI=1 ./scripts/install_baselines.sh   # cuRobo only
+#   ./scripts/setup/install_baselines.sh                 # install everything (PyRoki + cuRobo)
+#   SKIP_CUROBO=1 ./scripts/setup/install_baselines.sh   # PyRoki only (no torch/cuRobo build)
+#   SKIP_PYROKI=1 ./scripts/setup/install_baselines.sh   # cuRobo only
 #
 # Env overrides:
 #   PYTHON        python interpreter / venv to install into (default: .venv/bin/python, else python3)
@@ -18,7 +18,7 @@
 # NOTE: pinned sources/versions are best-effort. For an EXACT paper-matching environment, reconcile
 # against the co-author's `pip freeze` (the harness was developed against their WSL setup).
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 PY="${PYTHON:-}"
 if [ -z "$PY" ]; then
@@ -103,7 +103,7 @@ if [ "${SKIP_CUROBO:-0}" != "1" ]; then
     "$PY" -m pip install "cuda-core[${CUDA_CORE_EXTRA}]" \
       || echo "[install_baselines] WARNING: cuda-core install failed — cuRobo will error at runtime ('No module named cuda.core'). Try CUDA_CORE_EXTRA=cu12."
   else
-    echo "[install_baselines] WARNING: cuRobo build failed — see docs/BASELINES.md. cuRobo column will be absent."
+    echo "[install_baselines] WARNING: cuRobo build failed — see docs/source/user_guide/benchmarks/baselines.md. cuRobo column will be absent."
   fi
 else
   echo "[install_baselines] (3/3) SKIP_CUROBO=1 — skipping cuRobo stack"
@@ -117,7 +117,7 @@ if [ "${SKIP_IKFLOW:-0}" != "1" ]; then
   echo "[install_baselines] (extra) IKFlow"
   "$PY" -m pip install torch    # no-op if cuRobo stage already installed it
   "$PY" -m pip install ikflow \
-    || echo "[install_baselines] WARNING: ikflow install failed (see docs/BASELINES.md); Tables I/IV IKFlow column will be absent."
+    || echo "[install_baselines] WARNING: ikflow install failed (see docs/source/user_guide/benchmarks/baselines.md); Tables I/IV IKFlow column will be absent."
   if ! ls benchmark/assets/ikflow/weights/*.pkl >/dev/null 2>&1; then
     echo "[install_baselines] NOTE: no IKFlow weights in benchmark/assets/ikflow/weights/ — add the co-author's .pkl there for offline load."
   fi
@@ -129,7 +129,7 @@ fi
 # tracikpy is NOT on PyPI and ASSUMES a ROS environment: its C++ #includes <kdl_parser/kdl_parser.hpp>
 # and <urdf/model.h>, both ROS packages absent on a bare Linux box. We build it ROS-free by vendoring
 # two tiny shims (benchmark/vendor/tracik/) over urdfdom+KDL and patching setup.py. Needs system
-# SWIG + KDL + NLopt + urdfdom (-dev). See docs/BASELINES.md ("TRAC-IK on a non-ROS box").
+# SWIG + KDL + NLopt + urdfdom (-dev). See docs/source/user_guide/benchmarks/baselines.md ("TRAC-IK on a non-ROS box").
 TRACIK_SRC="${TRACIK_SRC:-$HOME/.cache/tracikpy_src}"   # persistent checkout (NOT /tmp)
 if [ "${SKIP_TRACIK:-0}" != "1" ]; then
   echo "[install_baselines] (extra) TRAC-IK (tracikpy, ROS-free build) for MMD ground truth -> ${TRACIK_SRC}"
@@ -142,7 +142,7 @@ if [ "${SKIP_TRACIK:-0}" != "1" ]; then
   if _install_tracik_rosfree; then
     echo "[install_baselines] tracikpy installed."
   else
-    echo "[install_baselines] WARNING: tracikpy failed (needs swig + liborocos-kdl-dev + libnlopt-dev + liburdfdom-dev; see docs/BASELINES.md). MMD/Table IV will lack ground truth."
+    echo "[install_baselines] WARNING: tracikpy failed (needs swig + liborocos-kdl-dev + libnlopt-dev + liburdfdom-dev; see docs/source/user_guide/benchmarks/baselines.md). MMD/Table IV will lack ground truth."
   fi
 else
   echo "[install_baselines] (extra) SKIP_TRACIK=1 — skipping TRAC-IK"

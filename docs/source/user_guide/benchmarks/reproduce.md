@@ -6,7 +6,7 @@ RTX 5090 (the paper used an RTX 4060, so our absolute times are lower).
 
 ## Per-robot EE target frame (the key per-robot config)
 The end-effector is a **named fixed-joint frame**, robot-specific. GRiD's codegen places it at an
-`s_XmatsHom` index that **shifts with DoF**, so `scripts/generate_grid.py` resolves that index from the
+`s_XmatsHom` index that **shifts with DoF**, so `scripts/codegen/generate_grid.py` resolves that index from the
 generated `end_effector_pose_inner_<target>` epilogue and injects `grid::EE_FIXED_FRAME_IDX` into
 `grid.cuh`; `include/hjcd_settings.h` consumes it (never hardcode the index).
 
@@ -24,15 +24,15 @@ offset — this arm URDF has no gripper geometry).
 
 ## How to regenerate + run one robot
 ```bash
-python scripts/generate_grid.py include/test_urdf/<robot>.urdf -t <target>   # injects EE_FIXED_FRAME_IDX
-bash scripts/rebuild.sh                                                        # ninja + install (NOT ninja alone)
+python scripts/codegen/generate_grid.py include/test_urdf/<robot>.urdf -t <target>   # injects EE_FIXED_FRAME_IDX
+bash scripts/setup/rebuild.sh                                                        # ninja + install (NOT ninja alone)
 python benchmark/hjcd_ik_bench.py --skip-grid-codegen --batches 1,10,100,1000,2000 \
     --num-targets 100 --num-solutions 1 --csv-out /tmp/<robot>.csv
 # collision-free (Panda): add  --collision-free --problems-json tests/mb_problems.json --problem-set bookshelf_thin_panda
-# restore Panda afterward: generate_grid.py panda.urdf -t panda_grasptarget_hand && scripts/rebuild.sh
+# restore Panda afterward: generate_grid.py panda.urdf -t panda_grasptarget_hand && scripts/setup/rebuild.sh
 ```
 (The in-repo `benchmark/hjcd_ik_bench.py` built-in codegen path imports a stale `GRiD.GRiDCodeGenerator`
-layout and fails with our integration — always codegen via `scripts/generate_grid.py`.)
+layout and fails with our integration — always codegen via `scripts/codegen/generate_grid.py`.)
 
 ## Reproduced results
 Machine-specific timing/accuracy results are recorded in a **local, untracked** file (they depend on the

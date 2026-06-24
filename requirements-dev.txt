@@ -1,9 +1,0 @@
-# HJCD-IK development dependencies (codegen + tests).
-# Codegen (GRiD) needs numpy/sympy/bs4/lxml; tests need pytest/scipy.
-# Docs deps live in docs/requirements.txt. Install via scripts/setup_dev.sh.
-numpy>=1.17.4
-sympy>=1.7.1
-beautifulsoup4>=4.9.3
-lxml>=4.2.1
-pytest>=7.0
-scipy>=1.7

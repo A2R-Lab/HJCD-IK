@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fail if the committed grid.cuh is stale w.r.t. current GRiD codegen.
 
-Regenerates the Panda header (via scripts/generate_grid.py, which uses the GRiD
+Regenerates the Panda header (via scripts/codegen/generate_grid.py, which uses the GRiD
 submodule's URDFParser + GRiDCodeGenerator) into a temp file and diffs it against
 the committed include/test_cuh/grid.cuh. Run in CI and locally after touching the
 URDF or bumping the GRiD submodule.
@@ -13,17 +13,17 @@ import sys
 import tempfile
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parents[2]
 URDF = REPO / "include" / "test_urdf" / "panda.urdf"
 TARGET = "panda_grasptarget_hand"
 COMMITTED = REPO / "include" / "test_cuh" / "grid.cuh"
-GEN = REPO / "scripts" / "generate_grid.py"
+GEN = REPO / "scripts" / "codegen" / "generate_grid.py"
 GRID_CODEGEN = REPO / "external" / "GRiD" / "GRiDCodeGenerator"
 
 
 def main() -> int:
     if not GRID_CODEGEN.exists():
-        print(f"[stale-check] GRiD codegen not initialized at {GRID_CODEGEN} — run scripts/bootstrap.sh",
+        print(f"[stale-check] GRiD codegen not initialized at {GRID_CODEGEN} — run scripts/setup/bootstrap.sh",
               file=sys.stderr)
         return 2
     if not COMMITTED.exists():

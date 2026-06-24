@@ -4,8 +4,8 @@
 # All solvers see the SAME open-world targets (benchmark/gen_targets.py) for a fair head-to-head.
 # Baselines are heavy and skippable; HJCD-IK always runs (it's the point). Output goes to OUT_DIR.
 #
-#   ./scripts/run_paper_experiments.sh
-#   SKIP_CUROBO=1 SKIP_PYROKI=1 ./scripts/run_paper_experiments.sh   # HJCD-IK only
+#   ./scripts/bench/run_paper_experiments.sh
+#   SKIP_CUROBO=1 SKIP_PYROKI=1 ./scripts/bench/run_paper_experiments.sh   # HJCD-IK only
 #
 # Env overrides:
 #   OUT_DIR     results dir                 (default: benchmark/results)
@@ -15,13 +15,13 @@
 #   PROBLEM_SET collision-free MB set       (default: bookshelf_thin_panda)
 #   SKIP_HJCD / SKIP_PYROKI / SKIP_CUROBO   set =1 to skip a solver
 #
-# Prereqs: a built `hjcdik` (GPU) for HJCD; `scripts/install_baselines.sh` for the baselines.
+# Prereqs: a built `hjcdik` (GPU) for HJCD; `scripts/setup/install_baselines.sh` for the baselines.
 # Coverage (all wired; opt-in flags): Table I open-world Panda (always) + Fetch (RUN_FETCH=1),
 #   Table II collision-free Panda (always), Table III DoF 7/12/18/24 (RUN_DOF=1), Table IV MMD (RUN_MMD=1).
 # Extra env: HJCD_REGEN=1 re-codegens+rebuilds HJCD per EE frame / DoF and restores the default build on exit
 #   (heavy: GPU compiles); RUN_FETCH / RUN_DOF / RUN_MMD / DOF_BATCH select the optional tables.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 PY="${PYTHON:-}"
 if [ -z "$PY" ]; then
@@ -39,14 +39,14 @@ echo "=== [0] shared open-world targets (neutral Halton, panda_hand frame) ==="
 "$PY" benchmark/gen_targets.py --num-targets "$NUM_TARGETS" --out "$TGT"
 
 echo "=== [0b] EE-frame equivalence check (informational; installed backends only) ==="
-"$PY" benchmark/check_ee_frames.py --num 8 || echo "(frame check flagged a mismatch — see docs/BASELINES.md)"
+"$PY" benchmark/check_ee_frames.py --num 8 || echo "(frame check flagged a mismatch — see docs/source/user_guide/benchmarks/baselines.md)"
 
 echo "=== [Table I] open-world, Panda ==="
 if [ "${HJCD_REGEN:-0}" = "1" ] && [ "${SKIP_HJCD:-0}" != "1" ]; then
   # Align HJCD-IK's EE to the shared open-world frame (panda_hand). Heavy: codegen + rebuild (GPU).
   echo "--- regen HJCD-IK to panda_hand frame (matches shared open-world targets) ---"
-  "$PY" scripts/generate_grid.py include/test_urdf/panda.urdf -t panda_hand_joint
-  bash scripts/rebuild.sh
+  "$PY" scripts/codegen/generate_grid.py include/test_urdf/panda.urdf -t panda_hand_joint
+  bash scripts/setup/rebuild.sh
 fi
 if [ "${SKIP_HJCD:-0}" != "1" ]; then
   echo "--- HJCD-IK ---"
@@ -75,7 +75,7 @@ if [ "${RUN_FETCH:-0}" = "1" ]; then
   "$PY" benchmark/gen_targets.py --urdf include/test_urdf/fetch.urdf --target ee_fixed \
     --num-targets "$NUM_TARGETS" --out "$FTGT"
   if [ "${SKIP_HJCD:-0}" != "1" ]; then
-    [ "${HJCD_REGEN:-0}" = "1" ] && { "$PY" scripts/generate_grid.py include/test_urdf/fetch.urdf -t ee_fixed && bash scripts/rebuild.sh; }
+    [ "${HJCD_REGEN:-0}" = "1" ] && { "$PY" scripts/codegen/generate_grid.py include/test_urdf/fetch.urdf -t ee_fixed && bash scripts/setup/rebuild.sh; }
     "$PY" benchmark/hjcd_ik_bench.py --skip-grid-codegen --filtered-targets "$FTGT.json" \
       --batches "$BATCHES" --num-solutions 1 --solver hjcdik --csv-out "$OUT_DIR/fetch_open_hjcdik.csv"
   fi
@@ -99,7 +99,7 @@ echo "=== [Table II] collision-free, Panda, $PROBLEM_SET ==="
 # every target is solved in the wrong frame (constant ~563 mm error).
 if [ "${HJCD_REGEN:-0}" = "1" ] && [ "${SKIP_HJCD:-0}" != "1" ]; then
   echo "--- regen HJCD-IK to panda_grasptarget_hand (MB problems are in this frame) ---"
-  "$PY" scripts/generate_grid.py include/test_urdf/panda.urdf -t panda_grasptarget_hand && bash scripts/rebuild.sh
+  "$PY" scripts/codegen/generate_grid.py include/test_urdf/panda.urdf -t panda_grasptarget_hand && bash scripts/setup/rebuild.sh
 fi
 if [ "${SKIP_HJCD:-0}" != "1" ]; then
   echo "--- HJCD-IK ---"
@@ -130,7 +130,7 @@ if [ "${RUN_DOF:-0}" = "1" ]; then
     echo "--- DoF=$d ($urdf) ---"
     "$PY" benchmark/gen_targets.py --urdf "$urdf" --target panda_hand_joint --num-targets "$NUM_TARGETS" --out "$dtgt"
     if [ "${SKIP_HJCD:-0}" != "1" ]; then
-      [ "${HJCD_REGEN:-0}" = "1" ] && { "$PY" scripts/generate_grid.py "$urdf" -t panda_hand_joint && bash scripts/rebuild.sh; }
+      [ "${HJCD_REGEN:-0}" = "1" ] && { "$PY" scripts/codegen/generate_grid.py "$urdf" -t panda_hand_joint && bash scripts/setup/rebuild.sh; }
       "$PY" benchmark/hjcd_ik_bench.py --skip-grid-codegen --filtered-targets "$dtgt.json" \
         --batches "$DOF_B" --num-solutions 1 --solver hjcdik --csv-out "$OUT_DIR/dof${d}_hjcdik.csv"
     fi
@@ -150,7 +150,7 @@ if [ "${RUN_MMD:-0}" = "1" ]; then
   # last DoF variant, so re-pin HJCD back to panda_hand before the HJCD dump.
   if [ "${HJCD_REGEN:-0}" = "1" ] && [ "${SKIP_HJCD:-0}" != "1" ]; then
     echo "--- regen HJCD-IK to panda_hand (for the MMD dump) ---"
-    "$PY" scripts/generate_grid.py include/test_urdf/panda.urdf -t panda_hand_joint && bash scripts/rebuild.sh
+    "$PY" scripts/codegen/generate_grid.py include/test_urdf/panda.urdf -t panda_hand_joint && bash scripts/setup/rebuild.sh
   fi
   [ "${SKIP_HJCD:-0}" = "1" ]   || "$PY" benchmark/hjcd_ik_bench.py --skip-grid-codegen \
       --filtered-targets "$TGT.json" --solver hjcdik --mmd-dump "$DUMPS/hjcdik.json" \
@@ -186,7 +186,7 @@ echo "=== [tables + plots] merge per-solver CSVs ==="
 
 if [ "${HJCD_REGEN:-0}" = "1" ] && [ "${SKIP_HJCD:-0}" != "1" ]; then
   echo "=== restoring HJCD-IK to the default panda_grasptarget_hand build ==="
-  "$PY" scripts/generate_grid.py include/test_urdf/panda.urdf -t panda_grasptarget_hand && bash scripts/rebuild.sh
+  "$PY" scripts/codegen/generate_grid.py include/test_urdf/panda.urdf -t panda_grasptarget_hand && bash scripts/setup/rebuild.sh
 fi
 
 echo "=== done. Outputs in $OUT_DIR/ ==="

@@ -77,3 +77,8 @@ benchmark/assets/ikflow/weights/
 # Local agent working notes (not project artifacts)
 docs/open-tasks/
 docs/HANDOFF.md
+
+# web/assets is the user's media drop zone (figures/video, camera-ready paper).
+# Keep the manifest; never commit the media or local benchmark output here.
+web/assets/*
+!web/assets/README.md

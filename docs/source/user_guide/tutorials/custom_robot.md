@@ -4,7 +4,7 @@ HJCD-IK's kinematics are generated from a URDF by GRiD into `include/test_cuh/gr
 
 ## Regenerate `grid.cuh`
 ```bash
-python scripts/generate_grid.py path/to/robot.urdf -t <ee_target_frame>
+python scripts/codegen/generate_grid.py path/to/robot.urdf -t <ee_target_frame>
 ```
 - `-t` selects the fixed end-effector target frame (e.g. `panda_grasptarget_hand`).
 - Output is the **stock** generated header — never hand-edit it.

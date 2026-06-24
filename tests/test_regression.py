@@ -1,7 +1,7 @@
 """Regression tests for HJCD-IK.
 
 Asserts the solver does not regress on **solved-rate** and **position/orientation error** versus a committed
-baseline. The baseline is captured from the current `main` kernel (see `scripts/capture_baseline.py`) and
+baseline. The baseline is captured from the current `main` kernel (see `scripts/bench/capture_baseline.py`) and
 stored in `tests/baseline_metrics.json` — we assert against *recorded* numbers, not guessed absolute
 thresholds.
 
@@ -49,7 +49,7 @@ def _run_suite(num_targets=64, seed=0, batch_size=2000, num_solutions=1):
 
 
 @pytest.mark.skipif(not BASELINE_PATH.exists(),
-                    reason="baseline_metrics.json not captured yet (run scripts/capture_baseline.py on main)")
+                    reason="baseline_metrics.json not captured yet (run scripts/bench/capture_baseline.py on main)")
 def test_no_regression_vs_baseline():
     baseline = json.loads(BASELINE_PATH.read_text())["sampled_unconstrained"]
     current = _run_suite(num_targets=baseline["num_targets"], seed=0)

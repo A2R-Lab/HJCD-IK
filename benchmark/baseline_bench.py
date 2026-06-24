@@ -2,7 +2,7 @@
 
 Run with `--mode pyroki` or `--mode curobo`. This is the baseline counterpart to
 `benchmark/hjcd_ik_bench.py` (which benchmarks HJCD-IK itself); it lives behind the optional
-`baselines` install extra (PyRoki / cuRobo / JAX / torch are NOT core deps). See docs/BASELINES.md.
+`baselines` install extra (PyRoki / cuRobo / JAX / torch are NOT core deps). See docs/source/user_guide/benchmarks/baselines.md.
 
 The paper's "Batch" axis maps to:  HJCD-IK batch_size  ==  cuRobo num_seeds  ==  PyRoki num_seeds_init.
 
@@ -29,7 +29,7 @@ import torch
 
 # cuRobo (optional, v2 API): only needed for --mode curobo and the PyRoki collision-free collision check.
 # Imported lazily so PyRoki open-world / DoF runs work without cuRobo. The harness targets the cuRobo v2
-# API (curobo>=0.8 / main — the classic curobo.wrap.reacher.ik_solver path is gone); see docs/BASELINES.md.
+# API (curobo>=0.8 / main — the classic curobo.wrap.reacher.ik_solver path is gone); see docs/source/user_guide/benchmarks/baselines.md.
 # v2 runtime needs a kernel backend: `pip install 'cuda-core[cu13]'` (no compile) — handled by the installer.
 # _HAS_CUROBO gates every cuRobo-dependent path.
 try:
@@ -228,7 +228,7 @@ def check_collision_free_curobo(robot_file: str, world_dict: dict, q) -> np.ndar
     curobo) is fully supported — it uses the in-optimizer collision cost (self_collision_check + scene)."""
     raise NotImplementedError(
         "cuRobo-v2 external sphere-collision check (for the PyRoki Table II column) not wired yet; "
-        "cuRobo's own collision-free IK is supported. See docs/BASELINES.md."
+        "cuRobo's own collision-free IK is supported. See docs/source/user_guide/benchmarks/baselines.md."
     )
 
 def benchmark_pyroki_on_mb_problems(
@@ -977,7 +977,7 @@ if __name__ == "__main__":
     if args.mode == "curobo" and not _HAS_CUROBO:
         raise SystemExit(
             f"--mode curobo requires cuRobo, which is not installed ({_CUROBO_IMPORT_ERR}).\n"
-            "cuRobo is backlogged (may not build on newer CUDA); see docs/BASELINES.md. "
+            "cuRobo is backlogged (may not build on newer CUDA); see docs/source/user_guide/benchmarks/baselines.md. "
             "Use --mode pyroki, or install cuRobo on a compatible box."
         )
     if args.collision_free and args.mode == "pyroki" and not _HAS_CUROBO:

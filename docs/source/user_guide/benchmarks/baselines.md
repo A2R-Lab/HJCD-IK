@@ -28,9 +28,9 @@ python -m pip install -e .
 
 Add the baselines with the helper (each stage is skippable):
 ```bash
-./scripts/install_baselines.sh                 # PyRoki + cuRobo
-SKIP_CUROBO=1 ./scripts/install_baselines.sh   # PyRoki only (no torch/cuRobo build)
-SKIP_PYROKI=1 ./scripts/install_baselines.sh   # cuRobo only
+./scripts/setup/install_baselines.sh                 # PyRoki + cuRobo
+SKIP_CUROBO=1 ./scripts/setup/install_baselines.sh   # PyRoki only (no torch/cuRobo build)
+SKIP_PYROKI=1 ./scripts/setup/install_baselines.sh   # cuRobo only
 ```
 It installs the `baselines`+`plots` package extras then the solver stacks pip can't resolve directly,
 each independently skippable (`SKIP_PYROKI` / `SKIP_CUROBO` / `SKIP_IKFLOW` / `SKIP_TRACIK`):
@@ -106,7 +106,7 @@ Reusable for Fetch / 12·18·24-DoF via `--urdf <u> --target <ee_frame>` (see th
 > uses it (`ik_beam_hand`). The two things to align:
 > - **HJCD-IK** ships targeting `panda_grasptarget_hand` (TCP, ~10 cm out). For the open-world comparison,
 >   rebuild it to `panda_hand` so it matches the shared targets:
->   `python scripts/generate_grid.py include/test_urdf/panda.urdf -t panda_hand_joint && bash scripts/rebuild.sh`
+>   `python scripts/codegen/generate_grid.py include/test_urdf/panda.urdf -t panda_hand_joint && bash scripts/setup/rebuild.sh`
 >   (restore the default afterward, or keep a separate build). `run_paper_experiments.sh` does this when
 >   `HJCD_REGEN=1`.
 > - **cuRobo**: confirm `franka.yml`'s ee_link resolves to `panda_hand` (its FK-sampled goals already do).
@@ -123,10 +123,10 @@ Reusable for Fetch / 12·18·24-DoF via `--urdf <u> --target <ee_frame>` (see th
 
 One shot (collects per-solver CSVs to `benchmark/results/`):
 ```bash
-./scripts/run_paper_experiments.sh                            # Tables I+II, all solvers
-RUN_DOF=1 RUN_MMD=1 ./scripts/run_paper_experiments.sh        # + Table III (DoF) + Table IV (MMD)
-HJCD_REGEN=1 RUN_DOF=1 RUN_MMD=1 ./scripts/run_paper_experiments.sh  # also rebuild HJCD per frame/DoF (GPU)
-SKIP_CUROBO=1 SKIP_PYROKI=1 ./scripts/run_paper_experiments.sh  # HJCD-IK only
+./scripts/bench/run_paper_experiments.sh                            # Tables I+II, all solvers
+RUN_DOF=1 RUN_MMD=1 ./scripts/bench/run_paper_experiments.sh        # + Table III (DoF) + Table IV (MMD)
+HJCD_REGEN=1 RUN_DOF=1 RUN_MMD=1 ./scripts/bench/run_paper_experiments.sh  # also rebuild HJCD per frame/DoF (GPU)
+SKIP_CUROBO=1 SKIP_PYROKI=1 ./scripts/bench/run_paper_experiments.sh  # HJCD-IK only
 ```
 `RUN_DOF=1` sweeps 7/12/18/24-DoF (chained Panda variants) at B=1000: HJCD-IK rebuilt per DoF (when
 `HJCD_REGEN=1`) and PyRoki/cuRobo via `--robot-urdf`. `RUN_FETCH=1` adds the Fetch open-world batch sweep

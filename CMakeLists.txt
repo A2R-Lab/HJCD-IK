@@ -43,10 +43,10 @@ endif()
 
 # GRiD kinematics header. The committed, build-default header lives at
 # include/test_cuh/grid.cuh and is #included as "grid.cuh" (that directory is on the
-# include path below). Regenerate it with scripts/generate_grid.py, or opt into a build-time
+# include path below). Regenerate it with scripts/codegen/generate_grid.py, or opt into a build-time
 # regenerate with -DHJCDIK_AUTO_CODEGEN=ON (uses the external/GRiD submodule's codegen).
 set(GRID_HEADER         "${CMAKE_SOURCE_DIR}/include/test_cuh/grid.cuh")
-set(GRID_CODEGEN_SCRIPT "${CMAKE_SOURCE_DIR}/scripts/generate_grid.py")
+set(GRID_CODEGEN_SCRIPT "${CMAKE_SOURCE_DIR}/scripts/codegen/generate_grid.py")
 set(GRID_CODEGEN_URDF   "${CMAKE_SOURCE_DIR}/include/test_urdf/panda.urdf")
 
 if(HJCDIK_AUTO_CODEGEN)
@@ -67,7 +67,7 @@ endif()
 
 if(NOT EXISTS "${GRID_HEADER}")
   message(FATAL_ERROR
-    "HJCD-IK: ${GRID_HEADER} is missing. Run scripts/generate_grid.py "
+    "HJCD-IK: ${GRID_HEADER} is missing. Run scripts/codegen/generate_grid.py "
     "(or configure with -DHJCDIK_AUTO_CODEGEN=ON).")
 endif()
 message(STATUS "HJCD-IK: using GRiD header ${GRID_HEADER}")

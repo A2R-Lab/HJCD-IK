@@ -54,7 +54,7 @@ namespace hjcd {
     // Fixed EE-offset frame inside s_XmatsHom: the frame index where GRiD places the named EE target
     // (its end_effector_pose_inner_<target> epilogue chains s_Xhom[16*EE_FIXED_FRAME_IDX] onto joint
     // FLANGE_JID). This index is ROBOT-SPECIFIC and shifts with DoF, so it is resolved at codegen time
-    // and injected into grid.cuh by scripts/generate_grid.py (Panda grasptarget=10, etc.) — never hardcode.
+    // and injected into grid.cuh by scripts/codegen/generate_grid.py (Panda grasptarget=10, etc.) — never hardcode.
     static constexpr int GRASP_FIXED_IDX = grid::EE_FIXED_FRAME_IDX;
 }
 

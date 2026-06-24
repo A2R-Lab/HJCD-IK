@@ -67,7 +67,7 @@ def main():
     try:
         from tracikpy import TracIKSolver
     except ImportError:
-        sys.exit("TRAC-IK not installed. `pip install tracikpy` (or via scripts/install_baselines.sh).")
+        sys.exit("TRAC-IK not installed. `pip install tracikpy` (or via scripts/setup/install_baselines.sh).")
 
     targets = _load_targets(args.targets)
     solver = TracIKSolver(args.urdf, args.base, args.tip, timeout=args.timeout, solve_type="Distance")

@@ -33,7 +33,7 @@ jobs:
 
       - name: grid.cuh freshness check
         run: |
-          python scripts/check_grid_cuh_fresh.py
+          python scripts/codegen/check_grid_cuh_fresh.py
 
       - name: Build (CMake + pybind via pip)
         run: python -m pip install -e .

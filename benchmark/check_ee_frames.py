@@ -8,7 +8,7 @@ the one validated in tests/test_fk_equivalence.py). A solver offset by ~0.1 m is
 frame (e.g. a TCP) and its open-world numbers would be unfair until realigned.
 
 Each backend is gated — uninstalled ones are reported SKIP, so this runs anywhere (with no baselines it
-still validates the reference + harness). Run it on the GPU box after scripts/install_baselines.sh.
+still validates the reference + harness). Run it on the GPU box after scripts/setup/install_baselines.sh.
 
   python benchmark/check_ee_frames.py --num 8                         # all installed backends
   python benchmark/check_ee_frames.py --num 8 --pos-tol-mm 1 --ori-tol-rad 1e-2

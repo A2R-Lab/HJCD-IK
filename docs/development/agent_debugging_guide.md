@@ -8,7 +8,7 @@ math throughout. Companion docs: [`CLAUDE.md`](../CLAUDE.md), [`STARTUP_PROMPT.m
 ## 0. Validation checklist (before committing)
 
 1. **Regenerate `grid.cuh` and rebuild** if the URDF or EE target changed:
-   `python scripts/generate_grid.py include/test_urdf/panda.urdf -t panda_grasptarget_hand` then
+   `python scripts/codegen/generate_grid.py include/test_urdf/panda.urdf -t panda_grasptarget_hand` then
    `python -m pip install -e .`. Stale `grid.cuh` = silently wrong FK/Jacobian.
 2. **`FLANGE_IDX` / target agreement** across `grid.cuh`, `src/hjcd_kernel.cu`, and any benchmark problem.
 3. **Build clean** and import: `python -c "import hjcdik; print(hjcdik.num_joints())"`.
@@ -83,7 +83,7 @@ Full data: [`open-tasks/multiwarp_timing_result.md`](open-tasks/multiwarp_timing
   `ninja -C build` rebuilds `build/_hjcdik*.so`, but Python imports the **editable-install copy** under
   `.venv/.../site-packages/hjcdik/`, which `ninja` NEVER touches. So `ninja`-only "rebuilds" leave the
   RUNNING binary stale — env knobs (`HJCD_LM_WARPS`, `HJCD_LM_EPS_*`) and code changes silently have no
-  effect. **Always rebuild with `scripts/rebuild.sh`** (ninja + copy `.so` into site-packages + import
+  effect. **Always rebuild with `scripts/setup/rebuild.sh`** (ninja + copy `.so` into site-packages + import
   check) or `pip install -e . --no-build-isolation`. *Symptoms that you're on a stale binary: a new env
   knob does nothing; a temporary `printf` in the kernel never prints; results don't change when they
   obviously should. Verify with `python -c "import hjcdik._hjcdik as m; print(m.__file__)"` + its mtime vs

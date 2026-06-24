@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import hjcdik
 
-OUT = Path(__file__).resolve().parent.parent / "tests" / "baseline_metrics.json"
+OUT = Path(__file__).resolve().parents[2] / "tests" / "baseline_metrics.json"
 
 
 def run_suite(num_targets=64, seed=0, batch_size=2000, num_solutions=1):

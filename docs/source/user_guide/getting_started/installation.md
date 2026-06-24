@@ -11,7 +11,7 @@
 sudo apt install -y libeigen3-dev nlohmann-json3-dev
 ```
 On other platforms install the equivalents (`eigen`, `nlohmann-json`) via your package manager.
-`scripts/setup_dev.sh` installs these automatically on apt-based systems (set `SKIP_APT=1` to skip).
+`scripts/setup/setup_dev.sh` installs these automatically on apt-based systems (set `SKIP_APT=1` to skip).
 
 ## Build
 ```bash
@@ -28,7 +28,7 @@ codegen (`grid.cuh`) is used from the checked-in header by default; set `-DHJCDI
 regenerate it during configure.
 
 > One-shot dev setup (system deps + submodules on our branches + venv + codegen + build):
-> `./scripts/setup_dev.sh`
+> `./scripts/setup/setup_dev.sh`
 
 ## Submodules
 - `external/GRiD` — robot-kinematics code generator (emits `grid.cuh`).

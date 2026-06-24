@@ -6,9 +6,9 @@
 #
 # Idempotent: already-initialized submodules are left on their branch (not detached).
 # Heavy GRiD submodules (RBDReference, pinocchio baselines) are skipped — not needed
-# for codegen/build. Run scripts/setup_dev.sh for the full venv+build flow.
+# for codegen/build. Run scripts/setup/setup_dev.sh for the full venv+build flow.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 GRID_BRANCH="${GRID_BRANCH:-feat/hjcd-warp-fk}"
 GLASS_BRANCH="${GLASS_BRANCH:-feat/warp-primitives}"

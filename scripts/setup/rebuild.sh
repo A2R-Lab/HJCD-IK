@@ -6,7 +6,7 @@
 # binary stale — a trap that silently invalidated a full timing/correctness pass (2026-06-18). Always
 # rebuild via this script (or `pip install -e . --no-build-isolation`) so what you test is what you built.
 set -euo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 NINJA=$(command -v ninja || echo .venv/bin/ninja)
 "$NINJA" -C build
 SO=$(ls build/_hjcdik*.so)

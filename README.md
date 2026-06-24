@@ -14,7 +14,7 @@ This repository contains the code from ["HJCD-IK: GPU-Accelerated Inverse Kinema
   ```bash
   sudo apt install -y libeigen3-dev nlohmann-json3-dev
   ```
-  (`scripts/setup_dev.sh` installs these for you on apt-based systems.)
+  (`scripts/setup/setup_dev.sh` installs these for you on apt-based systems.)
 
 ## Installation
 ```bash
@@ -26,10 +26,10 @@ HJCD-IK relies on [GRiD](https://github.com/A2R-Lab/GRiD), a GPU-accelerated lib
 
 (Linux)
 ```bash
-chmod +x scripts/bootstrap.sh
-./scripts/bootstrap.sh
+chmod +x scripts/setup/bootstrap.sh
+./scripts/setup/bootstrap.sh
 ```
-Note: may need to run ```dos2unix scripts/bootstrap.sh ``` before ```./scripts/bootstrap.sh``` first
+Note: may need to run ```dos2unix scripts/setup/bootstrap.sh ``` before ```./scripts/setup/bootstrap.sh``` first
 
 (Windows)
 ```bash
@@ -45,15 +45,15 @@ python -m pip install -e .
 The base install is lightweight and needs none of the baselines. To benchmark HJCD-IK against the
 paper's competitors, install them with the helper (each stage is skippable — some are heavy):
 ```bash
-./scripts/install_baselines.sh                 # PyRoki + cuRobo
-SKIP_CUROBO=1 ./scripts/install_baselines.sh   # PyRoki only
+./scripts/setup/install_baselines.sh                 # PyRoki + cuRobo
+SKIP_CUROBO=1 ./scripts/setup/install_baselines.sh   # PyRoki only
 ```
-See [`docs/BASELINES.md`](docs/BASELINES.md) for the full install/run guide and reproduction coverage.
+See [`docs/source/user_guide/benchmarks/baselines.md`](docs/source/user_guide/benchmarks/baselines.md) for the full install/run guide and reproduction coverage.
 
 ## Using different robots
 At installation, HJCD-IK creates a new GRiD header file for the Franka Panda Arm and sets `panda_grasptarget_hand` as its end-effector flange. To use a different robot, you must first create a new `grid.cuh` header file using:
 ```bash
-python scripts/generate_grid.py <PATH_TO_URDF> -t <FIXED_TARGET_NAME>
+python scripts/codegen/generate_grid.py <PATH_TO_URDF> -t <FIXED_TARGET_NAME>
 ```
 * `PATH_TO_URDF`: the path to the new robot URDF file
 * `FIXED_TARGET_NAME`: the name of the robot end-effector flange (e.g. Franka: `panda_grasptarget_hand`)

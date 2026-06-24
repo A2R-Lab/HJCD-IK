@@ -2,7 +2,7 @@
 # DoF scaling regression harness — RUN ONLY ON A QUIET GPU (shared with other agents).
 #
 # For each DoF in {7,12,18,24} it regenerates grid.cuh for that robot, rebuilds the
-# extension (scripts/rebuild.sh — ninja alone leaves the imported .so STALE), then runs
+# extension (scripts/setup/rebuild.sh — ninja alone leaves the imported .so STALE), then runs
 # the fp32-vs-fp64 LM-solve A/B (scripts/perf/dof_scaling_ab.py). Panda is restored on exit.
 #
 # Decisive test (hypothesis #1 in docs/open-tasks/dof_scaling_regression_2026-06-18.md):
@@ -35,7 +35,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# DoF -> URDF + GRiD fixed-target name (authoritative map: docs/reproduce_paper_sweeps.md)
+# DoF -> URDF + GRiD fixed-target name (authoritative map: docs/source/user_guide/benchmarks/reproduce.md)
 urdf_for()   { case "$1" in 7) echo include/test_urdf/panda.urdf ;;
                             12) echo include/test_urdf/panda_ext_12dof.urdf ;;
                             18) echo include/test_urdf/panda_ext_18dof.urdf ;;
@@ -47,8 +47,8 @@ target_for() { case "$1" in 7|24) echo panda_grasptarget_hand ;;
 
 restore_panda() {
   echo ">> restoring Panda (7-DoF) build"
-  $PY scripts/generate_grid.py include/test_urdf/panda.urdf -t panda_grasptarget_hand
-  scripts/rebuild.sh
+  $PY scripts/codegen/generate_grid.py include/test_urdf/panda.urdf -t panda_grasptarget_hand
+  scripts/setup/rebuild.sh
 }
 trap restore_panda EXIT
 
@@ -66,8 +66,8 @@ for dof in "${DLIST[@]}"; do
   echo "============================================================"
   echo ">> DoF=$dof  urdf=$urdf  -t $tgt"
   echo "============================================================"
-  $PY scripts/generate_grid.py "$urdf" -t "$tgt"
-  scripts/rebuild.sh
+  $PY scripts/codegen/generate_grid.py "$urdf" -t "$tgt"
+  scripts/setup/rebuild.sh
   $PY scripts/perf/dof_scaling_ab.py --batch "$BATCH" --tols "$TOLS" | tee -a "$OUT"
 
   if [[ "$NSYS" == "1" ]]; then
