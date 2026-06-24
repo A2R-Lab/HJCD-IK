@@ -22,7 +22,8 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
                                bool collision_free,
                                const std::string& problems_json_text,
                                const std::string& problem_set_name,
-                               int problem_idx) {
+                               int problem_idx,
+                               bool write_stats) {
   auto* model = ensure_robot();
 
   double tp[7];
@@ -36,7 +37,8 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
       collision_free,
       json_cstr,
       set_cstr,
-      problem_idx
+      problem_idx,
+      write_stats
   );
 
   const int N = grid_num_joints();
@@ -82,7 +84,8 @@ PYBIND11_MODULE(_hjcdik, m) {
       py::arg("collision_free") = false,
       py::arg("problems_json_text") = "",
       py::arg("problem_set_name") = "",
-      py::arg("problem_idx") = 0);
+      py::arg("problem_idx") = 0,
+      py::arg("write_stats") = false);
   m.def("sample_targets", &py_sample_targets,
         py::arg("num_targets"), py::arg("seed") = 0);
   m.def("num_joints", &grid_num_joints);

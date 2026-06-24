@@ -321,6 +321,7 @@ def main() -> None:
     ap.add_argument("--solutions-target-idx", type=int, default=0,help="0-based target index to dump solutions for (default: 0 = first target).")
     ap.add_argument("--solutions-batch", type=int, default=-1,help="Batch size to dump solutions from. If -1, uses the last batch in --batches.")
     ap.add_argument("--solutions-count", type=int, default=50,help="Max number of solutions to write (default 50).")
+    ap.add_argument("--write-stats", action="store_true", help="Write full per-call statistics to ik_stats.csv.")
 
     args = ap.parse_args()
     batches = list(args.batches) 
@@ -425,6 +426,7 @@ def main() -> None:
                 problems_json_text=problems_text,
                 problem_set_name=args.problem_set,
                 problem_idx=eff_pidx,
+                write_stats=False,
             )
 
             # Timed run
@@ -437,6 +439,7 @@ def main() -> None:
                 problems_json_text=problems_text,
                 problem_set_name=args.problem_set,
                 problem_idx=eff_pidx,
+                write_stats=args.write_stats,
             )
             dt_ms = (time.perf_counter() - t0) * 1e3
 
