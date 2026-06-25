@@ -666,12 +666,13 @@ __device__ inline void build_ne_and_solve_warp(
     }
     __syncwarp(mask);
 
-    // Warp Cholesky via GLASS warp primitives (Phase 3), in precision T. __restrict__ is safe
-    // here since GLASS now broadcasts the pivot via __shfl_sync (was an nvcc stale-cache
-    // miscompile under restrict; fixed in GLASS main 1df6e40).
-    glass::warp::cholDecomp_InPlace<T, DIM>(A_sh);   // A_sh <- L (col-major lower)
-    glass::warp::trsm<T, DIM>(A_sh, b_sh);           // L y = b
-    glass::warp::trsm_transpose<T, DIM>(A_sh, b_sh); // L^T x = y
+    // Warp SPD solve via the composed GLASS primitive (chol + forward/back trsv): A_sh x = b_sh,
+    // in precision T. Equivalent to the former cholDecomp_InPlace + trsm + trsm_transpose triple
+    // (trsm on a vector RHS == trsv), now one validated call. __restrict__ is safe here since GLASS
+    // broadcasts the pivot via __shfl_sync (was an nvcc stale-cache miscompile under restrict).
+    // NB: posv does not yet thread cholDecomp's CHECK/s_fail SPD-bail flag — the isfinite net below
+    // covers non-finite blowups; see docs/open-tasks for the GLASS feature request to expose it.
+    glass::warp::posv<T, DIM>(A_sh, b_sh);  // A_sh <- L; b_sh <- x
     __syncwarp(mask);
 
     // Non-SPD safety net (glass cholDecomp has no Lkk<=0 bail; A = J^T J is rank-deficient
