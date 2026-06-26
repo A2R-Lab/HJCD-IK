@@ -632,7 +632,8 @@ __device__ inline void build_ne_and_solve_warp(
     T* __restrict__ diagA,
     T* __restrict__ gvec,
     T* __restrict__ A_sh,
-    T* __restrict__ b_sh
+    T* __restrict__ b_sh,
+    int* __restrict__ s_fail_ptr
 ) {
     const unsigned mask = FULL_WARP_MASK;
     const int lane = threadIdx.x & 31;
@@ -656,33 +657,27 @@ __device__ inline void build_ne_and_solve_warp(
     }
     __syncwarp(mask);
 
-    // Damping: Ad = A + lambda*diag(A)
+    // Save diag(A) and g = b for the downstream LM trust-region tuner (still consumed there).
+    // The REG_DIAG posv applies the Levenberg lambda*diag(A) shift internally at factor time,
+    // so we no longer mutate A's diagonal here; diagA holds the UN-shifted diagonal as before.
     if (lane < DIM) {
-        const int i = lane;
-        T di = A_sh[i*DIM + i];
-        diagA[i] = di;
-        gvec[i]  = b_sh[i];
-        A_sh[i*DIM + i] = di + lambda * di;
+        diagA[lane] = A_sh[lane*DIM + lane];
+        gvec[lane]  = b_sh[lane];
     }
     __syncwarp(mask);
 
-    // Warp SPD solve via the composed GLASS primitive (chol + forward/back trsv): A_sh x = b_sh,
-    // in precision T. Equivalent to the former cholDecomp_InPlace + trsm + trsm_transpose triple
-    // (trsm on a vector RHS == trsv), now one validated call. __restrict__ is safe here since GLASS
-    // broadcasts the pivot via __shfl_sync (was an nvcc stale-cache miscompile under restrict).
-    // NB: posv does not yet thread cholDecomp's CHECK/s_fail SPD-bail flag — the isfinite net below
-    // covers non-finite blowups; see docs/open-tasks for the GLASS feature request to expose it.
-    glass::warp::posv<T, DIM>(A_sh, b_sh);  // A_sh <- L; b_sh <- x
+    // One composed GLASS call folds: A += lambda*diag(A) (REG_DIAG Levenberg shift, == the old
+    // `di + lambda*di` damping bit-for-bit) + Cholesky + forward/back solve + non-PD CHECK.
+    // CHECK trips at the non-PD pivot (d<=0 || isnan), catching the finite-but-garbage
+    // near-singular solves the former isfinite net let through. cholDecomp_InPlace writes
+    // *s_fail_ptr from lane 0 (zeroed at entry); s_fail_ptr is a per-warp SHARED int
+    // (LMWarpScratch::s_fail), so every lane reads it after the trailing __syncwarp.
+    glass::warp::posv<T, DIM, /*NRHS=*/1, /*REGULARIZE=*/true, /*CHECK=*/true, /*REG_DIAG=*/true>(
+        A_sh, b_sh, lambda, s_fail_ptr);  // A_sh <- L; b_sh <- x; *s_fail_ptr = 1 if non-PD pivot
     __syncwarp(mask);
 
-    // Non-SPD safety net (glass cholDecomp has no Lkk<=0 bail; A = J^T J is rank-deficient
-    // for a 6x7 Jacobian and can lose definiteness near singularities): if the solve went
-    // non-finite, fall back to dq=0 so LM grows lambda and retries — matches the hand-rolled
-    // solver's old `ok ? x : 0` behavior.
-    int bad = (lane < DIM) && !isfinite(b_sh[lane]);
-    bool spd_ok = (__ballot_sync(mask, bad) == 0);
-
-    // Write
+    // Non-SPD fallback: dq=0 so LM grows lambda and retries (matches the old `ok ? x : 0`).
+    const bool spd_ok = (*s_fail_ptr == 0);
     if (lane < DIM) dq[lane] = spd_ok ? (T)b_sh[lane] : (T)0;
     __syncwarp(mask);
 }
@@ -705,6 +700,7 @@ struct LMWarpScratch {
     T row_norm2[6];
     T pos_err_m, ori_err_rad, cost_sq, prev_cost, best_pos_seen;
     int s_break, stall, accepted;
+    int s_fail;   // per-warp non-PD flag written by warp::posv CHECK (cholDecomp, lane 0)
 };
 
 template<typename T>
@@ -942,7 +938,7 @@ __device__ void solve_lm_batched(
         SYNC();
 
         // Build normal equations and solve (per-warp: each warp solves its own candidate)
-        build_ne_and_solve_warp<T, N>(J, r_scaled, lambda, dq, diagA, gvec, Ad_sh, rhsd_sh);
+        build_ne_and_solve_warp<T, N>(J, r_scaled, lambda, dq, diagA, gvec, Ad_sh, rhsd_sh, &st->s_fail);
         SYNC();
 
         if (tid == 0) {
