@@ -1,8 +1,8 @@
 #pragma once
 
 #include "Robots.hh"
-#include "src/collision/environment.hh"
-#include "src/collision/shapes.hh"
+#include "collision/environment.hh"
+#include "collision/shapes.hh"
 #include <math.h>
 #include <cuda_runtime.h>
 #include <curand.h>

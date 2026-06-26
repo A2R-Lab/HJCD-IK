@@ -20,7 +20,7 @@ canonical contributor entry points are the repository's `CLAUDE.md` (architectur
 
 ## Discipline
 
-- **Never hand-edit `include/test_cuh/grid.cuh`.** It is GRiD codegen output. Regenerate it with
+- **Never hand-edit `csrc/generated/grid.cuh`.** It is GRiD codegen output. Regenerate it with
   `python scripts/codegen/generate_grid.py <urdf> -t <target>` and rebuild — see
   {doc}`../user_guide/tutorials/custom_robot`.
 - **Keep the math warp-scoped.** The solver is warp-per-candidate; use warp primitives
@@ -43,7 +43,7 @@ pages are Markdown (via [MyST](https://myst-parser.readthedocs.io/)) or reStruct
 
 ```
 docs/
-  Doxyfile            Doxygen config (XML only; input = ../src ../include)
+  Doxyfile            Doxygen config (XML only; input = ../csrc)
   Makefile            `make all` = doxygen + sphinx-build
   requirements.txt    Sphinx + Breathe + pydata-sphinx-theme + myst + sphinx-design
   source/
@@ -75,13 +75,13 @@ cd docs && make all                 # docs only → docs/build/html/index.html
   add the doc-comment in the header and ensure its file has a `.. doxygenfile::` entry under
   `api_reference/`. Doxygen runs with `EXTRACT_ALL=NO`, so only documented symbols appear.
 - **Python API** (`api_reference/python.rst`) is hand-authored — the compiled `hjcdik` extension is *not*
-  imported at build time (CI has no GPU), so keep that page in sync with `src/pybind_module.cpp` by hand.
+  imported at build time (CI has no GPU), so keep that page in sync with `csrc/bindings/pybind_module.cpp` by hand.
 - **Benchmark figures/tables** are committed static assets under `_static/paper/`, taken from the
   camera-ready paper. Do **not** embed locally-generated benchmark output — see {doc}`../user_guide/benchmarks/results`.
 
 ### Deploy
 
-Deployment is **automatic**: any push to `main` touching `docs/**`, `src/**`, `include/**`, `web/**`, or
+Deployment is **automatic**: any push to `main` touching `docs/**`, `csrc/**`, or
 `examples/**` triggers `.github/workflows/gh-pages.yml`, which runs `scripts/build_site.sh` and publishes
 `_site/` to GitHub Pages. No manual regeneration — edit, commit to `main`, and the site rebuilds. (Force a
 rebuild from the Actions tab via `workflow_dispatch`.) Requirements: **Settings → Pages → Source** must be

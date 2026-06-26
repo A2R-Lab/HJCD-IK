@@ -10,7 +10,7 @@ Needs TRAC-IK python bindings (`pip install tracikpy`) + the URDF. Tip link shou
 frame used everywhere else (default `panda_hand`).
 
   python benchmark/gen_groundtruth_tracik.py --targets benchmark/targets/panda_open.json \
-      --urdf include/test_urdf/panda.urdf --base panda_link0 --tip panda_hand \
+      --urdf csrc/urdf/panda.urdf --base panda_link0 --tip panda_hand \
       --num-samples 50 --out benchmark/results/dumps/groundtruth.json
 """
 from __future__ import annotations
@@ -54,7 +54,7 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     root = Path(__file__).resolve().parents[1]
     ap.add_argument("--targets", required=True, help="shared targets file (.json or .yml)")
-    ap.add_argument("--urdf", default=str(root / "include" / "test_urdf" / "panda.urdf"))
+    ap.add_argument("--urdf", default=str(root / "csrc" / "urdf" / "panda.urdf"))
     ap.add_argument("--base", default="panda_link0")
     ap.add_argument("--tip", default="panda_hand", help="EE frame; keep == the shared-target frame")
     ap.add_argument("--num-samples", type=int, default=50, help="distinct solutions to keep per target")

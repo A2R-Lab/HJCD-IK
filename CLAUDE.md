@@ -14,7 +14,7 @@ solutions in parallel for a 6-DOF end-effector target, with optional collision a
 
 **One CUDA block per IK problem; warp-per-candidate inside.** The solver is **warp-scoped throughout**
 (`warp_id = threadIdx.x >> 5`, `lane = threadIdx.x & 31`), not block-scoped — this is the core performance
-contract. Two phases (`src/hjcd_kernel.cu`):
+contract. Two phases (`csrc/kernel/hjcd_kernel.cu`):
 1. **Coarse search** (`coarse_search`): random restarts + greedy pairwise coordinate descent. The candidate
    sweep over the second joint runs **lane-parallel across the warp** (`for j = lane; j < N; j += WARP_SIZE`
    + warp min-reduce); each candidate recomputes only the **FK suffix** from its perturbed joint
@@ -32,14 +32,14 @@ joints, `EE_IDX = 7`, `FLANGE_IDX = 8`, `NX = 9` stored frames.
 
 | Path | What it is |
 |---|---|
-| `src/hjcd_kernel.cu` | The solver: coarse search + LM refine, all warp-scoped. **The file you'll edit most.** |
-| `include/hjcd_settings.h` | `HJCDSettings<T>`, `mat4_mul`, FK helpers (`ee_fk_warp`/`ee_fk_thread`/`ee_fk_suffix_thread`), `#include "grid.cuh"`, `N`/`FLANGE_JID`/`GRASP_FIXED_IDX`. |
-| `include/test_cuh/grid.cuh` | **Generated** GRiD kinematics header (FK, robot model). Do **not** hand-edit. |
+| `csrc/kernel/hjcd_kernel.cu` | The solver: coarse search + LM refine, all warp-scoped. **The file you'll edit most.** |
+| `csrc/kernel/hjcd_settings.h` | `HJCDSettings<T>`, `mat4_mul`, FK helpers (`ee_fk_warp`/`ee_fk_thread`/`ee_fk_suffix_thread`), `#include "grid.cuh"`, `N`/`FLANGE_JID`/`GRASP_FIXED_IDX`. |
+| `csrc/generated/grid.cuh` | **Generated** GRiD kinematics header (FK, robot model). Do **not** hand-edit. |
 | `external/GRiD/` | Submodule: GRiD codegen (emits `grid.cuh` from a URDF). |
 | `external/GLASS/` | Submodule: GLASS single-block / warp linear algebra. |
-| `src/robots/{panda,fetch}.cuh` | Per-robot collision spheres + fixed transforms (Panda/Fetch only). |
-| `src/collision/` | pRRTC per-block collision checking. |
-| `src/pybind_module.cpp` | Python bindings → `generate_solutions`, `sample_targets`, `num_joints`. |
+| `csrc/robots/{panda,fetch}.cuh` | Per-robot collision spheres + fixed transforms (Panda/Fetch only). |
+| `csrc/collision/` | pRRTC per-block collision checking. |
+| `csrc/bindings/pybind_module.cpp` | Python bindings → `generate_solutions`, `sample_targets`, `num_joints`. |
 | `benchmark/hjcd_ik_bench.py` | HJCD-IK benchmark harness: solved-rate, position/orientation error, timing. |
 | `benchmark/baseline_bench.py` | Competitor baselines (PyRoki/cuRobo, `--mode`); optional, see `docs/source/user_guide/benchmarks/results.rst`. |
 | `benchmark/baseline_ikflow.py` | IKFlow baseline (standalone, torch); same CSV/MMD-dump schema. |

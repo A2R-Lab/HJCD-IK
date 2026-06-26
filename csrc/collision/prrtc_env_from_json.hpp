@@ -1,7 +1,7 @@
 #pragma once
 #include <string>
 #include <nlohmann/json.hpp>
-#include "src/collision/environment.hh"
+#include "collision/environment.hh"
 
 namespace pRRTC {
 

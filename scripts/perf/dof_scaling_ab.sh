@@ -36,10 +36,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 # DoF -> URDF + GRiD fixed-target name (authoritative map: docs/source/user_guide/benchmarks/results.rst)
-urdf_for()   { case "$1" in 7) echo include/test_urdf/panda.urdf ;;
-                            12) echo include/test_urdf/panda_ext_12dof.urdf ;;
-                            18) echo include/test_urdf/panda_ext_18dof.urdf ;;
-                            24) echo include/test_urdf/panda_ext_24dof.urdf ;;
+urdf_for()   { case "$1" in 7) echo csrc/urdf/panda.urdf ;;
+                            12) echo csrc/urdf/panda_ext_12dof.urdf ;;
+                            18) echo csrc/urdf/panda_ext_18dof.urdf ;;
+                            24) echo csrc/urdf/panda_ext_24dof.urdf ;;
                             *) echo "BAD DoF: $1" >&2; return 1 ;; esac; }
 target_for() { case "$1" in 7|24) echo panda_grasptarget_hand ;;
                             12|18) echo panda_hand_joint ;;
@@ -47,7 +47,7 @@ target_for() { case "$1" in 7|24) echo panda_grasptarget_hand ;;
 
 restore_panda() {
   echo ">> restoring Panda (7-DoF) build"
-  $PY scripts/codegen/generate_grid.py include/test_urdf/panda.urdf -t panda_grasptarget_hand
+  $PY scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_grasptarget_hand
   scripts/setup/rebuild.sh
 }
 trap restore_panda EXIT

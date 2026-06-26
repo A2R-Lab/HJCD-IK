@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the full HJCD-IK public website into ./_site :
-#   _site/            the static landing page (web/landing/) at the site root
+#   _site/            the static landing page (docs/landing/) at the site root
 #   _site/docs/       the Sphinx docs (Doxygen + Breathe)
 #
 # This is the SINGLE source of truth for assembling the site — the gh-pages CI
@@ -23,7 +23,7 @@ make -C docs all
 
 echo "[site] (2/2) assembling _site (landing at /, docs under /docs/) ..."
 rm -rf _site && mkdir -p _site
-cp -r web/landing/. _site/
+cp -r docs/landing/. _site/
 cp -r docs/build/html _site/docs
 touch _site/.nojekyll            # serve Sphinx _static/_sources verbatim (no Jekyll)
 

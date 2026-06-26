@@ -62,7 +62,7 @@ pip install -q numpy sympy beautifulsoup4 lxml pytest scipy
 pip install -q -r docs/requirements.txt
 
 echo "[setup] (3/4) generate grid.cuh ..."
-python scripts/codegen/generate_grid.py include/test_urdf/panda.urdf -t panda_grasptarget_hand
+python scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_grasptarget_hand
 
 if [ "${SKIP_BUILD:-0}" = "1" ]; then
   echo "[setup] SKIP_BUILD=1 — skipping editable build."

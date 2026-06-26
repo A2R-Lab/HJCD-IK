@@ -42,7 +42,7 @@ sizes.
 
 With `collision_free=True`, the refined candidates are filtered against the environment using per-block
 pRRTC collision checking. The robot is approximated by collision spheres defined per robot in
-`src/robots/{panda,fetch}.cuh`; obstacles come from the problem set (cuboids / cylinders).
+`csrc/robots/{panda,fetch}.cuh`; obstacles come from the problem set (cuboids / cylinders).
 
 Collision geometry is currently hand-tuned for Panda and Fetch. Adding a new robot requires its collision
 spheres and a matching kinematics header — see {doc}`../tutorials/custom_robot`. Without collision data,

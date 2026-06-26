@@ -1,6 +1,6 @@
 #pragma once
 #include <string>
-#include "src/collision/environment.hh"
+#include "collision/environment.hh"
 
 namespace pRRTC {
 

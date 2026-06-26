@@ -431,7 +431,7 @@ Per-robot end-effector frame
 
 The end-effector is a **named fixed-joint frame**, robot-specific. GRiD's codegen places it at an
 ``s_XmatsHom`` index that **shifts with DoF**, so ``scripts/codegen/generate_grid.py`` resolves that index
-and injects ``grid::EE_FIXED_FRAME_IDX`` into ``grid.cuh`` (``include/hjcd_settings.h`` consumes it — never
+and injects ``grid::EE_FIXED_FRAME_IDX`` into ``grid.cuh`` (``csrc/kernel/hjcd_settings.h`` consumes it — never
 hardcode the index). To switch robots: regenerate, then rebuild.
 
 .. list-table::
@@ -464,7 +464,7 @@ hardcode the index). To switch robots: regenerate, then rebuild.
 
 .. code-block:: bash
 
-   python scripts/codegen/generate_grid.py include/test_urdf/<robot>.urdf -t <target>   # injects EE_FIXED_FRAME_IDX
+   python scripts/codegen/generate_grid.py csrc/urdf/<robot>.urdf -t <target>   # injects EE_FIXED_FRAME_IDX
    bash scripts/setup/rebuild.sh                                                         # ninja + install (NOT ninja alone)
 
 The hardware results (Fig. 6) require the physical Franka Research 3 setup and are not reproducible from

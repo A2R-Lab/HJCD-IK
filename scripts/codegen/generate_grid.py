@@ -6,7 +6,7 @@ the legacy top-level generateGRiD.py was removed upstream. The GRiD submodule
 (external/GRiD) and its nested GRiDCodeGenerator / URDFParser must be initialized
 (run scripts/setup/setup_dev.sh, or git submodule update --init --recursive).
 
-By default writes to include/test_cuh/grid.cuh (the committed, build-default header).
+By default writes to csrc/generated/grid.cuh (the committed, build-default header).
 """
 import argparse
 import sys
@@ -14,7 +14,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GRID_DIR = REPO_ROOT / "external" / "GRiD"
-DEFAULT_OUT = REPO_ROOT / "include" / "test_cuh" / "grid.cuh"
+DEFAULT_OUT = REPO_ROOT / "csrc" / "generated" / "grid.cuh"
 
 
 def main():

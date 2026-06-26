@@ -76,7 +76,7 @@ which performs IK using the Panda Arm with batches of `1, 10, 100, 1000, 2000`. 
 * `--yaml-out <path>`
   * Output result file. Default: `results.yml`
 * `--urdf <path>`
-  * URDF path used if running GRiD codegen. Default: `include/test_urdf/panda.urdf`
+  * URDF path used if running GRiD codegen. Default: `csrc/urdf/panda.urdf`
 * `--grid-target <FIXED_TARGET_NAME>`
   * The name of the robot end-effector flange offset
 * `--skip-grid-codegen`
@@ -96,7 +96,7 @@ python benchmark/hjcd_ik_bench.py \
 ```
 * To generate a new GRiD header on a different robot, run:
 ```bash
-python benchmark/hjcd_ik_bench.py --urdf include/test_urdf/fetch.urdf
+python benchmark/hjcd_ik_bench.py --urdf csrc/urdf/fetch.urdf
 ```
 
 ### Collision-Free Benchmark

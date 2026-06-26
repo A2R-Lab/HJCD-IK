@@ -5,9 +5,7 @@ on:
     branches: [main]
     paths:
       - 'docs/**'
-      - 'src/**'
-      - 'include/**'
-      - 'web/**'
+      - 'csrc/**'
       - 'examples/**'
       - '.github/workflows/gh-pages.yml'
   workflow_dispatch:

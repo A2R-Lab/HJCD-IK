@@ -1,10 +1,10 @@
-#include "src/collision/prrtc_env_from_json.hpp"
+#include "collision/prrtc_env_from_json.hpp"
 
 #include <algorithm>
 #include <array>
 #include <stdexcept>
 #include <vector>
-#include "src/collision/factory.hh"
+#include "collision/factory.hh"
 
 using json = nlohmann::json;
 using namespace ppln::collision;

@@ -293,7 +293,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
 
     ap.add_argument("--skip-grid-codegen", action="store_true", help="Skip URDF parse/codegen step for GRiD.")
-    ap.add_argument( "--urdf", type=str, default=str(ROOT / "include" / "test_urdf" / "panda.urdf"), help="URDF used for GRiD codegen.")
+    ap.add_argument( "--urdf", type=str, default=str(ROOT / "csrc" / "urdf" / "panda.urdf"), help="URDF used for GRiD codegen.")
     ap.add_argument("--grid-target", type=str, default="", help="Optional GRiD fixed kinematic target name, e.g. panda_grasptarget_hand.")
     ap.add_argument("--yaml-out", type=str, default="results.yml",help="YAML output file name.")
     ap.add_argument("--batches",type=_parse_batches,default=_parse_batches("1,10,100,1000,2000"), help="Batch sizes (comma/space separated).")
@@ -305,7 +305,7 @@ def main() -> None:
 
     # Collision-free (RoboMetrics)
     ap.add_argument("--collision-free", action="store_true",help="Enable collision-free solutions.")
-    ap.add_argument( "--problems-json", type=str, default=str(ROOT / "src" / "problems" / "panda_problems.json"),help="Path to problems JSON (e.g., mb_problems.json).")
+    ap.add_argument( "--problems-json", type=str, default=str(ROOT / "tests" / "mb_problems.json"),help="Path to problems JSON (e.g., mb_problems.json).")
     ap.add_argument("--problem-set", type=str, default="bookshelf_thin",help="Problem set name in JSON.")
     ap.add_argument("--problem-idx", type=int, default=-1,help="If >=0, run only this problem index; if -1 run all.")
 

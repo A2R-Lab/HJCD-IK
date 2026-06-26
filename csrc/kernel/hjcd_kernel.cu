@@ -1,11 +1,11 @@
-#include "include/hjcd_kernel.h"
-#include "include/hjcd_settings.h"
-#include "include/util.h"
-#include "include/device_utils.cuh"
+#include "kernel/hjcd_kernel.h"
+#include "kernel/hjcd_settings.h"
+#include "kernel/util.h"
+#include "kernel/device_utils.cuh"
 
 // Test .cuh files (uncomment)
-//#include "include/test_cuh/panda_grid.cuh"
-//#include "include/test_cuh/fetch_grid.cuh"
+//#include "generated/panda_grid.cuh"
+//#include "generated/fetch_grid.cuh"
 
 #include <cuda_runtime.h>
 #include <curand_kernel.h>

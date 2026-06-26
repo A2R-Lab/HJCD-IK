@@ -1,4 +1,4 @@
-#include "include/hjcd_kernel.h"
+#include "kernel/hjcd_kernel.h"
 
 #include <algorithm>
 #include <array>

@@ -12,7 +12,7 @@ Thanks for contributing! HJCD-IK is a batched GPU IK solver built on GRiD + GLAS
   rather than patched locally — keep HJCD-IK thin and the dependencies modular.
 
 ## Discipline
-- **Never hand-edit `include/test_cuh/grid.cuh`** — it is GRiD codegen output. Regenerate via
+- **Never hand-edit `csrc/generated/grid.cuh`** — it is GRiD codegen output. Regenerate via
   `python scripts/codegen/generate_grid.py <urdf> -t <target>` and rebuild.
 - **Keep math warp-scoped.** The solver is warp-per-candidate; use warp primitives, not block-scoped ones.
 - **No regressions.** Run `python benchmark/hjcd_ik_bench.py --skip-grid-codegen` and compare to the committed

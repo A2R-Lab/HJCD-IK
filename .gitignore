@@ -78,10 +78,10 @@ benchmark/assets/ikflow/weights/
 docs/open-tasks/
 docs/HANDOFF.md
 
-# web/assets is the user's media drop zone (figures/video, camera-ready paper).
+# docs/assets is the user's media drop zone (figures/video, camera-ready paper).
 # Keep the manifest; never commit the media or local benchmark output here.
-web/assets/*
-!web/assets/README.md
+docs/assets/*
+!docs/assets/README.md
 
 # Generated docs output (Sphinx HTML + Doxygen XML)
 docs/build/

@@ -45,7 +45,7 @@ echo "=== [Table I] open-world, Panda ==="
 if [ "${HJCD_REGEN:-0}" = "1" ] && [ "${SKIP_HJCD:-0}" != "1" ]; then
   # Align HJCD-IK's EE to the shared open-world frame (panda_hand). Heavy: codegen + rebuild (GPU).
   echo "--- regen HJCD-IK to panda_hand frame (matches shared open-world targets) ---"
-  "$PY" scripts/codegen/generate_grid.py include/test_urdf/panda.urdf -t panda_hand_joint
+  "$PY" scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_hand_joint
   bash scripts/setup/rebuild.sh
 fi
 if [ "${SKIP_HJCD:-0}" != "1" ]; then
@@ -72,18 +72,18 @@ fi
 if [ "${RUN_FETCH:-0}" = "1" ]; then
   echo "=== [Table I] open-world, Fetch (EE = ee_link, zero offset) ==="
   FTGT="$(dirname "$TGT")/fetch_open"
-  "$PY" benchmark/gen_targets.py --urdf include/test_urdf/fetch.urdf --target ee_fixed \
+  "$PY" benchmark/gen_targets.py --urdf csrc/urdf/fetch.urdf --target ee_fixed \
     --num-targets "$NUM_TARGETS" --out "$FTGT"
   if [ "${SKIP_HJCD:-0}" != "1" ]; then
-    [ "${HJCD_REGEN:-0}" = "1" ] && { "$PY" scripts/codegen/generate_grid.py include/test_urdf/fetch.urdf -t ee_fixed && bash scripts/setup/rebuild.sh; }
+    [ "${HJCD_REGEN:-0}" = "1" ] && { "$PY" scripts/codegen/generate_grid.py csrc/urdf/fetch.urdf -t ee_fixed && bash scripts/setup/rebuild.sh; }
     "$PY" benchmark/hjcd_ik_bench.py --skip-grid-codegen --filtered-targets "$FTGT.json" \
       --batches "$BATCHES" --num-solutions 1 --solver hjcdik --csv-out "$OUT_DIR/fetch_open_hjcdik.csv"
   fi
   [ "${SKIP_PYROKI:-0}" = "1" ] || "$PY" benchmark/baseline_bench.py --mode pyroki --goal_file "$FTGT.yml" \
-    --robot-urdf include/test_urdf/fetch.urdf --ee-link ee_link --base-link arm_mount_link \
+    --robot-urdf csrc/urdf/fetch.urdf --ee-link ee_link --base-link arm_mount_link \
     --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name fetch_open
   [ "${SKIP_CUROBO:-0}" = "1" ] || "$PY" benchmark/baseline_bench.py --mode curobo --goal_file "$FTGT.yml" \
-    --robot-urdf include/test_urdf/fetch.urdf --ee-link ee_link --base-link arm_mount_link \
+    --robot-urdf csrc/urdf/fetch.urdf --ee-link ee_link --base-link arm_mount_link \
     --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name fetch_open
   [ "${SKIP_IKFLOW:-0}" = "1" ] || "$PY" benchmark/baseline_ikflow.py --goal_file "$FTGT.yml" \
     --model fetch_full_temp_nsc_tpm --seed_list "$BATCHES" --csv-out "$OUT_DIR/fetch_open_ikflow.csv" || echo "(IKFlow fetch skipped)"
@@ -99,7 +99,7 @@ echo "=== [Table II] collision-free, Panda, $PROBLEM_SET ==="
 # every target is solved in the wrong frame (constant ~563 mm error).
 if [ "${HJCD_REGEN:-0}" = "1" ] && [ "${SKIP_HJCD:-0}" != "1" ]; then
   echo "--- regen HJCD-IK to panda_grasptarget_hand (MB problems are in this frame) ---"
-  "$PY" scripts/codegen/generate_grid.py include/test_urdf/panda.urdf -t panda_grasptarget_hand && bash scripts/setup/rebuild.sh
+  "$PY" scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_grasptarget_hand && bash scripts/setup/rebuild.sh
 fi
 if [ "${SKIP_HJCD:-0}" != "1" ]; then
   echo "--- HJCD-IK ---"
@@ -117,7 +117,7 @@ if [ "${SKIP_CUROBO:-0}" != "1" ]; then
   echo "--- cuRobo ---"
   MB_JSON_PATH="$MB_JSON" "$PY" benchmark/baseline_bench.py --mode curobo --collision_free \
     --problem_set "$PROBLEM_SET" --num_instances "$NUM_TARGETS" \
-    --robot-urdf include/test_urdf/panda.urdf --base-link panda_link0 --ee-link panda_grasptarget \
+    --robot-urdf csrc/urdf/panda.urdf --base-link panda_link0 --ee-link panda_grasptarget \
     --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name collfree \
     || echo "(cuRobo Table II skipped — solver error; column left blank, run continues)"
 fi
@@ -126,7 +126,7 @@ if [ "${RUN_DOF:-0}" = "1" ]; then
   echo "=== [Table III] DoF scalability (open-world, B=${DOF_BATCH:-1000}, panda_hand frame) ==="
   DOF_B="${DOF_BATCH:-1000}"
   for spec in "7:panda.urdf" "12:panda_ext_12dof.urdf" "18:panda_ext_18dof.urdf" "24:panda_ext_24dof.urdf"; do
-    d="${spec%%:*}"; urdf="include/test_urdf/${spec##*:}"; dtgt="$(dirname "$TGT")/panda_dof${d}"
+    d="${spec%%:*}"; urdf="csrc/urdf/${spec##*:}"; dtgt="$(dirname "$TGT")/panda_dof${d}"
     echo "--- DoF=$d ($urdf) ---"
     "$PY" benchmark/gen_targets.py --urdf "$urdf" --target panda_hand_joint --num-targets "$NUM_TARGETS" --out "$dtgt"
     if [ "${SKIP_HJCD:-0}" != "1" ]; then
@@ -150,7 +150,7 @@ if [ "${RUN_MMD:-0}" = "1" ]; then
   # last DoF variant, so re-pin HJCD back to panda_hand before the HJCD dump.
   if [ "${HJCD_REGEN:-0}" = "1" ] && [ "${SKIP_HJCD:-0}" != "1" ]; then
     echo "--- regen HJCD-IK to panda_hand (for the MMD dump) ---"
-    "$PY" scripts/codegen/generate_grid.py include/test_urdf/panda.urdf -t panda_hand_joint && bash scripts/setup/rebuild.sh
+    "$PY" scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_hand_joint && bash scripts/setup/rebuild.sh
   fi
   [ "${SKIP_HJCD:-0}" = "1" ]   || "$PY" benchmark/hjcd_ik_bench.py --skip-grid-codegen \
       --filtered-targets "$TGT.json" --solver hjcdik --mmd-dump "$DUMPS/hjcdik.json" \
@@ -186,7 +186,7 @@ echo "=== [tables + plots] merge per-solver CSVs ==="
 
 if [ "${HJCD_REGEN:-0}" = "1" ] && [ "${SKIP_HJCD:-0}" != "1" ]; then
   echo "=== restoring HJCD-IK to the default panda_grasptarget_hand build ==="
-  "$PY" scripts/codegen/generate_grid.py include/test_urdf/panda.urdf -t panda_grasptarget_hand && bash scripts/setup/rebuild.sh
+  "$PY" scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_grasptarget_hand && bash scripts/setup/rebuild.sh
 fi
 
 echo "=== done. Outputs in $OUT_DIR/ ==="

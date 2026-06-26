@@ -3,7 +3,7 @@
 
 Regenerates the Panda header (via scripts/codegen/generate_grid.py, which uses the GRiD
 submodule's URDFParser + GRiDCodeGenerator) into a temp file and diffs it against
-the committed include/test_cuh/grid.cuh. Run in CI and locally after touching the
+the committed csrc/generated/grid.cuh. Run in CI and locally after touching the
 URDF or bumping the GRiD submodule.
 
 Exit codes: 0 = fresh, 1 = stale (prints a unified diff summary), 2 = codegen could not run.
@@ -14,9 +14,9 @@ import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-URDF = REPO / "include" / "test_urdf" / "panda.urdf"
+URDF = REPO / "csrc" / "urdf" / "panda.urdf"
 TARGET = "panda_grasptarget_hand"
-COMMITTED = REPO / "include" / "test_cuh" / "grid.cuh"
+COMMITTED = REPO / "csrc" / "generated" / "grid.cuh"
 GEN = REPO / "scripts" / "codegen" / "generate_grid.py"
 GRID_CODEGEN = REPO / "external" / "GRiD" / "GRiDCodeGenerator"
 

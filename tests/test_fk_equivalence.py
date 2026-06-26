@@ -20,7 +20,7 @@ np = pytest.importorskip("numpy")
 hjcdik = pytest.importorskip("hjcdik")
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-URDF = os.path.join(REPO, "include", "test_urdf", "panda.urdf")
+URDF = os.path.join(REPO, "csrc", "urdf", "panda.urdf")
 
 POS_ATOL_M = 1e-4      # 0.1 mm
 QUAT_ATOL = 1e-3

@@ -2,11 +2,11 @@
 PROJECT_NAME           = "HJCD-IK"
 PROJECT_BRIEF          = "Hybrid Jacobian Coordinate Descent Inverse Kinematics (GPU)"
 OUTPUT_DIRECTORY       = doxygen
-INPUT                  = ../src ../include
+INPUT                  = ../csrc
 FILE_PATTERNS          = *.cu *.cuh *.h *.hpp *.cpp
 RECURSIVE              = YES
 # The generated GRiD header and vendored deps are not part of HJCD-IK's API.
-EXCLUDE                = ../include/test_cuh ../external
+EXCLUDE                = ../csrc/generated ../external
 EXTENSION_MAPPING      = cu=C++ cuh=C++
 GENERATE_HTML          = NO
 GENERATE_LATEX         = NO

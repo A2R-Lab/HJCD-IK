@@ -104,7 +104,7 @@ BACKENDS = {"pyroki": fk_pyroki, "curobo": fk_curobo, "ikflow": fk_ikflow}
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     root = Path(__file__).resolve().parents[1]
-    ap.add_argument("--urdf", default=str(root / "include" / "test_urdf" / "panda.urdf"))
+    ap.add_argument("--urdf", default=str(root / "csrc" / "urdf" / "panda.urdf"))
     ap.add_argument("--target", default="panda_hand_joint", help="reference EE frame (shared-target frame)")
     ap.add_argument("--ee-link", default="panda_hand", help="EE link name in the solvers' own models")
     ap.add_argument("--robot-urdf", default="", help="custom URDF for pyroki/curobo (fetch / DoF variants)")

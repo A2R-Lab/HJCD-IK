@@ -2,7 +2,7 @@
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
 #include <cstring>
-#include "include/hjcd_kernel.h"
+#include "kernel/hjcd_kernel.h"
 
 namespace py = pybind11;
 

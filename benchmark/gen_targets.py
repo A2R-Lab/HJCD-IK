@@ -165,7 +165,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     root = Path(__file__).resolve().parents[1]
-    ap.add_argument("--urdf", type=str, default=str(root / "include" / "test_urdf" / "panda.urdf"))
+    ap.add_argument("--urdf", type=str, default=str(root / "csrc" / "urdf" / "panda.urdf"))
     ap.add_argument("--target", type=str, default="panda_hand_joint",
                     help="EE fixed-frame/joint name to FK to (the common EE frame for all solvers). "
                          "Default panda_hand_joint = the `panda_hand` link, matching the baselines' "

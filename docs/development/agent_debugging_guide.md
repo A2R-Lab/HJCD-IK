@@ -8,9 +8,9 @@ math throughout. Companion docs: [`CLAUDE.md`](../CLAUDE.md), [`STARTUP_PROMPT.m
 ## 0. Validation checklist (before committing)
 
 1. **Regenerate `grid.cuh` and rebuild** if the URDF or EE target changed:
-   `python scripts/codegen/generate_grid.py include/test_urdf/panda.urdf -t panda_grasptarget_hand` then
+   `python scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_grasptarget_hand` then
    `python -m pip install -e .`. Stale `grid.cuh` = silently wrong FK/Jacobian.
-2. **`FLANGE_IDX` / target agreement** across `grid.cuh`, `src/hjcd_kernel.cu`, and any benchmark problem.
+2. **`FLANGE_IDX` / target agreement** across `grid.cuh`, `csrc/kernel/hjcd_kernel.cu`, and any benchmark problem.
 3. **Build clean** and import: `python -c "import hjcdik; print(hjcdik.num_joints())"`.
 4. **Run the benchmark** and compare to the committed baseline (do not eyeball):
    `python benchmark/hjcd_ik_bench.py --skip-grid-codegen` → solved-rate, pos/ori error, timing.
@@ -52,7 +52,7 @@ is a 19-DOF robot; Panda regenerates to `NUM_JOINTS=7`.
 
 ### 1f. Collision geometry mismatch
 **Symptom:** free targets flagged in-collision (or vice versa).
-**Cause:** per-robot collision spheres (`src/robots/{panda,fetch}.cuh`) are hand-tuned and Panda/Fetch-only.
+**Cause:** per-robot collision spheres (`csrc/robots/{panda,fetch}.cuh`) are hand-tuned and Panda/Fetch-only.
 **Fix:** for a new robot, add its collision primitives or run without `--collision-free`.
 
 ## 2. Debugging methodology

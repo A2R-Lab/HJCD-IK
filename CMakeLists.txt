@@ -33,7 +33,7 @@ endif()
 find_package(CUDAToolkit REQUIRED)
 find_package(Eigen3 CONFIG REQUIRED)
 
-# Note: the CLI (src/main.cpp) emits its results YAML by hand via std::ofstream and
+# Note: the CLI (csrc/kernel/main.cpp) emits its results YAML by hand via std::ofstream and
 # nothing in the project includes the yaml-cpp library, so it is not a dependency.
 
 set(PYBIND11_FINDPYTHON ON)
@@ -42,12 +42,12 @@ if(BUILD_PYTHON)
 endif()
 
 # GRiD kinematics header. The committed, build-default header lives at
-# include/test_cuh/grid.cuh and is #included as "grid.cuh" (that directory is on the
+# csrc/generated/grid.cuh and is #included as "grid.cuh" (that directory is on the
 # include path below). Regenerate it with scripts/codegen/generate_grid.py, or opt into a build-time
 # regenerate with -DHJCDIK_AUTO_CODEGEN=ON (uses the external/GRiD submodule's codegen).
-set(GRID_HEADER         "${CMAKE_SOURCE_DIR}/include/test_cuh/grid.cuh")
+set(GRID_HEADER         "${CMAKE_SOURCE_DIR}/csrc/generated/grid.cuh")
 set(GRID_CODEGEN_SCRIPT "${CMAKE_SOURCE_DIR}/scripts/codegen/generate_grid.py")
-set(GRID_CODEGEN_URDF   "${CMAKE_SOURCE_DIR}/include/test_urdf/panda.urdf")
+set(GRID_CODEGEN_URDF   "${CMAKE_SOURCE_DIR}/csrc/urdf/panda.urdf")
 
 if(HJCDIK_AUTO_CODEGEN)
   if(NOT EXISTS "${GRID_CODEGEN_SCRIPT}")
@@ -74,16 +74,16 @@ message(STATUS "HJCD-IK: using GRiD header ${GRID_HEADER}")
 
 # Sources
 set(HJCDIK_HEADERS
-  include/hjcd_settings.h
-  include/device_utils.cuh
-  src/collision/prrtc_collision.cuh
-  src/collision/prrtc_env_from_json.hpp
-  src/collision/prrtc_env_cache.hpp
+  csrc/kernel/hjcd_settings.h
+  csrc/kernel/device_utils.cuh
+  csrc/collision/prrtc_collision.cuh
+  csrc/collision/prrtc_env_from_json.hpp
+  csrc/collision/prrtc_env_cache.hpp
 )
 
 set(HJCDIK_COMMON_SOURCES
-  src/hjcd_kernel.cu
-  src/collision/prrtc_env_from_json.cpp
+  csrc/kernel/hjcd_kernel.cu
+  csrc/collision/prrtc_env_from_json.cpp
   ${HJCDIK_HEADERS}
 )
 
@@ -92,10 +92,8 @@ set(HJCDIK_INCLUDE_DIRS
   ${CMAKE_SOURCE_DIR}/external/GRiD/include
   ${CMAKE_SOURCE_DIR}/external/GLASS
   ${CMAKE_BINARY_DIR}
-  ${CMAKE_SOURCE_DIR}
-  ${CMAKE_SOURCE_DIR}/include
-  ${CMAKE_SOURCE_DIR}/include/test_cuh
-  ${CMAKE_SOURCE_DIR}/src
+  ${CMAKE_SOURCE_DIR}/csrc
+  ${CMAKE_SOURCE_DIR}/csrc/generated
 )
 
 if(MSVC)
@@ -112,7 +110,7 @@ set(HJCDIK_CUDA_FLAGS
 
 # Native Executable
 add_executable(hjcdik
-  src/main.cpp
+  csrc/kernel/main.cpp
   ${HJCDIK_COMMON_SOURCES}
 )
 target_sources(hjcdik PRIVATE ${GRID_HEADER})
@@ -129,7 +127,7 @@ target_link_libraries(hjcdik PRIVATE
 # Python
 if(BUILD_PYTHON)
   pybind11_add_module(_hjcdik MODULE
-    src/pybind_module.cpp
+    csrc/bindings/pybind_module.cpp
     ${HJCDIK_COMMON_SOURCES}
   )
   target_sources(_hjcdik PRIVATE ${GRID_HEADER})
