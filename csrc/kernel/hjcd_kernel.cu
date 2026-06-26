@@ -438,35 +438,6 @@ __device__ T solve_ori(const T* s_jointXforms, const T* q_t, int joint, int k, i
 }
 
 // JACOBIAN TUNER
-template<typename T, int DIM>
-__device__ bool chol_solve(T A[DIM * DIM], T b[DIM]) {
-    for (int k = 0; k < DIM; ++k) {
-        T s = A[k * DIM + k];
-        for (int p = 0; p < k; ++p) { T Lkp = A[k * DIM + p]; s -= Lkp * Lkp; }
-        if (s <= (T)0) return false;
-        T Lkk = sqrt(s);
-        A[k * DIM + k] = Lkk;
-        for (int i = k + 1; i < DIM; ++i) {
-            T t = A[i * DIM + k];
-            for (int p = 0; p < k; ++p) t -= A[i * DIM + p] * A[k * DIM + p];
-            A[i * DIM + k] = t / Lkk;
-        }
-        for (int j = k + 1; j < DIM; ++j) A[k * DIM + j] = (T)0;
-    }
-    T y[DIM];
-    for (int i = 0; i < DIM; ++i) {
-        T s = b[i];
-        for (int p = 0; p < i; ++p) s -= A[i * DIM + p] * y[p];
-        y[i] = s / A[i * DIM + i];
-    }
-    for (int i = DIM - 1; i >= 0; --i) {
-        T s = y[i];
-        for (int p = i + 1; p < DIM; ++p) s -= A[p * DIM + i] * b[p];
-        b[i] = s / A[i * DIM + i];
-    }
-    return true;
-}
-
 __device__ __forceinline__ void upper_index_to_rc(int idx, int DIM, int& r, int& c) {
     int acc = 0;
     for (int rr = 0; rr < DIM; ++rr) {
