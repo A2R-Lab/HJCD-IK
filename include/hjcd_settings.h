@@ -61,10 +61,17 @@ inline RefineSchedule schedule_for_B(int B) {
 
     if (B <= 16) {
         s.top_k     = B;
-        s.repeats   = 16;
+        s.repeats   = 20;
         s.sigma_frac= 0.25;
+    } else if (B >= 2000) {
+        s.top_k  = 24;
+        s.repeats = 16;
+    } else if (B >= 1000) {
+        s.top_k  = 20;
+        s.repeats = 22;
     } else {
-        s.top_k = 16 + (int)((B - 1000)/1000 * 8);
+        s.top_k   = 16 + (int)((B - 1000)/1000 * 8);
+        s.repeats = 18;
     }
 
     return s;
