@@ -50,6 +50,7 @@ plots = [
 dev = [
   "pytest>=7.0",
   "scipy>=1.7",
+  "pyyaml>=5.4",   # verify the signed gpu-proof receipt against the YAML policy (tests/gpu-proof-policy.yaml)
 ]
 
 [tool.scikit-build]
