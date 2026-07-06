@@ -77,6 +77,8 @@ benchmark/assets/ikflow/weights/
 # Local agent working notes (not project artifacts)
 docs/open-tasks/
 docs/HANDOFF.md
+# Reviewer guide — sent to colleagues manually, not tracked (remove this line to track it)
+docs/REVIEW_GUIDE.md
 
 # docs/assets is the user's media drop zone (figures/video, camera-ready paper).
 # Keep the manifest; never commit the media or local benchmark output here.
