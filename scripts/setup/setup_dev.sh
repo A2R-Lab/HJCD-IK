@@ -9,7 +9,7 @@
 #
 # Env overrides:
 #   GLASS_LOCAL       sibling GLASS checkout to overlay our branch from (default ~/Desktop/GLASS)
-#   GLASS_BRANCH      GLASS branch to use (default feat/warp-primitives)
+#   GLASS_BRANCH      GLASS branch to use (default main)
 #   PYTHON            python interpreter (default python3)
 #   SKIP_APT=1        skip the system (apt) deps step
 #   SKIP_SUBMODULES=1 skip submodule init + GLASS overlay (use the current checkout)
@@ -19,7 +19,7 @@ cd "$(dirname "$0")/../.."
 ROOT="$(pwd)"
 
 GLASS_LOCAL="${GLASS_LOCAL:-$HOME/Desktop/GLASS}"
-GLASS_BRANCH="${GLASS_BRANCH:-feat/warp-primitives}"
+GLASS_BRANCH="${GLASS_BRANCH:-main}"
 PYTHON="${PYTHON:-python3}"
 
 # System (C++/CUDA) build dependencies. The build needs the CUDA toolkit (nvcc) plus two

@@ -15,7 +15,12 @@ version = "0.0.1"
 description = "Minimal Python bindings for hjcdik (C++/CUDA)"
 readme = "README.md"
 requires-python = ">=3.9"
-authors = [{ name = "You" }]
+authors = [
+  { name = "Cael Yasutake" },
+  { name = "Andrew H. Liu" },
+  { name = "Zachary Kingston" },
+  { name = "Brian Plancher", email = "plancher@dartmouth.edu" },
+]
 
 # REQUIRED runtime + codegen dependencies
 dependencies = [

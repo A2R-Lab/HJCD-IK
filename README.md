@@ -33,7 +33,7 @@ Note: may need to run ```dos2unix scripts/setup/bootstrap.sh ``` before ```./scr
 
 (Windows)
 ```bash
-.\scripts\bootstrap_windows.bat
+.\scripts\setup\bootstrap_windows.bat
 ```
 
 You can install `hjcdik` with `pip` on Python &ge; 3.9:
@@ -159,12 +159,16 @@ Each cylinder requires:
 * Collision-Free support is currently limited to the Franka Panda and Fetch Arms with support for additional and custom robots coming soon!
 
 ## Cite
-Please cite HCJD-IK if you found this work useful:
+Please cite HJCD-IK if you found this work useful:
 ```bibtex
-@article{yasutake2025hjcd,
-  title={HJCD-IK: GPU-Accelerated Inverse Kinematics through Batched Hybrid Jacobian Coordinate Descent},
-  author={Yasutake, Cael and Kingston, Zachary and Plancher, Brian},
-  journal={arXiv preprint arXiv:2510.07514},
-  year={2025}
+@inproceedings{yasutake2026hjcdik,
+  title     = {{HJCD-IK}: {GPU}-Accelerated Inverse Kinematics through Batched Hybrid Jacobian Coordinate Descent},
+  author    = {Yasutake, Cael and Liu, Andrew H. and Kingston, Zachary and Plancher, Brian},
+  booktitle = {2026 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)},
+  year      = {2026},
+  note      = {arXiv:2510.07514}
 }
 ```
+
+## License
+HJCD-IK is released under the [MIT License](LICENSE).

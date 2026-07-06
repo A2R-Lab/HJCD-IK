@@ -8,7 +8,7 @@
 project = "HJCD-IK"
 copyright = "2026, A2R Lab"
 author = "A2R Lab"
-release = "0.1.0"
+release = "0.0.1"
 
 # -- General configuration ---------------------------------------------------
 extensions = [

@@ -51,7 +51,7 @@ joints, `EE_IDX = 7`, `FLANGE_IDX = 8`, `NX = 9` stored frames.
 
 ## Build & test
 
-CMake 3.23+ / CUDA 12.x / pybind11 (scikit-build-core). GRiD codegen runs at configure time when enabled.
+CMake 3.23+ / CUDA 12.x or 13.x / pybind11 (scikit-build-core). GRiD codegen runs at configure time when enabled.
 
 ```bash
 sudo apt install -y libeigen3-dev nlohmann-json3-dev   # system header deps (Eigen3 + nlohmann-json)

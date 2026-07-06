@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Initialize HJCD-IK's submodules and put each on our feature branch:
-#   external/GLASS                    -> feat/warp-primitives  (off GLASS main)
-#   external/GRiD                     -> feat/hjcd-warp-fk      (off GRiD modernizing-tests)
-#   external/GRiD/{GRiDCodeGenerator,URDFParser,GLASS} -> feat/hjcd-warp-fk
+# Initialize HJCD-IK's submodules on the branches the pins track:
+#   external/GLASS                    -> main               (GLASS)
+#   external/GRiD                     -> modernizing-tests  (GRiD)
+#   external/GRiD/{GRiDCodeGenerator,URDFParser,GLASS} -> modernizing-tests
 #
 # Idempotent: already-initialized submodules are left on their branch (not detached).
 # Heavy GRiD submodules (RBDReference, pinocchio baselines) are skipped — not needed
@@ -10,8 +10,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-GRID_BRANCH="${GRID_BRANCH:-feat/hjcd-warp-fk}"
-GLASS_BRANCH="${GLASS_BRANCH:-feat/warp-primitives}"
+GRID_BRANCH="${GRID_BRANCH:-modernizing-tests}"
+GLASS_BRANCH="${GLASS_BRANCH:-main}"
 
 # Check out (or create at the current pin) a branch in a submodule, without
 # detaching an existing branch checkout.
@@ -42,4 +42,4 @@ checkout_branch external/GRiD/GRiDCodeGenerator "$GRID_BRANCH"
 checkout_branch external/GRiD/URDFParser        "$GRID_BRANCH"
 checkout_branch external/GRiD/GLASS             "$GRID_BRANCH"
 
-echo "[OK] submodules ready (GLASS off main, GRiD + nested off modernizing-tests)"
+echo "[OK] submodules ready (GLASS on main, GRiD + nested on modernizing-tests)"

@@ -5,8 +5,8 @@
 	branch = modernizing-tests
 [submodule "external/GLASS"]
 	path = external/GLASS
-	url = git@github.com:A2R-Lab/GLASS.git
+	url = https://github.com/A2R-Lab/GLASS.git
 	branch = main
 [submodule "tests/pytest-gpu-proof"]
 	path = tests/pytest-gpu-proof
-	url = git@github.com:A2R-Lab/pytest-gpu-proof.git
+	url = https://github.com/A2R-Lab/pytest-gpu-proof.git
