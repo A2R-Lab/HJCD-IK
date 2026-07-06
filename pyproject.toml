@@ -53,3 +53,24 @@ build-dir = "build"
 # The committed csrc/generated/grid.cuh is the build default; regenerate it explicitly
 # with scripts/codegen/generate_grid.py (or build with -DHJCDIK_AUTO_CODEGEN=ON to regenerate here).
 cmake.define.HJCDIK_AUTO_CODEGEN = "OFF"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "gpu_proof: Test outcomes recorded in the signed pytest-gpu-proof receipt (auto-applied to the whole suite by tests/conftest.py; every HJCD-IK test drives the CUDA kernel).",
+]
+
+[tool.gpu_proof]
+# GPU tests run locally on a real GPU; the signed receipt (gpu-proof.json) is
+# verified in CPU-only CI via github.com/plancherb1.keys. See scripts/setup/run_gpu_proof.sh.
+mode = "local"
+output = "gpu-proof.json"
+github_username = "plancherb1"     # org remotes (A2R-Lab) carry no SSH keys — sign as the keyholder
+required_marker = "gpu_proof"
+# Fingerprint the test harness only. The code under test — the CUDA kernel and the
+# GRiD/GLASS submodules — is pinned by the parent tree's commit + gitlinks, which the
+# fingerprinter cannot descend into; the verifier's commit-SHA check invalidates the
+# receipt on any kernel or pin change, forcing a re-run.
+fingerprint_paths = ["tests"]
+max_age_days = 30
+require_gpu = true

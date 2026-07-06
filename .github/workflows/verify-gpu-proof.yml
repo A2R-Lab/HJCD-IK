@@ -1,0 +1,42 @@
+name: Verify GPU Proof
+
+# CPU-only CI, no GPU, no secrets. Validates the committed gpu-proof.json receipt
+# (signature via github.com/{signer}.keys, code fingerprint over tests/, commit SHA,
+# freshness, and the allow_dirty:false policy). This is what lets HJCD-IK's CUDA
+# correctness gate merges without paying for a GPU CI runner — the receipt is
+# produced locally on a real GPU by scripts/setup/run_gpu_proof.sh.
+#
+# HJCD-IK has no CPU-only test lane (every test drives the CUDA kernel), so this is
+# the whole CI: verify the receipt.
+
+on:
+  push:
+    branches: [main, grid-glass-integration]
+  pull_request:
+    branches: [main, grid-glass-integration]
+
+jobs:
+  verify-receipt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true          # need tests/pytest-gpu-proof for the verifier
+          fetch-depth: 0            # commit-SHA check compares against full history
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pytest-gpu-proof
+        run: pip install ./tests/pytest-gpu-proof
+
+      - name: Verify receipt
+        # gpu-proof.json is committed by whoever ran scripts/setup/run_gpu_proof.sh
+        # locally. The verifier fetches the signer's public keys from
+        # github.com/{user}.keys — no secrets in CI.
+        run: |
+          gpu-proof verify \
+            --receipt gpu-proof.json \
+            --repo . \
+            --policy tests/gpu-proof-policy.yaml
