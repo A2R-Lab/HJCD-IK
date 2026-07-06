@@ -23,7 +23,8 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
                                const std::string& problems_json_text,
                                const std::string& problem_set_name,
                                int problem_idx,
-                               int refine_fp64) {
+                               int refine_fp64,
+                               bool write_stats) {
   auto* model = ensure_robot();
 
   double tp[7];
@@ -42,9 +43,9 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
   const bool use_fp64 = (refine_fp64 < 0) ? (num_solutions <= 1) : (refine_fp64 != 0);
   auto res = use_fp64
       ? generate_ik_solutions<double, double>(
-            tp, model, batch_size, num_solutions, collision_free, json_cstr, set_cstr, problem_idx)
+            tp, model, batch_size, num_solutions, collision_free, json_cstr, set_cstr, problem_idx, write_stats)
       : generate_ik_solutions<double, float>(
-            tp, model, batch_size, num_solutions, collision_free, json_cstr, set_cstr, problem_idx);
+            tp, model, batch_size, num_solutions, collision_free, json_cstr, set_cstr, problem_idx, write_stats);
 
   const int N = grid_num_joints();
 
@@ -90,7 +91,8 @@ PYBIND11_MODULE(_hjcdik, m) {
       py::arg("problems_json_text") = "",
       py::arg("problem_set_name") = "",
       py::arg("problem_idx") = 0,
-      py::arg("refine_fp64") = -1);   // -1=auto (fp64 if num_solutions==1 else fp32); 1=fp64; 0=fp32
+      py::arg("refine_fp64") = -1,    // -1=auto (fp64 if num_solutions==1 else fp32); 1=fp64; 0=fp32
+      py::arg("write_stats") = false);   // append a row to ik_stats.csv (see scripts/ik_stats_summary.py)
   m.def("sample_targets", &py_sample_targets,
         py::arg("num_targets"), py::arg("seed") = 0);
   m.def("num_joints", &grid_num_joints);

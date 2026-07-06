@@ -25,6 +25,7 @@
 #include <thread>
 #include <vector>
 #include <chrono>
+#include <fstream>
 #include <limits>
 #include <type_traits>
 #include <cstdlib>
@@ -1746,6 +1747,7 @@ __global__ void score_environment_costs_panda(
 
     float local_mm = 0.0f;
     for (int s = tid; s < PANDA_SPHERE_COUNT; s += blockDim.x) {
+        if (ppln::collision::panda_sphere_to_joint[s] == 0) continue; // base link always contacts pedestal
         const float sx = sphere_pos[s * BATCH_SIZE * 3 + 0];
         const float sy = sphere_pos[s * BATCH_SIZE * 3 + 1];
         const float sz = sphere_pos[s * BATCH_SIZE * 3 + 2];
@@ -1806,6 +1808,7 @@ __global__ void apply_valid_mask_to_scores(
 const double ENV_COLLISION_COST_W = 1.5;
 const double ORI_TARGET_RAD = 1.1e-4;
 const double ORI_OUTLIER_W  = 7000.0;
+const float  CC_SPHERE_MARGIN_MM = 0.0f;   // env-collision margin (mm) for the coll-free tally
 
 // RT = LM-refine compute precision (the user-facing speed/accuracy knob). RT=double is the
 // full-fp64 default; RT=float runs FK/Jacobian/residual/line-search in fp32 (~2.4x cheaper FK,
@@ -1820,7 +1823,8 @@ Result<T> generate_ik_solutions(
     bool collision_free,
     const char* problems_json_text,
     const char* problem_set_name,
-    int problem_idx
+    int problem_idx,
+    bool write_stats
 )
 {
     init_joint_limits_from_grid();
@@ -2184,6 +2188,7 @@ Result<T> generate_ik_solutions(
     float* d_env_cost_refined = nullptr;
     float* d_env_cost_coarse = nullptr;
     double* dx_coarse64 = nullptr;
+    int n_cc_in_refined = 0, n_cc_in_coarse = 0;
 
     if (do_cc) {
         CUDA_OK(cudaMalloc(&d_env_cost_refined, sizeof(float) * (size_t)Krep));
@@ -2226,6 +2231,11 @@ Result<T> generate_ik_solutions(
         CUDA_OK(cudaMemcpy(h_env_cost_coarse.data(), d_env_cost_coarse,
                            sizeof(float) * (size_t)B,
                            cudaMemcpyDeviceToHost));
+
+        for (int i = 0; i < Krep; ++i)
+            if (h_env_cost_refined[i] > CC_SPHERE_MARGIN_MM) ++n_cc_in_refined;
+        for (int i = 0; i < B; ++i)
+            if (h_env_cost_coarse[i] > CC_SPHERE_MARGIN_MM) ++n_cc_in_coarse;
     }
 
     // Read the RT device results back into double host buffers (downstream stays fp64).
@@ -2246,6 +2256,31 @@ Result<T> generate_ik_solutions(
         std::copy(t_orir .begin(), t_orir .end(), h_orir64 .begin());
         std::copy(t_pose .begin(), t_pose .end(), h_pose64 .begin());
         std::copy(t_x    .begin(), t_x    .end(), h_x64    .begin());
+    }
+
+    // IK accuracy and collision-filter interaction stats
+    int n_ik_lost = 0, n_ik_good_ref = 0, n_coll_free_ref = 0, n_feasible_ref = 0;
+    float env_cost_min = std::numeric_limits<float>::infinity();
+    float env_cost_max = 0.0f;
+    double env_cost_mean = 0.0;
+    {
+        constexpr double POS_THR_MM  = 5.0;
+        constexpr double ORI_THR_RAD = 1e-3;
+        for (int i = 0; i < Krep; ++i) {
+            const bool ik_good   = h_posmm64[i] < POS_THR_MM && h_orir64[i] < ORI_THR_RAD;
+            const bool coll_free = !do_cc || (h_env_cost_refined[i] <= CC_SPHERE_MARGIN_MM);
+            if (ik_good)               ++n_ik_good_ref;
+            if (coll_free)             ++n_coll_free_ref;
+            if (ik_good && coll_free)  ++n_feasible_ref;
+            if (ik_good && !coll_free) ++n_ik_lost;
+            if (do_cc) {
+                const float c = h_env_cost_refined[i];
+                if (c < env_cost_min) env_cost_min = c;
+                if (c > env_cost_max) env_cost_max = c;
+                env_cost_mean += c;
+            }
+        }
+        if (do_cc && Krep > 0) env_cost_mean /= Krep;
     }
 
     // GET SOLUTIONS
@@ -2301,6 +2336,62 @@ Result<T> generate_ik_solutions(
         for (int cidx : order_coarse) {
             chosen.push_back(-1 - cidx);
             if ((int)chosen.size() == S_target) break;
+        }
+    }
+
+    // Tally quality of the returned solutions
+    int n_out_ik = 0, n_out_cf = 0, n_out_feasible = 0;
+    if (do_cc) {
+        constexpr double POS_THR = 5.0, ORI_THR = 1e-3;
+        for (int idx : chosen) {
+            double pos_mm, ori_r; float env_mm;
+            if (idx >= 0) {
+                pos_mm = h_posmm64[idx]; ori_r = h_orir64[idx];
+                env_mm = h_env_cost_refined[idx];
+            } else {
+                int cidx = -1 - idx;
+                pos_mm = h_pos_mm_coarse_f[cidx]; ori_r = h_ori_rad_coarse_f[cidx];
+                env_mm = h_env_cost_coarse[cidx];
+            }
+            if (pos_mm < POS_THR && ori_r < ORI_THR)                                  ++n_out_ik;
+            if (env_mm <= CC_SPHERE_MARGIN_MM)                                         ++n_out_cf;
+            if (pos_mm < POS_THR && ori_r < ORI_THR && env_mm <= CC_SPHERE_MARGIN_MM) ++n_out_feasible;
+        }
+    }
+
+    if (write_stats) {
+        constexpr const char* CSV_PATH = "ik_stats.csv";
+        static bool s_header_written = false;
+        std::ofstream csv(CSV_PATH, s_header_written ? std::ios::app : std::ios::trunc);
+        if (csv.is_open()) {
+            if (!s_header_written) {
+                s_header_written = true;
+                csv << "b_size,krep"
+                       ",n_ik_accurate,n_coll_free_refined,n_feasible,n_ik_lost"
+                       ",n_coll_in_refined,n_coll_in_coarse"
+                       ",env_cost_min_mm,env_cost_max_mm,env_cost_mean_mm"
+                       ",n_returned,n_returned_ik_accurate,n_returned_coll_free"
+                       ",pct_returned_coll_free,n_returned_feasible\n";
+            }
+
+            const double pct_cf = chosen.empty() ? 0.0
+                                                  : 100.0 * n_out_cf / (double)chosen.size();
+            csv << B           << ',' << Krep
+                << ',' << n_ik_good_ref
+                << ',' << n_coll_free_ref
+                << ',' << n_feasible_ref
+                << ',' << n_ik_lost
+                << ',' << (do_cc ? n_cc_in_refined : -1)
+                << ',' << (do_cc ? n_cc_in_coarse  : -1)
+                << ',' << (do_cc ? env_cost_min  : -1.f)
+                << ',' << (do_cc ? env_cost_max  : -1.f)
+                << ',' << (do_cc ? env_cost_mean : -1.0)
+                << ',' << (int)chosen.size()
+                << ',' << n_out_ik
+                << ',' << n_out_cf
+                << ',' << pct_cf
+                << ',' << n_out_feasible
+                << '\n';
         }
     }
 
@@ -2373,7 +2464,8 @@ template Result<double> generate_ik_solutions<double>(   // RT=double (full fp64
     bool collision_free,
     const char* problems_json_text,
     const char* problem_set_name,
-    int problem_idx
+    int problem_idx,
+    bool write_stats
 );
 
 template Result<double> generate_ik_solutions<double, float>(   // RT=float (fp32 refine knob)
@@ -2384,7 +2476,8 @@ template Result<double> generate_ik_solutions<double, float>(   // RT=float (fp3
     bool collision_free,
     const char* problems_json_text,
     const char* problem_set_name,
-    int problem_idx
+    int problem_idx,
+    bool write_stats
 );
 
 template Result<float> generate_ik_solutions<float>(
@@ -2395,7 +2488,8 @@ template Result<float> generate_ik_solutions<float>(
     bool collision_free,
     const char* problems_json_text,
     const char* problem_set_name,
-    int problem_idx
+    int problem_idx,
+    bool write_stats
 );
 
 template std::vector<std::array<double, 7>> sample_random_target_poses(
