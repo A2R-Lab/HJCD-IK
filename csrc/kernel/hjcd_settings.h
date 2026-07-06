@@ -28,7 +28,8 @@ void mat4_mul(const T* A, const T* B, T* C) {
 
 // External GLASS (full, with the glass::warp:: sub-namespace) at GLOBAL scope. GRiD now
 // vendors its own pinned GLASS isolated under grid::glass (see GRiDCodeGenerator
-// _lin_alg_helpers.py), so this no longer ODR-clashes with grid.cuh's vendored copy.
+// _lin_alg_helpers.py) AND namespaces its vendored macro guards (GRID_VENDORED_GLASS_*),
+// so this no longer ODR-clashes with grid.cuh's vendored copy.
 #include "glass.cuh"
 
 #ifndef WARP_SIZE
