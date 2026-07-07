@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Generate the signed GPU-proof receipt for HJCD-IK's CUDA test suite. Run this on
 # a machine with a real GPU and a built `hjcdik` (see scripts/setup/rebuild.sh).
+# The pytest-gpu-proof plugin comes from PyPI — install it into the venv first:
+#   pip install -e '.[dev]'      (or: pip install pytest-gpu-proof pyyaml)
 #
 #   scripts/setup/run_gpu_proof.sh                 # full receipt -> gpu-proof.json
 #   PYTEST_ARGS="-k regression" scripts/setup/run_gpu_proof.sh   # scoped dry run

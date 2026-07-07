@@ -21,7 +21,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true          # need tests/pytest-gpu-proof for the verifier
           fetch-depth: 0            # commit-SHA check compares against full history
 
       - uses: actions/setup-python@v5
@@ -29,9 +28,9 @@ jobs:
           python-version: "3.12"
 
       - name: Install pytest-gpu-proof
-        # pyyaml is needed to read the YAML policy below — pytest-gpu-proof only
-        # imports it on demand and does not declare it as a dependency.
-        run: pip install pyyaml ./tests/pytest-gpu-proof
+        # From PyPI (was a vendored submodule). pyyaml is needed to read the YAML policy below —
+        # pytest-gpu-proof imports it on demand and does not declare it as a dependency.
+        run: pip install pyyaml pytest-gpu-proof
 
       - name: Verify receipt
         # gpu-proof.json is committed by whoever ran scripts/setup/run_gpu_proof.sh
