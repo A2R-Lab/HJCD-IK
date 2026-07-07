@@ -12,7 +12,7 @@
   },
   "fingerprint": {
     "algorithm": "sha256",
-    "digest": "c48a7a4c32641e7f39dd3cb06dd8556e4911747108e2aa1280eb34e98029db44",
+    "digest": "20489f49a5b0127a863b594b245a4f64388a6ab53d14f9b7e91b2e103a3e015f",
     "file_count": 10,
     "included_paths": [
       "tests"
@@ -21,14 +21,14 @@
   "mode": "local",
   "repo": {
     "branch": "grid-glass-integration",
-    "commit_sha": "ed63e3c6661acd395b76dbac31dd920c95436a19",
+    "commit_sha": "0550c9480eb8525cd5ca6308c3c5f9b687aeb612",
     "dirty": false,
     "github_username": "plancherb1",
     "remote_url": "git@github.com:A2R-Lab/HJCD-IK.git"
   },
   "schema_version": "1",
   "session": {
-    "ended_at": "2026-07-06T02:03:38Z",
+    "ended_at": "2026-07-07T20:01:51Z",
     "node_ids": [
       "tests/test_collision.py::test_collision_free_runs_and_solves",
       "tests/test_collision.py::test_collision_free_matches_unconstrained_reach",
@@ -48,37 +48,37 @@
       "tests/test_regression.py::test_no_regression_vs_baseline",
       "tests/test_regression.py::test_solver_runs_and_returns_solutions"
     ],
-    "started_at": "2026-07-06T02:03:37Z"
+    "started_at": "2026-07-07T20:01:50Z"
   },
   "signature": {
     "algorithm": "ed25519",
     "backend": "ssh-local",
     "key_fingerprint": "SHA256:hfyUcDJTDLry3j7nJ9V2X8iEIgNFmFJQKGQirOdyWtY",
     "signer": "plancherb1",
-    "value": "U+jpMkHiexfRxrjGoMGz9jpPhLaBfSC2LRIJOBY/l19vaFxqgwbRqQJHTDDUAUX+CO1sTuZ8Bf2GVbfPl4I0BA=="
+    "value": "KTE/R6JZ99nvmG9r/jOhTuSaekyjlMzxvTq2qYXUSlZ/PcMn3j/GeU0GzBwc1ZedFZjQnhd4caPEDddx85DHAA=="
   },
   "tests": [
     {
       "checks": [],
-      "duration_s": 0.4697,
+      "duration_s": 0.4545,
       "node_id": "tests/test_collision.py::test_collision_free_runs_and_solves",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0602,
+      "duration_s": 0.0582,
       "node_id": "tests/test_collision.py::test_collision_free_matches_unconstrained_reach",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0355,
+      "duration_s": 0.0353,
       "node_id": "tests/test_fk_equivalence.py::test_ee_position_matches_reference",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0347,
+      "duration_s": 0.0349,
       "node_id": "tests/test_fk_equivalence.py::test_ee_orientation_matches_reference",
       "outcome": "passed"
     },
@@ -90,7 +90,7 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0248,
+      "duration_s": 0.0247,
       "node_id": "tests/test_multiwarp.py::test_multiwarp_matches_w1[4]",
       "outcome": "passed"
     },
@@ -114,7 +114,7 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0246,
+      "duration_s": 0.0245,
       "node_id": "tests/test_multiwarp.py::test_run_to_run_stability",
       "outcome": "passed"
     },
@@ -132,7 +132,7 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0865,
+      "duration_s": 0.0863,
       "node_id": "tests/test_precision.py::test_fp64_refine_accuracy",
       "outcome": "passed"
     },
@@ -150,7 +150,7 @@
     },
     {
       "checks": [],
-      "duration_s": 0.1194,
+      "duration_s": 0.1189,
       "node_id": "tests/test_regression.py::test_no_regression_vs_baseline",
       "outcome": "passed"
     },
