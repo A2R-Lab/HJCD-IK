@@ -206,30 +206,21 @@ def mb_instance_to_goal(inst: dict):
 
 
 def _collision_free_or_unknown(robot_file: str, world_dict: dict, q_torch) -> "bool | None":
-    """cuRobo-based collision check, or None when it can't be computed (collision-freeness unknown).
-    Lets PyRoki collision-free IK still report timing/accuracy; the None propagates to a blank
-    'collision_free' so Table II stays honest about what was measured. Returns None if cuRobo is absent
-    OR the (v2) external sphere-collision query isn't wired (see check_collision_free_curobo)."""
-    if not _HAS_CUROBO:
-        return None
+    """Validate an externally-supplied solution q against world_dict using the SHARED 59-sphere Panda model
+    (benchmark/panda_collision.py) — solver-agnostic and cuRobo-free, so every solver's Table II column is
+    measured with the same geometry (apples-to-apples; the paper's own collision model). Returns None
+    ('unknown' -> blank column) only for non-Panda robots, which have no shared sphere model yet (see
+    docs/open-tasks/multi_robot_byo_urdf_plan_*)."""
     try:
-        return bool(check_collision_free_curobo(robot_file, world_dict, q_torch)[0])
-    except NotImplementedError:
+        q = np.asarray(q_torch.detach().cpu().numpy() if hasattr(q_torch, "detach") else q_torch,
+                       dtype=float).reshape(-1)
+    except Exception:
         return None
-
-
-def check_collision_free_curobo(robot_file: str, world_dict: dict, q) -> np.ndarray:
-    """Mask (N,) where True == collision-free, for externally-supplied joint configs q against world_dict.
-
-    cuRobo v2 follow-up: this validates *another* solver's q (PyRoki's) against the scene, which needs the
-    robot's collision spheres at q (kinematics) fed into `scene_collision_checker.get_sphere_distance`. The
-    v2 sphere-export path is not yet wired here, so we raise NotImplementedError and the caller degrades to
-    'unknown' (blank Table II PyRoki collision column). cuRobo's OWN collision-free IK (Table II --mode
-    curobo) is fully supported — it uses the in-optimizer collision cost (self_collision_check + scene)."""
-    raise NotImplementedError(
-        "cuRobo-v2 external sphere-collision check (for the PyRoki Table II column) not wired yet; "
-        "cuRobo's own collision-free IK is supported. See docs/source/user_guide/benchmarks/results.rst."
-    )
+    is_panda = ("panda" in robot_file.lower() or "franka" in robot_file.lower() or q.shape[0] == 7)
+    if not is_panda:
+        return None
+    from panda_collision import panda_config_collision_free
+    return bool(panda_config_collision_free(q, world_dict))
 
 def benchmark_pyroki_on_mb_problems(
     robot_file: str,
