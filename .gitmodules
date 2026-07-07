@@ -10,3 +10,6 @@
 [submodule "tests/pytest-gpu-proof"]
 	path = tests/pytest-gpu-proof
 	url = https://github.com/A2R-Lab/pytest-gpu-proof.git
+[submodule "external/foam"]
+	path = external/foam
+	url = https://github.com/CoMMALab/foam
