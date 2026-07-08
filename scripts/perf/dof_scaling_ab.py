@@ -48,14 +48,34 @@ def foreign_apps():
         return []
 
 
-def quiet_or_die(max_util, where, check_util=True):
-    apps = foreign_apps()
-    util, mem = gpu_util()
-    if (check_util and util > max_util) or apps:
-        print(f"\n!! GPU NOT QUIET at {where}: util={util}% mem={mem}MiB foreign_apps={len(apps)}")
-        print("   Timing under contention is meaningless. Aborting — rerun when free.")
-        for a in apps: print("   foreign app:", a)
-        sys.exit(2)
+def quiet_or_die(max_util, where, check_util=True, settle_retries=6, settle_delay=2.0):
+    """Abort on contention, but tolerate a transient util spike at startup.
+
+    A FOREIGN compute app (a different pid holding a CUDA context) is real contention →
+    abort immediately. A high `util` reading with NO foreign app is treated as transient:
+    `utilization.gpu` is time-averaged, so firing this right after a rebuild or a prior
+    sweep's teardown can read hot for a second or two. We poll a few times and only abort
+    if it stays busy. Mid-sweep callers pass check_util=False (our own kernels dominate
+    util once we're solving) and so never sleep here."""
+    util = mem = 0
+    for attempt in range(max(1, settle_retries)):
+        apps = foreign_apps()
+        if apps:
+            util, mem = gpu_util()
+            print(f"\n!! GPU NOT QUIET at {where}: util={util}% mem={mem}MiB foreign_apps={len(apps)}")
+            print("   Timing under contention is meaningless. Aborting — rerun when free.")
+            for a in apps: print("   foreign app:", a)
+            sys.exit(2)
+        util, mem = gpu_util()
+        if not check_util or util <= max_util:
+            return
+        if attempt < settle_retries - 1:
+            print(f"   [settle] {where}: util={util}% (no foreign apps) — likely teardown; "
+                  f"waiting {settle_delay:.0f}s ({attempt + 1}/{settle_retries})")
+            time.sleep(settle_delay)
+    print(f"\n!! GPU still busy at {where}: util={util}% after {settle_retries} settles, no foreign apps.")
+    print("   Aborting — rerun when the box is idle.")
+    sys.exit(2)
 
 
 def _median(xs):

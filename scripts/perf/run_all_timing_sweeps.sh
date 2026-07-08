@@ -31,9 +31,18 @@ NUM_TARGETS="${NUM_TARGETS:-100}"
 SWEEPS="${SWEEPS:-openworld,collfree,multiwarp,dof}"
 MB_JSON="tests/mb_problems.json"
 PROBLEM_SET="${PROBLEM_SET:-bookshelf_thin_panda}"
+SETTLE_SECS="${SETTLE_SECS:-6}"
 
 has() { echo ",${SWEEPS}," | grep -q ",$1,"; }
 banner() { echo; echo "==================== $* ===================="; }
+# Let the GPU drain between sweeps so the next one's startup quiet-check doesn't sample the
+# previous sweep's teardown (utilization.gpu is time-averaged). No sleep before the FIRST sweep.
+_first_stage=1
+settle() {
+  if [ "$_first_stage" = "1" ]; then _first_stage=0; return; fi
+  echo "[timing] settling ${SETTLE_SECS}s for the GPU to go idle before the next sweep..."
+  sleep "$SETTLE_SECS"
+}
 
 # --- preconditions -------------------------------------------------------------------------------------
 if ! "$PY" -c "import hjcdik" 2>/dev/null; then
@@ -47,6 +56,7 @@ echo "[timing] results -> $OUT   sweeps: $SWEEPS   batches: $BATCHES   targets: 
 
 # --- openworld (Table I) : latency vs batch, default build (post-bump regression reference) ------------
 if has openworld; then
+  settle
   banner "Table I — open-world Panda (batch sweep)"
   "$PY" benchmark/hjcd_ik_bench.py --skip-grid-codegen --num-targets "$NUM_TARGETS" \
       --batches "$BATCHES" --num-solutions 1 --solver hjcdik \
@@ -56,6 +66,7 @@ fi
 
 # --- collfree (Table II) : collision-free on a MotionBenchMaker scene -----------------------------------
 if has collfree; then
+  settle
   banner "Table II — collision-free Panda ($PROBLEM_SET)"
   "$PY" benchmark/hjcd_ik_bench.py --skip-grid-codegen --collision-free \
       --problems-json "$MB_JSON" --problem-set "$PROBLEM_SET" \
@@ -66,6 +77,7 @@ fi
 
 # --- multiwarp : W=1,2,4,8 x fp64/fp32 ------------------------------------------------------------------
 if has multiwarp; then
+  settle
   banner "Multiwarp W sweep (fp64/fp32)"
   "$PY" scripts/perf/time_multiwarp_sweep.py --warps 1,2,4,8 --batches 256,2000,16384 \
       --precisions fp64,fp32 2>&1 | tee "$OUT/multiwarp.log" \
@@ -74,6 +86,7 @@ fi
 
 # --- dof (Table III) : fp32-vs-fp64 A/B per DoF (regen+rebuild each; restores Panda). HEAVIEST -> last --
 if has dof; then
+  settle
   banner "Table III — DoF 7/12/18/24 fp32-vs-fp64 A/B (regen+rebuild per DoF)"
   echo "[timing] this regenerates + rebuilds the extension per DoF and restores the Panda build on exit."
   scripts/perf/dof_scaling_ab.sh 2>&1 | tee "$OUT/dof_ab.log" \
