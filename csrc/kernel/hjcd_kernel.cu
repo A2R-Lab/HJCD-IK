@@ -1659,7 +1659,37 @@ __global__ void score_environment_costs(
     if (tid == 0) cost_mm[i] = red[0];
 }
 
+// Hard collision constraint (comparison to the soft cost): per candidate config, one block, write
+// valid[i] = grid_collision::config_free (SELF + environment; note the soft path is env-only). The
+// boolean is thread-invariant, so lane 0 publishes it. Same dynamic-smem contract as
+// score_environment_costs. Selected via HJCD_CC_MODE=hard|both (see generate_ik_solutions).
+__global__ void mark_collisions(
+    const double* __restrict__ q_in,                 // K x N
+    int K,
+    unsigned char* __restrict__ valid,               // K bytes (1 = collision-free)
+    const grid::robotModel<float>* d_robotModel,
+    grid_collision::Environment<float> env)          // device pointers, by value
+{
+    namespace gc = grid_collision;
+    constexpr int NS = gc::NUM_COLLISION_SPHERES;
+
+    const int i   = (int)blockIdx.x;
+    const int tid = (int)threadIdx.x;
+    if (i >= K) return;
+
+    __shared__ float s_q[N];
+    __shared__ float s_pos[3 * NS];
+    __shared__ float s_r[NS];
+
+    for (int j = tid; j < N; j += blockDim.x) s_q[j] = (float)q_in[(size_t)i * N + j];
+    __syncthreads();
+
+    const bool ok = gc::config_free<float>(s_q, d_robotModel, env, s_pos, s_r, nullptr);
+    if (tid == 0) valid[i] = ok ? 1 : 0;
+}
+
 const double ENV_COLLISION_COST_W = 1.5;
+const double CC_HARD_PENALTY      = 1e12;  // added to a colliding candidate's score in hard mode
 const double ORI_TARGET_RAD = 1.1e-4;
 const double ORI_OUTLIER_W  = 7000.0;
 const float  CC_SPHERE_MARGIN_MM = 0.0f;   // env-collision margin (mm) for the coll-free tally
@@ -2028,17 +2058,30 @@ Result<T> generate_ik_solutions(
         CUDA_OK(cudaDeviceSynchronize());
     }
 
-    // Soft environment-collision cost in mm, computed only after optimization.
+    // Collision scoring mode (comparison knob, env HJCD_CC_MODE): "soft" (default) = penetration cost
+    // biases selection; "hard" = grid_collision::config_free filters colliding candidates outright
+    // (self + env); "both" = soft cost + hard filter. Default preserves prior behavior.
+    int cc_mode = 0;  // 0=soft, 1=hard, 2=both
+    if (const char* e = std::getenv("HJCD_CC_MODE")) {
+        std::string m(e);
+        if (m == "hard") cc_mode = 1;
+        else if (m == "both") cc_mode = 2;
+    }
+    const bool use_soft = do_cc && (cc_mode == 0 || cc_mode == 2);
+    const bool use_hard = do_cc && (cc_mode == 1 || cc_mode == 2);
+
     std::vector<float> h_env_cost_refined(Krep, 0.0f);
     std::vector<float> h_env_cost_coarse(B, 0.0f);
+    std::vector<unsigned char> h_valid_refined(Krep, 1);   // 1 = collision-free (hard mode)
+    std::vector<unsigned char> h_valid_coarse(B, 1);
     float* d_env_cost_refined = nullptr;
     float* d_env_cost_coarse = nullptr;
+    unsigned char* d_valid_refined = nullptr;
+    unsigned char* d_valid_coarse = nullptr;
     double* dx_coarse64 = nullptr;
     int n_cc_in_refined = 0, n_cc_in_coarse = 0;
 
     if (do_cc) {
-        CUDA_OK(cudaMalloc(&d_env_cost_refined, sizeof(float) * (size_t)Krep));
-        CUDA_OK(cudaMalloc(&d_env_cost_coarse, sizeof(float) * (size_t)B));
         CUDA_OK(cudaMalloc(&dx_coarse64, sizeof(double) * num_elems_x));
         {
             const int tpb = 256;
@@ -2047,46 +2090,59 @@ Result<T> generate_ik_solutions(
             cudaGetLastError();
             CUDA_OK(cudaDeviceSynchronize());
         }
-        // Dynamic smem for the multi_target FK extractor inside grid_collision::collision_distance.
+        // Dynamic smem for the multi_target FK extractor (shared by both collision kernels).
         const size_t cc_smem = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<float>();
-        CUDA_OK(cudaFuncSetAttribute((const void*)score_environment_costs,
-                                     cudaFuncAttributeMaxDynamicSharedMemorySize, (int)cc_smem));
-        {
-            if constexpr (std::is_same_v<RT, double>) {
-                score_environment_costs<<<Krep, CC_TPB, cc_smem>>>(
-                    dx64, Krep, d_env_cost_refined, d_robotModel_cc, g_cc_env.env);
-            } else {
-                // The scoring kernel reads q as double; cast the RT refined x up first.
-                double* dx_ref_d = nullptr;
-                CUDA_OK(cudaMalloc(&dx_ref_d, sizeof(double) * KrepN));
-                cast_array<double, RT><<<(int)((KrepN + 255) / 256), 256>>>(dx64, dx_ref_d, KrepN);
-                score_environment_costs<<<Krep, CC_TPB, cc_smem>>>(
-                    dx_ref_d, Krep, d_env_cost_refined, d_robotModel_cc, g_cc_env.env);
-                cudaGetLastError();
-                CUDA_OK(cudaDeviceSynchronize());
-                cudaFree(dx_ref_d);
-            }
-            cudaGetLastError();
+
+        // Refined q as double (both collision kernels read double). Reuse dx64 when RT==double.
+        double* dq_ref = nullptr; bool dq_ref_owned = false;
+        if constexpr (std::is_same_v<RT, double>) {
+            dq_ref = dx64;
+        } else {
+            CUDA_OK(cudaMalloc(&dq_ref, sizeof(double) * KrepN));
+            cast_array<double, RT><<<(int)((KrepN + 255) / 256), 256>>>(dx64, dq_ref, KrepN);
             CUDA_OK(cudaDeviceSynchronize());
+            dq_ref_owned = true;
         }
-        {
+
+        if (use_soft) {
+            CUDA_OK(cudaMalloc(&d_env_cost_refined, sizeof(float) * (size_t)Krep));
+            CUDA_OK(cudaMalloc(&d_env_cost_coarse, sizeof(float) * (size_t)B));
+            CUDA_OK(cudaFuncSetAttribute((const void*)score_environment_costs,
+                                         cudaFuncAttributeMaxDynamicSharedMemorySize, (int)cc_smem));
+            score_environment_costs<<<Krep, CC_TPB, cc_smem>>>(
+                dq_ref, Krep, d_env_cost_refined, d_robotModel_cc, g_cc_env.env);
             score_environment_costs<<<B, CC_TPB, cc_smem>>>(
                 dx_coarse64, B, d_env_cost_coarse, d_robotModel_cc, g_cc_env.env);
             cudaGetLastError();
             CUDA_OK(cudaDeviceSynchronize());
+            CUDA_OK(cudaMemcpy(h_env_cost_refined.data(), d_env_cost_refined,
+                               sizeof(float) * (size_t)Krep, cudaMemcpyDeviceToHost));
+            CUDA_OK(cudaMemcpy(h_env_cost_coarse.data(), d_env_cost_coarse,
+                               sizeof(float) * (size_t)B, cudaMemcpyDeviceToHost));
+            for (int i = 0; i < Krep; ++i)
+                if (h_env_cost_refined[i] > CC_SPHERE_MARGIN_MM) ++n_cc_in_refined;
+            for (int i = 0; i < B; ++i)
+                if (h_env_cost_coarse[i] > CC_SPHERE_MARGIN_MM) ++n_cc_in_coarse;
         }
 
-        CUDA_OK(cudaMemcpy(h_env_cost_refined.data(), d_env_cost_refined,
-                           sizeof(float) * (size_t)Krep,
-                           cudaMemcpyDeviceToHost));
-        CUDA_OK(cudaMemcpy(h_env_cost_coarse.data(), d_env_cost_coarse,
-                           sizeof(float) * (size_t)B,
-                           cudaMemcpyDeviceToHost));
+        if (use_hard) {
+            CUDA_OK(cudaMalloc(&d_valid_refined, sizeof(unsigned char) * (size_t)Krep));
+            CUDA_OK(cudaMalloc(&d_valid_coarse, sizeof(unsigned char) * (size_t)B));
+            CUDA_OK(cudaFuncSetAttribute((const void*)mark_collisions,
+                                         cudaFuncAttributeMaxDynamicSharedMemorySize, (int)cc_smem));
+            mark_collisions<<<Krep, CC_TPB, cc_smem>>>(
+                dq_ref, Krep, d_valid_refined, d_robotModel_cc, g_cc_env.env);
+            mark_collisions<<<B, CC_TPB, cc_smem>>>(
+                dx_coarse64, B, d_valid_coarse, d_robotModel_cc, g_cc_env.env);
+            cudaGetLastError();
+            CUDA_OK(cudaDeviceSynchronize());
+            CUDA_OK(cudaMemcpy(h_valid_refined.data(), d_valid_refined,
+                               sizeof(unsigned char) * (size_t)Krep, cudaMemcpyDeviceToHost));
+            CUDA_OK(cudaMemcpy(h_valid_coarse.data(), d_valid_coarse,
+                               sizeof(unsigned char) * (size_t)B, cudaMemcpyDeviceToHost));
+        }
 
-        for (int i = 0; i < Krep; ++i)
-            if (h_env_cost_refined[i] > CC_SPHERE_MARGIN_MM) ++n_cc_in_refined;
-        for (int i = 0; i < B; ++i)
-            if (h_env_cost_coarse[i] > CC_SPHERE_MARGIN_MM) ++n_cc_in_coarse;
+        if (dq_ref_owned) cudaFree(dq_ref);
     }
 
     // Read the RT device results back into double host buffers (downstream stays fp64).
@@ -2119,7 +2175,9 @@ Result<T> generate_ik_solutions(
         constexpr double ORI_THR_RAD = 1e-3;
         for (int i = 0; i < Krep; ++i) {
             const bool ik_good   = h_posmm64[i] < POS_THR_MM && h_orir64[i] < ORI_THR_RAD;
-            const bool coll_free = !do_cc || (h_env_cost_refined[i] <= CC_SPHERE_MARGIN_MM);
+            const bool coll_free = !do_cc
+                || (use_hard ? (bool)h_valid_refined[i]
+                             : (h_env_cost_refined[i] <= CC_SPHERE_MARGIN_MM));
             if (ik_good)               ++n_ik_good_ref;
             if (coll_free)             ++n_coll_free_ref;
             if (ik_good && coll_free)  ++n_feasible_ref;
@@ -2139,7 +2197,8 @@ Result<T> generate_ik_solutions(
     auto score_ref = [&](int i)->double {
         const double ori_excess = std::max(0.0, h_orir64[i] - ORI_TARGET_RAD);
         double s = h_posmm64[i] + ORI_OUTLIER_W * ori_excess;
-        if (do_cc) s += ENV_COLLISION_COST_W * (double)h_env_cost_refined[i];
+        if (use_soft) s += ENV_COLLISION_COST_W * (double)h_env_cost_refined[i];
+        if (use_hard && !h_valid_refined[i]) s += CC_HARD_PENALTY;
         return s;
     };
 
@@ -2161,7 +2220,8 @@ Result<T> generate_ik_solutions(
     auto score_coarse = [&](int i)->double {
         const double ori_excess = std::max(0.0, (double)h_ori_rad_coarse_f[i] - ORI_TARGET_RAD);
         double s = (double)h_pos_mm_coarse_f[i] + ORI_OUTLIER_W * ori_excess;
-        if (do_cc) s += ENV_COLLISION_COST_W * (double)h_env_cost_coarse[i];
+        if (use_soft) s += ENV_COLLISION_COST_W * (double)h_env_cost_coarse[i];
+        if (use_hard && !h_valid_coarse[i]) s += CC_HARD_PENALTY;
         return s;
     };
 
@@ -2195,18 +2255,20 @@ Result<T> generate_ik_solutions(
     if (do_cc) {
         constexpr double POS_THR = 5.0, ORI_THR = 1e-3;
         for (int idx : chosen) {
-            double pos_mm, ori_r; float env_mm;
+            double pos_mm, ori_r; float env_mm; bool cfree;
             if (idx >= 0) {
                 pos_mm = h_posmm64[idx]; ori_r = h_orir64[idx];
                 env_mm = h_env_cost_refined[idx];
+                cfree = use_hard ? (bool)h_valid_refined[idx] : (env_mm <= CC_SPHERE_MARGIN_MM);
             } else {
                 int cidx = -1 - idx;
                 pos_mm = h_pos_mm_coarse_f[cidx]; ori_r = h_ori_rad_coarse_f[cidx];
                 env_mm = h_env_cost_coarse[cidx];
+                cfree = use_hard ? (bool)h_valid_coarse[cidx] : (env_mm <= CC_SPHERE_MARGIN_MM);
             }
-            if (pos_mm < POS_THR && ori_r < ORI_THR)                                  ++n_out_ik;
-            if (env_mm <= CC_SPHERE_MARGIN_MM)                                         ++n_out_cf;
-            if (pos_mm < POS_THR && ori_r < ORI_THR && env_mm <= CC_SPHERE_MARGIN_MM) ++n_out_feasible;
+            if (pos_mm < POS_THR && ori_r < ORI_THR)                ++n_out_ik;
+            if (cfree)                                              ++n_out_cf;
+            if (pos_mm < POS_THR && ori_r < ORI_THR && cfree)       ++n_out_feasible;
         }
     }
 
@@ -2300,6 +2362,8 @@ Result<T> generate_ik_solutions(
 
     if (d_env_cost_refined) cudaFree(d_env_cost_refined);
     if (d_env_cost_coarse) cudaFree(d_env_cost_coarse);
+    if (d_valid_refined) cudaFree(d_valid_refined);
+    if (d_valid_coarse) cudaFree(d_valid_coarse);
 
     auto t1 = high_resolution_clock::now();
     result.elapsed_time =

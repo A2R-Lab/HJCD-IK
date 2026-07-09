@@ -84,6 +84,10 @@ out = generate_solutions(targets[0], batch_size=2000, num_solutions=4)
   model → 58 non-base spheres); the build/codegen wires this automatically (see `CMakeLists.txt`). This is
   the **bring-your-own-URDF** path: `generate_grid.py <robot.urdf> --collision [...]` gives any robot both
   FK and collision with no hand-written per-robot header.
+- **Collision scoring mode (`HJCD_CC_MODE` env, comparison knob).** `soft` (default) = penetration cost
+  biases selection (env-only, behavior-preserving); `hard` = `grid_collision::config_free` filters
+  colliding candidates outright (self **+** environment; `mark_collisions` kernel → score += big penalty);
+  `both` = soft cost + hard filter. All three are post-solve, off the hot warp loop.
 - **`FLANGE_IDX` discipline.** The fixed EE target (`panda_grasptarget_hand`) and its index must agree across
   codegen, the kernel, and any benchmark problem. A mismatch silently solves to the wrong frame.
 - **Warp-locality is the performance contract.** New math must stay warp-scoped (`__shfl_*_sync`, `__syncwarp`).
