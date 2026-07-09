@@ -12,7 +12,8 @@
 #
 # Sweeps (comma-list in SWEEPS; default = all, in this order):
 #   openworld  — Table I open-world Panda latency vs batch (also the post-GRiD-bump regression reference)
-#   collfree   — Table II collision-free Panda (bookshelf_thin_panda)
+#   collfree   — Table II collision-free Panda (bookshelf_thin_panda), one time+CF column per CC_MODES
+#                (default soft,hard) → merged into collfree_compare.csv
 #   multiwarp  — W=1,2,4,8 x fp64/fp32 sweep (scripts/perf/time_multiwarp_sweep.py)
 #   dof        — Table III DoF 7/12/18/24 fp32-vs-fp64 A/B (regen+rebuild per DoF; restores Panda) — HEAVIEST, runs last
 #
@@ -64,15 +65,29 @@ if has openworld; then
     || echo "[timing] openworld FAILED (continuing)"
 fi
 
-# --- collfree (Table II) : collision-free on a MotionBenchMaker scene -----------------------------------
+# --- collfree (Table II) : collision-free on a MotionBenchMaker scene, per collision mode --------------
+# CC_MODES (default soft,hard) sweeps HJCD_CC_MODE so the table gets a time+CF column per mode:
+#   soft = penetration cost biases selection; hard = grid_collision::config_free filter (self+env);
+#   both = soft cost + hard filter. Modes drain between each other for clean isolated timing.
+CC_MODES="${CC_MODES:-soft,hard}"
 if has collfree; then
   settle
-  banner "Table II — collision-free Panda ($PROBLEM_SET)"
-  "$PY" benchmark/hjcd_ik_bench.py --skip-grid-codegen --collision-free \
-      --problems-json "$MB_JSON" --problem-set "$PROBLEM_SET" \
-      --batches "$BATCHES" --num-solutions 1 --solver hjcdik \
-      --csv-out "$OUT/collfree_hjcdik.csv" 2>&1 | tee "$OUT/collfree.log" \
-    || echo "[timing] collfree FAILED (continuing)"
+  banner "Table II — collision-free Panda ($PROBLEM_SET), modes: $CC_MODES"
+  _first_mode=1
+  for _mode in $(echo "$CC_MODES" | tr ',' ' '); do
+    if [ "$_first_mode" = "1" ]; then _first_mode=0; else
+      echo "[timing] draining ${SETTLE_SECS}s before HJCD_CC_MODE=$_mode..."; sleep "$SETTLE_SECS"
+    fi
+    echo "[timing] --- collfree HJCD_CC_MODE=$_mode ---"
+    HJCD_CC_MODE="$_mode" "$PY" benchmark/hjcd_ik_bench.py --skip-grid-codegen --collision-free \
+        --problems-json "$MB_JSON" --problem-set "$PROBLEM_SET" \
+        --batches "$BATCHES" --num-solutions 1 --solver hjcdik \
+        --csv-out "$OUT/collfree_${_mode}.csv" 2>&1 | tee "$OUT/collfree_${_mode}.log" \
+      || echo "[timing] collfree $_mode FAILED (continuing)"
+  done
+  # join the per-mode CSVs into a side-by-side comparison table (collfree_compare.csv + markdown)
+  "$PY" scripts/perf/merge_cc_modes.py "$OUT" "$CC_MODES" 2>&1 | tee "$OUT/collfree_compare.log" \
+    || echo "[timing] collfree merge FAILED (continuing)"
 fi
 
 # --- multiwarp : W=1,2,4,8 x fp64/fp32 ------------------------------------------------------------------
