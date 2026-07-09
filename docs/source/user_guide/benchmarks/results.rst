@@ -316,6 +316,19 @@ Collision-free IK — Panda, bookshelf_thin_panda (Table II)
 
    Collision-free frontier on the *bookshelf_thin_panda* scene (Fig. 4, Table II).
 
+.. note::
+
+   **Collision-free validation (methodology).** The benchmark harness reports a
+   ``collision_free`` / ``success_both`` rate for every solver by validating each returned
+   configuration *post-hoc* against the **same** 59-sphere Panda collision model HJCD-IK
+   itself filters against (``benchmark/panda_collision.py``, sourced from ``csrc/robots/panda.cuh``).
+   Because all solvers are judged by one shared geometry — not each tool's own collision
+   notion — the column is apples-to-apples, and the check is pure-numpy (no cuRobo dependency).
+   ``success_both`` is pose-success **and** collision-free. Regenerate with
+   ``benchmark/baseline_bench.py --mode {pyroki,curobo} --collision_free`` (per-run CSV/YAML land
+   under the gitignored ``benchmark/results/``; the time/accuracy numbers above are the
+   camera-ready values).
+
 DoF scalability — Panda variants, B = 1000 (Table III)
 ------------------------------------------------------
 

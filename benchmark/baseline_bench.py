@@ -222,63 +222,6 @@ def _collision_free_or_unknown(robot_file: str, world_dict: dict, q_torch) -> "b
     from panda_collision import panda_config_collision_free
     return bool(panda_config_collision_free(q, world_dict))
 
-def benchmark_pyroki_on_mb_problems(
-    robot_file: str,
-    problem_set: str,
-    num_instances: int,
-    use_self_collision: bool = False,
-):
-    instances = load_mb_problem_set(MB_JSON_PATH, problem_set)[:num_instances]
-
-    # thresholds
-    position_threshold = 0.005
-    rotation_threshold = 0.05
-
-    rows = []
-    for idx, inst in enumerate(instances):
-        world_dict = mb_instance_to_world_dict(inst)
-        target_wxyz, target_pos = mb_instance_to_goal(inst)
-
-        # PyRoki batched inputs
-        target_wxyz_jax = jnp.asarray(target_wxyz[None, :])
-        target_pos_jax  = jnp.asarray(target_pos[None, :])
-
-        # JIT warmup once
-        jax.block_until_ready(batched_ik(target_wxyz_jax, target_pos_jax))
-
-        t0 = time.time()
-        sol_jax = batched_ik(target_wxyz_jax, target_pos_jax)
-        jax.block_until_ready(sol_jax)
-        dt = (time.time() - t0)
-
-        # FK and errors
-        fk = batched_fk(sol_jax)
-        fk_wxyz = np.array(fk[0, 0:4])
-        fk_pos  = np.array(fk[0, 4:7])
-
-        pos_err = np.linalg.norm(fk_pos - target_pos)
-        ori_err = np.linalg.norm(np.array((jaxlie.SO3(target_wxyz).inverse() @ jaxlie.SO3(fk_wxyz)).log()))
-
-        pose_success = (pos_err < position_threshold) and (ori_err < rotation_threshold)
-
-        # collision-check PyRoki's joint solution with cuRobo RobotWorld (None if cuRobo absent)
-        q_torch = torch.from_numpy(np.array(sol_jax)).to("cuda")
-        collision_free = _collision_free_or_unknown(robot_file, world_dict, q_torch)
-
-        rows.append({
-            "instance": idx,
-            "time_ms": dt * 1000.0,
-            "pos_err_m": float(pos_err),
-            "ori_err_rad": float(ori_err),
-            "pose_success": bool(pose_success),
-            "collision_free": (None if collision_free is None else bool(collision_free)),
-            "success_both": (None if collision_free is None else bool(pose_success and collision_free)),
-        })
-
-    return rows
-
-
-
 def newton_raphson(f, x, iters):
     """Use the Newton-Raphson method to find a root of the given function."""
 
@@ -971,9 +914,11 @@ if __name__ == "__main__":
             "cuRobo is backlogged (may not build on newer CUDA); see docs/source/user_guide/benchmarks/results.rst. "
             "Use --mode pyroki, or install cuRobo on a compatible box."
         )
-    if args.collision_free and args.mode == "pyroki" and not _HAS_CUROBO:
-        print("[baseline_bench] WARNING: cuRobo absent -> PyRoki collision-free runs report IK "
-              "timing/accuracy only; the 'collision_free' column will be blank (collision check needs cuRobo).")
+    if args.collision_free:
+        # The collision-free column is validated by the shared 59-sphere Panda model
+        # (benchmark/panda_collision.py) — cuRobo is NOT required for the check.
+        print("[baseline_bench] collision-free: validating returned q with the shared Panda sphere "
+              "model (benchmark/panda_collision.py); the 'collision_free' column is populated cuRobo-free.")
 
     robot_file = args.robot_file
     seed_list = parse_int_list(args.seed_list)
@@ -1047,7 +992,8 @@ if __name__ == "__main__":
     from collections import defaultdict
     data = defaultdict(list)
 
-    def record_row(*, problem_idx, num_seeds, solver_name, time_ms, pos_err_mm, ori_err_rad, succ_pct=None):
+    def record_row(*, problem_idx, num_seeds, solver_name, time_ms, pos_err_mm, ori_err_rad,
+                   succ_pct=None, collision_free=None):
         # pos error stored in MILLIMETERS to match benchmark/hjcd_ik_bench.py (canonical CSV unit).
         data["problem_idx"].append(int(problem_idx))
         data["Batch-Size"].append(int(num_seeds))
@@ -1059,6 +1005,14 @@ if __name__ == "__main__":
         data["Ori-Error"].append(float(ori_err_rad))
         data[f"{solver_name}-time(ms)"].append(float(time_ms))
         data[f"{solver_name}-ori-err(rad)"].append(float(ori_err_rad))
+        # Table II collision-free column: every solver's returned q is validated post-hoc against the
+        # SAME shared 59-sphere Panda model (benchmark/panda_collision.py) — apples-to-apples, cuRobo-free.
+        # Appended UNCONDITIONALLY (None when unavailable, e.g. open-world or a non-Panda robot) so every
+        # column stays equal-length for the DataFrame. success_both = pose-success AND collision-free.
+        data["collision_free"].append(None if collision_free is None else bool(collision_free))
+        both = (None if (collision_free is None or succ_pct is None)
+                else bool(collision_free and succ_pct >= 100.0))
+        data["success_both"].append(both)
 
     if args.collision_free:
         # ---- collision-free: per-instance targets from mb_problems.json ----
@@ -1088,8 +1042,11 @@ if __name__ == "__main__":
                     target_wxyz, target_pos = mb_instance_to_cylinder_goal(inst, eps=1e-4, rot_sign=+1)
                     goal7 = np.concatenate([target_pos, target_wxyz])
                     dt_s, succ_pct, pos98, ori98, sols, pos_errs, ori_errs = run_curobo_on_goal_batch(ik_solver, goal7[None, :], tensor_args)
+                    # Validate cuRobo's best-returned q with the SAME shared-model validator as pyroki (fair column).
+                    cs = _collision_free_or_unknown(robot_file, mb_instance_to_world_dict(inst), sols[0]) if len(sols) else None
                     record_row(problem_idx=idx, num_seeds=num_seeds, solver_name="curobo",
-                               time_ms=dt_s * 1000.0, pos_err_mm=pos98 * 1000.0, ori_err_rad=ori98, succ_pct=succ_pct)
+                               time_ms=dt_s * 1000.0, pos_err_mm=pos98 * 1000.0, ori_err_rad=ori98,
+                               succ_pct=succ_pct, collision_free=cs)
                     if args.print_idx == idx:
                         print("\n==== cuRobo single-solution dump ====")
                         print(f"problem_idx: {idx}")
@@ -1120,7 +1077,8 @@ if __name__ == "__main__":
                 for idx, inst in enumerate(instances):
                     dt_ms, pe, oe, ps, cs = eval_one_mb_instance(robot_file, inst, batched_ik_fn)
                     record_row(problem_idx=idx, num_seeds=num_seeds_init, solver_name="pyroki",
-                               time_ms=dt_ms, pos_err_mm=pe * 1000.0, ori_err_rad=oe, succ_pct=100.0 if ps else 0.0)
+                               time_ms=dt_ms, pos_err_mm=pe * 1000.0, ori_err_rad=oe,
+                               succ_pct=100.0 if ps else 0.0, collision_free=cs)
 
     else:
         # ---- non-collision-free: shared goal dataset (file or FK-sampled) ----
@@ -1205,7 +1163,12 @@ if __name__ == "__main__":
         print("\n" + "=" * 60)
         print("Averages by Batch Size")
         print("=" * 60)
-        avg_cols = [c for c in ["IK-time(ms)", "Pos-Error(mm)", "Ori-Error", "succ(%)"] if c in df.columns]
+        # collision-free / success-both as rates (%) so they average meaningfully alongside succ(%).
+        for c in ("collision_free", "success_both"):
+            if c in df.columns:
+                df[f"{c}(%)"] = df[c].map(lambda v: 100.0 if v is True else (0.0 if v is False else float("nan")))
+        avg_cols = [c for c in ["IK-time(ms)", "Pos-Error(mm)", "Ori-Error", "succ(%)",
+                                "collision_free(%)", "success_both(%)"] if c in df.columns]
         group_cols = [c for c in ["Batch-Size", "solver"] if c in df.columns]
         avg_df = df.groupby(group_cols)[avg_cols].mean()
         try:
