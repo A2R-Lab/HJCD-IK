@@ -321,7 +321,10 @@ Collision-free IK — Panda, bookshelf_thin_panda (Table II)
    **Collision-free validation (methodology).** The benchmark harness reports a
    ``collision_free`` / ``success_both`` rate for every solver by validating each returned
    configuration *post-hoc* against the **same** 59-sphere Panda collision model HJCD-IK
-   itself filters against (``benchmark/panda_collision.py``, sourced from ``csrc/robots/panda.cuh``).
+   itself filters against (``benchmark/panda_collision.py``, sourced from the frozen paper model
+   ``benchmark/reference/panda_collision_model.cuh``). HJCD-IK's kernel now filters via GRiD's
+   URDF-driven ``grid_collision`` (the identical spheres, baked into ``grid.cuh`` from the foam
+   spherized URDF), so this independent numpy oracle stays a fair cross-check.
    Because all solvers are judged by one shared geometry — not each tool's own collision
    notion — the column is apples-to-apples, and the check is pure-numpy (no cuRobo dependency).
    ``success_both`` is pose-success **and** collision-free. Regenerate with

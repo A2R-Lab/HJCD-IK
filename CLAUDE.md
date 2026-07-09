@@ -37,8 +37,7 @@ joints, `EE_IDX = 7`, `FLANGE_IDX = 8`, `NX = 9` stored frames.
 | `csrc/generated/grid.cuh` | **Generated** GRiD kinematics header (FK, robot model). Do **not** hand-edit. |
 | `external/GRiD/` | Submodule: GRiD codegen (emits `grid.cuh` from a URDF). |
 | `external/GLASS/` | Submodule: GLASS single-block / warp linear algebra. |
-| `csrc/robots/{panda,fetch}.cuh` | Per-robot collision spheres + fixed transforms (Panda/Fetch only). |
-| `csrc/collision/` | pRRTC per-block collision checking. |
+| `csrc/kernel/grid_env.cuh` | Parses a MotionBenchMaker problem JSON → `grid_collision::Environment` (device obstacle set) for the collision-scoring kernel. |
 | `csrc/bindings/pybind_module.cpp` | Python bindings → `generate_solutions`, `sample_targets`, `num_joints`. |
 | `benchmark/hjcd_ik_bench.py` | HJCD-IK benchmark harness: solved-rate, position/orientation error, timing. |
 | `benchmark/baseline_bench.py` | Competitor baselines (PyRoki/cuRobo, `--mode`); optional, see `docs/source/user_guide/benchmarks/results.rst`. |
@@ -75,6 +74,16 @@ out = generate_solutions(targets[0], batch_size=2000, num_solutions=4)
 - **Never hand-edit `grid.cuh`.** It is GRiD codegen output. To change the robot or EE target, run
   `python scripts/codegen/generate_grid.py <urdf> -t <target_frame>` and rebuild. Robot constants
   (`NUM_JOINTS`, topology counts) are baked per-URDF — read them from the generated symbols, never hardcode.
+- **Collision is URDF-driven (grid_collision), not hand-coded.** Passing `--collision` to
+  `generate_grid.py` bakes GRiD's `grid_collision` namespace (per-robot spheres + self-collision ranges)
+  into `grid.cuh`; the kernel scores it via `grid_collision::collision_distance` (see
+  `csrc/kernel/hjcd_kernel.cu` `score_environment_costs`). Sphere source: `--collision-res R` spherizes
+  the URDF's own collision geometry, OR `--spherized-urdf <foam.urdf>` reads a pre-spherized (foam-format)
+  URDF directly — use the latter when the URDF's collision meshes don't resolve on disk. **Panda uses the
+  checked-in foam model** (`external/foam/assets/panda/smaller_panda_spherized.urdf`, the paper's 59-sphere
+  model → 58 non-base spheres); the build/codegen wires this automatically (see `CMakeLists.txt`). This is
+  the **bring-your-own-URDF** path: `generate_grid.py <robot.urdf> --collision [...]` gives any robot both
+  FK and collision with no hand-written per-robot header.
 - **`FLANGE_IDX` discipline.** The fixed EE target (`panda_grasptarget_hand`) and its index must agree across
   codegen, the kernel, and any benchmark problem. A mismatch silently solves to the wrong frame.
 - **Warp-locality is the performance contract.** New math must stay warp-scoped (`__shfl_*_sync`, `__syncwarp`).
@@ -90,6 +99,15 @@ hand-rolled math (`mat4_mul`, warp reduce, warp Cholesky) moved onto a new `glas
 The end-effector frame is now **per-robot** (codegen resolves `grid::EE_FIXED_FRAME_IDX` from the named
 target and injects it; `hjcd_settings.h` consumes it) — see [`docs/source/user_guide/benchmarks/results.rst`](docs/source/user_guide/benchmarks/results.rst)
 for the per-robot EE map + how to regenerate the paper sweeps.
+
+**Collision migrated to `grid_collision`.** The former bespoke pRRTC stack (`csrc/collision/` +
+`csrc/robots/{panda,fetch}.cuh`) is gone; collision is now GRiD's URDF-driven `grid_collision` baked into
+`grid.cuh` (`--collision`), scored post-solve by `score_environment_costs` (a soft penetration cost,
+`grid_collision::collision_distance`; the hot warp solver never touches collision). The paper's 59-sphere
+model is preserved byte-for-byte via the foam spherized URDF, so collision-free rate is unchanged
+(bookshelf_thin_panda: 80% pre- and post-migration). The paper reference model lives frozen under
+`benchmark/reference/panda_collision_model.cuh` (independent oracle for the Table II collision-free column;
+`benchmark/panda_model.py`).
 
 > **Build/test gotcha:** `ninja -C build` does NOT update the imported `.so` (it's the editable copy in
 > site-packages). Always rebuild with **`scripts/setup/rebuild.sh`** (or `pip install -e . --no-build-isolation`).

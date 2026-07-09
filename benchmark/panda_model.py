@@ -1,9 +1,12 @@
-"""Panda collision model as Python data, parsed directly from csrc/robots/panda.cuh (the single source of
-truth — no transcription). Exposes the 59-sphere model + the pRRTC fixed transforms/joint types so the
-shared-sphere-model collision validator (benchmark/panda_collision.py) can place spheres in the world frame
-at any q with the SAME geometry HJCD's own kernel uses.
+"""Panda collision model as Python data, parsed from the frozen reference header
+benchmark/reference/panda_collision_model.cuh (the paper's 59-sphere model). This is the INDEPENDENT
+oracle for the Table II collision-free column: the HJCD kernel now filters via GRiD grid_collision (same
+spheres, baked into grid.cuh from the foam spherized URDF), and this numpy replica lets us validate any
+solver's returned q against the exact published geometry.
 
-Pure stdlib + numpy (no GPU). Parsing constant arrays with regex is robust for this fixed local header.
+Historically this parsed csrc/robots/panda.cuh; that header was removed when the kernel migrated to
+grid_collision, so the data arrays it needs were vendored into benchmark/reference/ (see that file's
+banner). Pure stdlib + numpy (no GPU). Parsing constant arrays with regex is robust for this fixed header.
 """
 from __future__ import annotations
 
@@ -12,7 +15,7 @@ from pathlib import Path
 
 import numpy as np
 
-_CUH = Path(__file__).resolve().parents[1] / "csrc" / "robots" / "panda.cuh"
+_CUH = Path(__file__).resolve().parent / "reference" / "panda_collision_model.cuh"
 
 
 def _strip_comments(s: str) -> str:

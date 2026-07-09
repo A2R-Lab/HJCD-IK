@@ -2,7 +2,7 @@
 config is collision-free against a MotionBenchMaker world. Used to validate *any* solver's returned q for
 the Table II collision column with one consistent geometry (the paper's own model).
 
-The FK here replicates pRRTC's `fk<Panda>` (csrc/robots/panda.cuh) exactly: T_i = T_{i-1} @ fixed[i] @ R(q_{i-1})
+The FK here replicates pRRTC's `fk<Panda>` (benchmark/reference/panda_collision_model.cuh) exactly: T_i = T_{i-1} @ fixed[i] @ R(q_{i-1})
 for i=1..7, spheres placed by the transform of the joint they attach to. It is cross-validated against the
 independent numpy URDF FK in gen_targets._fk (tests/... in benchmark/test_panda_collision.py).
 
@@ -15,7 +15,7 @@ import numpy as np
 from panda_model import SPHERES, SPHERE_TO_JOINT, FIXED_TRANSFORMS, JOINT_TYPES, N_JOINTS
 from collision_check import config_is_collision_free
 
-# pRRTC joint-type codes (csrc/robots/panda.cuh): 0/1/2 = prism x/y/z, 3/4/5 = rot x/y/z.
+# pRRTC joint-type codes (benchmark/reference/panda_collision_model.cuh): 0/1/2 = prism x/y/z, 3/4/5 = rot x/y/z.
 _X_PRISM, _Y_PRISM, _Z_PRISM, _X_ROT, _Y_ROT, _Z_ROT = 0, 1, 2, 3, 4, 5
 
 

@@ -3,10 +3,6 @@
 #include "kernel/util.h"
 #include "kernel/device_utils.cuh"
 
-// Test .cuh files (uncomment)
-//#include "generated/panda_grid.cuh"
-//#include "generated/fetch_grid.cuh"
-
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
 
@@ -30,11 +26,9 @@
 #include <type_traits>
 #include <cstdlib>
 
-// Collision checking
-#include "collision/prrtc_env_from_json.hpp"
-#include "collision/prrtc_env_cache.hpp"
-#include "collision/prrtc_collision.cuh"
+// Collision checking (grid_collision: URDF-driven spheres baked into grid.cuh)
 #include <nlohmann/json.hpp>
+#include "kernel/grid_env.cuh"   // requires grid.cuh (via hjcd_settings.h) already included above
 
 enum : int {
     N = grid::NUM_JOINTS
@@ -53,76 +47,6 @@ namespace grid {
   T* init_joint_limits();
 }
 
-// pRRTC HELPER FUNCTIONS
-namespace pRRTC {
-
-void setup_environment_on_device(
-    ppln::collision::Environment<float>*& d_env,
-    const ppln::collision::Environment<float>& h_env)
-{
-    cudaMalloc(&d_env, sizeof(ppln::collision::Environment<float>));
-    cudaMemset(d_env, 0, sizeof(ppln::collision::Environment<float>));
-
-    if (h_env.num_spheres > 0) {
-        ppln::collision::Sphere<float>* d_spheres;
-        cudaMalloc(&d_spheres, sizeof(*d_spheres) * h_env.num_spheres);
-        cudaMemcpy(d_spheres, h_env.spheres,
-                   sizeof(*d_spheres) * h_env.num_spheres,
-                   cudaMemcpyHostToDevice);
-
-        cudaMemcpy(&(d_env->spheres), &d_spheres, sizeof(d_spheres), cudaMemcpyHostToDevice);
-        cudaMemcpy(&(d_env->num_spheres), &h_env.num_spheres, sizeof(h_env.num_spheres), cudaMemcpyHostToDevice);
-    }
-
-    if (h_env.num_capsules > 0) {
-        ppln::collision::Capsule<float>* d_capsules;
-        cudaMalloc(&d_capsules, sizeof(*d_capsules) * h_env.num_capsules);
-        cudaMemcpy(d_capsules, h_env.capsules,
-                   sizeof(*d_capsules) * h_env.num_capsules,
-                   cudaMemcpyHostToDevice);
-
-        cudaMemcpy(&(d_env->capsules), &d_capsules, sizeof(d_capsules), cudaMemcpyHostToDevice);
-        cudaMemcpy(&(d_env->num_capsules), &h_env.num_capsules, sizeof(h_env.num_capsules), cudaMemcpyHostToDevice);
-    }
-
-    if (h_env.num_cuboids > 0) {
-        ppln::collision::Cuboid<float>* d_cuboids;
-        cudaMalloc(&d_cuboids, sizeof(*d_cuboids) * h_env.num_cuboids);
-        cudaMemcpy(d_cuboids, h_env.cuboids,
-                   sizeof(*d_cuboids) * h_env.num_cuboids,
-                   cudaMemcpyHostToDevice);
-
-        cudaMemcpy(&(d_env->cuboids), &d_cuboids, sizeof(d_cuboids), cudaMemcpyHostToDevice);
-        cudaMemcpy(&(d_env->num_cuboids), &h_env.num_cuboids, sizeof(h_env.num_cuboids), cudaMemcpyHostToDevice);
-    }
-}
-
-void cleanup_environment_on_device(
-    ppln::collision::Environment<float>* d_env,
-    const ppln::collision::Environment<float>& h_env)
-{
-    ppln::collision::Sphere<float>* d_spheres = nullptr;
-    if (h_env.num_spheres > 0) {
-        cudaMemcpy(&d_spheres, &(d_env->spheres), sizeof(d_spheres), cudaMemcpyDeviceToHost);
-        cudaFree(d_spheres);
-    }
-
-    ppln::collision::Capsule<float>* d_capsules = nullptr;
-    if (h_env.num_capsules > 0) {
-        cudaMemcpy(&d_capsules, &(d_env->capsules), sizeof(d_capsules), cudaMemcpyDeviceToHost);
-        cudaFree(d_capsules);
-    }
-
-    ppln::collision::Cuboid<float>* d_cuboids = nullptr;
-    if (h_env.num_cuboids > 0) {
-        cudaMemcpy(&d_cuboids, &(d_env->cuboids), sizeof(d_cuboids), cudaMemcpyDeviceToHost);
-        cudaFree(d_cuboids);
-    }
-
-    cudaFree(d_env);
-}
-
-}
 
 void init_joint_limits_from_grid()
 {
@@ -1684,125 +1608,55 @@ __global__ void cast_array(const Src* __restrict__ in,
     if (i < n) out[i] = (Dst)in[i];
 }
 
-__device__ __forceinline__ float sphere_environment_penetration_depth(
-    ppln::collision::Environment<float>* env,
-    float sx,
-    float sy,
-    float sz,
-    float sr)
-{
-    float max_pen_sq = 0.0f;
-    const float rsq = sr * sr;
+// Threads per block for the collision-scoring kernel (power of two for the reduction).
+static constexpr int CC_TPB = 128;
 
-    for (unsigned int j = 0; j < env->num_spheres; ++j) {
-        const float sep = ppln::collision::sphere_sphere_sql2(env->spheres[j], sx, sy, sz, sr);
-        if (sep < 0.0f) max_pen_sq = fmaxf(max_pen_sq, -sep);
-    }
-    for (unsigned int j = 0; j < env->num_capsules; ++j) {
-        const float sep = ppln::collision::sphere_capsule(env->capsules[j], sx, sy, sz, sr);
-        if (sep < 0.0f) max_pen_sq = fmaxf(max_pen_sq, -sep);
-    }
-    for (unsigned int j = 0; j < env->num_z_aligned_capsules; ++j) {
-        const float sep = ppln::collision::sphere_z_aligned_capsule(env->z_aligned_capsules[j], sx, sy, sz, sr);
-        if (sep < 0.0f) max_pen_sq = fmaxf(max_pen_sq, -sep);
-    }
-    for (unsigned int j = 0; j < env->num_cuboids; ++j) {
-        const float sep = ppln::collision::sphere_cuboid(env->cuboids[j], sx, sy, sz, rsq);
-        if (sep < 0.0f) max_pen_sq = fmaxf(max_pen_sq, -sep);
-    }
-    for (unsigned int j = 0; j < env->num_z_aligned_cuboids; ++j) {
-        const float sep = ppln::collision::sphere_z_aligned_cuboid(env->z_aligned_cuboids[j], sx, sy, sz, rsq);
-        if (sep < 0.0f) max_pen_sq = fmaxf(max_pen_sq, -sep);
-    }
-
-    return sqrtf(max_pen_sq);
-}
-
-__global__ void score_environment_costs_panda(
-    const double* __restrict__ q_in,   // K x N_JOINTS
+// Soft environment-collision penetration cost (mm) for a batch of candidate configs, scored via
+// grid_collision AFTER optimization (never on the hot solver path). One block per config,
+// thread-count-invariant. Places the URDF-driven sphere model at q via the W1b batched extractor
+// and reduces the per-sphere signed clearance to the same measure the old pRRTC path used:
+//   cost_mm[i] = 1000 * sum_sphere max(0, -d_sphere)          (d = nearest signed clearance, m)
+// Base-link spheres are already dropped at codegen (anchor < 0), matching the old pedestal skip.
+// Requires dynamic smem = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<float>() for the FK
+// extractor (TIER_SHARED => nullptr workspace).
+__global__ void score_environment_costs(
+    const double* __restrict__ q_in,                 // K x N
     int K,
-    float* __restrict__ cost_mm,       // K floats
-    ppln::collision::Environment<float>* env)
+    float* __restrict__ cost_mm,                     // K floats
+    const grid::robotModel<float>* d_robotModel,
+    grid_collision::Environment<float> env)          // device pointers, by value
 {
-    using Robot = ppln::robots::Panda;
-    constexpr int dim = Robot::dimension;
+    namespace gc = grid_collision;
+    constexpr int NS = gc::NUM_COLLISION_SPHERES;
 
     const int i   = (int)blockIdx.x;
     const int tid = (int)threadIdx.x;
     if (i >= K) return;
 
-    __shared__ __align__(16) float sphere_pos[6000];
-    __shared__ __align__(16) float Tbuf[16 * 2 * 16];
-    __shared__ float qf[dim];
-    __shared__ float partial[4];
+    __shared__ float s_q[N];
+    __shared__ float s_pos[3 * NS];
+    __shared__ float s_r[NS];
+    __shared__ float s_dist[NS];
+    __shared__ float s_normal[3 * NS];
+    __shared__ float red[CC_TPB];
 
-    for (int j = tid; j < dim; j += blockDim.x) {
-        qf[j] = (float)q_in[(size_t)i * N + j];
+    for (int j = tid; j < N; j += blockDim.x) s_q[j] = (float)q_in[(size_t)i * N + j];
+    __syncthreads();
+
+    gc::collision_distance<float>(s_dist, s_normal, s_q, d_robotModel, env, s_pos, s_r, nullptr);
+
+    float local = 0.0f;
+    for (int s = tid; s < NS; s += blockDim.x) {
+        const float pen = -s_dist[s];              // >0 => penetrating (empty env => -1e30 => skip)
+        if (pen > 0.0f) local += 1000.0f * pen;
     }
-    partial[tid] = 0.0f;
+    red[tid] = local;
     __syncthreads();
-
-    ppln::collision::fk<Robot>(qf, sphere_pos, Tbuf, tid);
-    __syncthreads();
-
-    float local_mm = 0.0f;
-    for (int s = tid; s < PANDA_SPHERE_COUNT; s += blockDim.x) {
-        if (ppln::collision::panda_sphere_to_joint[s] == 0) continue; // base link always contacts pedestal
-        const float sx = sphere_pos[s * BATCH_SIZE * 3 + 0];
-        const float sy = sphere_pos[s * BATCH_SIZE * 3 + 1];
-        const float sz = sphere_pos[s * BATCH_SIZE * 3 + 2];
-        local_mm += 1000.0f * sphere_environment_penetration_depth(
-            env, sx, sy, sz, ppln::collision::panda_spheres_array[s].w);
+    for (int stride = blockDim.x >> 1; stride > 0; stride >>= 1) {
+        if (tid < stride) red[tid] += red[tid + stride];
+        __syncthreads();
     }
-
-    partial[tid] = local_mm;
-    __syncthreads();
-
-    if (tid == 0) {
-        cost_mm[i] = partial[0] + partial[1] + partial[2] + partial[3];
-    }
-}
-
-__global__ void mark_collisions_panda(
-    const double* __restrict__ q_in,   // K x N_JOINTS
-    int K,
-    unsigned char* __restrict__ valid, // K bytes
-    ppln::collision::Environment<float>* env)
-{
-    using Robot = ppln::robots::Panda;
-    constexpr int dim = Robot::dimension;
-
-    int i   = (int)blockIdx.x;   // one config per block
-    int tid = (int)threadIdx.x;
-    if (i >= K) return;
-
-    // collision_free_cfg's link_CC clearing assumes 128 threads -> 640 ints
-    __shared__ __align__(16) float sphere_pos[6000];
-    __shared__ __align__(16) float sphere_pos_approx[2500];
-    __shared__ __align__(16) int   link_CC[640];
-    __shared__ __align__(16) float Tbuf[16 * 2 * 16];
-
-    __shared__ float qf[dim];
-    if (tid < dim) qf[tid] = (float)q_in[(size_t)i * N + tid];
-    __syncthreads();
-
-    bool ok = pRRTC::collision_free_cfg<Robot>(
-        qf, env,
-        sphere_pos, sphere_pos_approx, link_CC, Tbuf,
-        tid);
-
-    if (tid == 0) valid[i] = ok ? 1 : 0;
-}
-
-template<typename T>
-__global__ void apply_valid_mask_to_scores(
-    const unsigned char* __restrict__ valid,
-    T* __restrict__ scores,
-    int n)
-{
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= n) return;
-    if (!valid[i]) scores[i] = 1e9;
+    if (tid == 0) cost_mm[i] = red[0];
 }
 
 const double ENV_COLLISION_COST_W = 1.5;
@@ -1846,57 +1700,49 @@ Result<T> generate_ik_solutions(
         return result;
     }
 
-    // Collision environment
-    static pRRTC::EnvCache g_env_cache;
-    ppln::collision::Environment<float>* d_env = nullptr;
+    // Collision environment (grid_collision). Cache the uploaded obstacle set + an fp32 robot model
+    // across calls with the same problem (both are constant per problem, keyed by set#idx).
+    static hjcd_env::DeviceEnv g_cc_env;
+    static std::string g_cc_key;
+    static bool g_cc_ready = false;
+    static const grid::robotModel<float>* d_robotModel_cc = nullptr;
+    bool have_env = false;
     bool stop_on_first = 1;
 
     if (collision_free) {
         if (!problems_json_text || !problem_set_name) {
             collision_free = false;
-            printf("[pRRTC] Warning: collision-free requested but no problem JSON provided\n");
+            printf("[grid_collision] Warning: collision-free requested but no problem JSON provided\n");
         } else {
-            // Build a cache key
             std::string key = std::string(problem_set_name) + "#" + std::to_string(problem_idx);
 
-            if (!g_env_cache.ready || g_env_cache.key != key) {
-                // Clear previous cached env
-                if (g_env_cache.ready) {
-                    pRRTC::cleanup_environment_on_device(g_env_cache.d_env, g_env_cache.h_env);
-                    pRRTC::free_host_env(g_env_cache.h_env);
-                    g_env_cache.d_env = nullptr;
-                    g_env_cache.ready = false;
-                }
+            if (!g_cc_ready || g_cc_key != key) {
+                if (g_cc_ready) { hjcd_env::free_env(g_cc_env); g_cc_ready = false; }
 
-                // Parse problems json
                 nlohmann::json all_data = nlohmann::json::parse(problems_json_text);
                 nlohmann::json problems_root = all_data.at("problems");
-
-                // Select the exact problem instance
-                nlohmann::json data = pRRTC::select_problem_instance(
+                nlohmann::json data = hjcd_env::select_problem_instance(
                     problems_root, problem_set_name, problem_idx);
 
-                // Disable collision if invalid
                 if (data.contains("valid") && !bool(data["valid"])) {
                     collision_free = false;
                 } else {
-                    // Build host env
-                    g_env_cache.h_env = pRRTC::problem_dict_to_env(data, problem_set_name);
-                    pRRTC::setup_environment_on_device(g_env_cache.d_env, g_env_cache.h_env);
-
-                    g_env_cache.key = key;
-                    g_env_cache.ready = true;
+                    hjcd_env::HostEnv h = hjcd_env::problem_dict_to_env(data);
+                    g_cc_env = hjcd_env::upload_env(h);
+                    g_cc_key = key;
+                    g_cc_ready = true;
                 }
             }
 
-            d_env = g_env_cache.d_env;
+            if (g_cc_ready) {
+                if (!d_robotModel_cc) d_robotModel_cc = grid::init_robotModel<float>();
+                have_env = true;
+            }
         }
     }
 
-    // If collision_free ended up false, make d_env null
-    if (!collision_free) d_env = nullptr;
-
-    const bool do_cc = collision_free && (d_env != nullptr);
+    if (!collision_free) have_env = false;
+    const bool do_cc = collision_free && have_env;
 
     // Coarse phase precision
     using TC = float;
@@ -2201,16 +2047,21 @@ Result<T> generate_ik_solutions(
             cudaGetLastError();
             CUDA_OK(cudaDeviceSynchronize());
         }
+        // Dynamic smem for the multi_target FK extractor inside grid_collision::collision_distance.
+        const size_t cc_smem = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<float>();
+        CUDA_OK(cudaFuncSetAttribute((const void*)score_environment_costs,
+                                     cudaFuncAttributeMaxDynamicSharedMemorySize, (int)cc_smem));
         {
-            const int CC_TPB = 4;
             if constexpr (std::is_same_v<RT, double>) {
-                score_environment_costs_panda<<<Krep, CC_TPB>>>(dx64, Krep, d_env_cost_refined, d_env);
+                score_environment_costs<<<Krep, CC_TPB, cc_smem>>>(
+                    dx64, Krep, d_env_cost_refined, d_robotModel_cc, g_cc_env.env);
             } else {
-                // score_environment_costs_panda is fp64-only; cast the RT refined x up to double.
+                // The scoring kernel reads q as double; cast the RT refined x up first.
                 double* dx_ref_d = nullptr;
                 CUDA_OK(cudaMalloc(&dx_ref_d, sizeof(double) * KrepN));
                 cast_array<double, RT><<<(int)((KrepN + 255) / 256), 256>>>(dx64, dx_ref_d, KrepN);
-                score_environment_costs_panda<<<Krep, CC_TPB>>>(dx_ref_d, Krep, d_env_cost_refined, d_env);
+                score_environment_costs<<<Krep, CC_TPB, cc_smem>>>(
+                    dx_ref_d, Krep, d_env_cost_refined, d_robotModel_cc, g_cc_env.env);
                 cudaGetLastError();
                 CUDA_OK(cudaDeviceSynchronize());
                 cudaFree(dx_ref_d);
@@ -2219,8 +2070,8 @@ Result<T> generate_ik_solutions(
             CUDA_OK(cudaDeviceSynchronize());
         }
         {
-            const int CC_TPB = 4;
-            score_environment_costs_panda<<<B, CC_TPB>>>(dx_coarse64, B, d_env_cost_coarse, d_env);
+            score_environment_costs<<<B, CC_TPB, cc_smem>>>(
+                dx_coarse64, B, d_env_cost_coarse, d_robotModel_cc, g_cc_env.env);
             cudaGetLastError();
             CUDA_OK(cudaDeviceSynchronize());
         }

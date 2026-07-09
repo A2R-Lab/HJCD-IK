@@ -156,6 +156,8 @@ void printMat(const T *A, int lda){
 #define GRID_HAS_CRBA 1
 #define GRID_HAS_INVERSE_DYNAMICS_GRADIENT 1
 #define GRID_HAS_FORWARD_DYNAMICS_GRADIENT 1
+#define GRID_HAS_F_EXT_GRADIENT 1
+#define GRID_HAS_F_EXT_GRADIENT_DQ 0
 #define GRID_HAS_INVERSE_DYNAMICS_REGRESSOR 1
 #define GRID_HAS_FORWARD_DYNAMICS_PARAMETER_GRADIENT 1
 #define GRID_HAS_END_EFFECTOR_POSE 1
@@ -693,7 +695,7 @@ namespace grid {
     
     // Vendored from GLASS at codegen time (nested in this namespace).
     // Source repository: git@github.com:A2R-Lab/GLASS.git
-    // Pinned commit: 5caa6d0dfcf4ec086c0ad7a7e3d77b14aad6705e
+    // Pinned commit: 08b98a70caad8561bab6a51029b3aae681b26e01
     namespace glass {
     
     // BEGIN GLASS src/base/barrier.cuh
@@ -753,6 +755,42 @@ namespace grid {
     struct ct_size {
         __host__ __device__ constexpr operator uint32_t() const { return V; }
     };
+    
+    // ─────────────────────────────────────────────────────────────────────────────
+    // beta_blend — BLAS beta==0 semantics for every beta-taking op.
+    //
+    // BLAS (and cuBLAS) guarantee that when `beta == 0` the destination is
+    // WRITE-ONLY: it need not hold a valid value on input. A naive
+    // `alpha*res + beta*dst` breaks that guarantee — `0 * NaN == NaN`, so cold
+    // scratch left as NaN by a previous kernel poisons the result even though
+    // beta is zero (found 2026-07-08: GRiD's generated RNEA passes beta=0 gemvs
+    // over uninitialized s_vaf smem; diverged rollouts leave NaN on the SM and
+    // the "zero" blend propagates it). The beta != 0 arm is an EXPLICIT fused
+    // multiply-add intrinsic, not `acc + beta*dst`: a plain expression leaves the
+    // FMA-contraction choice to ptxas, which decides per kernel and broke
+    // warp-vs-block bit-identity (test_syrk_warp); a single FFMA/DFMA is the same
+    // instruction in every instantiation. The compiler cannot fold the select
+    // away, because `beta*dst == 0` does not hold for floats. Every beta-form op
+    // must route its blend through this helper. (Bit-note vs the pre-helper code:
+    // results are identical at beta ∈ {0, 1} — every consumer's case — and may
+    // differ in the last ULP at fractional beta, where the old code's contraction
+    // was unspecified anyway.)
+    // ─────────────────────────────────────────────────────────────────────────────
+    __device__ __forceinline__ float beta_blend_fma(float acc, float beta, float dst) {
+        return __fmaf_rn(beta, dst, acc);
+    }
+    __device__ __forceinline__ double beta_blend_fma(double acc, double beta, double dst) {
+        return __fma_rn(beta, dst, acc);
+    }
+    template <typename T>
+    __device__ __forceinline__ T beta_blend_fma(T acc, T beta, T dst) {
+        return acc + beta * dst;
+    }
+    
+    template <typename T>
+    __device__ __forceinline__ T beta_blend(T acc, T beta, const T &dst) {
+        return (beta != static_cast<T>(0)) ? beta_blend_fma(acc, beta, dst) : acc;
+    }
     // END GLASS src/base/barrier.cuh
     
     // BEGIN GLASS src/base/L1/reduce.cuh
@@ -1435,7 +1473,7 @@ namespace grid {
                     T a = ROW_MAJOR_A ? A[col*n + row] : A[col + row*m];
                     res += a * x[col];
                 }
-                y[row] = alpha*res + beta*y[row];
+                y[row] = beta_blend(alpha*res, beta, y[row]);
             }
         } else {
             for (uint32_t row = rank; row < m; row += size) {
@@ -1444,7 +1482,7 @@ namespace grid {
                     T a = ROW_MAJOR_A ? A[row*n + col] : A[row + col*m];
                     res += a * x[col];
                 }
-                y[row] = alpha*res + beta*y[row];
+                y[row] = beta_blend(alpha*res, beta, y[row]);
             }
         }
     }
@@ -1550,7 +1588,7 @@ namespace grid {
                     T a = ROW_MAJOR_A ? A[col*N + row] : A[col + row*M];
                     res += a * x[col];
                 }
-                y[row] = alpha*res + beta*y[row];
+                y[row] = beta_blend(alpha*res, beta, y[row]);
             }
         } else {
             for (uint32_t row = rank; row < M; row += size) {
@@ -1559,7 +1597,7 @@ namespace grid {
                     T a = ROW_MAJOR_A ? A[row*N + col] : A[row + col*M];
                     res += a * x[col];
                 }
-                y[row] = alpha*res + beta*y[row];
+                y[row] = beta_blend(alpha*res, beta, y[row]);
             }
         }
     }
@@ -1659,8 +1697,8 @@ namespace grid {
          * of the `M×N` matrix `A` (each row an independent inner product). Set
          * `TRANSPOSE=true` for `Aᵀ * x` and `ROW_MAJOR=true` for row-major `A`. No shared
          * scratch, no `__syncthreads`; independent warps may run distinct problems
-         * concurrently. Full 32 lanes required. `C`/`y` is read (the `beta * y` term);
-         * use the no-beta overload to write into uninitialized destinations. NumPy
+         * concurrently. Full 32 lanes required. `y` is read only when `beta != 0`
+         * (BLAS semantics: `beta == 0` treats `y` as write-only). NumPy
          * equivalent: `y = alpha*A@x + beta*y` (or `alpha*A.T@x + beta*y` when transposed).
          *
          * @tparam T          Scalar type (e.g. `float`, `double`).
@@ -1748,7 +1786,7 @@ namespace grid {
             T res = static_cast<T>(0);
             for (uint32_t col = 0; col < N; col++)
                 res += A[row + col * ROW_STRIDE] * x[col];
-            y[row] = alpha * res + beta * y[row];
+            y[row] = beta_blend(alpha * res, beta, y[row]);
         }
     }
     
@@ -1912,7 +1950,7 @@ namespace grid {
             if (ATOMIC_Y) {
                 atomicAdd(&y[y_base + out], alpha * res);
             } else {
-                T val = alpha * res + beta * y[y_base + out];
+                T val = beta_blend(alpha * res, beta, y[y_base + out]);
                 if (FUSE_SCALED_ADD)
                     val += S[static_cast<uint32_t>(seg_s_off[seg]) + out] * scalar[seg];
                 y[y_base + out] = val;
@@ -2123,10 +2161,10 @@ namespace grid {
                 }
                 T *__restrict__ c = C + (r + n*m_);
                 if constexpr (HAS_BETA) {
-                    c[0] = alpha*acc0 + beta*c[0];
-                    c[1] = alpha*acc1 + beta*c[1];
-                    c[2] = alpha*acc2 + beta*c[2];
-                    c[3] = alpha*acc3 + beta*c[3];
+                    c[0] = beta_blend(alpha*acc0, beta, c[0]);
+                    c[1] = beta_blend(alpha*acc1, beta, c[1]);
+                    c[2] = beta_blend(alpha*acc2, beta, c[2]);
+                    c[3] = beta_blend(alpha*acc3, beta, c[3]);
                 } else {
                     c[0] = alpha*acc0; c[1] = alpha*acc1;
                     c[2] = alpha*acc2; c[3] = alpha*acc3;
@@ -2138,7 +2176,7 @@ namespace grid {
                         const T b = TRANSPOSE_B ? B[n + k*n_] : B[k + n*k_];
                         res += A[m + k*m_] * b;
                     }
-                    if constexpr (HAS_BETA) C[m + n*m_] = alpha*res + beta*C[m + n*m_];
+                    if constexpr (HAS_BETA) C[m + n*m_] = beta_blend(alpha*res, beta, C[m + n*m_]);
                     else                    C[m + n*m_] = alpha*res;
                 }
             }
@@ -2189,10 +2227,10 @@ namespace grid {
                 }
                 T *__restrict__ c = C + (r + n*M);
                 if constexpr (HAS_BETA) {
-                    c[0] = alpha*acc0 + beta*c[0];
-                    c[1] = alpha*acc1 + beta*c[1];
-                    c[2] = alpha*acc2 + beta*c[2];
-                    c[3] = alpha*acc3 + beta*c[3];
+                    c[0] = beta_blend(alpha*acc0, beta, c[0]);
+                    c[1] = beta_blend(alpha*acc1, beta, c[1]);
+                    c[2] = beta_blend(alpha*acc2, beta, c[2]);
+                    c[3] = beta_blend(alpha*acc3, beta, c[3]);
                 } else {
                     c[0] = alpha*acc0; c[1] = alpha*acc1;
                     c[2] = alpha*acc2; c[3] = alpha*acc3;
@@ -2204,7 +2242,7 @@ namespace grid {
                         const T b = TRANSPOSE_B ? B[n + k*N] : B[k + n*K];
                         res += A[m + k*M] * b;
                     }
-                    if constexpr (HAS_BETA) C[m + n*M] = alpha*res + beta*C[m + n*M];
+                    if constexpr (HAS_BETA) C[m + n*M] = beta_blend(alpha*res, beta, C[m + n*M]);
                     else                    C[m + n*M] = alpha*res;
                 }
             }
@@ -2255,7 +2293,7 @@ namespace grid {
                 res += a * b;
             }
             uint32_t cidx = ROW_MAJOR_C ? (m*n_ + n) : (m + n*m_);
-            C[cidx] = alpha*res + beta*C[cidx];
+            C[cidx] = beta_blend(alpha*res, beta, C[cidx]);
         }
     }
     
@@ -2307,7 +2345,7 @@ namespace grid {
                     res += a * b;
                 }
                 uint32_t cidx = ROW_MAJOR_C ? (m*N + n) : (m + n*M);
-                C[cidx] = alpha*res + beta*C[cidx];
+                C[cidx] = beta_blend(alpha*res, beta, C[cidx]);
             }
         }
     }
@@ -2353,7 +2391,7 @@ namespace grid {
      * @param m,n,k  Dimensions: `C` is `m×n`, contraction `k`.
      * @param alpha  Scalar multiplier on the product.
      * @param A,B    Input matrices (column-major; shapes per the transpose flags).
-     * @param beta   Scalar multiplier on the existing C (C is read; caller must initialize it).
+     * @param beta   Scalar multiplier on the existing C (read only when `beta != 0`).
      * @param C      In/out result matrix.
      */
     template <typename T, bool TRANSPOSE_A = false, bool TRANSPOSE_B = false, bool ROW_MAJOR_C = false, bool TRAILING_SYNC = true>
@@ -2411,7 +2449,7 @@ namespace grid {
      * @tparam ROW_MAJOR_C  Output storage order (false = column-major / Fortran, LDC=M).
      * @param alpha  Scalar multiplier on the product.
      * @param A,B    Input matrices.
-     * @param beta   Scalar multiplier on the existing C (C is read; caller must initialize it).
+     * @param beta   Scalar multiplier on the existing C (read only when `beta != 0`).
      * @param C      In/out result matrix.
      */
     template <typename T, uint32_t M, uint32_t N, uint32_t K,
@@ -2467,7 +2505,7 @@ namespace grid {
          * @tparam ROW_MAJOR_C  Output storage order (false = column-major).
          * @param alpha  Scalar multiplier on the product.
          * @param A,B    Input matrices.
-         * @param beta   Scalar multiplier on the existing C (C is read; caller must initialize it).
+         * @param beta   Scalar multiplier on the existing C (read only when `beta != 0`).
          * @param C      In/out result matrix.
          */
         template <typename T, uint32_t M, uint32_t N, uint32_t K,
@@ -2517,7 +2555,7 @@ namespace grid {
      * @param m,n,k  Dimensions: A is m×k, B is k×n, C is m×n.
      * @param alpha  Scalar multiplier on the product.
      * @param A,B    Input matrices (column-major).
-     * @param beta   Scalar multiplier on the existing C (C is read; caller must initialize it).
+     * @param beta   Scalar multiplier on the existing C (read only when `beta != 0`).
      * @param C      In/out result matrix.
      * @param s_A    Shared scratch of `m * TILE` elements for the A tile.
      * @param s_B    Shared scratch of `TILE * n` elements for the B tile.
@@ -2556,7 +2594,7 @@ namespace grid {
             }
             __syncthreads();
         }
-        if (valid) C[crow + ccol*m] = alpha*acc + beta*C[crow + ccol*m];
+        if (valid) C[crow + ccol*m] = beta_blend(alpha*acc, beta, C[crow + ccol*m]);
     }
     
     // ─── auto-dispatch: tiled when scratch provided and m*n <= blockDim ──────────
@@ -2573,7 +2611,7 @@ namespace grid {
      * @param m,n,k  Dimensions: A is m×k, B is k×n, C is m×n.
      * @param alpha  Scalar multiplier on the product.
      * @param A,B    Input matrices (column-major).
-     * @param beta   Scalar multiplier on the existing C (C is read; caller must initialize it).
+     * @param beta   Scalar multiplier on the existing C (read only when `beta != 0`).
      * @param C      In/out result matrix.
      * @param s_A    Optional shared scratch for the A tile (nullptr selects the plain path).
      * @param s_B    Optional shared scratch for the B tile.
@@ -2623,7 +2661,7 @@ namespace grid {
      * @tparam B_RS  Column stride (leading dimension) of B (default K).
      * @param alpha  Scalar multiplier on the product.
      * @param A,B    Input matrices (column-major, strided).
-     * @param beta   Scalar multiplier on the existing C (C is read; caller must initialize it).
+     * @param beta   Scalar multiplier on the existing C (read only when `beta != 0`).
      * @param C      In/out result matrix (column-major, LDC = M).
      */
     template <typename T, uint32_t M, uint32_t N, uint32_t K,
@@ -2637,7 +2675,7 @@ namespace grid {
             T res = static_cast<T>(0);
             for (uint32_t k = 0; k < K; k++)
                 res += A[m + k * A_RS] * B[k + n * B_RS];
-            C[m + n * M] = alpha * res + beta * C[m + n * M];
+            C[m + n * M] = beta_blend(alpha * res, beta, C[m + n * M]);
         }
     }
     
@@ -5847,23 +5885,39 @@ namespace grid {
             gpuErrchk(cudaMalloc((void**)&hd_data->d_Minv, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
             gpuErrchk(cudaMalloc((void**)&hd_data->d_qdd, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
             gpuErrchk(cudaMalloc((void**)&hd_data->d_M, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            #if GRID_HAS_INVERSE_DYNAMICS_GRADIENT
             gpuErrchk(cudaMalloc((void**)&hd_data->d_dc_du, 2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            #endif
+            #if GRID_HAS_FORWARD_DYNAMICS_GRADIENT
             gpuErrchk(cudaMalloc((void**)&hd_data->d_df_du, 2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            #endif
             // f_ext gradient column (section A): dtau/dfext, dqdd/dfext are each nv x (6*NB)
+            #if GRID_HAS_F_EXT_GRADIENT
             gpuErrchk(cudaMalloc((void**)&hd_data->d_dtau_dfext, NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
             gpuErrchk(cudaMalloc((void**)&hd_data->d_dqdd_dfext, NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
+            #endif
             hd_data->h_dtau_dfext = (T *)malloc(NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
             hd_data->h_dqdd_dfext = (T *)malloc(NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
-            // f_ext A.3: -dJ^T/dq = d(inverse_dynamics_gradient)/dfext, nv*6NB*nv (both base modes)
+            // f_ext A.3: -dJ^T/dq = d(inverse_dynamics_gradient)/dfext, nv*6NB*nv (fixed base only; the largest per-timestep buffer)
+            #if GRID_HAS_F_EXT_GRADIENT_DQ
             gpuErrchk(cudaMalloc((void**)&hd_data->d_f_ext_gradient_dq, NUM_VEL*6*NUM_BODIES*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
             hd_data->h_f_ext_gradient_dq = (T *)malloc(NUM_VEL*6*NUM_BODIES*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            #endif
             // R2: regressor Y and FD param-gradient dqdd/dpi (each nv x 10*NUM_BODIES)
+            #if GRID_HAS_INVERSE_DYNAMICS_REGRESSOR
             gpuErrchk(cudaMalloc((void**)&hd_data->d_Y, NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_dqdd_dpi, NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
             hd_data->h_Y = (T *)malloc(NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            #endif
+            #if GRID_HAS_FORWARD_DYNAMICS_PARAMETER_GRADIENT
+            gpuErrchk(cudaMalloc((void**)&hd_data->d_dqdd_dpi, NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
             hd_data->h_dqdd_dpi = (T *)malloc(NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            #endif
+            #if GRID_HAS_IDSVA_SO
             gpuErrchk(cudaMalloc((void**)&hd_data->d_idsva_so, SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS*sizeof(T)));
+            #endif
+            #if GRID_HAS_FDSVA_SO
             gpuErrchk(cudaMalloc((void**)&hd_data->d_df2, SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS*sizeof(T)));
+            #endif
             gpuErrchk(cudaMalloc((void**)&hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*GRID_WORKSPACE_SLOTS*NUM_TIMESTEPS));
             // Phase 3a/b/c/e: L2-pin d_workspace for its lifetime. Spilled buffers
             // (Minv-F, FD's Minv-F, ABA's inner scratch, FDSVA_SO's df_du/Minv) are
@@ -5873,14 +5927,26 @@ namespace grid {
             hd_data->h_Minv = (T *)malloc(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
             hd_data->h_M = (T *)malloc(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
             hd_data->h_qdd = (T *)malloc(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            #if GRID_HAS_INVERSE_DYNAMICS_GRADIENT
             hd_data->h_dc_du = (T *)malloc(2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            #endif
+            #if GRID_HAS_FORWARD_DYNAMICS_GRADIENT
             hd_data->h_df_du = (T *)malloc(2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            #endif
+            #if GRID_HAS_IDSVA_SO
             hd_data->h_idsva_so = (T *)malloc(SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS*sizeof(T));
+            #endif
+            #if GRID_HAS_FDSVA_SO
             hd_data->h_df2 = (T *)malloc(SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS*sizeof(T));
+            #endif
+            #if GRID_HAS_INTEGRATOR
             gpuErrchk(cudaMalloc((void**)&hd_data->d_x_kp1, 2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_dAB, 2*NUM_JOINTS*3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
             hd_data->h_x_kp1 = (T *)malloc(2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            #endif
+            #if GRID_HAS_INTEGRATOR_GRADIENT
+            gpuErrchk(cudaMalloc((void**)&hd_data->d_dAB, 2*NUM_JOINTS*3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
             hd_data->h_dAB = (T *)malloc(2*NUM_JOINTS*3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            #endif
         }
         // kinematics outputs
         if (needs_kinematics) {
@@ -5964,23 +6030,39 @@ namespace grid {
             gpuErrchk(cudaMalloc((void**)&hd_data->d_Minv, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
             gpuErrchk(cudaMalloc((void**)&hd_data->d_qdd, NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
             gpuErrchk(cudaMalloc((void**)&hd_data->d_M, NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            #if GRID_HAS_INVERSE_DYNAMICS_GRADIENT
             gpuErrchk(cudaMalloc((void**)&hd_data->d_dc_du, 2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            #endif
+            #if GRID_HAS_FORWARD_DYNAMICS_GRADIENT
             gpuErrchk(cudaMalloc((void**)&hd_data->d_df_du, 2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
+            #endif
             // f_ext gradient column (section A): dtau/dfext, dqdd/dfext are each nv x (6*NB)
+            #if GRID_HAS_F_EXT_GRADIENT
             gpuErrchk(cudaMalloc((void**)&hd_data->d_dtau_dfext, NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
             gpuErrchk(cudaMalloc((void**)&hd_data->d_dqdd_dfext, NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
+            #endif
             hd_data->h_dtau_dfext = (T *)malloc(NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
             hd_data->h_dqdd_dfext = (T *)malloc(NUM_VEL*6*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
-            // f_ext A.3: -dJ^T/dq = d(inverse_dynamics_gradient)/dfext, nv*6NB*nv (both base modes)
+            // f_ext A.3: -dJ^T/dq = d(inverse_dynamics_gradient)/dfext, nv*6NB*nv (fixed base only; the largest per-timestep buffer)
+            #if GRID_HAS_F_EXT_GRADIENT_DQ
             gpuErrchk(cudaMalloc((void**)&hd_data->d_f_ext_gradient_dq, NUM_VEL*6*NUM_BODIES*NUM_VEL*NUM_TIMESTEPS*sizeof(T)));
             hd_data->h_f_ext_gradient_dq = (T *)malloc(NUM_VEL*6*NUM_BODIES*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            #endif
             // R2: regressor Y and FD param-gradient dqdd/dpi (each nv x 10*NUM_BODIES)
+            #if GRID_HAS_INVERSE_DYNAMICS_REGRESSOR
             gpuErrchk(cudaMalloc((void**)&hd_data->d_Y, NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_dqdd_dpi, NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
             hd_data->h_Y = (T *)malloc(NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            #endif
+            #if GRID_HAS_FORWARD_DYNAMICS_PARAMETER_GRADIENT
+            gpuErrchk(cudaMalloc((void**)&hd_data->d_dqdd_dpi, NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T)));
             hd_data->h_dqdd_dpi = (T *)malloc(NUM_VEL*10*NUM_BODIES*NUM_TIMESTEPS*sizeof(T));
+            #endif
+            #if GRID_HAS_IDSVA_SO
             gpuErrchk(cudaMalloc((void**)&hd_data->d_idsva_so, SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS*sizeof(T)));
+            #endif
+            #if GRID_HAS_FDSVA_SO
             gpuErrchk(cudaMalloc((void**)&hd_data->d_df2, SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS*sizeof(T)));
+            #endif
             gpuErrchk(cudaMalloc((void**)&hd_data->d_workspace, GRID_WORKSPACE_BYTES_PER_TIMESTEP<T>()*GRID_WORKSPACE_SLOTS*NUM_TIMESTEPS));
             // Phase 3a/b/c/e: L2-pin d_workspace for its lifetime. Spilled buffers
             // (Minv-F, FD's Minv-F, ABA's inner scratch, FDSVA_SO's df_du/Minv) are
@@ -5990,14 +6072,26 @@ namespace grid {
             hd_data->h_Minv = (T *)malloc(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
             hd_data->h_M = (T *)malloc(NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
             hd_data->h_qdd = (T *)malloc(NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            #if GRID_HAS_INVERSE_DYNAMICS_GRADIENT
             hd_data->h_dc_du = (T *)malloc(2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            #endif
+            #if GRID_HAS_FORWARD_DYNAMICS_GRADIENT
             hd_data->h_df_du = (T *)malloc(2*NUM_VEL*NUM_VEL*NUM_TIMESTEPS*sizeof(T));
+            #endif
+            #if GRID_HAS_IDSVA_SO
             hd_data->h_idsva_so = (T *)malloc(SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS*sizeof(T));
+            #endif
+            #if GRID_HAS_FDSVA_SO
             hd_data->h_df2 = (T *)malloc(SECOND_ORDER_TENSOR_SIZE*NUM_TIMESTEPS*sizeof(T));
+            #endif
+            #if GRID_HAS_INTEGRATOR
             gpuErrchk(cudaMalloc((void**)&hd_data->d_x_kp1, 2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
-            gpuErrchk(cudaMalloc((void**)&hd_data->d_dAB, 2*NUM_JOINTS*3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
             hd_data->h_x_kp1 = (T *)malloc(2*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            #endif
+            #if GRID_HAS_INTEGRATOR_GRADIENT
+            gpuErrchk(cudaMalloc((void**)&hd_data->d_dAB, 2*NUM_JOINTS*3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T)));
             hd_data->h_dAB = (T *)malloc(2*NUM_JOINTS*3*NUM_JOINTS*NUM_TIMESTEPS*sizeof(T));
+            #endif
         }
         // kinematics outputs
         if (needs_kinematics) {
@@ -8012,65 +8106,84 @@ namespace grid {
                 s_end_effector_pose_hessian[out_base + 4 * 49] = HW_y;
                 s_end_effector_pose_hessian[out_base + 5 * 49] = HW_z;
             }
-            // ee=0 pair (vi=0, vj=0, a=0, b=0)
-            if (d2m_cell == 42) {
-                T pex = s_Xworld[108];
-                T pey = s_Xworld[109];
-                T pez = s_Xworld[110];
-                // same-joint pair (intra-joint), joint_jid=0 c_a=0 c_b=0
-                // Compute joint-a world frame axes of c_a and c_b body axes
-                T aw_0 = s_Xworld[8] * static_cast<T>(1);
-                T aw_1 = s_Xworld[9] * static_cast<T>(1);
-                T aw_2 = s_Xworld[10] * static_cast<T>(1);
-                T bw_0 = s_Xworld[8] * static_cast<T>(1);
-                T bw_1 = s_Xworld[9] * static_cast<T>(1);
-                T bw_2 = s_Xworld[10] * static_cast<T>(1);
-                T alw_0 = static_cast<T>(0);
-                T alw_1 = static_cast<T>(0);
-                T alw_2 = static_cast<T>(0);
-                T blw_0 = static_cast<T>(0);
-                T blw_1 = static_cast<T>(0);
-                T blw_2 = static_cast<T>(0);
-                T pax = s_Xworld[12];
-                T pay = s_Xworld[13];
-                T paz = s_Xworld[14];
-                // Br_world = 0.5 * ([aw]_x [bw]_x + [bw]_x [aw]_x)
-                //   = 0.5 * (aw bw^T + bw aw^T) - (aw . bw) I
-                T adotb = aw_0*bw_0 + aw_1*bw_1 + aw_2*bw_2;
-                T Br_00 = static_cast<T>(0.5) * (aw_0*bw_0 + bw_0*aw_0) - adotb;
-                T Br_01 = static_cast<T>(0.5) * (aw_0*bw_1 + bw_0*aw_1);
-                T Br_02 = static_cast<T>(0.5) * (aw_0*bw_2 + bw_0*aw_2);
-                T Br_10 = static_cast<T>(0.5) * (aw_1*bw_0 + bw_1*aw_0);
-                T Br_11 = static_cast<T>(0.5) * (aw_1*bw_1 + bw_1*aw_1) - adotb;
-                T Br_12 = static_cast<T>(0.5) * (aw_1*bw_2 + bw_1*aw_2);
-                T Br_20 = static_cast<T>(0.5) * (aw_2*bw_0 + bw_2*aw_0);
-                T Br_21 = static_cast<T>(0.5) * (aw_2*bw_1 + bw_2*aw_1);
-                T Br_22 = static_cast<T>(0.5) * (aw_2*bw_2 + bw_2*aw_2) - adotb;
-                T Bt_0 = -(Br_00*pax + Br_01*pay + Br_02*paz);
-                T Bt_1 = -(Br_10*pax + Br_11*pay + Br_12*paz);
-                T Bt_2 = -(Br_20*pax + Br_21*pay + Br_22*paz);
+            // Same-joint (intra-joint) cells: one shared shape-switched body
+            // driven by baked per-cell shape/offset + world-axis tables.
+            static const int s_d2ee_same_tab[42] = {0, 0, 0, 0, 96, 0, 0, 16, 16, 16, 96, 8, 0, 32, 32, 32, 96, 16, 0, 48, 48, 48, 96, 24, 0, 64, 64, 64, 96, 32, 0, 80, 80, 80, 96, 40, 0, 96, 96, 96, 96, 48};
+            const T s_d2ee_same_axis[42] = {static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1)};
+            if (d2m_cell >= 42 && d2m_cell < 49) {
+                int same_cell = d2m_cell - 42;
+                const int *srow = &s_d2ee_same_tab[6 * same_cell];
+                int sshape = srow[0]; int pa_base = srow[1];
+                int si_base = srow[2]; int sj_base = srow[3];
+                int pee_base = srow[4]; int out_base = srow[5];
+                const T *ax = &s_d2ee_same_axis[6 * same_cell];
+                T pex = s_Xworld[pee_base + 12];
+                T pey = s_Xworld[pee_base + 13];
+                T pez = s_Xworld[pee_base + 14];
+                // world axes u_w = R_a @ ax0, v_w = R_a @ ax1
+                T uw_0 = s_Xworld[pa_base + 0] * ax[0] + s_Xworld[pa_base + 4] * ax[1] + s_Xworld[pa_base + 8] * ax[2];
+                T uw_1 = s_Xworld[pa_base + 1] * ax[0] + s_Xworld[pa_base + 5] * ax[1] + s_Xworld[pa_base + 9] * ax[2];
+                T uw_2 = s_Xworld[pa_base + 2] * ax[0] + s_Xworld[pa_base + 6] * ax[1] + s_Xworld[pa_base + 10] * ax[2];
+                T vw_0 = s_Xworld[pa_base + 0] * ax[3] + s_Xworld[pa_base + 4] * ax[4] + s_Xworld[pa_base + 8] * ax[5];
+                T vw_1 = s_Xworld[pa_base + 1] * ax[3] + s_Xworld[pa_base + 5] * ax[4] + s_Xworld[pa_base + 9] * ax[5];
+                T vw_2 = s_Xworld[pa_base + 2] * ax[3] + s_Xworld[pa_base + 6] * ax[4] + s_Xworld[pa_base + 10] * ax[5];
+                T pax = s_Xworld[pa_base + 12];
+                T pay = s_Xworld[pa_base + 13];
+                T paz = s_Xworld[pa_base + 14];
+                T Br_00 = static_cast<T>(0);
+                T Br_01 = static_cast<T>(0);
+                T Br_02 = static_cast<T>(0);
+                T Br_10 = static_cast<T>(0);
+                T Br_11 = static_cast<T>(0);
+                T Br_12 = static_cast<T>(0);
+                T Br_20 = static_cast<T>(0);
+                T Br_21 = static_cast<T>(0);
+                T Br_22 = static_cast<T>(0);
+                T Bt_0 = static_cast<T>(0);
+                T Bt_1 = static_cast<T>(0);
+                T Bt_2 = static_cast<T>(0);
+                if (sshape == 0) {
+                    T adotb = uw_0*vw_0 + uw_1*vw_1 + uw_2*vw_2;
+                    Br_00 = static_cast<T>(0.5) * (uw_0*vw_0 + vw_0*uw_0) - adotb;
+                    Br_01 = static_cast<T>(0.5) * (uw_0*vw_1 + vw_0*uw_1);
+                    Br_02 = static_cast<T>(0.5) * (uw_0*vw_2 + vw_0*uw_2);
+                    Br_10 = static_cast<T>(0.5) * (uw_1*vw_0 + vw_1*uw_0);
+                    Br_11 = static_cast<T>(0.5) * (uw_1*vw_1 + vw_1*uw_1) - adotb;
+                    Br_12 = static_cast<T>(0.5) * (uw_1*vw_2 + vw_1*uw_2);
+                    Br_20 = static_cast<T>(0.5) * (uw_2*vw_0 + vw_2*uw_0);
+                    Br_21 = static_cast<T>(0.5) * (uw_2*vw_1 + vw_2*uw_1);
+                    Br_22 = static_cast<T>(0.5) * (uw_2*vw_2 + vw_2*uw_2) - adotb;
+                    Bt_0 = -(Br_00*pax + Br_01*pay + Br_02*paz);
+                    Bt_1 = -(Br_10*pax + Br_11*pay + Br_12*paz);
+                    Bt_2 = -(Br_20*pax + Br_21*pay + Br_22*paz);
+                }
+                else if (sshape == 1) {
+                    Bt_0 = static_cast<T>(0.5) * (uw_1*vw_2 - uw_2*vw_1);
+                    Bt_1 = static_cast<T>(0.5) * (uw_2*vw_0 - uw_0*vw_2);
+                    Bt_2 = static_cast<T>(0.5) * (uw_0*vw_1 - uw_1*vw_0);
+                }
                 T Hxyz_x = Br_00*pex + Br_01*pey + Br_02*pez + Bt_0;
                 T Hxyz_y = Br_10*pex + Br_11*pey + Br_12*pez + Bt_1;
                 T Hxyz_z = Br_20*pex + Br_21*pey + Br_22*pez + Bt_2;
                 // Read [Jw_i]_x and [Jw_j]_x for the H_w correction
-                T Si00 = s_Sworld[0];
-                T Si10 = s_Sworld[1];
-                T Si20 = s_Sworld[2];
-                T Si01 = s_Sworld[4];
-                T Si11 = s_Sworld[5];
-                T Si21 = s_Sworld[6];
-                T Si02 = s_Sworld[8];
-                T Si12 = s_Sworld[9];
-                T Si22 = s_Sworld[10];
-                T Sj00 = s_Sworld[0];
-                T Sj10 = s_Sworld[1];
-                T Sj20 = s_Sworld[2];
-                T Sj01 = s_Sworld[4];
-                T Sj11 = s_Sworld[5];
-                T Sj21 = s_Sworld[6];
-                T Sj02 = s_Sworld[8];
-                T Sj12 = s_Sworld[9];
-                T Sj22 = s_Sworld[10];
+                T Si00 = s_Sworld[si_base + 0];
+                T Si10 = s_Sworld[si_base + 1];
+                T Si20 = s_Sworld[si_base + 2];
+                T Si01 = s_Sworld[si_base + 4];
+                T Si11 = s_Sworld[si_base + 5];
+                T Si21 = s_Sworld[si_base + 6];
+                T Si02 = s_Sworld[si_base + 8];
+                T Si12 = s_Sworld[si_base + 9];
+                T Si22 = s_Sworld[si_base + 10];
+                T Sj00 = s_Sworld[sj_base + 0];
+                T Sj10 = s_Sworld[sj_base + 1];
+                T Sj20 = s_Sworld[sj_base + 2];
+                T Sj01 = s_Sworld[sj_base + 4];
+                T Sj11 = s_Sworld[sj_base + 5];
+                T Sj21 = s_Sworld[sj_base + 6];
+                T Sj02 = s_Sworld[sj_base + 8];
+                T Sj12 = s_Sworld[sj_base + 9];
+                T Sj22 = s_Sworld[sj_base + 10];
                 T SiSj00 = Si00*Sj00 + Si01*Sj10 + Si02*Sj20;
                 T SiSj01 = Si00*Sj01 + Si01*Sj11 + Si02*Sj21;
                 T SiSj02 = Si00*Sj02 + Si01*Sj12 + Si02*Sj22;
@@ -8083,480 +8196,12 @@ namespace grid {
                 T HW_x = static_cast<T>(0.5) * ((Br_21 - SiSj21) - (Br_12 - SiSj12));
                 T HW_y = static_cast<T>(0.5) * ((Br_02 - SiSj02) - (Br_20 - SiSj20));
                 T HW_z = static_cast<T>(0.5) * ((Br_10 - SiSj10) - (Br_01 - SiSj01));
-                s_end_effector_pose_hessian[(0 + 0) + 0 * 49] = Hxyz_x;
-                s_end_effector_pose_hessian[(0 + 0) + 1 * 49] = Hxyz_y;
-                s_end_effector_pose_hessian[(0 + 0) + 2 * 49] = Hxyz_z;
-                s_end_effector_pose_hessian[(0 + 0) + 3 * 49] = HW_x;
-                s_end_effector_pose_hessian[(0 + 0) + 4 * 49] = HW_y;
-                s_end_effector_pose_hessian[(0 + 0) + 5 * 49] = HW_z;
-            }
-            // ee=0 pair (vi=1, vj=1, a=1, b=1)
-            if (d2m_cell == 43) {
-                T pex = s_Xworld[108];
-                T pey = s_Xworld[109];
-                T pez = s_Xworld[110];
-                // same-joint pair (intra-joint), joint_jid=1 c_a=0 c_b=0
-                // Compute joint-a world frame axes of c_a and c_b body axes
-                T aw_0 = s_Xworld[24] * static_cast<T>(1);
-                T aw_1 = s_Xworld[25] * static_cast<T>(1);
-                T aw_2 = s_Xworld[26] * static_cast<T>(1);
-                T bw_0 = s_Xworld[24] * static_cast<T>(1);
-                T bw_1 = s_Xworld[25] * static_cast<T>(1);
-                T bw_2 = s_Xworld[26] * static_cast<T>(1);
-                T alw_0 = static_cast<T>(0);
-                T alw_1 = static_cast<T>(0);
-                T alw_2 = static_cast<T>(0);
-                T blw_0 = static_cast<T>(0);
-                T blw_1 = static_cast<T>(0);
-                T blw_2 = static_cast<T>(0);
-                T pax = s_Xworld[28];
-                T pay = s_Xworld[29];
-                T paz = s_Xworld[30];
-                // Br_world = 0.5 * ([aw]_x [bw]_x + [bw]_x [aw]_x)
-                //   = 0.5 * (aw bw^T + bw aw^T) - (aw . bw) I
-                T adotb = aw_0*bw_0 + aw_1*bw_1 + aw_2*bw_2;
-                T Br_00 = static_cast<T>(0.5) * (aw_0*bw_0 + bw_0*aw_0) - adotb;
-                T Br_01 = static_cast<T>(0.5) * (aw_0*bw_1 + bw_0*aw_1);
-                T Br_02 = static_cast<T>(0.5) * (aw_0*bw_2 + bw_0*aw_2);
-                T Br_10 = static_cast<T>(0.5) * (aw_1*bw_0 + bw_1*aw_0);
-                T Br_11 = static_cast<T>(0.5) * (aw_1*bw_1 + bw_1*aw_1) - adotb;
-                T Br_12 = static_cast<T>(0.5) * (aw_1*bw_2 + bw_1*aw_2);
-                T Br_20 = static_cast<T>(0.5) * (aw_2*bw_0 + bw_2*aw_0);
-                T Br_21 = static_cast<T>(0.5) * (aw_2*bw_1 + bw_2*aw_1);
-                T Br_22 = static_cast<T>(0.5) * (aw_2*bw_2 + bw_2*aw_2) - adotb;
-                T Bt_0 = -(Br_00*pax + Br_01*pay + Br_02*paz);
-                T Bt_1 = -(Br_10*pax + Br_11*pay + Br_12*paz);
-                T Bt_2 = -(Br_20*pax + Br_21*pay + Br_22*paz);
-                T Hxyz_x = Br_00*pex + Br_01*pey + Br_02*pez + Bt_0;
-                T Hxyz_y = Br_10*pex + Br_11*pey + Br_12*pez + Bt_1;
-                T Hxyz_z = Br_20*pex + Br_21*pey + Br_22*pez + Bt_2;
-                // Read [Jw_i]_x and [Jw_j]_x for the H_w correction
-                T Si00 = s_Sworld[16];
-                T Si10 = s_Sworld[17];
-                T Si20 = s_Sworld[18];
-                T Si01 = s_Sworld[20];
-                T Si11 = s_Sworld[21];
-                T Si21 = s_Sworld[22];
-                T Si02 = s_Sworld[24];
-                T Si12 = s_Sworld[25];
-                T Si22 = s_Sworld[26];
-                T Sj00 = s_Sworld[16];
-                T Sj10 = s_Sworld[17];
-                T Sj20 = s_Sworld[18];
-                T Sj01 = s_Sworld[20];
-                T Sj11 = s_Sworld[21];
-                T Sj21 = s_Sworld[22];
-                T Sj02 = s_Sworld[24];
-                T Sj12 = s_Sworld[25];
-                T Sj22 = s_Sworld[26];
-                T SiSj00 = Si00*Sj00 + Si01*Sj10 + Si02*Sj20;
-                T SiSj01 = Si00*Sj01 + Si01*Sj11 + Si02*Sj21;
-                T SiSj02 = Si00*Sj02 + Si01*Sj12 + Si02*Sj22;
-                T SiSj10 = Si10*Sj00 + Si11*Sj10 + Si12*Sj20;
-                T SiSj11 = Si10*Sj01 + Si11*Sj11 + Si12*Sj21;
-                T SiSj12 = Si10*Sj02 + Si11*Sj12 + Si12*Sj22;
-                T SiSj20 = Si20*Sj00 + Si21*Sj10 + Si22*Sj20;
-                T SiSj21 = Si20*Sj01 + Si21*Sj11 + Si22*Sj21;
-                T SiSj22 = Si20*Sj02 + Si21*Sj12 + Si22*Sj22;
-                T HW_x = static_cast<T>(0.5) * ((Br_21 - SiSj21) - (Br_12 - SiSj12));
-                T HW_y = static_cast<T>(0.5) * ((Br_02 - SiSj02) - (Br_20 - SiSj20));
-                T HW_z = static_cast<T>(0.5) * ((Br_10 - SiSj10) - (Br_01 - SiSj01));
-                s_end_effector_pose_hessian[(0 + 8) + 0 * 49] = Hxyz_x;
-                s_end_effector_pose_hessian[(0 + 8) + 1 * 49] = Hxyz_y;
-                s_end_effector_pose_hessian[(0 + 8) + 2 * 49] = Hxyz_z;
-                s_end_effector_pose_hessian[(0 + 8) + 3 * 49] = HW_x;
-                s_end_effector_pose_hessian[(0 + 8) + 4 * 49] = HW_y;
-                s_end_effector_pose_hessian[(0 + 8) + 5 * 49] = HW_z;
-            }
-            // ee=0 pair (vi=2, vj=2, a=2, b=2)
-            if (d2m_cell == 44) {
-                T pex = s_Xworld[108];
-                T pey = s_Xworld[109];
-                T pez = s_Xworld[110];
-                // same-joint pair (intra-joint), joint_jid=2 c_a=0 c_b=0
-                // Compute joint-a world frame axes of c_a and c_b body axes
-                T aw_0 = s_Xworld[40] * static_cast<T>(1);
-                T aw_1 = s_Xworld[41] * static_cast<T>(1);
-                T aw_2 = s_Xworld[42] * static_cast<T>(1);
-                T bw_0 = s_Xworld[40] * static_cast<T>(1);
-                T bw_1 = s_Xworld[41] * static_cast<T>(1);
-                T bw_2 = s_Xworld[42] * static_cast<T>(1);
-                T alw_0 = static_cast<T>(0);
-                T alw_1 = static_cast<T>(0);
-                T alw_2 = static_cast<T>(0);
-                T blw_0 = static_cast<T>(0);
-                T blw_1 = static_cast<T>(0);
-                T blw_2 = static_cast<T>(0);
-                T pax = s_Xworld[44];
-                T pay = s_Xworld[45];
-                T paz = s_Xworld[46];
-                // Br_world = 0.5 * ([aw]_x [bw]_x + [bw]_x [aw]_x)
-                //   = 0.5 * (aw bw^T + bw aw^T) - (aw . bw) I
-                T adotb = aw_0*bw_0 + aw_1*bw_1 + aw_2*bw_2;
-                T Br_00 = static_cast<T>(0.5) * (aw_0*bw_0 + bw_0*aw_0) - adotb;
-                T Br_01 = static_cast<T>(0.5) * (aw_0*bw_1 + bw_0*aw_1);
-                T Br_02 = static_cast<T>(0.5) * (aw_0*bw_2 + bw_0*aw_2);
-                T Br_10 = static_cast<T>(0.5) * (aw_1*bw_0 + bw_1*aw_0);
-                T Br_11 = static_cast<T>(0.5) * (aw_1*bw_1 + bw_1*aw_1) - adotb;
-                T Br_12 = static_cast<T>(0.5) * (aw_1*bw_2 + bw_1*aw_2);
-                T Br_20 = static_cast<T>(0.5) * (aw_2*bw_0 + bw_2*aw_0);
-                T Br_21 = static_cast<T>(0.5) * (aw_2*bw_1 + bw_2*aw_1);
-                T Br_22 = static_cast<T>(0.5) * (aw_2*bw_2 + bw_2*aw_2) - adotb;
-                T Bt_0 = -(Br_00*pax + Br_01*pay + Br_02*paz);
-                T Bt_1 = -(Br_10*pax + Br_11*pay + Br_12*paz);
-                T Bt_2 = -(Br_20*pax + Br_21*pay + Br_22*paz);
-                T Hxyz_x = Br_00*pex + Br_01*pey + Br_02*pez + Bt_0;
-                T Hxyz_y = Br_10*pex + Br_11*pey + Br_12*pez + Bt_1;
-                T Hxyz_z = Br_20*pex + Br_21*pey + Br_22*pez + Bt_2;
-                // Read [Jw_i]_x and [Jw_j]_x for the H_w correction
-                T Si00 = s_Sworld[32];
-                T Si10 = s_Sworld[33];
-                T Si20 = s_Sworld[34];
-                T Si01 = s_Sworld[36];
-                T Si11 = s_Sworld[37];
-                T Si21 = s_Sworld[38];
-                T Si02 = s_Sworld[40];
-                T Si12 = s_Sworld[41];
-                T Si22 = s_Sworld[42];
-                T Sj00 = s_Sworld[32];
-                T Sj10 = s_Sworld[33];
-                T Sj20 = s_Sworld[34];
-                T Sj01 = s_Sworld[36];
-                T Sj11 = s_Sworld[37];
-                T Sj21 = s_Sworld[38];
-                T Sj02 = s_Sworld[40];
-                T Sj12 = s_Sworld[41];
-                T Sj22 = s_Sworld[42];
-                T SiSj00 = Si00*Sj00 + Si01*Sj10 + Si02*Sj20;
-                T SiSj01 = Si00*Sj01 + Si01*Sj11 + Si02*Sj21;
-                T SiSj02 = Si00*Sj02 + Si01*Sj12 + Si02*Sj22;
-                T SiSj10 = Si10*Sj00 + Si11*Sj10 + Si12*Sj20;
-                T SiSj11 = Si10*Sj01 + Si11*Sj11 + Si12*Sj21;
-                T SiSj12 = Si10*Sj02 + Si11*Sj12 + Si12*Sj22;
-                T SiSj20 = Si20*Sj00 + Si21*Sj10 + Si22*Sj20;
-                T SiSj21 = Si20*Sj01 + Si21*Sj11 + Si22*Sj21;
-                T SiSj22 = Si20*Sj02 + Si21*Sj12 + Si22*Sj22;
-                T HW_x = static_cast<T>(0.5) * ((Br_21 - SiSj21) - (Br_12 - SiSj12));
-                T HW_y = static_cast<T>(0.5) * ((Br_02 - SiSj02) - (Br_20 - SiSj20));
-                T HW_z = static_cast<T>(0.5) * ((Br_10 - SiSj10) - (Br_01 - SiSj01));
-                s_end_effector_pose_hessian[(0 + 16) + 0 * 49] = Hxyz_x;
-                s_end_effector_pose_hessian[(0 + 16) + 1 * 49] = Hxyz_y;
-                s_end_effector_pose_hessian[(0 + 16) + 2 * 49] = Hxyz_z;
-                s_end_effector_pose_hessian[(0 + 16) + 3 * 49] = HW_x;
-                s_end_effector_pose_hessian[(0 + 16) + 4 * 49] = HW_y;
-                s_end_effector_pose_hessian[(0 + 16) + 5 * 49] = HW_z;
-            }
-            // ee=0 pair (vi=3, vj=3, a=3, b=3)
-            if (d2m_cell == 45) {
-                T pex = s_Xworld[108];
-                T pey = s_Xworld[109];
-                T pez = s_Xworld[110];
-                // same-joint pair (intra-joint), joint_jid=3 c_a=0 c_b=0
-                // Compute joint-a world frame axes of c_a and c_b body axes
-                T aw_0 = s_Xworld[56] * static_cast<T>(1);
-                T aw_1 = s_Xworld[57] * static_cast<T>(1);
-                T aw_2 = s_Xworld[58] * static_cast<T>(1);
-                T bw_0 = s_Xworld[56] * static_cast<T>(1);
-                T bw_1 = s_Xworld[57] * static_cast<T>(1);
-                T bw_2 = s_Xworld[58] * static_cast<T>(1);
-                T alw_0 = static_cast<T>(0);
-                T alw_1 = static_cast<T>(0);
-                T alw_2 = static_cast<T>(0);
-                T blw_0 = static_cast<T>(0);
-                T blw_1 = static_cast<T>(0);
-                T blw_2 = static_cast<T>(0);
-                T pax = s_Xworld[60];
-                T pay = s_Xworld[61];
-                T paz = s_Xworld[62];
-                // Br_world = 0.5 * ([aw]_x [bw]_x + [bw]_x [aw]_x)
-                //   = 0.5 * (aw bw^T + bw aw^T) - (aw . bw) I
-                T adotb = aw_0*bw_0 + aw_1*bw_1 + aw_2*bw_2;
-                T Br_00 = static_cast<T>(0.5) * (aw_0*bw_0 + bw_0*aw_0) - adotb;
-                T Br_01 = static_cast<T>(0.5) * (aw_0*bw_1 + bw_0*aw_1);
-                T Br_02 = static_cast<T>(0.5) * (aw_0*bw_2 + bw_0*aw_2);
-                T Br_10 = static_cast<T>(0.5) * (aw_1*bw_0 + bw_1*aw_0);
-                T Br_11 = static_cast<T>(0.5) * (aw_1*bw_1 + bw_1*aw_1) - adotb;
-                T Br_12 = static_cast<T>(0.5) * (aw_1*bw_2 + bw_1*aw_2);
-                T Br_20 = static_cast<T>(0.5) * (aw_2*bw_0 + bw_2*aw_0);
-                T Br_21 = static_cast<T>(0.5) * (aw_2*bw_1 + bw_2*aw_1);
-                T Br_22 = static_cast<T>(0.5) * (aw_2*bw_2 + bw_2*aw_2) - adotb;
-                T Bt_0 = -(Br_00*pax + Br_01*pay + Br_02*paz);
-                T Bt_1 = -(Br_10*pax + Br_11*pay + Br_12*paz);
-                T Bt_2 = -(Br_20*pax + Br_21*pay + Br_22*paz);
-                T Hxyz_x = Br_00*pex + Br_01*pey + Br_02*pez + Bt_0;
-                T Hxyz_y = Br_10*pex + Br_11*pey + Br_12*pez + Bt_1;
-                T Hxyz_z = Br_20*pex + Br_21*pey + Br_22*pez + Bt_2;
-                // Read [Jw_i]_x and [Jw_j]_x for the H_w correction
-                T Si00 = s_Sworld[48];
-                T Si10 = s_Sworld[49];
-                T Si20 = s_Sworld[50];
-                T Si01 = s_Sworld[52];
-                T Si11 = s_Sworld[53];
-                T Si21 = s_Sworld[54];
-                T Si02 = s_Sworld[56];
-                T Si12 = s_Sworld[57];
-                T Si22 = s_Sworld[58];
-                T Sj00 = s_Sworld[48];
-                T Sj10 = s_Sworld[49];
-                T Sj20 = s_Sworld[50];
-                T Sj01 = s_Sworld[52];
-                T Sj11 = s_Sworld[53];
-                T Sj21 = s_Sworld[54];
-                T Sj02 = s_Sworld[56];
-                T Sj12 = s_Sworld[57];
-                T Sj22 = s_Sworld[58];
-                T SiSj00 = Si00*Sj00 + Si01*Sj10 + Si02*Sj20;
-                T SiSj01 = Si00*Sj01 + Si01*Sj11 + Si02*Sj21;
-                T SiSj02 = Si00*Sj02 + Si01*Sj12 + Si02*Sj22;
-                T SiSj10 = Si10*Sj00 + Si11*Sj10 + Si12*Sj20;
-                T SiSj11 = Si10*Sj01 + Si11*Sj11 + Si12*Sj21;
-                T SiSj12 = Si10*Sj02 + Si11*Sj12 + Si12*Sj22;
-                T SiSj20 = Si20*Sj00 + Si21*Sj10 + Si22*Sj20;
-                T SiSj21 = Si20*Sj01 + Si21*Sj11 + Si22*Sj21;
-                T SiSj22 = Si20*Sj02 + Si21*Sj12 + Si22*Sj22;
-                T HW_x = static_cast<T>(0.5) * ((Br_21 - SiSj21) - (Br_12 - SiSj12));
-                T HW_y = static_cast<T>(0.5) * ((Br_02 - SiSj02) - (Br_20 - SiSj20));
-                T HW_z = static_cast<T>(0.5) * ((Br_10 - SiSj10) - (Br_01 - SiSj01));
-                s_end_effector_pose_hessian[(0 + 24) + 0 * 49] = Hxyz_x;
-                s_end_effector_pose_hessian[(0 + 24) + 1 * 49] = Hxyz_y;
-                s_end_effector_pose_hessian[(0 + 24) + 2 * 49] = Hxyz_z;
-                s_end_effector_pose_hessian[(0 + 24) + 3 * 49] = HW_x;
-                s_end_effector_pose_hessian[(0 + 24) + 4 * 49] = HW_y;
-                s_end_effector_pose_hessian[(0 + 24) + 5 * 49] = HW_z;
-            }
-            // ee=0 pair (vi=4, vj=4, a=4, b=4)
-            if (d2m_cell == 46) {
-                T pex = s_Xworld[108];
-                T pey = s_Xworld[109];
-                T pez = s_Xworld[110];
-                // same-joint pair (intra-joint), joint_jid=4 c_a=0 c_b=0
-                // Compute joint-a world frame axes of c_a and c_b body axes
-                T aw_0 = s_Xworld[72] * static_cast<T>(1);
-                T aw_1 = s_Xworld[73] * static_cast<T>(1);
-                T aw_2 = s_Xworld[74] * static_cast<T>(1);
-                T bw_0 = s_Xworld[72] * static_cast<T>(1);
-                T bw_1 = s_Xworld[73] * static_cast<T>(1);
-                T bw_2 = s_Xworld[74] * static_cast<T>(1);
-                T alw_0 = static_cast<T>(0);
-                T alw_1 = static_cast<T>(0);
-                T alw_2 = static_cast<T>(0);
-                T blw_0 = static_cast<T>(0);
-                T blw_1 = static_cast<T>(0);
-                T blw_2 = static_cast<T>(0);
-                T pax = s_Xworld[76];
-                T pay = s_Xworld[77];
-                T paz = s_Xworld[78];
-                // Br_world = 0.5 * ([aw]_x [bw]_x + [bw]_x [aw]_x)
-                //   = 0.5 * (aw bw^T + bw aw^T) - (aw . bw) I
-                T adotb = aw_0*bw_0 + aw_1*bw_1 + aw_2*bw_2;
-                T Br_00 = static_cast<T>(0.5) * (aw_0*bw_0 + bw_0*aw_0) - adotb;
-                T Br_01 = static_cast<T>(0.5) * (aw_0*bw_1 + bw_0*aw_1);
-                T Br_02 = static_cast<T>(0.5) * (aw_0*bw_2 + bw_0*aw_2);
-                T Br_10 = static_cast<T>(0.5) * (aw_1*bw_0 + bw_1*aw_0);
-                T Br_11 = static_cast<T>(0.5) * (aw_1*bw_1 + bw_1*aw_1) - adotb;
-                T Br_12 = static_cast<T>(0.5) * (aw_1*bw_2 + bw_1*aw_2);
-                T Br_20 = static_cast<T>(0.5) * (aw_2*bw_0 + bw_2*aw_0);
-                T Br_21 = static_cast<T>(0.5) * (aw_2*bw_1 + bw_2*aw_1);
-                T Br_22 = static_cast<T>(0.5) * (aw_2*bw_2 + bw_2*aw_2) - adotb;
-                T Bt_0 = -(Br_00*pax + Br_01*pay + Br_02*paz);
-                T Bt_1 = -(Br_10*pax + Br_11*pay + Br_12*paz);
-                T Bt_2 = -(Br_20*pax + Br_21*pay + Br_22*paz);
-                T Hxyz_x = Br_00*pex + Br_01*pey + Br_02*pez + Bt_0;
-                T Hxyz_y = Br_10*pex + Br_11*pey + Br_12*pez + Bt_1;
-                T Hxyz_z = Br_20*pex + Br_21*pey + Br_22*pez + Bt_2;
-                // Read [Jw_i]_x and [Jw_j]_x for the H_w correction
-                T Si00 = s_Sworld[64];
-                T Si10 = s_Sworld[65];
-                T Si20 = s_Sworld[66];
-                T Si01 = s_Sworld[68];
-                T Si11 = s_Sworld[69];
-                T Si21 = s_Sworld[70];
-                T Si02 = s_Sworld[72];
-                T Si12 = s_Sworld[73];
-                T Si22 = s_Sworld[74];
-                T Sj00 = s_Sworld[64];
-                T Sj10 = s_Sworld[65];
-                T Sj20 = s_Sworld[66];
-                T Sj01 = s_Sworld[68];
-                T Sj11 = s_Sworld[69];
-                T Sj21 = s_Sworld[70];
-                T Sj02 = s_Sworld[72];
-                T Sj12 = s_Sworld[73];
-                T Sj22 = s_Sworld[74];
-                T SiSj00 = Si00*Sj00 + Si01*Sj10 + Si02*Sj20;
-                T SiSj01 = Si00*Sj01 + Si01*Sj11 + Si02*Sj21;
-                T SiSj02 = Si00*Sj02 + Si01*Sj12 + Si02*Sj22;
-                T SiSj10 = Si10*Sj00 + Si11*Sj10 + Si12*Sj20;
-                T SiSj11 = Si10*Sj01 + Si11*Sj11 + Si12*Sj21;
-                T SiSj12 = Si10*Sj02 + Si11*Sj12 + Si12*Sj22;
-                T SiSj20 = Si20*Sj00 + Si21*Sj10 + Si22*Sj20;
-                T SiSj21 = Si20*Sj01 + Si21*Sj11 + Si22*Sj21;
-                T SiSj22 = Si20*Sj02 + Si21*Sj12 + Si22*Sj22;
-                T HW_x = static_cast<T>(0.5) * ((Br_21 - SiSj21) - (Br_12 - SiSj12));
-                T HW_y = static_cast<T>(0.5) * ((Br_02 - SiSj02) - (Br_20 - SiSj20));
-                T HW_z = static_cast<T>(0.5) * ((Br_10 - SiSj10) - (Br_01 - SiSj01));
-                s_end_effector_pose_hessian[(0 + 32) + 0 * 49] = Hxyz_x;
-                s_end_effector_pose_hessian[(0 + 32) + 1 * 49] = Hxyz_y;
-                s_end_effector_pose_hessian[(0 + 32) + 2 * 49] = Hxyz_z;
-                s_end_effector_pose_hessian[(0 + 32) + 3 * 49] = HW_x;
-                s_end_effector_pose_hessian[(0 + 32) + 4 * 49] = HW_y;
-                s_end_effector_pose_hessian[(0 + 32) + 5 * 49] = HW_z;
-            }
-            // ee=0 pair (vi=5, vj=5, a=5, b=5)
-            if (d2m_cell == 47) {
-                T pex = s_Xworld[108];
-                T pey = s_Xworld[109];
-                T pez = s_Xworld[110];
-                // same-joint pair (intra-joint), joint_jid=5 c_a=0 c_b=0
-                // Compute joint-a world frame axes of c_a and c_b body axes
-                T aw_0 = s_Xworld[88] * static_cast<T>(1);
-                T aw_1 = s_Xworld[89] * static_cast<T>(1);
-                T aw_2 = s_Xworld[90] * static_cast<T>(1);
-                T bw_0 = s_Xworld[88] * static_cast<T>(1);
-                T bw_1 = s_Xworld[89] * static_cast<T>(1);
-                T bw_2 = s_Xworld[90] * static_cast<T>(1);
-                T alw_0 = static_cast<T>(0);
-                T alw_1 = static_cast<T>(0);
-                T alw_2 = static_cast<T>(0);
-                T blw_0 = static_cast<T>(0);
-                T blw_1 = static_cast<T>(0);
-                T blw_2 = static_cast<T>(0);
-                T pax = s_Xworld[92];
-                T pay = s_Xworld[93];
-                T paz = s_Xworld[94];
-                // Br_world = 0.5 * ([aw]_x [bw]_x + [bw]_x [aw]_x)
-                //   = 0.5 * (aw bw^T + bw aw^T) - (aw . bw) I
-                T adotb = aw_0*bw_0 + aw_1*bw_1 + aw_2*bw_2;
-                T Br_00 = static_cast<T>(0.5) * (aw_0*bw_0 + bw_0*aw_0) - adotb;
-                T Br_01 = static_cast<T>(0.5) * (aw_0*bw_1 + bw_0*aw_1);
-                T Br_02 = static_cast<T>(0.5) * (aw_0*bw_2 + bw_0*aw_2);
-                T Br_10 = static_cast<T>(0.5) * (aw_1*bw_0 + bw_1*aw_0);
-                T Br_11 = static_cast<T>(0.5) * (aw_1*bw_1 + bw_1*aw_1) - adotb;
-                T Br_12 = static_cast<T>(0.5) * (aw_1*bw_2 + bw_1*aw_2);
-                T Br_20 = static_cast<T>(0.5) * (aw_2*bw_0 + bw_2*aw_0);
-                T Br_21 = static_cast<T>(0.5) * (aw_2*bw_1 + bw_2*aw_1);
-                T Br_22 = static_cast<T>(0.5) * (aw_2*bw_2 + bw_2*aw_2) - adotb;
-                T Bt_0 = -(Br_00*pax + Br_01*pay + Br_02*paz);
-                T Bt_1 = -(Br_10*pax + Br_11*pay + Br_12*paz);
-                T Bt_2 = -(Br_20*pax + Br_21*pay + Br_22*paz);
-                T Hxyz_x = Br_00*pex + Br_01*pey + Br_02*pez + Bt_0;
-                T Hxyz_y = Br_10*pex + Br_11*pey + Br_12*pez + Bt_1;
-                T Hxyz_z = Br_20*pex + Br_21*pey + Br_22*pez + Bt_2;
-                // Read [Jw_i]_x and [Jw_j]_x for the H_w correction
-                T Si00 = s_Sworld[80];
-                T Si10 = s_Sworld[81];
-                T Si20 = s_Sworld[82];
-                T Si01 = s_Sworld[84];
-                T Si11 = s_Sworld[85];
-                T Si21 = s_Sworld[86];
-                T Si02 = s_Sworld[88];
-                T Si12 = s_Sworld[89];
-                T Si22 = s_Sworld[90];
-                T Sj00 = s_Sworld[80];
-                T Sj10 = s_Sworld[81];
-                T Sj20 = s_Sworld[82];
-                T Sj01 = s_Sworld[84];
-                T Sj11 = s_Sworld[85];
-                T Sj21 = s_Sworld[86];
-                T Sj02 = s_Sworld[88];
-                T Sj12 = s_Sworld[89];
-                T Sj22 = s_Sworld[90];
-                T SiSj00 = Si00*Sj00 + Si01*Sj10 + Si02*Sj20;
-                T SiSj01 = Si00*Sj01 + Si01*Sj11 + Si02*Sj21;
-                T SiSj02 = Si00*Sj02 + Si01*Sj12 + Si02*Sj22;
-                T SiSj10 = Si10*Sj00 + Si11*Sj10 + Si12*Sj20;
-                T SiSj11 = Si10*Sj01 + Si11*Sj11 + Si12*Sj21;
-                T SiSj12 = Si10*Sj02 + Si11*Sj12 + Si12*Sj22;
-                T SiSj20 = Si20*Sj00 + Si21*Sj10 + Si22*Sj20;
-                T SiSj21 = Si20*Sj01 + Si21*Sj11 + Si22*Sj21;
-                T SiSj22 = Si20*Sj02 + Si21*Sj12 + Si22*Sj22;
-                T HW_x = static_cast<T>(0.5) * ((Br_21 - SiSj21) - (Br_12 - SiSj12));
-                T HW_y = static_cast<T>(0.5) * ((Br_02 - SiSj02) - (Br_20 - SiSj20));
-                T HW_z = static_cast<T>(0.5) * ((Br_10 - SiSj10) - (Br_01 - SiSj01));
-                s_end_effector_pose_hessian[(0 + 40) + 0 * 49] = Hxyz_x;
-                s_end_effector_pose_hessian[(0 + 40) + 1 * 49] = Hxyz_y;
-                s_end_effector_pose_hessian[(0 + 40) + 2 * 49] = Hxyz_z;
-                s_end_effector_pose_hessian[(0 + 40) + 3 * 49] = HW_x;
-                s_end_effector_pose_hessian[(0 + 40) + 4 * 49] = HW_y;
-                s_end_effector_pose_hessian[(0 + 40) + 5 * 49] = HW_z;
-            }
-            // ee=0 pair (vi=6, vj=6, a=6, b=6)
-            if (d2m_cell == 48) {
-                T pex = s_Xworld[108];
-                T pey = s_Xworld[109];
-                T pez = s_Xworld[110];
-                // same-joint pair (intra-joint), joint_jid=6 c_a=0 c_b=0
-                // Compute joint-a world frame axes of c_a and c_b body axes
-                T aw_0 = s_Xworld[104] * static_cast<T>(1);
-                T aw_1 = s_Xworld[105] * static_cast<T>(1);
-                T aw_2 = s_Xworld[106] * static_cast<T>(1);
-                T bw_0 = s_Xworld[104] * static_cast<T>(1);
-                T bw_1 = s_Xworld[105] * static_cast<T>(1);
-                T bw_2 = s_Xworld[106] * static_cast<T>(1);
-                T alw_0 = static_cast<T>(0);
-                T alw_1 = static_cast<T>(0);
-                T alw_2 = static_cast<T>(0);
-                T blw_0 = static_cast<T>(0);
-                T blw_1 = static_cast<T>(0);
-                T blw_2 = static_cast<T>(0);
-                T pax = s_Xworld[108];
-                T pay = s_Xworld[109];
-                T paz = s_Xworld[110];
-                // Br_world = 0.5 * ([aw]_x [bw]_x + [bw]_x [aw]_x)
-                //   = 0.5 * (aw bw^T + bw aw^T) - (aw . bw) I
-                T adotb = aw_0*bw_0 + aw_1*bw_1 + aw_2*bw_2;
-                T Br_00 = static_cast<T>(0.5) * (aw_0*bw_0 + bw_0*aw_0) - adotb;
-                T Br_01 = static_cast<T>(0.5) * (aw_0*bw_1 + bw_0*aw_1);
-                T Br_02 = static_cast<T>(0.5) * (aw_0*bw_2 + bw_0*aw_2);
-                T Br_10 = static_cast<T>(0.5) * (aw_1*bw_0 + bw_1*aw_0);
-                T Br_11 = static_cast<T>(0.5) * (aw_1*bw_1 + bw_1*aw_1) - adotb;
-                T Br_12 = static_cast<T>(0.5) * (aw_1*bw_2 + bw_1*aw_2);
-                T Br_20 = static_cast<T>(0.5) * (aw_2*bw_0 + bw_2*aw_0);
-                T Br_21 = static_cast<T>(0.5) * (aw_2*bw_1 + bw_2*aw_1);
-                T Br_22 = static_cast<T>(0.5) * (aw_2*bw_2 + bw_2*aw_2) - adotb;
-                T Bt_0 = -(Br_00*pax + Br_01*pay + Br_02*paz);
-                T Bt_1 = -(Br_10*pax + Br_11*pay + Br_12*paz);
-                T Bt_2 = -(Br_20*pax + Br_21*pay + Br_22*paz);
-                T Hxyz_x = Br_00*pex + Br_01*pey + Br_02*pez + Bt_0;
-                T Hxyz_y = Br_10*pex + Br_11*pey + Br_12*pez + Bt_1;
-                T Hxyz_z = Br_20*pex + Br_21*pey + Br_22*pez + Bt_2;
-                // Read [Jw_i]_x and [Jw_j]_x for the H_w correction
-                T Si00 = s_Sworld[96];
-                T Si10 = s_Sworld[97];
-                T Si20 = s_Sworld[98];
-                T Si01 = s_Sworld[100];
-                T Si11 = s_Sworld[101];
-                T Si21 = s_Sworld[102];
-                T Si02 = s_Sworld[104];
-                T Si12 = s_Sworld[105];
-                T Si22 = s_Sworld[106];
-                T Sj00 = s_Sworld[96];
-                T Sj10 = s_Sworld[97];
-                T Sj20 = s_Sworld[98];
-                T Sj01 = s_Sworld[100];
-                T Sj11 = s_Sworld[101];
-                T Sj21 = s_Sworld[102];
-                T Sj02 = s_Sworld[104];
-                T Sj12 = s_Sworld[105];
-                T Sj22 = s_Sworld[106];
-                T SiSj00 = Si00*Sj00 + Si01*Sj10 + Si02*Sj20;
-                T SiSj01 = Si00*Sj01 + Si01*Sj11 + Si02*Sj21;
-                T SiSj02 = Si00*Sj02 + Si01*Sj12 + Si02*Sj22;
-                T SiSj10 = Si10*Sj00 + Si11*Sj10 + Si12*Sj20;
-                T SiSj11 = Si10*Sj01 + Si11*Sj11 + Si12*Sj21;
-                T SiSj12 = Si10*Sj02 + Si11*Sj12 + Si12*Sj22;
-                T SiSj20 = Si20*Sj00 + Si21*Sj10 + Si22*Sj20;
-                T SiSj21 = Si20*Sj01 + Si21*Sj11 + Si22*Sj21;
-                T SiSj22 = Si20*Sj02 + Si21*Sj12 + Si22*Sj22;
-                T HW_x = static_cast<T>(0.5) * ((Br_21 - SiSj21) - (Br_12 - SiSj12));
-                T HW_y = static_cast<T>(0.5) * ((Br_02 - SiSj02) - (Br_20 - SiSj20));
-                T HW_z = static_cast<T>(0.5) * ((Br_10 - SiSj10) - (Br_01 - SiSj01));
-                s_end_effector_pose_hessian[(0 + 48) + 0 * 49] = Hxyz_x;
-                s_end_effector_pose_hessian[(0 + 48) + 1 * 49] = Hxyz_y;
-                s_end_effector_pose_hessian[(0 + 48) + 2 * 49] = Hxyz_z;
-                s_end_effector_pose_hessian[(0 + 48) + 3 * 49] = HW_x;
-                s_end_effector_pose_hessian[(0 + 48) + 4 * 49] = HW_y;
-                s_end_effector_pose_hessian[(0 + 48) + 5 * 49] = HW_z;
+                s_end_effector_pose_hessian[out_base + 0 * 49] = Hxyz_x;
+                s_end_effector_pose_hessian[out_base + 1 * 49] = Hxyz_y;
+                s_end_effector_pose_hessian[out_base + 2 * 49] = Hxyz_z;
+                s_end_effector_pose_hessian[out_base + 3 * 49] = HW_x;
+                s_end_effector_pose_hessian[out_base + 4 * 49] = HW_y;
+                s_end_effector_pose_hessian[out_base + 5 * 49] = HW_z;
             }
         }
         __syncthreads();
@@ -10759,65 +10404,84 @@ namespace grid {
                 s_end_effector_pose_hessian[out_base + 4 * 49] = HW_y;
                 s_end_effector_pose_hessian[out_base + 5 * 49] = HW_z;
             }
-            // ee=0 pair (vi=0, vj=0, a=0, b=0)
-            if (d2m_cell == 42) {
-                T pex = s_Xworld[172];
-                T pey = s_Xworld[173];
-                T pez = s_Xworld[174];
-                // same-joint pair (intra-joint), joint_jid=0 c_a=0 c_b=0
-                // Compute joint-a world frame axes of c_a and c_b body axes
-                T aw_0 = s_Xworld[8] * static_cast<T>(1);
-                T aw_1 = s_Xworld[9] * static_cast<T>(1);
-                T aw_2 = s_Xworld[10] * static_cast<T>(1);
-                T bw_0 = s_Xworld[8] * static_cast<T>(1);
-                T bw_1 = s_Xworld[9] * static_cast<T>(1);
-                T bw_2 = s_Xworld[10] * static_cast<T>(1);
-                T alw_0 = static_cast<T>(0);
-                T alw_1 = static_cast<T>(0);
-                T alw_2 = static_cast<T>(0);
-                T blw_0 = static_cast<T>(0);
-                T blw_1 = static_cast<T>(0);
-                T blw_2 = static_cast<T>(0);
-                T pax = s_Xworld[12];
-                T pay = s_Xworld[13];
-                T paz = s_Xworld[14];
-                // Br_world = 0.5 * ([aw]_x [bw]_x + [bw]_x [aw]_x)
-                //   = 0.5 * (aw bw^T + bw aw^T) - (aw . bw) I
-                T adotb = aw_0*bw_0 + aw_1*bw_1 + aw_2*bw_2;
-                T Br_00 = static_cast<T>(0.5) * (aw_0*bw_0 + bw_0*aw_0) - adotb;
-                T Br_01 = static_cast<T>(0.5) * (aw_0*bw_1 + bw_0*aw_1);
-                T Br_02 = static_cast<T>(0.5) * (aw_0*bw_2 + bw_0*aw_2);
-                T Br_10 = static_cast<T>(0.5) * (aw_1*bw_0 + bw_1*aw_0);
-                T Br_11 = static_cast<T>(0.5) * (aw_1*bw_1 + bw_1*aw_1) - adotb;
-                T Br_12 = static_cast<T>(0.5) * (aw_1*bw_2 + bw_1*aw_2);
-                T Br_20 = static_cast<T>(0.5) * (aw_2*bw_0 + bw_2*aw_0);
-                T Br_21 = static_cast<T>(0.5) * (aw_2*bw_1 + bw_2*aw_1);
-                T Br_22 = static_cast<T>(0.5) * (aw_2*bw_2 + bw_2*aw_2) - adotb;
-                T Bt_0 = -(Br_00*pax + Br_01*pay + Br_02*paz);
-                T Bt_1 = -(Br_10*pax + Br_11*pay + Br_12*paz);
-                T Bt_2 = -(Br_20*pax + Br_21*pay + Br_22*paz);
+            // Same-joint (intra-joint) cells: one shared shape-switched body
+            // driven by baked per-cell shape/offset + world-axis tables.
+            static const int s_d2ee_same_tab[42] = {0, 0, 0, 0, 160, 0, 0, 16, 16, 16, 160, 8, 0, 32, 32, 32, 160, 16, 0, 48, 48, 48, 160, 24, 0, 64, 64, 64, 160, 32, 0, 80, 80, 80, 160, 40, 0, 96, 96, 96, 160, 48};
+            const T s_d2ee_same_axis[42] = {static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1)};
+            if (d2m_cell >= 42 && d2m_cell < 49) {
+                int same_cell = d2m_cell - 42;
+                const int *srow = &s_d2ee_same_tab[6 * same_cell];
+                int sshape = srow[0]; int pa_base = srow[1];
+                int si_base = srow[2]; int sj_base = srow[3];
+                int pee_base = srow[4]; int out_base = srow[5];
+                const T *ax = &s_d2ee_same_axis[6 * same_cell];
+                T pex = s_Xworld[pee_base + 12];
+                T pey = s_Xworld[pee_base + 13];
+                T pez = s_Xworld[pee_base + 14];
+                // world axes u_w = R_a @ ax0, v_w = R_a @ ax1
+                T uw_0 = s_Xworld[pa_base + 0] * ax[0] + s_Xworld[pa_base + 4] * ax[1] + s_Xworld[pa_base + 8] * ax[2];
+                T uw_1 = s_Xworld[pa_base + 1] * ax[0] + s_Xworld[pa_base + 5] * ax[1] + s_Xworld[pa_base + 9] * ax[2];
+                T uw_2 = s_Xworld[pa_base + 2] * ax[0] + s_Xworld[pa_base + 6] * ax[1] + s_Xworld[pa_base + 10] * ax[2];
+                T vw_0 = s_Xworld[pa_base + 0] * ax[3] + s_Xworld[pa_base + 4] * ax[4] + s_Xworld[pa_base + 8] * ax[5];
+                T vw_1 = s_Xworld[pa_base + 1] * ax[3] + s_Xworld[pa_base + 5] * ax[4] + s_Xworld[pa_base + 9] * ax[5];
+                T vw_2 = s_Xworld[pa_base + 2] * ax[3] + s_Xworld[pa_base + 6] * ax[4] + s_Xworld[pa_base + 10] * ax[5];
+                T pax = s_Xworld[pa_base + 12];
+                T pay = s_Xworld[pa_base + 13];
+                T paz = s_Xworld[pa_base + 14];
+                T Br_00 = static_cast<T>(0);
+                T Br_01 = static_cast<T>(0);
+                T Br_02 = static_cast<T>(0);
+                T Br_10 = static_cast<T>(0);
+                T Br_11 = static_cast<T>(0);
+                T Br_12 = static_cast<T>(0);
+                T Br_20 = static_cast<T>(0);
+                T Br_21 = static_cast<T>(0);
+                T Br_22 = static_cast<T>(0);
+                T Bt_0 = static_cast<T>(0);
+                T Bt_1 = static_cast<T>(0);
+                T Bt_2 = static_cast<T>(0);
+                if (sshape == 0) {
+                    T adotb = uw_0*vw_0 + uw_1*vw_1 + uw_2*vw_2;
+                    Br_00 = static_cast<T>(0.5) * (uw_0*vw_0 + vw_0*uw_0) - adotb;
+                    Br_01 = static_cast<T>(0.5) * (uw_0*vw_1 + vw_0*uw_1);
+                    Br_02 = static_cast<T>(0.5) * (uw_0*vw_2 + vw_0*uw_2);
+                    Br_10 = static_cast<T>(0.5) * (uw_1*vw_0 + vw_1*uw_0);
+                    Br_11 = static_cast<T>(0.5) * (uw_1*vw_1 + vw_1*uw_1) - adotb;
+                    Br_12 = static_cast<T>(0.5) * (uw_1*vw_2 + vw_1*uw_2);
+                    Br_20 = static_cast<T>(0.5) * (uw_2*vw_0 + vw_2*uw_0);
+                    Br_21 = static_cast<T>(0.5) * (uw_2*vw_1 + vw_2*uw_1);
+                    Br_22 = static_cast<T>(0.5) * (uw_2*vw_2 + vw_2*uw_2) - adotb;
+                    Bt_0 = -(Br_00*pax + Br_01*pay + Br_02*paz);
+                    Bt_1 = -(Br_10*pax + Br_11*pay + Br_12*paz);
+                    Bt_2 = -(Br_20*pax + Br_21*pay + Br_22*paz);
+                }
+                else if (sshape == 1) {
+                    Bt_0 = static_cast<T>(0.5) * (uw_1*vw_2 - uw_2*vw_1);
+                    Bt_1 = static_cast<T>(0.5) * (uw_2*vw_0 - uw_0*vw_2);
+                    Bt_2 = static_cast<T>(0.5) * (uw_0*vw_1 - uw_1*vw_0);
+                }
                 T Hxyz_x = Br_00*pex + Br_01*pey + Br_02*pez + Bt_0;
                 T Hxyz_y = Br_10*pex + Br_11*pey + Br_12*pez + Bt_1;
                 T Hxyz_z = Br_20*pex + Br_21*pey + Br_22*pez + Bt_2;
                 // Read [Jw_i]_x and [Jw_j]_x for the H_w correction
-                T Si00 = s_Sworld[0];
-                T Si10 = s_Sworld[1];
-                T Si20 = s_Sworld[2];
-                T Si01 = s_Sworld[4];
-                T Si11 = s_Sworld[5];
-                T Si21 = s_Sworld[6];
-                T Si02 = s_Sworld[8];
-                T Si12 = s_Sworld[9];
-                T Si22 = s_Sworld[10];
-                T Sj00 = s_Sworld[0];
-                T Sj10 = s_Sworld[1];
-                T Sj20 = s_Sworld[2];
-                T Sj01 = s_Sworld[4];
-                T Sj11 = s_Sworld[5];
-                T Sj21 = s_Sworld[6];
-                T Sj02 = s_Sworld[8];
-                T Sj12 = s_Sworld[9];
-                T Sj22 = s_Sworld[10];
+                T Si00 = s_Sworld[si_base + 0];
+                T Si10 = s_Sworld[si_base + 1];
+                T Si20 = s_Sworld[si_base + 2];
+                T Si01 = s_Sworld[si_base + 4];
+                T Si11 = s_Sworld[si_base + 5];
+                T Si21 = s_Sworld[si_base + 6];
+                T Si02 = s_Sworld[si_base + 8];
+                T Si12 = s_Sworld[si_base + 9];
+                T Si22 = s_Sworld[si_base + 10];
+                T Sj00 = s_Sworld[sj_base + 0];
+                T Sj10 = s_Sworld[sj_base + 1];
+                T Sj20 = s_Sworld[sj_base + 2];
+                T Sj01 = s_Sworld[sj_base + 4];
+                T Sj11 = s_Sworld[sj_base + 5];
+                T Sj21 = s_Sworld[sj_base + 6];
+                T Sj02 = s_Sworld[sj_base + 8];
+                T Sj12 = s_Sworld[sj_base + 9];
+                T Sj22 = s_Sworld[sj_base + 10];
                 T SiSj00 = Si00*Sj00 + Si01*Sj10 + Si02*Sj20;
                 T SiSj01 = Si00*Sj01 + Si01*Sj11 + Si02*Sj21;
                 T SiSj02 = Si00*Sj02 + Si01*Sj12 + Si02*Sj22;
@@ -10830,480 +10494,12 @@ namespace grid {
                 T HW_x = static_cast<T>(0.5) * ((Br_21 - SiSj21) - (Br_12 - SiSj12));
                 T HW_y = static_cast<T>(0.5) * ((Br_02 - SiSj02) - (Br_20 - SiSj20));
                 T HW_z = static_cast<T>(0.5) * ((Br_10 - SiSj10) - (Br_01 - SiSj01));
-                s_end_effector_pose_hessian[(0 + 0) + 0 * 49] = Hxyz_x;
-                s_end_effector_pose_hessian[(0 + 0) + 1 * 49] = Hxyz_y;
-                s_end_effector_pose_hessian[(0 + 0) + 2 * 49] = Hxyz_z;
-                s_end_effector_pose_hessian[(0 + 0) + 3 * 49] = HW_x;
-                s_end_effector_pose_hessian[(0 + 0) + 4 * 49] = HW_y;
-                s_end_effector_pose_hessian[(0 + 0) + 5 * 49] = HW_z;
-            }
-            // ee=0 pair (vi=1, vj=1, a=1, b=1)
-            if (d2m_cell == 43) {
-                T pex = s_Xworld[172];
-                T pey = s_Xworld[173];
-                T pez = s_Xworld[174];
-                // same-joint pair (intra-joint), joint_jid=1 c_a=0 c_b=0
-                // Compute joint-a world frame axes of c_a and c_b body axes
-                T aw_0 = s_Xworld[24] * static_cast<T>(1);
-                T aw_1 = s_Xworld[25] * static_cast<T>(1);
-                T aw_2 = s_Xworld[26] * static_cast<T>(1);
-                T bw_0 = s_Xworld[24] * static_cast<T>(1);
-                T bw_1 = s_Xworld[25] * static_cast<T>(1);
-                T bw_2 = s_Xworld[26] * static_cast<T>(1);
-                T alw_0 = static_cast<T>(0);
-                T alw_1 = static_cast<T>(0);
-                T alw_2 = static_cast<T>(0);
-                T blw_0 = static_cast<T>(0);
-                T blw_1 = static_cast<T>(0);
-                T blw_2 = static_cast<T>(0);
-                T pax = s_Xworld[28];
-                T pay = s_Xworld[29];
-                T paz = s_Xworld[30];
-                // Br_world = 0.5 * ([aw]_x [bw]_x + [bw]_x [aw]_x)
-                //   = 0.5 * (aw bw^T + bw aw^T) - (aw . bw) I
-                T adotb = aw_0*bw_0 + aw_1*bw_1 + aw_2*bw_2;
-                T Br_00 = static_cast<T>(0.5) * (aw_0*bw_0 + bw_0*aw_0) - adotb;
-                T Br_01 = static_cast<T>(0.5) * (aw_0*bw_1 + bw_0*aw_1);
-                T Br_02 = static_cast<T>(0.5) * (aw_0*bw_2 + bw_0*aw_2);
-                T Br_10 = static_cast<T>(0.5) * (aw_1*bw_0 + bw_1*aw_0);
-                T Br_11 = static_cast<T>(0.5) * (aw_1*bw_1 + bw_1*aw_1) - adotb;
-                T Br_12 = static_cast<T>(0.5) * (aw_1*bw_2 + bw_1*aw_2);
-                T Br_20 = static_cast<T>(0.5) * (aw_2*bw_0 + bw_2*aw_0);
-                T Br_21 = static_cast<T>(0.5) * (aw_2*bw_1 + bw_2*aw_1);
-                T Br_22 = static_cast<T>(0.5) * (aw_2*bw_2 + bw_2*aw_2) - adotb;
-                T Bt_0 = -(Br_00*pax + Br_01*pay + Br_02*paz);
-                T Bt_1 = -(Br_10*pax + Br_11*pay + Br_12*paz);
-                T Bt_2 = -(Br_20*pax + Br_21*pay + Br_22*paz);
-                T Hxyz_x = Br_00*pex + Br_01*pey + Br_02*pez + Bt_0;
-                T Hxyz_y = Br_10*pex + Br_11*pey + Br_12*pez + Bt_1;
-                T Hxyz_z = Br_20*pex + Br_21*pey + Br_22*pez + Bt_2;
-                // Read [Jw_i]_x and [Jw_j]_x for the H_w correction
-                T Si00 = s_Sworld[16];
-                T Si10 = s_Sworld[17];
-                T Si20 = s_Sworld[18];
-                T Si01 = s_Sworld[20];
-                T Si11 = s_Sworld[21];
-                T Si21 = s_Sworld[22];
-                T Si02 = s_Sworld[24];
-                T Si12 = s_Sworld[25];
-                T Si22 = s_Sworld[26];
-                T Sj00 = s_Sworld[16];
-                T Sj10 = s_Sworld[17];
-                T Sj20 = s_Sworld[18];
-                T Sj01 = s_Sworld[20];
-                T Sj11 = s_Sworld[21];
-                T Sj21 = s_Sworld[22];
-                T Sj02 = s_Sworld[24];
-                T Sj12 = s_Sworld[25];
-                T Sj22 = s_Sworld[26];
-                T SiSj00 = Si00*Sj00 + Si01*Sj10 + Si02*Sj20;
-                T SiSj01 = Si00*Sj01 + Si01*Sj11 + Si02*Sj21;
-                T SiSj02 = Si00*Sj02 + Si01*Sj12 + Si02*Sj22;
-                T SiSj10 = Si10*Sj00 + Si11*Sj10 + Si12*Sj20;
-                T SiSj11 = Si10*Sj01 + Si11*Sj11 + Si12*Sj21;
-                T SiSj12 = Si10*Sj02 + Si11*Sj12 + Si12*Sj22;
-                T SiSj20 = Si20*Sj00 + Si21*Sj10 + Si22*Sj20;
-                T SiSj21 = Si20*Sj01 + Si21*Sj11 + Si22*Sj21;
-                T SiSj22 = Si20*Sj02 + Si21*Sj12 + Si22*Sj22;
-                T HW_x = static_cast<T>(0.5) * ((Br_21 - SiSj21) - (Br_12 - SiSj12));
-                T HW_y = static_cast<T>(0.5) * ((Br_02 - SiSj02) - (Br_20 - SiSj20));
-                T HW_z = static_cast<T>(0.5) * ((Br_10 - SiSj10) - (Br_01 - SiSj01));
-                s_end_effector_pose_hessian[(0 + 8) + 0 * 49] = Hxyz_x;
-                s_end_effector_pose_hessian[(0 + 8) + 1 * 49] = Hxyz_y;
-                s_end_effector_pose_hessian[(0 + 8) + 2 * 49] = Hxyz_z;
-                s_end_effector_pose_hessian[(0 + 8) + 3 * 49] = HW_x;
-                s_end_effector_pose_hessian[(0 + 8) + 4 * 49] = HW_y;
-                s_end_effector_pose_hessian[(0 + 8) + 5 * 49] = HW_z;
-            }
-            // ee=0 pair (vi=2, vj=2, a=2, b=2)
-            if (d2m_cell == 44) {
-                T pex = s_Xworld[172];
-                T pey = s_Xworld[173];
-                T pez = s_Xworld[174];
-                // same-joint pair (intra-joint), joint_jid=2 c_a=0 c_b=0
-                // Compute joint-a world frame axes of c_a and c_b body axes
-                T aw_0 = s_Xworld[40] * static_cast<T>(1);
-                T aw_1 = s_Xworld[41] * static_cast<T>(1);
-                T aw_2 = s_Xworld[42] * static_cast<T>(1);
-                T bw_0 = s_Xworld[40] * static_cast<T>(1);
-                T bw_1 = s_Xworld[41] * static_cast<T>(1);
-                T bw_2 = s_Xworld[42] * static_cast<T>(1);
-                T alw_0 = static_cast<T>(0);
-                T alw_1 = static_cast<T>(0);
-                T alw_2 = static_cast<T>(0);
-                T blw_0 = static_cast<T>(0);
-                T blw_1 = static_cast<T>(0);
-                T blw_2 = static_cast<T>(0);
-                T pax = s_Xworld[44];
-                T pay = s_Xworld[45];
-                T paz = s_Xworld[46];
-                // Br_world = 0.5 * ([aw]_x [bw]_x + [bw]_x [aw]_x)
-                //   = 0.5 * (aw bw^T + bw aw^T) - (aw . bw) I
-                T adotb = aw_0*bw_0 + aw_1*bw_1 + aw_2*bw_2;
-                T Br_00 = static_cast<T>(0.5) * (aw_0*bw_0 + bw_0*aw_0) - adotb;
-                T Br_01 = static_cast<T>(0.5) * (aw_0*bw_1 + bw_0*aw_1);
-                T Br_02 = static_cast<T>(0.5) * (aw_0*bw_2 + bw_0*aw_2);
-                T Br_10 = static_cast<T>(0.5) * (aw_1*bw_0 + bw_1*aw_0);
-                T Br_11 = static_cast<T>(0.5) * (aw_1*bw_1 + bw_1*aw_1) - adotb;
-                T Br_12 = static_cast<T>(0.5) * (aw_1*bw_2 + bw_1*aw_2);
-                T Br_20 = static_cast<T>(0.5) * (aw_2*bw_0 + bw_2*aw_0);
-                T Br_21 = static_cast<T>(0.5) * (aw_2*bw_1 + bw_2*aw_1);
-                T Br_22 = static_cast<T>(0.5) * (aw_2*bw_2 + bw_2*aw_2) - adotb;
-                T Bt_0 = -(Br_00*pax + Br_01*pay + Br_02*paz);
-                T Bt_1 = -(Br_10*pax + Br_11*pay + Br_12*paz);
-                T Bt_2 = -(Br_20*pax + Br_21*pay + Br_22*paz);
-                T Hxyz_x = Br_00*pex + Br_01*pey + Br_02*pez + Bt_0;
-                T Hxyz_y = Br_10*pex + Br_11*pey + Br_12*pez + Bt_1;
-                T Hxyz_z = Br_20*pex + Br_21*pey + Br_22*pez + Bt_2;
-                // Read [Jw_i]_x and [Jw_j]_x for the H_w correction
-                T Si00 = s_Sworld[32];
-                T Si10 = s_Sworld[33];
-                T Si20 = s_Sworld[34];
-                T Si01 = s_Sworld[36];
-                T Si11 = s_Sworld[37];
-                T Si21 = s_Sworld[38];
-                T Si02 = s_Sworld[40];
-                T Si12 = s_Sworld[41];
-                T Si22 = s_Sworld[42];
-                T Sj00 = s_Sworld[32];
-                T Sj10 = s_Sworld[33];
-                T Sj20 = s_Sworld[34];
-                T Sj01 = s_Sworld[36];
-                T Sj11 = s_Sworld[37];
-                T Sj21 = s_Sworld[38];
-                T Sj02 = s_Sworld[40];
-                T Sj12 = s_Sworld[41];
-                T Sj22 = s_Sworld[42];
-                T SiSj00 = Si00*Sj00 + Si01*Sj10 + Si02*Sj20;
-                T SiSj01 = Si00*Sj01 + Si01*Sj11 + Si02*Sj21;
-                T SiSj02 = Si00*Sj02 + Si01*Sj12 + Si02*Sj22;
-                T SiSj10 = Si10*Sj00 + Si11*Sj10 + Si12*Sj20;
-                T SiSj11 = Si10*Sj01 + Si11*Sj11 + Si12*Sj21;
-                T SiSj12 = Si10*Sj02 + Si11*Sj12 + Si12*Sj22;
-                T SiSj20 = Si20*Sj00 + Si21*Sj10 + Si22*Sj20;
-                T SiSj21 = Si20*Sj01 + Si21*Sj11 + Si22*Sj21;
-                T SiSj22 = Si20*Sj02 + Si21*Sj12 + Si22*Sj22;
-                T HW_x = static_cast<T>(0.5) * ((Br_21 - SiSj21) - (Br_12 - SiSj12));
-                T HW_y = static_cast<T>(0.5) * ((Br_02 - SiSj02) - (Br_20 - SiSj20));
-                T HW_z = static_cast<T>(0.5) * ((Br_10 - SiSj10) - (Br_01 - SiSj01));
-                s_end_effector_pose_hessian[(0 + 16) + 0 * 49] = Hxyz_x;
-                s_end_effector_pose_hessian[(0 + 16) + 1 * 49] = Hxyz_y;
-                s_end_effector_pose_hessian[(0 + 16) + 2 * 49] = Hxyz_z;
-                s_end_effector_pose_hessian[(0 + 16) + 3 * 49] = HW_x;
-                s_end_effector_pose_hessian[(0 + 16) + 4 * 49] = HW_y;
-                s_end_effector_pose_hessian[(0 + 16) + 5 * 49] = HW_z;
-            }
-            // ee=0 pair (vi=3, vj=3, a=3, b=3)
-            if (d2m_cell == 45) {
-                T pex = s_Xworld[172];
-                T pey = s_Xworld[173];
-                T pez = s_Xworld[174];
-                // same-joint pair (intra-joint), joint_jid=3 c_a=0 c_b=0
-                // Compute joint-a world frame axes of c_a and c_b body axes
-                T aw_0 = s_Xworld[56] * static_cast<T>(1);
-                T aw_1 = s_Xworld[57] * static_cast<T>(1);
-                T aw_2 = s_Xworld[58] * static_cast<T>(1);
-                T bw_0 = s_Xworld[56] * static_cast<T>(1);
-                T bw_1 = s_Xworld[57] * static_cast<T>(1);
-                T bw_2 = s_Xworld[58] * static_cast<T>(1);
-                T alw_0 = static_cast<T>(0);
-                T alw_1 = static_cast<T>(0);
-                T alw_2 = static_cast<T>(0);
-                T blw_0 = static_cast<T>(0);
-                T blw_1 = static_cast<T>(0);
-                T blw_2 = static_cast<T>(0);
-                T pax = s_Xworld[60];
-                T pay = s_Xworld[61];
-                T paz = s_Xworld[62];
-                // Br_world = 0.5 * ([aw]_x [bw]_x + [bw]_x [aw]_x)
-                //   = 0.5 * (aw bw^T + bw aw^T) - (aw . bw) I
-                T adotb = aw_0*bw_0 + aw_1*bw_1 + aw_2*bw_2;
-                T Br_00 = static_cast<T>(0.5) * (aw_0*bw_0 + bw_0*aw_0) - adotb;
-                T Br_01 = static_cast<T>(0.5) * (aw_0*bw_1 + bw_0*aw_1);
-                T Br_02 = static_cast<T>(0.5) * (aw_0*bw_2 + bw_0*aw_2);
-                T Br_10 = static_cast<T>(0.5) * (aw_1*bw_0 + bw_1*aw_0);
-                T Br_11 = static_cast<T>(0.5) * (aw_1*bw_1 + bw_1*aw_1) - adotb;
-                T Br_12 = static_cast<T>(0.5) * (aw_1*bw_2 + bw_1*aw_2);
-                T Br_20 = static_cast<T>(0.5) * (aw_2*bw_0 + bw_2*aw_0);
-                T Br_21 = static_cast<T>(0.5) * (aw_2*bw_1 + bw_2*aw_1);
-                T Br_22 = static_cast<T>(0.5) * (aw_2*bw_2 + bw_2*aw_2) - adotb;
-                T Bt_0 = -(Br_00*pax + Br_01*pay + Br_02*paz);
-                T Bt_1 = -(Br_10*pax + Br_11*pay + Br_12*paz);
-                T Bt_2 = -(Br_20*pax + Br_21*pay + Br_22*paz);
-                T Hxyz_x = Br_00*pex + Br_01*pey + Br_02*pez + Bt_0;
-                T Hxyz_y = Br_10*pex + Br_11*pey + Br_12*pez + Bt_1;
-                T Hxyz_z = Br_20*pex + Br_21*pey + Br_22*pez + Bt_2;
-                // Read [Jw_i]_x and [Jw_j]_x for the H_w correction
-                T Si00 = s_Sworld[48];
-                T Si10 = s_Sworld[49];
-                T Si20 = s_Sworld[50];
-                T Si01 = s_Sworld[52];
-                T Si11 = s_Sworld[53];
-                T Si21 = s_Sworld[54];
-                T Si02 = s_Sworld[56];
-                T Si12 = s_Sworld[57];
-                T Si22 = s_Sworld[58];
-                T Sj00 = s_Sworld[48];
-                T Sj10 = s_Sworld[49];
-                T Sj20 = s_Sworld[50];
-                T Sj01 = s_Sworld[52];
-                T Sj11 = s_Sworld[53];
-                T Sj21 = s_Sworld[54];
-                T Sj02 = s_Sworld[56];
-                T Sj12 = s_Sworld[57];
-                T Sj22 = s_Sworld[58];
-                T SiSj00 = Si00*Sj00 + Si01*Sj10 + Si02*Sj20;
-                T SiSj01 = Si00*Sj01 + Si01*Sj11 + Si02*Sj21;
-                T SiSj02 = Si00*Sj02 + Si01*Sj12 + Si02*Sj22;
-                T SiSj10 = Si10*Sj00 + Si11*Sj10 + Si12*Sj20;
-                T SiSj11 = Si10*Sj01 + Si11*Sj11 + Si12*Sj21;
-                T SiSj12 = Si10*Sj02 + Si11*Sj12 + Si12*Sj22;
-                T SiSj20 = Si20*Sj00 + Si21*Sj10 + Si22*Sj20;
-                T SiSj21 = Si20*Sj01 + Si21*Sj11 + Si22*Sj21;
-                T SiSj22 = Si20*Sj02 + Si21*Sj12 + Si22*Sj22;
-                T HW_x = static_cast<T>(0.5) * ((Br_21 - SiSj21) - (Br_12 - SiSj12));
-                T HW_y = static_cast<T>(0.5) * ((Br_02 - SiSj02) - (Br_20 - SiSj20));
-                T HW_z = static_cast<T>(0.5) * ((Br_10 - SiSj10) - (Br_01 - SiSj01));
-                s_end_effector_pose_hessian[(0 + 24) + 0 * 49] = Hxyz_x;
-                s_end_effector_pose_hessian[(0 + 24) + 1 * 49] = Hxyz_y;
-                s_end_effector_pose_hessian[(0 + 24) + 2 * 49] = Hxyz_z;
-                s_end_effector_pose_hessian[(0 + 24) + 3 * 49] = HW_x;
-                s_end_effector_pose_hessian[(0 + 24) + 4 * 49] = HW_y;
-                s_end_effector_pose_hessian[(0 + 24) + 5 * 49] = HW_z;
-            }
-            // ee=0 pair (vi=4, vj=4, a=4, b=4)
-            if (d2m_cell == 46) {
-                T pex = s_Xworld[172];
-                T pey = s_Xworld[173];
-                T pez = s_Xworld[174];
-                // same-joint pair (intra-joint), joint_jid=4 c_a=0 c_b=0
-                // Compute joint-a world frame axes of c_a and c_b body axes
-                T aw_0 = s_Xworld[72] * static_cast<T>(1);
-                T aw_1 = s_Xworld[73] * static_cast<T>(1);
-                T aw_2 = s_Xworld[74] * static_cast<T>(1);
-                T bw_0 = s_Xworld[72] * static_cast<T>(1);
-                T bw_1 = s_Xworld[73] * static_cast<T>(1);
-                T bw_2 = s_Xworld[74] * static_cast<T>(1);
-                T alw_0 = static_cast<T>(0);
-                T alw_1 = static_cast<T>(0);
-                T alw_2 = static_cast<T>(0);
-                T blw_0 = static_cast<T>(0);
-                T blw_1 = static_cast<T>(0);
-                T blw_2 = static_cast<T>(0);
-                T pax = s_Xworld[76];
-                T pay = s_Xworld[77];
-                T paz = s_Xworld[78];
-                // Br_world = 0.5 * ([aw]_x [bw]_x + [bw]_x [aw]_x)
-                //   = 0.5 * (aw bw^T + bw aw^T) - (aw . bw) I
-                T adotb = aw_0*bw_0 + aw_1*bw_1 + aw_2*bw_2;
-                T Br_00 = static_cast<T>(0.5) * (aw_0*bw_0 + bw_0*aw_0) - adotb;
-                T Br_01 = static_cast<T>(0.5) * (aw_0*bw_1 + bw_0*aw_1);
-                T Br_02 = static_cast<T>(0.5) * (aw_0*bw_2 + bw_0*aw_2);
-                T Br_10 = static_cast<T>(0.5) * (aw_1*bw_0 + bw_1*aw_0);
-                T Br_11 = static_cast<T>(0.5) * (aw_1*bw_1 + bw_1*aw_1) - adotb;
-                T Br_12 = static_cast<T>(0.5) * (aw_1*bw_2 + bw_1*aw_2);
-                T Br_20 = static_cast<T>(0.5) * (aw_2*bw_0 + bw_2*aw_0);
-                T Br_21 = static_cast<T>(0.5) * (aw_2*bw_1 + bw_2*aw_1);
-                T Br_22 = static_cast<T>(0.5) * (aw_2*bw_2 + bw_2*aw_2) - adotb;
-                T Bt_0 = -(Br_00*pax + Br_01*pay + Br_02*paz);
-                T Bt_1 = -(Br_10*pax + Br_11*pay + Br_12*paz);
-                T Bt_2 = -(Br_20*pax + Br_21*pay + Br_22*paz);
-                T Hxyz_x = Br_00*pex + Br_01*pey + Br_02*pez + Bt_0;
-                T Hxyz_y = Br_10*pex + Br_11*pey + Br_12*pez + Bt_1;
-                T Hxyz_z = Br_20*pex + Br_21*pey + Br_22*pez + Bt_2;
-                // Read [Jw_i]_x and [Jw_j]_x for the H_w correction
-                T Si00 = s_Sworld[64];
-                T Si10 = s_Sworld[65];
-                T Si20 = s_Sworld[66];
-                T Si01 = s_Sworld[68];
-                T Si11 = s_Sworld[69];
-                T Si21 = s_Sworld[70];
-                T Si02 = s_Sworld[72];
-                T Si12 = s_Sworld[73];
-                T Si22 = s_Sworld[74];
-                T Sj00 = s_Sworld[64];
-                T Sj10 = s_Sworld[65];
-                T Sj20 = s_Sworld[66];
-                T Sj01 = s_Sworld[68];
-                T Sj11 = s_Sworld[69];
-                T Sj21 = s_Sworld[70];
-                T Sj02 = s_Sworld[72];
-                T Sj12 = s_Sworld[73];
-                T Sj22 = s_Sworld[74];
-                T SiSj00 = Si00*Sj00 + Si01*Sj10 + Si02*Sj20;
-                T SiSj01 = Si00*Sj01 + Si01*Sj11 + Si02*Sj21;
-                T SiSj02 = Si00*Sj02 + Si01*Sj12 + Si02*Sj22;
-                T SiSj10 = Si10*Sj00 + Si11*Sj10 + Si12*Sj20;
-                T SiSj11 = Si10*Sj01 + Si11*Sj11 + Si12*Sj21;
-                T SiSj12 = Si10*Sj02 + Si11*Sj12 + Si12*Sj22;
-                T SiSj20 = Si20*Sj00 + Si21*Sj10 + Si22*Sj20;
-                T SiSj21 = Si20*Sj01 + Si21*Sj11 + Si22*Sj21;
-                T SiSj22 = Si20*Sj02 + Si21*Sj12 + Si22*Sj22;
-                T HW_x = static_cast<T>(0.5) * ((Br_21 - SiSj21) - (Br_12 - SiSj12));
-                T HW_y = static_cast<T>(0.5) * ((Br_02 - SiSj02) - (Br_20 - SiSj20));
-                T HW_z = static_cast<T>(0.5) * ((Br_10 - SiSj10) - (Br_01 - SiSj01));
-                s_end_effector_pose_hessian[(0 + 32) + 0 * 49] = Hxyz_x;
-                s_end_effector_pose_hessian[(0 + 32) + 1 * 49] = Hxyz_y;
-                s_end_effector_pose_hessian[(0 + 32) + 2 * 49] = Hxyz_z;
-                s_end_effector_pose_hessian[(0 + 32) + 3 * 49] = HW_x;
-                s_end_effector_pose_hessian[(0 + 32) + 4 * 49] = HW_y;
-                s_end_effector_pose_hessian[(0 + 32) + 5 * 49] = HW_z;
-            }
-            // ee=0 pair (vi=5, vj=5, a=5, b=5)
-            if (d2m_cell == 47) {
-                T pex = s_Xworld[172];
-                T pey = s_Xworld[173];
-                T pez = s_Xworld[174];
-                // same-joint pair (intra-joint), joint_jid=5 c_a=0 c_b=0
-                // Compute joint-a world frame axes of c_a and c_b body axes
-                T aw_0 = s_Xworld[88] * static_cast<T>(1);
-                T aw_1 = s_Xworld[89] * static_cast<T>(1);
-                T aw_2 = s_Xworld[90] * static_cast<T>(1);
-                T bw_0 = s_Xworld[88] * static_cast<T>(1);
-                T bw_1 = s_Xworld[89] * static_cast<T>(1);
-                T bw_2 = s_Xworld[90] * static_cast<T>(1);
-                T alw_0 = static_cast<T>(0);
-                T alw_1 = static_cast<T>(0);
-                T alw_2 = static_cast<T>(0);
-                T blw_0 = static_cast<T>(0);
-                T blw_1 = static_cast<T>(0);
-                T blw_2 = static_cast<T>(0);
-                T pax = s_Xworld[92];
-                T pay = s_Xworld[93];
-                T paz = s_Xworld[94];
-                // Br_world = 0.5 * ([aw]_x [bw]_x + [bw]_x [aw]_x)
-                //   = 0.5 * (aw bw^T + bw aw^T) - (aw . bw) I
-                T adotb = aw_0*bw_0 + aw_1*bw_1 + aw_2*bw_2;
-                T Br_00 = static_cast<T>(0.5) * (aw_0*bw_0 + bw_0*aw_0) - adotb;
-                T Br_01 = static_cast<T>(0.5) * (aw_0*bw_1 + bw_0*aw_1);
-                T Br_02 = static_cast<T>(0.5) * (aw_0*bw_2 + bw_0*aw_2);
-                T Br_10 = static_cast<T>(0.5) * (aw_1*bw_0 + bw_1*aw_0);
-                T Br_11 = static_cast<T>(0.5) * (aw_1*bw_1 + bw_1*aw_1) - adotb;
-                T Br_12 = static_cast<T>(0.5) * (aw_1*bw_2 + bw_1*aw_2);
-                T Br_20 = static_cast<T>(0.5) * (aw_2*bw_0 + bw_2*aw_0);
-                T Br_21 = static_cast<T>(0.5) * (aw_2*bw_1 + bw_2*aw_1);
-                T Br_22 = static_cast<T>(0.5) * (aw_2*bw_2 + bw_2*aw_2) - adotb;
-                T Bt_0 = -(Br_00*pax + Br_01*pay + Br_02*paz);
-                T Bt_1 = -(Br_10*pax + Br_11*pay + Br_12*paz);
-                T Bt_2 = -(Br_20*pax + Br_21*pay + Br_22*paz);
-                T Hxyz_x = Br_00*pex + Br_01*pey + Br_02*pez + Bt_0;
-                T Hxyz_y = Br_10*pex + Br_11*pey + Br_12*pez + Bt_1;
-                T Hxyz_z = Br_20*pex + Br_21*pey + Br_22*pez + Bt_2;
-                // Read [Jw_i]_x and [Jw_j]_x for the H_w correction
-                T Si00 = s_Sworld[80];
-                T Si10 = s_Sworld[81];
-                T Si20 = s_Sworld[82];
-                T Si01 = s_Sworld[84];
-                T Si11 = s_Sworld[85];
-                T Si21 = s_Sworld[86];
-                T Si02 = s_Sworld[88];
-                T Si12 = s_Sworld[89];
-                T Si22 = s_Sworld[90];
-                T Sj00 = s_Sworld[80];
-                T Sj10 = s_Sworld[81];
-                T Sj20 = s_Sworld[82];
-                T Sj01 = s_Sworld[84];
-                T Sj11 = s_Sworld[85];
-                T Sj21 = s_Sworld[86];
-                T Sj02 = s_Sworld[88];
-                T Sj12 = s_Sworld[89];
-                T Sj22 = s_Sworld[90];
-                T SiSj00 = Si00*Sj00 + Si01*Sj10 + Si02*Sj20;
-                T SiSj01 = Si00*Sj01 + Si01*Sj11 + Si02*Sj21;
-                T SiSj02 = Si00*Sj02 + Si01*Sj12 + Si02*Sj22;
-                T SiSj10 = Si10*Sj00 + Si11*Sj10 + Si12*Sj20;
-                T SiSj11 = Si10*Sj01 + Si11*Sj11 + Si12*Sj21;
-                T SiSj12 = Si10*Sj02 + Si11*Sj12 + Si12*Sj22;
-                T SiSj20 = Si20*Sj00 + Si21*Sj10 + Si22*Sj20;
-                T SiSj21 = Si20*Sj01 + Si21*Sj11 + Si22*Sj21;
-                T SiSj22 = Si20*Sj02 + Si21*Sj12 + Si22*Sj22;
-                T HW_x = static_cast<T>(0.5) * ((Br_21 - SiSj21) - (Br_12 - SiSj12));
-                T HW_y = static_cast<T>(0.5) * ((Br_02 - SiSj02) - (Br_20 - SiSj20));
-                T HW_z = static_cast<T>(0.5) * ((Br_10 - SiSj10) - (Br_01 - SiSj01));
-                s_end_effector_pose_hessian[(0 + 40) + 0 * 49] = Hxyz_x;
-                s_end_effector_pose_hessian[(0 + 40) + 1 * 49] = Hxyz_y;
-                s_end_effector_pose_hessian[(0 + 40) + 2 * 49] = Hxyz_z;
-                s_end_effector_pose_hessian[(0 + 40) + 3 * 49] = HW_x;
-                s_end_effector_pose_hessian[(0 + 40) + 4 * 49] = HW_y;
-                s_end_effector_pose_hessian[(0 + 40) + 5 * 49] = HW_z;
-            }
-            // ee=0 pair (vi=6, vj=6, a=6, b=6)
-            if (d2m_cell == 48) {
-                T pex = s_Xworld[172];
-                T pey = s_Xworld[173];
-                T pez = s_Xworld[174];
-                // same-joint pair (intra-joint), joint_jid=6 c_a=0 c_b=0
-                // Compute joint-a world frame axes of c_a and c_b body axes
-                T aw_0 = s_Xworld[104] * static_cast<T>(1);
-                T aw_1 = s_Xworld[105] * static_cast<T>(1);
-                T aw_2 = s_Xworld[106] * static_cast<T>(1);
-                T bw_0 = s_Xworld[104] * static_cast<T>(1);
-                T bw_1 = s_Xworld[105] * static_cast<T>(1);
-                T bw_2 = s_Xworld[106] * static_cast<T>(1);
-                T alw_0 = static_cast<T>(0);
-                T alw_1 = static_cast<T>(0);
-                T alw_2 = static_cast<T>(0);
-                T blw_0 = static_cast<T>(0);
-                T blw_1 = static_cast<T>(0);
-                T blw_2 = static_cast<T>(0);
-                T pax = s_Xworld[108];
-                T pay = s_Xworld[109];
-                T paz = s_Xworld[110];
-                // Br_world = 0.5 * ([aw]_x [bw]_x + [bw]_x [aw]_x)
-                //   = 0.5 * (aw bw^T + bw aw^T) - (aw . bw) I
-                T adotb = aw_0*bw_0 + aw_1*bw_1 + aw_2*bw_2;
-                T Br_00 = static_cast<T>(0.5) * (aw_0*bw_0 + bw_0*aw_0) - adotb;
-                T Br_01 = static_cast<T>(0.5) * (aw_0*bw_1 + bw_0*aw_1);
-                T Br_02 = static_cast<T>(0.5) * (aw_0*bw_2 + bw_0*aw_2);
-                T Br_10 = static_cast<T>(0.5) * (aw_1*bw_0 + bw_1*aw_0);
-                T Br_11 = static_cast<T>(0.5) * (aw_1*bw_1 + bw_1*aw_1) - adotb;
-                T Br_12 = static_cast<T>(0.5) * (aw_1*bw_2 + bw_1*aw_2);
-                T Br_20 = static_cast<T>(0.5) * (aw_2*bw_0 + bw_2*aw_0);
-                T Br_21 = static_cast<T>(0.5) * (aw_2*bw_1 + bw_2*aw_1);
-                T Br_22 = static_cast<T>(0.5) * (aw_2*bw_2 + bw_2*aw_2) - adotb;
-                T Bt_0 = -(Br_00*pax + Br_01*pay + Br_02*paz);
-                T Bt_1 = -(Br_10*pax + Br_11*pay + Br_12*paz);
-                T Bt_2 = -(Br_20*pax + Br_21*pay + Br_22*paz);
-                T Hxyz_x = Br_00*pex + Br_01*pey + Br_02*pez + Bt_0;
-                T Hxyz_y = Br_10*pex + Br_11*pey + Br_12*pez + Bt_1;
-                T Hxyz_z = Br_20*pex + Br_21*pey + Br_22*pez + Bt_2;
-                // Read [Jw_i]_x and [Jw_j]_x for the H_w correction
-                T Si00 = s_Sworld[96];
-                T Si10 = s_Sworld[97];
-                T Si20 = s_Sworld[98];
-                T Si01 = s_Sworld[100];
-                T Si11 = s_Sworld[101];
-                T Si21 = s_Sworld[102];
-                T Si02 = s_Sworld[104];
-                T Si12 = s_Sworld[105];
-                T Si22 = s_Sworld[106];
-                T Sj00 = s_Sworld[96];
-                T Sj10 = s_Sworld[97];
-                T Sj20 = s_Sworld[98];
-                T Sj01 = s_Sworld[100];
-                T Sj11 = s_Sworld[101];
-                T Sj21 = s_Sworld[102];
-                T Sj02 = s_Sworld[104];
-                T Sj12 = s_Sworld[105];
-                T Sj22 = s_Sworld[106];
-                T SiSj00 = Si00*Sj00 + Si01*Sj10 + Si02*Sj20;
-                T SiSj01 = Si00*Sj01 + Si01*Sj11 + Si02*Sj21;
-                T SiSj02 = Si00*Sj02 + Si01*Sj12 + Si02*Sj22;
-                T SiSj10 = Si10*Sj00 + Si11*Sj10 + Si12*Sj20;
-                T SiSj11 = Si10*Sj01 + Si11*Sj11 + Si12*Sj21;
-                T SiSj12 = Si10*Sj02 + Si11*Sj12 + Si12*Sj22;
-                T SiSj20 = Si20*Sj00 + Si21*Sj10 + Si22*Sj20;
-                T SiSj21 = Si20*Sj01 + Si21*Sj11 + Si22*Sj21;
-                T SiSj22 = Si20*Sj02 + Si21*Sj12 + Si22*Sj22;
-                T HW_x = static_cast<T>(0.5) * ((Br_21 - SiSj21) - (Br_12 - SiSj12));
-                T HW_y = static_cast<T>(0.5) * ((Br_02 - SiSj02) - (Br_20 - SiSj20));
-                T HW_z = static_cast<T>(0.5) * ((Br_10 - SiSj10) - (Br_01 - SiSj01));
-                s_end_effector_pose_hessian[(0 + 48) + 0 * 49] = Hxyz_x;
-                s_end_effector_pose_hessian[(0 + 48) + 1 * 49] = Hxyz_y;
-                s_end_effector_pose_hessian[(0 + 48) + 2 * 49] = Hxyz_z;
-                s_end_effector_pose_hessian[(0 + 48) + 3 * 49] = HW_x;
-                s_end_effector_pose_hessian[(0 + 48) + 4 * 49] = HW_y;
-                s_end_effector_pose_hessian[(0 + 48) + 5 * 49] = HW_z;
+                s_end_effector_pose_hessian[out_base + 0 * 49] = Hxyz_x;
+                s_end_effector_pose_hessian[out_base + 1 * 49] = Hxyz_y;
+                s_end_effector_pose_hessian[out_base + 2 * 49] = Hxyz_z;
+                s_end_effector_pose_hessian[out_base + 3 * 49] = HW_x;
+                s_end_effector_pose_hessian[out_base + 4 * 49] = HW_y;
+                s_end_effector_pose_hessian[out_base + 5 * 49] = HW_z;
             }
         }
         __syncthreads();
@@ -12346,6 +11542,467 @@ namespace grid {
     #define GRID_RBD_EE_POSE_GRADIENT_KERNEL end_effector_pose_gradient_kernel_panda_grasptarget_hand
     #define GRID_RBD_EE_POSE_HESSIAN_KERNEL end_effector_pose_hessian_kernel_panda_grasptarget_hand
     
+    // W1b batched multi-target world positions (opt-in via multi_target_batch); NUM_MULTI_TARGETS = 58
+    const int NUM_MULTI_TARGETS = 58;
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED) return grid_shared_arena_bytes<T>(416, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); else return grid_shared_arena_bytes<T>(208, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(208); }
+    /**
+     * Batched multi-target world positions
+     *
+     * Notes:
+     *   Computes world positions of a baked batch of fixed-offset targets (grasp points / spheres).
+     *   One shared FK (world transforms) + parallel-over-targets offset extraction.
+     *
+     * @param s_out_pos is shared memory of size 3*N_TARGETS (xyz per target), N_TARGETS = 58
+     * @param s_q is the vector of joint positions
+     * @param s_Xhom is the per-joint local homogeneous transforms (already updated for q)
+     * @param s_temp is helper shared memory (holds s_Xworld = 16*NUM_JOINTS)
+     * @param s_topology_helpers is the (shared) memory location for the topology_helpers (nullptr/unused for serial chains with identical Ss)
+     * @param d_workspace is the global-memory scratch used when !TEMP_IN_SMEM
+     */
+    template <typename T, bool TEMP_IN_SMEM = true>
+    __device__
+    void multi_target_position_inner(T *s_out_pos, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace, unsigned char *s_linalg_smem) {
+        if constexpr (!TEMP_IN_SMEM) { s_temp = d_workspace; } else { (void)d_workspace; }
+        (void)s_q; (void)s_linalg_smem;
+        T *s_Xworld = s_temp;   // 16 * 7
+        //
+        // Build world transforms for every joint via BFS-level chain-up
+        //
+        // BFS level 0 -> joints [0]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 0; par = -1; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // BFS level 1 -> joints [1]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 1; par = 0; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // BFS level 2 -> joints [2]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 2; par = 1; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // BFS level 3 -> joints [3]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 3; par = 2; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // BFS level 4 -> joints [4]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 4; par = 3; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // BFS level 5 -> joints [5]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 5; par = 4; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // BFS level 6 -> joints [6]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 6; par = 5; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // baked target batch: anchor frame id + LOCAL offset per target
+        static const int mt_anchor[58] = {0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6};
+        const T mt_offset[174] = {static_cast<T>(0), static_cast<T>(-0.080000000000000002), static_cast<T>(0), static_cast<T>(0), static_cast<T>(-0.029999999999999999), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(-0.12), static_cast<T>(0), static_cast<T>(0), static_cast<T>(-0.17000000000000001), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0.029999999999999999), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0.080000000000000002), static_cast<T>(0), static_cast<T>(-0.12), static_cast<T>(0), static_cast<T>(0), static_cast<T>(-0.17000000000000001), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(-0.10000000000000001), static_cast<T>(0), static_cast<T>(0), static_cast<T>(-0.059999999999999998), static_cast<T>(0.080000000000000002), static_cast<T>(0.059999999999999998), static_cast<T>(0), static_cast<T>(0.080000000000000002), static_cast<T>(0.02), static_cast<T>(0), static_cast<T>(-0.080000000000000002), static_cast<T>(0.095000000000000001), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0.02), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0.059999999999999998), static_cast<T>(-0.080000000000000002), static_cast<T>(0.059999999999999998), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0.055), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0.074999999999999997), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(-0.22), static_cast<T>(0), static_cast<T>(0.050000000000000003), static_cast<T>(-0.17999999999999999), static_cast<T>(0.01), static_cast<T>(0.080000000000000002), static_cast<T>(-0.14000000000000001), static_cast<T>(0.01), static_cast<T>(0.085000000000000006), static_cast<T>(-0.11), static_cast<T>(0.01), static_cast<T>(0.089999999999999997), static_cast<T>(-0.080000000000000002), static_cast<T>(0.01), static_cast<T>(0.095000000000000001), static_cast<T>(-0.050000000000000003), static_cast<T>(-0.01), static_cast<T>(0.080000000000000002), static_cast<T>(-0.14000000000000001), static_cast<T>(-0.01), static_cast<T>(0.085000000000000006), static_cast<T>(-0.11), static_cast<T>(-0.01), static_cast<T>(0.089999999999999997), static_cast<T>(-0.080000000000000002), static_cast<T>(-0.01), static_cast<T>(0.095000000000000001), static_cast<T>(-0.050000000000000003), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0.080000000000000002), static_cast<T>(-0.01), static_cast<T>(0), static_cast<T>(0.080000000000000002), static_cast<T>(0.035000000000000003), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0.070000000000000007), static_cast<T>(0.02), static_cast<T>(0.040000000000000001), static_cast<T>(0.080000000000000002), static_cast<T>(0.040000000000000001), static_cast<T>(0.02), static_cast<T>(0.080000000000000002), static_cast<T>(0.040000000000000001), static_cast<T>(0.059999999999999998), static_cast<T>(0.085000000000000006), static_cast<T>(0.059999999999999998), static_cast<T>(0.040000000000000001), static_cast<T>(0.085000000000000006), static_cast<T>(-0.053033008588931257), static_cast<T>(-0.05303300858905087), static_cast<T>(0.11699999999999999), static_cast<T>(-0.031819805153358756), static_cast<T>(-0.031819805153430518), static_cast<T>(0.11699999999999999), static_cast<T>(-0.010606601717786251), static_cast<T>(-0.010606601717810174), static_cast<T>(0.11699999999999999), static_cast<T>(0.010606601717786251), static_cast<T>(0.010606601717810174), static_cast<T>(0.11699999999999999), static_cast<T>(0.031819805153358756), static_cast<T>(0.031819805153430518), static_cast<T>(0.11699999999999999), static_cast<T>(0.053033008588931257), static_cast<T>(0.05303300858905087), static_cast<T>(0.11699999999999999), static_cast<T>(-0.053033008588931257), static_cast<T>(-0.05303300858905087), static_cast<T>(0.13700000000000001), static_cast<T>(-0.031819805153358756), static_cast<T>(-0.031819805153430518), static_cast<T>(0.13700000000000001), static_cast<T>(-0.010606601717786251), static_cast<T>(-0.010606601717810174), static_cast<T>(0.13700000000000001), static_cast<T>(0.010606601717786251), static_cast<T>(0.010606601717810174), static_cast<T>(0.13700000000000001), static_cast<T>(0.031819805153358756), static_cast<T>(0.031819805153430518), static_cast<T>(0.13700000000000001), static_cast<T>(0.053033008588931257), static_cast<T>(0.05303300858905087), static_cast<T>(0.13700000000000001), static_cast<T>(-0.053033008588931257), static_cast<T>(-0.05303300858905087), static_cast<T>(0.157), static_cast<T>(-0.031819805153358756), static_cast<T>(-0.031819805153430518), static_cast<T>(0.157), static_cast<T>(-0.010606601717786251), static_cast<T>(-0.010606601717810174), static_cast<T>(0.157), static_cast<T>(0.010606601717786251), static_cast<T>(0.010606601717810174), static_cast<T>(0.157), static_cast<T>(0.031819805153358756), static_cast<T>(0.031819805153430518), static_cast<T>(0.157), static_cast<T>(0.053033008588931257), static_cast<T>(0.05303300858905087), static_cast<T>(0.157), static_cast<T>(0.038890872965216254), static_cast<T>(0.038890872965303976), static_cast<T>(0.18739999999999998), static_cast<T>(0.033941125496916004), static_cast<T>(0.033941125496992561), static_cast<T>(0.20939999999999998), static_cast<T>(-0.038890872965216254), static_cast<T>(-0.038890872965303976), static_cast<T>(0.18739999999999998), static_cast<T>(-0.033941125496916004), static_cast<T>(-0.033941125496992561), static_cast<T>(0.20939999999999998)};
+        //
+        // Extract each target's world position = R_world[anchor] @ offset + p_world
+        //
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 174; ind += blockDim.x*blockDim.y){
+            int row = ind % 3; int t = ind / 3;
+            const T *X = &s_Xworld[16 * mt_anchor[t]];
+            const T *o = &mt_offset[3 * t];
+            s_out_pos[3*t + row] = X[row]*o[0] + X[row + 4]*o[1] + X[row + 8]*o[2] + X[row + 12];
+        }
+        __syncthreads();
+    }
+
+    /**
+     * Computes batched multi-target world positions
+     *
+     * Notes:
+     *   Computes world positions of a baked batch of fixed-offset targets (grasp points / spheres).
+     *   Inline-CUDA / grid_collision users: at TIER_LITE/TIER_MINIMAL the shared FK scratch (s_Xworld, ~208*sizeof(T) bytes) moves from smem to d_workspace, freeing smem for the caller's outer kernel.
+     *   Output placement is the CALLER's choice (the s_out_pos pointer): smem for small batches, a global buffer when 3*N is large.
+     *
+     * @param s_out_pos is a pointer to memory of size 3*N_TARGETS where N_TARGETS = 58 (caller chooses smem for small batches or a global buffer for many spheres)
+     * @param s_q is the vector of joint positions
+     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
+     * @param d_workspace is the global scratch buffer; size MULTI_TARGET_POSITION_DEVICE_INLINE_WORKSPACE_BYTES<T, RESOURCE_TIER>() bytes (= 0 at TIER_SHARED, 208*sizeof(T) at TIER_LITE+). Pass nullptr at TIER_SHARED
+     */
+    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
+    __device__
+    void multi_target_position_device(T *s_out_pos, const T *s_q, const robotModel<T> *d_robotModel, T *d_workspace = nullptr) {
+        // GRID shared arena layout
+        //   T s_XmatsHom[208]
+        //   T s_temp[208] (TIER_SHARED only; LITE/MINIMAL route to d_workspace)
+        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
+        extern __shared__ __align__(16) unsigned char s_arena[];
+        size_t s_arena_offset = 0;
+        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
+        s_arena_offset += sizeof(T) * static_cast<size_t>(208);
+        T *s_temp;
+        if constexpr (RESOURCE_TIER == TIER_SHARED) {
+            (void)d_workspace;
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(208);
+        }
+        else {
+            s_temp = d_workspace;
+        }
+        int *s_topology_helpers = nullptr;
+        unsigned char *s_linalg_smem = nullptr;
+        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
+            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
+            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
+            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
+        }
+        #ifdef GRID_CUDA_DEBUG_LAYOUT
+        if constexpr (RESOURCE_TIER == TIER_SHARED) {
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(416, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+        }
+        else {
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(208, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+        }
+        #endif
+        (void)s_arena_offset;
+        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
+        multi_target_position_inner<T, true>(s_out_pos, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+    }
+
+    // W2a batched multi-target world-position GRADIENT (opt-in via multi_target_batch)
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ inline size_t MULTI_TARGET_POSITION_GRADIENT_DYNAMIC_SHARED_MEM_BYTES() { if constexpr (TIER == TIER_SHARED) return grid_shared_arena_bytes<T>(884, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); else return grid_shared_arena_bytes<T>(208, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t MULTI_TARGET_POSITION_GRADIENT_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(676); }
+    /**
+     * Batched multi-target world-position gradient
+     *
+     * Notes:
+     *   Position gradient d(world pos)/dv of a baked batch of fixed-offset targets (grasp points / spheres).
+     *   Anchor-deduped geometric Jacobian (built once per distinct anchor) + offset epilogue; NO FK re-walk.
+     *
+     * @param s_out_grad is shared memory of size 3*NUM_VEL*N_TARGETS (3 x nv per target), N_TARGETS = 58, NUM_VEL = 7
+     * @param s_q is the vector of joint positions (unused; kept for signature parity)
+     * @param s_Xhom is the per-joint LOCAL homogeneous transforms (already updated for q)
+     * @param s_temp is helper shared memory (Xworld | Jv | Jw | ro)
+     * @param s_topology_helpers is the (shared) memory location for the topology_helpers (nullptr/unused for serial chains with identical Ss)
+     * @param d_workspace is the global-memory scratch used when !TEMP_IN_SMEM
+     */
+    template <typename T, bool TEMP_IN_SMEM = true>
+    __device__
+    void multi_target_position_gradient_inner(T *s_out_grad, const T *s_q, const T *s_Xhom, int *s_topology_helpers, T *s_temp, T *d_workspace, unsigned char *s_linalg_smem) {
+        if constexpr (!TEMP_IN_SMEM) { s_temp = d_workspace; } else { (void)d_workspace; }
+        (void)s_q; (void)s_linalg_smem;
+        // scratch layout: Xworld | Jv (3 x nv x anchor) | Jw (3 x nv x anchor) | ro (3 x target)
+        T *s_Xworld = &s_temp[0];
+        T *s_Jv     = &s_temp[208];
+        T *s_Jw     = &s_temp[355];
+        T *s_ro     = &s_temp[502];
+        //
+        // Step 1: build world transforms for every joint via BFS-level chain-up
+        //
+        // BFS level 0 -> joints [0]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 0; par = -1; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // BFS level 1 -> joints [1]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 1; par = 0; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // BFS level 2 -> joints [2]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 2; par = 1; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // BFS level 3 -> joints [3]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 3; par = 2; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // BFS level 4 -> joints [4]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 4; par = 3; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // BFS level 5 -> joints [5]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 5; par = 4; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        // BFS level 6 -> joints [6]
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 16; ind += blockDim.x*blockDim.y){
+            int slot = ind / 16; int ele = ind % 16;
+            int row = ele & 3; int col = ele >> 2;
+            // branch to get pointer locations
+            int jid; int par;
+                 if (slot < 1){ jid = 6; par = 5; }
+            if (par == -1) {
+                s_Xworld[16*jid + ele] = s_Xhom[16*jid + ele];
+            }
+            else {
+                s_Xworld[16*jid + ele] = dot_prod<T,4,4,1>(&s_Xworld[16*par + row], &s_Xhom[16*jid + 4*col]);
+            }
+        }
+        __syncthreads();
+        //
+        // Step 2: zero the J_v and J_w scratch (out-of-chain columns stay zero)
+        //
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 294; ind += blockDim.x*blockDim.y){
+            s_Jv[ind] = static_cast<T>(0);
+        }
+        __syncthreads();
+        //
+        // Step 3: per-chain-joint columns of J_v, J_w (one block-parallel work-item per (ee, S-column))
+        //
+        static const int eeg_job_j[]    = { 0, 0, 1, 0, 1, 2, 0, 1, 2, 3, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 6 };
+        static const int eeg_job_anc[]  = { 0, 1, 1, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6 };
+        static const int eeg_job_rev[]  = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 };
+        static const int eeg_job_base[] = { 0, 21, 24, 42, 45, 48, 63, 66, 69, 72, 84, 87, 90, 93, 96, 105, 108, 111, 114, 117, 120, 126, 129, 132, 135, 138, 141, 144 };
+        const T eeg_job_ax[] = { static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1), static_cast<T>(0), static_cast<T>(0), static_cast<T>(1) };
+        for(int job_idx = threadIdx.x + threadIdx.y*blockDim.x; job_idx < 28; job_idx += blockDim.x*blockDim.y){
+            int j   = eeg_job_j[job_idx];
+            int ee_anchor = eeg_job_anc[job_idx];
+            int col_base = eeg_job_base[job_idx];
+            T ax0 = eeg_job_ax[3*job_idx + 0]; T ax1 = eeg_job_ax[3*job_idx + 1]; T ax2 = eeg_job_ax[3*job_idx + 2];
+            T axw_0 = s_Xworld[16*j + 0]*ax0 + s_Xworld[16*j + 4]*ax1 + s_Xworld[16*j + 8]*ax2;
+            T axw_1 = s_Xworld[16*j + 1]*ax0 + s_Xworld[16*j + 5]*ax1 + s_Xworld[16*j + 9]*ax2;
+            T axw_2 = s_Xworld[16*j + 2]*ax0 + s_Xworld[16*j + 6]*ax1 + s_Xworld[16*j + 10]*ax2;
+            if (eeg_job_rev[job_idx]) {
+                s_Jw[col_base + 0] = axw_0; s_Jw[col_base + 1] = axw_1; s_Jw[col_base + 2] = axw_2;
+                T dx = s_Xworld[16*ee_anchor + 12] - s_Xworld[16*j + 12];
+                T dy = s_Xworld[16*ee_anchor + 13] - s_Xworld[16*j + 13];
+                T dz = s_Xworld[16*ee_anchor + 14] - s_Xworld[16*j + 14];
+                s_Jv[col_base + 0] = axw_1*dz - axw_2*dy;
+                s_Jv[col_base + 1] = axw_2*dx - axw_0*dz;
+                s_Jv[col_base + 2] = axw_0*dy - axw_1*dx;
+            }
+            else {
+                s_Jv[col_base + 0] = axw_0; s_Jv[col_base + 1] = axw_1; s_Jv[col_base + 2] = axw_2;
+            }
+        }
+        __syncthreads();
+        // baked batch: target -> anchor world-frame jid, target -> deduped anchor slot, LOCAL offset
+        static const int mt_anchor[58] = {0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6};
+        static const int mt_anchor_idx[58] = {0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6};
+        const T mt_offset[174] = {static_cast<T>(0), static_cast<T>(-0.080000000000000002), static_cast<T>(0), static_cast<T>(0), static_cast<T>(-0.029999999999999999), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(-0.12), static_cast<T>(0), static_cast<T>(0), static_cast<T>(-0.17000000000000001), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0.029999999999999999), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0.080000000000000002), static_cast<T>(0), static_cast<T>(-0.12), static_cast<T>(0), static_cast<T>(0), static_cast<T>(-0.17000000000000001), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(-0.10000000000000001), static_cast<T>(0), static_cast<T>(0), static_cast<T>(-0.059999999999999998), static_cast<T>(0.080000000000000002), static_cast<T>(0.059999999999999998), static_cast<T>(0), static_cast<T>(0.080000000000000002), static_cast<T>(0.02), static_cast<T>(0), static_cast<T>(-0.080000000000000002), static_cast<T>(0.095000000000000001), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0.02), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0.059999999999999998), static_cast<T>(-0.080000000000000002), static_cast<T>(0.059999999999999998), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0.055), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0.074999999999999997), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(-0.22), static_cast<T>(0), static_cast<T>(0.050000000000000003), static_cast<T>(-0.17999999999999999), static_cast<T>(0.01), static_cast<T>(0.080000000000000002), static_cast<T>(-0.14000000000000001), static_cast<T>(0.01), static_cast<T>(0.085000000000000006), static_cast<T>(-0.11), static_cast<T>(0.01), static_cast<T>(0.089999999999999997), static_cast<T>(-0.080000000000000002), static_cast<T>(0.01), static_cast<T>(0.095000000000000001), static_cast<T>(-0.050000000000000003), static_cast<T>(-0.01), static_cast<T>(0.080000000000000002), static_cast<T>(-0.14000000000000001), static_cast<T>(-0.01), static_cast<T>(0.085000000000000006), static_cast<T>(-0.11), static_cast<T>(-0.01), static_cast<T>(0.089999999999999997), static_cast<T>(-0.080000000000000002), static_cast<T>(-0.01), static_cast<T>(0.095000000000000001), static_cast<T>(-0.050000000000000003), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0.080000000000000002), static_cast<T>(-0.01), static_cast<T>(0), static_cast<T>(0.080000000000000002), static_cast<T>(0.035000000000000003), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0), static_cast<T>(0.070000000000000007), static_cast<T>(0.02), static_cast<T>(0.040000000000000001), static_cast<T>(0.080000000000000002), static_cast<T>(0.040000000000000001), static_cast<T>(0.02), static_cast<T>(0.080000000000000002), static_cast<T>(0.040000000000000001), static_cast<T>(0.059999999999999998), static_cast<T>(0.085000000000000006), static_cast<T>(0.059999999999999998), static_cast<T>(0.040000000000000001), static_cast<T>(0.085000000000000006), static_cast<T>(-0.053033008588931257), static_cast<T>(-0.05303300858905087), static_cast<T>(0.11699999999999999), static_cast<T>(-0.031819805153358756), static_cast<T>(-0.031819805153430518), static_cast<T>(0.11699999999999999), static_cast<T>(-0.010606601717786251), static_cast<T>(-0.010606601717810174), static_cast<T>(0.11699999999999999), static_cast<T>(0.010606601717786251), static_cast<T>(0.010606601717810174), static_cast<T>(0.11699999999999999), static_cast<T>(0.031819805153358756), static_cast<T>(0.031819805153430518), static_cast<T>(0.11699999999999999), static_cast<T>(0.053033008588931257), static_cast<T>(0.05303300858905087), static_cast<T>(0.11699999999999999), static_cast<T>(-0.053033008588931257), static_cast<T>(-0.05303300858905087), static_cast<T>(0.13700000000000001), static_cast<T>(-0.031819805153358756), static_cast<T>(-0.031819805153430518), static_cast<T>(0.13700000000000001), static_cast<T>(-0.010606601717786251), static_cast<T>(-0.010606601717810174), static_cast<T>(0.13700000000000001), static_cast<T>(0.010606601717786251), static_cast<T>(0.010606601717810174), static_cast<T>(0.13700000000000001), static_cast<T>(0.031819805153358756), static_cast<T>(0.031819805153430518), static_cast<T>(0.13700000000000001), static_cast<T>(0.053033008588931257), static_cast<T>(0.05303300858905087), static_cast<T>(0.13700000000000001), static_cast<T>(-0.053033008588931257), static_cast<T>(-0.05303300858905087), static_cast<T>(0.157), static_cast<T>(-0.031819805153358756), static_cast<T>(-0.031819805153430518), static_cast<T>(0.157), static_cast<T>(-0.010606601717786251), static_cast<T>(-0.010606601717810174), static_cast<T>(0.157), static_cast<T>(0.010606601717786251), static_cast<T>(0.010606601717810174), static_cast<T>(0.157), static_cast<T>(0.031819805153358756), static_cast<T>(0.031819805153430518), static_cast<T>(0.157), static_cast<T>(0.053033008588931257), static_cast<T>(0.05303300858905087), static_cast<T>(0.157), static_cast<T>(0.038890872965216254), static_cast<T>(0.038890872965303976), static_cast<T>(0.18739999999999998), static_cast<T>(0.033941125496916004), static_cast<T>(0.033941125496992561), static_cast<T>(0.20939999999999998), static_cast<T>(-0.038890872965216254), static_cast<T>(-0.038890872965303976), static_cast<T>(0.18739999999999998), static_cast<T>(-0.033941125496916004), static_cast<T>(-0.033941125496992561), static_cast<T>(0.20939999999999998)};
+        //
+        // Phase B pre-pass: ro[t] = R_world[anchor(t)] @ offset(t)  (once per target)
+        //
+        for(int t = threadIdx.x + threadIdx.y*blockDim.x; t < 58; t += blockDim.x*blockDim.y){
+            const T *X = &s_Xworld[16 * mt_anchor[t]];
+            const T *o = &mt_offset[3 * t];
+            s_ro[3*t + 0] = X[0]*o[0] + X[4]*o[1] + X[8]*o[2];
+            s_ro[3*t + 1] = X[1]*o[0] + X[5]*o[1] + X[9]*o[2];
+            s_ro[3*t + 2] = X[2]*o[0] + X[6]*o[1] + X[10]*o[2];
+        }
+        __syncthreads();
+        //
+        // Phase B: dpos[t][:,vi] = Jv[anchor,:,vi] + Jw[anchor,:,vi] x ro[t]  (Jw=0 for prismatic -> no cross)
+        //
+        for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 406; ind += blockDim.x*blockDim.y){
+            int vi = ind % 7; int t = ind / 7;
+            int jb = 3 * (7 * mt_anchor_idx[t] + vi);
+            T Jv0 = s_Jv[jb+0], Jv1 = s_Jv[jb+1], Jv2 = s_Jv[jb+2];
+            T Jw0 = s_Jw[jb+0], Jw1 = s_Jw[jb+1], Jw2 = s_Jw[jb+2];
+            T r0 = s_ro[3*t+0], r1 = s_ro[3*t+1], r2 = s_ro[3*t+2];
+            int ob = 3 * (7 * t + vi);
+            s_out_grad[ob + 0] = Jv0 + (Jw1*r2 - Jw2*r1);
+            s_out_grad[ob + 1] = Jv1 + (Jw2*r0 - Jw0*r2);
+            s_out_grad[ob + 2] = Jv2 + (Jw0*r1 - Jw1*r0);
+        }
+        __syncthreads();
+    }
+
+    /**
+     * Computes batched multi-target world-position gradient
+     *
+     * Notes:
+     *   Position gradient d(world pos)/dv of a baked batch of fixed-offset targets.
+     *   Inline-CUDA / grid_collision users: at TIER_LITE/TIER_MINIMAL the anchor-deduped Jacobian scratch (s_Xworld|Jv|Jw|ro, ~676*sizeof(T) bytes; Jv/Jw dominate on big robots) moves from smem to d_workspace.
+     *   Output placement is the CALLER's choice (the s_out_grad pointer): smem for small batches, a global buffer when 3*nv*N is large.
+     *
+     * @param s_out_grad is a pointer to memory of size 3*NUM_VEL*N_TARGETS where N_TARGETS = 58 (caller chooses smem for small batches or a global buffer for many spheres)
+     * @param s_q is the vector of joint positions
+     * @param d_robotModel is the pointer to the initialized model specific helpers on the GPU (XImats, topology_helpers, etc.)
+     * @param d_workspace is the global scratch buffer; size MULTI_TARGET_POSITION_GRADIENT_DEVICE_INLINE_WORKSPACE_BYTES<T, RESOURCE_TIER>() bytes (= 0 at TIER_SHARED, 676*sizeof(T) at TIER_LITE+). Pass nullptr at TIER_SHARED
+     */
+    template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
+    __device__
+    void multi_target_position_gradient_device(T *s_out_grad, const T *s_q, const robotModel<T> *d_robotModel, T *d_workspace = nullptr) {
+        // GRID shared arena layout
+        //   T s_XmatsHom[208]
+        //   T s_temp[676] (TIER_SHARED only; LITE/MINIMAL route to d_workspace)
+        //   bytes s_linalg_smem[GRID_EE_LINALG_SHARED_BYTES<T>()]
+        extern __shared__ __align__(16) unsigned char s_arena[];
+        size_t s_arena_offset = 0;
+        s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+        T *s_XmatsHom = grid_arena_ptr<T>(s_arena, s_arena_offset);
+        s_arena_offset += sizeof(T) * static_cast<size_t>(208);
+        T *s_temp;
+        if constexpr (RESOURCE_TIER == TIER_SHARED) {
+            (void)d_workspace;
+            s_arena_offset = grid_align_up(s_arena_offset, alignof(T));
+            s_temp = grid_arena_ptr<T>(s_arena, s_arena_offset);
+            s_arena_offset += sizeof(T) * static_cast<size_t>(676);
+        }
+        else {
+            s_temp = d_workspace;
+        }
+        int *s_topology_helpers = nullptr;
+        unsigned char *s_linalg_smem = nullptr;
+        if (static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>()) > 0) {
+            s_arena_offset = grid_align_up(s_arena_offset, static_cast<size_t>(16));
+            s_linalg_smem = grid_arena_ptr<unsigned char>(s_arena, s_arena_offset);
+            s_arena_offset += static_cast<size_t>(GRID_EE_LINALG_SHARED_BYTES<T>());
+        }
+        #ifdef GRID_CUDA_DEBUG_LAYOUT
+        if constexpr (RESOURCE_TIER == TIER_SHARED) {
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(884, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+        }
+        else {
+            assert(s_arena_offset == grid_shared_arena_bytes<T>(208, 0, GRID_EE_LINALG_SHARED_BYTES<T>()));
+        }
+        #endif
+        (void)s_arena_offset;
+        load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, d_robotModel, s_temp);
+        multi_target_position_gradient_inner<T, true>(s_out_grad, s_q, s_XmatsHom, s_topology_helpers, s_temp, nullptr, s_linalg_smem);
+    }
+
     /**
      * Compute the RNEA (Recursive Newton-Euler Algorithm)
      *
@@ -33894,4 +33551,231 @@ namespace grid {
         }
 
         #define GRID_PLANT_HAS_MOMENTUM_COST 1
+    }
+    
+    #include "grid_collision_geometry.cuh"  // W3 Component E: SDF primitives (grid_collision::)
+    /**
+     * Collision namespace: baked sphere data + config_free composed over grid::multi_target_position + the static SDF geometry header
+     *
+     */
+    namespace grid_collision {
+        using grid::TIER_SHARED; using grid::TIER_LITE; using grid::TIER_MINIMAL;
+        constexpr int NUM_COLLISION_SPHERES = 58;
+        constexpr int NUM_COLLISION_SELF_CC_RANGES = 28;
+        static_assert(NUM_COLLISION_SPHERES == grid::NUM_MULTI_TARGETS, "collision sphere batch must be the multi_target batch");
+        __device__ const float g_collision_sphere_r[58] = {0.06f, 0.06f, 0.06f, 0.06f, 0.06f, 0.06f, 0.06f, 0.06f, 0.06f, 0.05f, 0.055f, 0.055f, 0.06f, 0.055f, 0.055f, 0.055f, 0.06f, 0.06f, 0.06f, 0.05f, 0.025f, 0.025f, 0.025f, 0.025f, 0.025f, 0.025f, 0.025f, 0.025f, 0.05f, 0.05f, 0.052f, 0.05f, 0.025f, 0.025f, 0.02f, 0.02f, 0.028f, 0.028f, 0.028f, 0.028f, 0.028f, 0.028f, 0.026f, 0.026f, 0.026f, 0.026f, 0.026f, 0.026f, 0.024f, 0.024f, 0.024f, 0.024f, 0.024f, 0.024f, 0.012f, 0.012f, 0.012f, 0.012f};
+        __device__ const int g_collision_self_cc_ranges[84] = {0, 8, 57, 1, 8, 57, 2, 8, 57, 3, 8, 57, 4, 12, 57, 5, 12, 57, 6, 12, 57, 7, 12, 57, 8, 16, 57, 9, 16, 57, 10, 16, 57, 11, 16, 57, 12, 28, 57, 13, 28, 57, 14, 28, 57, 15, 28, 57, 16, 31, 57, 17, 31, 57, 18, 31, 57, 19, 31, 57, 20, 31, 57, 21, 31, 57, 22, 31, 57, 23, 31, 57, 24, 31, 57, 25, 31, 57, 26, 31, 57, 27, 31, 57};
+        /**
+         * Fill s_r[NUM_COLLISION_SPHERES] with the baked fp32 radii cast to T
+         *
+         * @param s_r is caller shared memory of size NUM_COLLISION_SPHERES
+         */
+        template <typename T>
+        __device__ __forceinline__
+        void load_collision_radii(T *s_r) {
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < NUM_COLLISION_SPHERES; i += blockDim.x*blockDim.y){
+                s_r[i] = static_cast<T>(g_collision_sphere_r[i]);
+            }
+        }
+
+        /**
+         * Collision-free test for configuration q (self + environment)
+         *
+         * Notes:
+         *   Returns true iff the current configuration q is COLLISION-FREE (self + environment).
+         *   Sphere world positions via the W1b batched extractor; SDF self/env checks via the static header.
+         *   Every thread computes the same verdict; the self/env range loops are serial (parallelize = W3 perf TODO).
+         *
+         * @param s_q is the vector of joint positions
+         * @param d_robotModel is the initialized model-specific helpers on the GPU
+         * @param env is the runtime obstacle set (grid_collision::Environment<T>)
+         * @param s_sphere_pos is caller scratch of size 3*NUM_COLLISION_SPHERES (smem for small N, global for many)
+         * @param s_sphere_r is caller scratch of size NUM_COLLISION_SPHERES (filled here from the baked radii)
+         * @param d_workspace is the multi_target FK scratch at TIER_LITE+ (nullptr at TIER_SHARED)
+         */
+        template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
+        __device__
+        bool config_free(const T *s_q, const grid::robotModel<T> *d_robotModel, const Environment<T> &env, T *s_sphere_pos, T *s_sphere_r, T *d_workspace = nullptr) {
+            grid::multi_target_position_device<T, RESOURCE_TIER>(s_sphere_pos, s_q, d_robotModel, d_workspace);
+            load_collision_radii<T>(s_sphere_r);
+            __syncthreads();
+            if (grid_cc_self_collision<T>(s_sphere_pos, s_sphere_r, g_collision_self_cc_ranges, NUM_COLLISION_SELF_CC_RANGES)) return false;
+            for (int i = 0; i < NUM_COLLISION_SPHERES; ++i) {
+                if (grid_cc_sphere_in_environment<T>(env, s_sphere_pos[3*i], s_sphere_pos[3*i+1], s_sphere_pos[3*i+2], s_sphere_r[i])) return false;
+            }
+            return true;
+        }
+
+        /**
+         * collision_distance: per-sphere nearest signed clearance d_i(q) + surface normal (env only)
+         *
+         * Notes:
+         *   d_i = min over environment obstacles of the signed distance (>0 clear, <0 penetrating).
+         *   s_dist[i] = +1e30 sentinel when the environment is empty. Raw building block for any collision objective; the cost fns below reduce over it.
+         *
+         * @param s_dist is the per-sphere clearance output (size NUM_COLLISION_SPHERES)
+         * @param s_normal is the per-sphere nearest-obstacle unit normal (size 3*NUM_COLLISION_SPHERES)
+         * @param s_q is the vector of joint positions
+         * @param d_robotModel is the initialized model-specific helpers on the GPU
+         * @param env is the runtime obstacle set (grid_collision::Environment<T>)
+         * @param s_sphere_pos is caller scratch of size 3*NUM_COLLISION_SPHERES (sphere world positions)
+         * @param s_sphere_r is caller scratch of size NUM_COLLISION_SPHERES (filled here from the baked radii)
+         * @param d_workspace is the multi_target FK scratch at TIER_LITE+ (nullptr at TIER_SHARED)
+         */
+        template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
+        __device__
+        void collision_distance(T *s_dist, T *s_normal, const T *s_q, const grid::robotModel<T> *d_robotModel, const Environment<T> &env, T *s_sphere_pos, T *s_sphere_r, T *d_workspace = nullptr) {
+            grid::multi_target_position_device<T, RESOURCE_TIER>(s_sphere_pos, s_q, d_robotModel, d_workspace);
+            load_collision_radii<T>(s_sphere_r);
+            __syncthreads();
+            for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < NUM_COLLISION_SPHERES; i += blockDim.x*blockDim.y){
+                T nx, ny, nz;
+                s_dist[i] = grid_cc_nearest_obstacle<T>(env, s_sphere_pos[3*i], s_sphere_pos[3*i+1], s_sphere_pos[3*i+2], s_sphere_r[i], &nx, &ny, &nz);
+                s_normal[3*i+0] = nx; s_normal[3*i+1] = ny; s_normal[3*i+2] = nz;
+            }
+            __syncthreads();
+        }
+
+        /**
+         * collision_distance_gradient: per-sphere clearance Jacobian s_ddist[i*NV+vi] = d(d_i)/dq_vi = n_i^T dp_i/dq_vi
+         *
+         * Notes:
+         *   Also returns s_dist (the clearances) so a consumer has value + Jacobian in one call.
+         *   n_i^T (dp_i/dq) composes the SDF normal with grid::multi_target_position_gradient_device.
+         *   s_ddist layout is per-sphere-major: sphere i's NV-gradient is s_ddist[i*NV .. i*NV+NV-1].
+         *
+         * @param s_dist is the per-sphere clearance output (size NUM_COLLISION_SPHERES)
+         * @param s_ddist is the per-sphere clearance Jacobian output (size NUM_COLLISION_SPHERES*NUM_VEL, sphere-major)
+         * @param s_q is the vector of joint positions
+         * @param d_robotModel is the initialized model-specific helpers on the GPU
+         * @param env is the runtime obstacle set (grid_collision::Environment<T>)
+         * @param s_sphere_pos is caller scratch of size 3*NUM_COLLISION_SPHERES (sphere world positions)
+         * @param s_sphere_r is caller scratch of size NUM_COLLISION_SPHERES (filled here from the baked radii)
+         * @param d_workspace is the multi_target FK scratch at TIER_LITE+ (nullptr at TIER_SHARED)
+         * @param s_normal is caller scratch of size 3*NUM_COLLISION_SPHERES (nearest-obstacle normals)
+         * @param s_pos_grad is caller scratch of size 3*NUM_VEL*NUM_COLLISION_SPHERES (batched dp/dq)
+         */
+        template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
+        __device__
+        void collision_distance_gradient(T *s_dist, T *s_ddist, const T *s_q, const grid::robotModel<T> *d_robotModel, const Environment<T> &env, T *s_sphere_pos, T *s_sphere_r, T *s_normal, T *s_pos_grad, T *d_workspace = nullptr) {
+            collision_distance<T, RESOURCE_TIER>(s_dist, s_normal, s_q, d_robotModel, env, s_sphere_pos, s_sphere_r, d_workspace);
+            grid::multi_target_position_gradient_device<T, RESOURCE_TIER>(s_pos_grad, s_q, d_robotModel, d_workspace);
+            __syncthreads();
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < NUM_COLLISION_SPHERES * 7; ind += blockDim.x*blockDim.y){
+                int vi = ind % 7; int i = ind / 7;
+                int jb = 3 * (7 * i + vi);
+                s_ddist[i*7 + vi] = s_normal[3*i+0]*s_pos_grad[jb+0] + s_normal[3*i+1]*s_pos_grad[jb+1] + s_normal[3*i+2]*s_pos_grad[jb+2];
+            }
+            __syncthreads();
+        }
+
+        /**
+         * collision_cost: value = 1/2 * weight * sum_i max(0, margin - d_i)^2 (environment hinge)
+         *
+         * Notes:
+         *   Self-contained (no gradient scratch); every thread returns after the serial reduction.
+         *   ACCUMULATE=false overwrites s_out[0]; true adds (fuse with other costs).
+         *
+         * @param s_out is the scalar cost output (s_out[0])
+         * @param s_q is the vector of joint positions
+         * @param d_robotModel is the initialized model-specific helpers on the GPU
+         * @param env is the runtime obstacle set (grid_collision::Environment<T>)
+         * @param margin is the safety distance (cost is a hinge on clearance < margin)
+         * @param weight is the scalar quadratic penalty weight
+         * @param s_sphere_pos is caller scratch of size 3*NUM_COLLISION_SPHERES (sphere world positions)
+         * @param s_sphere_r is caller scratch of size NUM_COLLISION_SPHERES (filled here from the baked radii)
+         * @param d_workspace is the multi_target FK scratch at TIER_LITE+ (nullptr at TIER_SHARED)
+         */
+        template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool ACCUMULATE = false>
+        __device__
+        void collision_cost(T *s_out, const T *s_q, const grid::robotModel<T> *d_robotModel, const Environment<T> &env, T margin, T weight, T *s_sphere_pos, T *s_sphere_r, T *d_workspace = nullptr) {
+            grid::multi_target_position_device<T, RESOURCE_TIER>(s_sphere_pos, s_q, d_robotModel, d_workspace);
+            load_collision_radii<T>(s_sphere_r);
+            __syncthreads();
+            if(threadIdx.x == 0 && threadIdx.y == 0){
+                T acc = static_cast<T>(0);
+                for (int i = 0; i < NUM_COLLISION_SPHERES; ++i) {
+                    T nx, ny, nz;
+                    T d = grid_cc_nearest_obstacle<T>(env, s_sphere_pos[3*i], s_sphere_pos[3*i+1], s_sphere_pos[3*i+2], s_sphere_r[i], &nx, &ny, &nz);
+                    T viol = margin - d;
+                    if (viol > static_cast<T>(0)) acc += static_cast<T>(0.5) * weight * viol * viol;
+                }
+                if (ACCUMULATE) { s_out[0] += acc; } else { s_out[0] = acc; }
+            }
+            __syncthreads();
+        }
+
+        /**
+         * collision_cost_gradient: grad_q[vi] = -sum_i (weight*viol_i) d(d_i)/dq_vi  (viol_i = max(0,margin-d_i))
+         *
+         * Notes:
+         *   Gradient over q only (size NUM_VEL = 7); built on collision_distance_gradient.
+         *   ACCUMULATE=false overwrites s_grad_q; true adds.
+         *
+         * @param s_grad_q is the q-gradient output (size NUM_VEL)
+         * @param s_q is the vector of joint positions
+         * @param d_robotModel is the initialized model-specific helpers on the GPU
+         * @param env is the runtime obstacle set (grid_collision::Environment<T>)
+         * @param margin is the safety distance (cost is a hinge on clearance < margin)
+         * @param weight is the scalar quadratic penalty weight
+         * @param s_sphere_pos is caller scratch of size 3*NUM_COLLISION_SPHERES (sphere world positions)
+         * @param s_sphere_r is caller scratch of size NUM_COLLISION_SPHERES (filled here from the baked radii)
+         * @param d_workspace is the multi_target FK scratch at TIER_LITE+ (nullptr at TIER_SHARED)
+         * @param s_normal is caller scratch of size 3*NUM_COLLISION_SPHERES
+         * @param s_dist is caller scratch of size NUM_COLLISION_SPHERES
+         * @param s_ddist is caller scratch of size NUM_COLLISION_SPHERES*NUM_VEL (sphere-major clearance Jacobian)
+         * @param s_pos_grad is caller scratch of size 3*NUM_VEL*NUM_COLLISION_SPHERES (batched dp/dq)
+         */
+        template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool ACCUMULATE = false>
+        __device__
+        void collision_cost_gradient(T *s_grad_q, const T *s_q, const grid::robotModel<T> *d_robotModel, const Environment<T> &env, T margin, T weight, T *s_sphere_pos, T *s_sphere_r, T *s_normal, T *s_dist, T *s_ddist, T *s_pos_grad, T *d_workspace = nullptr) {
+            collision_distance_gradient<T, RESOURCE_TIER>(s_dist, s_ddist, s_q, d_robotModel, env, s_sphere_pos, s_sphere_r, s_normal, s_pos_grad, d_workspace);
+            // grad_q[vi] = sum_i (weight*viol_i) * d(viol_i)/dq_vi, with d(viol)/dq = -d(clearance)/dq = -s_ddist
+            for(int vi = threadIdx.x + threadIdx.y*blockDim.x; vi < 7; vi += blockDim.x*blockDim.y){
+                T g = static_cast<T>(0);
+                for (int i = 0; i < NUM_COLLISION_SPHERES; ++i) {
+                    T viol = margin - s_dist[i];
+                    if (viol > static_cast<T>(0)) g += (weight * viol) * s_ddist[i*7 + vi];
+                }
+                if (ACCUMULATE) { s_grad_q[vi] += -g; } else { s_grad_q[vi] = -g; }
+            }
+            __syncthreads();
+        }
+
+        /**
+         * collision_cost_hessian: GN hessian H[vi,vj] = sum_{active i} weight d(d_i)/dq_vi d(d_i)/dq_vj
+         *
+         * Notes:
+         *   NUM_VEL x NUM_VEL (= 7x7) column-major; PSD by construction; built on collision_distance_gradient. GN term only (residual-weighted SDF curvature dropped -- the ratified PSD choice; full-Newton collision hessian = labeled TODO).
+         *   ACCUMULATE=false overwrites; true adds.
+         *
+         * @param s_hess is the NUM_VEL x NUM_VEL column-major hessian output
+         * @param s_q is the vector of joint positions
+         * @param d_robotModel is the initialized model-specific helpers on the GPU
+         * @param env is the runtime obstacle set (grid_collision::Environment<T>)
+         * @param margin is the safety distance (cost is a hinge on clearance < margin)
+         * @param weight is the scalar quadratic penalty weight
+         * @param s_sphere_pos is caller scratch of size 3*NUM_COLLISION_SPHERES (sphere world positions)
+         * @param s_sphere_r is caller scratch of size NUM_COLLISION_SPHERES (filled here from the baked radii)
+         * @param d_workspace is the multi_target FK scratch at TIER_LITE+ (nullptr at TIER_SHARED)
+         * @param s_normal is caller scratch of size 3*NUM_COLLISION_SPHERES
+         * @param s_dist is caller scratch of size NUM_COLLISION_SPHERES
+         * @param s_ddist is caller scratch of size NUM_COLLISION_SPHERES*NUM_VEL (sphere-major clearance Jacobian)
+         * @param s_pos_grad is caller scratch of size 3*NUM_VEL*NUM_COLLISION_SPHERES (batched dp/dq)
+         */
+        template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER, bool ACCUMULATE = false>
+        __device__
+        void collision_cost_hessian(T *s_hess, const T *s_q, const grid::robotModel<T> *d_robotModel, const Environment<T> &env, T margin, T weight, T *s_sphere_pos, T *s_sphere_r, T *s_normal, T *s_dist, T *s_ddist, T *s_pos_grad, T *d_workspace = nullptr) {
+            collision_distance_gradient<T, RESOURCE_TIER>(s_dist, s_ddist, s_q, d_robotModel, env, s_sphere_pos, s_sphere_r, s_normal, s_pos_grad, d_workspace);
+            for(int ind = threadIdx.x + threadIdx.y*blockDim.x; ind < 49; ind += blockDim.x*blockDim.y){
+                int row = ind % 7; int col = ind / 7;
+                T h = static_cast<T>(0);
+                for (int i = 0; i < NUM_COLLISION_SPHERES; ++i) {
+                    if ((margin - s_dist[i]) > static_cast<T>(0)) h += weight * s_ddist[i*7 + row] * s_ddist[i*7 + col];
+                }
+                if (ACCUMULATE) { s_hess[ind] += h; } else { s_hess[ind] = h; }
+            }
+            __syncthreads();
+        }
+
     }

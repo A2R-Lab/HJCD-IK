@@ -25,6 +25,19 @@ def main():
     ap.add_argument("-n", "--namespace", default="grid", help="File namespace (default: grid).")
     ap.add_argument("-o", "--output", default=str(DEFAULT_OUT), help="Output path for grid.cuh.")
     ap.add_argument("-f", "--floating-base", action="store_true", help="Add a floating base.")
+    ap.add_argument("--collision", action="store_true",
+                    help="Bake the grid_collision namespace (URDF->spheres) into grid.cuh. Off by "
+                         "default => byte-identical to a no-collision header.")
+    ap.add_argument("--collision-res", default="0.05",
+                    help="Sphere spacing in meters (smaller=finer). A single value => one tier; a "
+                         "comma list (e.g. 0.10,0.05) => a broad->fine cascade. Used with --collision "
+                         "when spherizing the URDF's own collision geometry (default: 0.05). Ignored "
+                         "when --spherized-urdf is given.")
+    ap.add_argument("--spherized-urdf", default=None,
+                    help="Path(s) to a pre-spherized URDF (foam interchange format: <collision> as "
+                         "<sphere>). Use this when the kinematic URDF's collision meshes can't be "
+                         "resolved (e.g. Panda). Spheres are read directly and bound to the robot's "
+                         "GRiD frames -- no re-spherization. A comma list => coarsest->finest tiers.")
     args = ap.parse_args()
 
     urdf = Path(args.urdf_path)
@@ -45,6 +58,44 @@ def main():
     robot = URDFParser().parse(str(urdf), floating_base=args.floating_base)
     print(f"[generate_grid] robot={robot.name} dof={robot.get_num_joints()} target={args.fixed_target_name}")
 
+    # --- optional collision spec (URDF -> covering spheres -> grid_collision namespace) ---
+    collision_spec = None
+    if args.collision:
+        from GRiDCodeGenerator.algorithms._collision import (  # noqa: E402
+            collision_spec_from_urdf, multi_tier_collision_spec_from_urdf, build_sphere_tiers)
+        if args.spherized_urdf:
+            # Read spheres directly from pre-spherized (foam) URDF(s); bind to the robot's GRiD frames.
+            # Used when the kinematic URDF's collision meshes don't resolve (Panda) -- gives the exact
+            # baked sphere model (e.g. Panda's 59-sphere paper model) rather than re-spherizing.
+            sph_paths = [p.strip() for p in str(args.spherized_urdf).split(",") if p.strip()]
+            for p in sph_paths:
+                sp = Path(p)
+                if not sp.is_absolute():
+                    sp = (REPO_ROOT / p).resolve()
+                if not sp.exists():
+                    print(f"[error] spherized URDF not found: {sp}", file=sys.stderr)
+                    sys.exit(1)
+            resolved = [str((REPO_ROOT / p).resolve() if not Path(p).is_absolute() else Path(p))
+                        for p in sph_paths]
+            if len(resolved) == 1:
+                tier = build_sphere_tiers(robot, {"all": resolved[0]})["all"]
+                collision_spec = {"anchor": tier["anchor"], "offset": tier["offset"],
+                                  "radius": tier["radius"], "self_cc_ranges": tier["self_cc_ranges"]}
+            else:
+                # coarsest->finest, named broad/fine (2) or tier0..tierK (>2)
+                names = (["broad", "fine"] if len(resolved) == 2
+                         else [f"tier{i}" for i in range(len(resolved))])
+                tiers = build_sphere_tiers(robot, {n: p for n, p in zip(names, resolved)})
+                collision_spec = {"tiers": [{"name": n, **tiers[n]} for n in names]}
+            print(f"[generate_grid] collision ON from spherized URDF(s)={resolved}")
+        else:
+            resolutions = [float(r) for r in str(args.collision_res).split(",") if r.strip()]
+            if len(resolutions) == 1:
+                collision_spec = collision_spec_from_urdf(robot, str(urdf), resolution=resolutions[0])
+            else:
+                collision_spec = multi_tier_collision_spec_from_urdf(robot, str(urdf), resolutions)
+            print(f"[generate_grid] collision ON, spherizing {urdf.name} at resolution(s)={resolutions}m")
+
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     codegen = GRiDCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=True,
@@ -53,6 +104,7 @@ def main():
         include_homogenous_transforms=True,
         fixed_target_name=args.fixed_target_name,
         output_path=str(out),
+        collision_spec=collision_spec,
     )
     print(f"[generate_grid] wrote {out}")
 

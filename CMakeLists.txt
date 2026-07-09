@@ -48,6 +48,9 @@ endif()
 set(GRID_HEADER         "${CMAKE_SOURCE_DIR}/csrc/generated/grid.cuh")
 set(GRID_CODEGEN_SCRIPT "${CMAKE_SOURCE_DIR}/scripts/codegen/generate_grid.py")
 set(GRID_CODEGEN_URDF   "${CMAKE_SOURCE_DIR}/csrc/urdf/panda.urdf")
+# Panda's collision meshes don't resolve on-disk, so the grid_collision spheres come from the
+# checked-in foam spherized URDF (the paper's 59-sphere model) rather than the mesh spherizer.
+set(GRID_CODEGEN_SPHERIZED "${CMAKE_SOURCE_DIR}/external/foam/assets/panda/smaller_panda_spherized.urdf")
 
 if(HJCDIK_AUTO_CODEGEN)
   if(NOT EXISTS "${GRID_CODEGEN_SCRIPT}")
@@ -58,6 +61,7 @@ if(HJCDIK_AUTO_CODEGEN)
   execute_process(
     COMMAND ${Python3_EXECUTABLE} "${GRID_CODEGEN_SCRIPT}" "${GRID_CODEGEN_URDF}"
             -t panda_grasptarget_hand -o "${GRID_HEADER}"
+            --collision --spherized-urdf "${GRID_CODEGEN_SPHERIZED}"
     RESULT_VARIABLE _codegen_result
   )
   if(NOT _codegen_result EQUAL 0)
@@ -76,20 +80,18 @@ message(STATUS "HJCD-IK: using GRiD header ${GRID_HEADER}")
 set(HJCDIK_HEADERS
   csrc/kernel/hjcd_settings.h
   csrc/kernel/device_utils.cuh
-  csrc/collision/prrtc_collision.cuh
-  csrc/collision/prrtc_env_from_json.hpp
-  csrc/collision/prrtc_env_cache.hpp
+  csrc/kernel/grid_env.cuh
 )
 
 set(HJCDIK_COMMON_SOURCES
   csrc/kernel/hjcd_kernel.cu
-  csrc/collision/prrtc_env_from_json.cpp
   ${HJCDIK_HEADERS}
 )
 
 set(HJCDIK_INCLUDE_DIRS
   ${CMAKE_SOURCE_DIR}/external/GRiD
   ${CMAKE_SOURCE_DIR}/external/GRiD/include
+  ${CMAKE_SOURCE_DIR}/external/GRiD/collision   # grid_collision_geometry.cuh (SDF primitives, bare-included by grid.cuh)
   ${CMAKE_SOURCE_DIR}/external/GLASS
   ${CMAKE_BINARY_DIR}
   ${CMAKE_SOURCE_DIR}/csrc
