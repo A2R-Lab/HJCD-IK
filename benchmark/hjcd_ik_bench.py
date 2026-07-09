@@ -227,7 +227,7 @@ def rebuild_against_current_header():
     subprocess.check_call([sys.executable, "-m", "pip", "install", "-e", "."], cwd=ROOT, env=env)
     print("[build] Rebuild done!")
 
-def write_yaml_flat(path, batch_sizes, time_ms, pos_err, ori_err):
+def write_yaml_flat(path, batch_sizes, time_ms, pos_err, ori_err, cfree=None):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as y:
@@ -243,17 +243,26 @@ def write_yaml_flat(path, batch_sizes, time_ms, pos_err, ori_err):
         y.write("Ori-Error:\n")
         for v in ori_err:
             y.write(f"  - {v:.17g}\n")
+        if cfree is not None and any(c is not None for c in cfree):
+            # per-solution collision-free flag (null when not validated), same order as the lists above.
+            y.write("Collision-Free:\n")
+            for v in cfree:
+                y.write(f"  - {'null' if v is None else str(bool(v)).lower()}\n")
 
 
-def print_batch_summary(y_batch, y_time_ms, y_pos, y_ori):
+def print_batch_summary(y_batch, y_time_ms, y_pos, y_ori, y_cfree=None):
     g_time = defaultdict(list)
     g_pos = defaultdict(list)
     g_ori = defaultdict(list)
+    g_cfree = defaultdict(list)
 
-    for B, t, p, o in zip(y_batch, y_time_ms, y_pos, y_ori):
+    y_cfree = y_cfree if y_cfree is not None else [None] * len(y_batch)
+    for B, t, p, o, c in zip(y_batch, y_time_ms, y_pos, y_ori, y_cfree):
         g_time[B].append(t)
         g_pos[B].append(p)
         g_ori[B].append(o)
+        if c is not None:
+            g_cfree[B].append(1.0 if c else 0.0)
 
     print("\n==== Batch Summary (averages) ====")
     for B in sorted(g_time.keys()):
@@ -261,33 +270,40 @@ def print_batch_summary(y_batch, y_time_ms, y_pos, y_ori):
         print(f"  Time (ms): {sum(g_time[B]) / len(g_time[B]):.6f}")
         print(f"  Position Error: {sum(g_pos[B]) / len(g_pos[B]):12.6e}")
         print(f"  Orientation Error: {sum(g_ori[B]) / len(g_ori[B]):12.6e}")
+        if g_cfree[B]:
+            print(f"  Collision-Free: {100.0 * sum(g_cfree[B]) / len(g_cfree[B]):.1f}% ({len(g_cfree[B])} solutions)")
 
-def write_csv_summary(path, solver, y_batch, y_time_ms, y_pos, y_ori):
+def write_csv_summary(path, solver, y_batch, y_time_ms, y_pos, y_ori, y_cfree=None):
     import csv
     from collections import defaultdict
 
     g_time = defaultdict(list)
     g_pos  = defaultdict(list)
     g_ori  = defaultdict(list)
+    g_cfree = defaultdict(list)
 
-    for B, t, p, o in zip(y_batch, y_time_ms, y_pos, y_ori):
+    y_cfree = y_cfree if y_cfree is not None else [None] * len(y_batch)
+    for B, t, p, o, c in zip(y_batch, y_time_ms, y_pos, y_ori, y_cfree):
         g_time[B].append(float(t))
         g_pos[B].append(float(p))
         g_ori[B].append(float(o))
+        if c is not None:
+            g_cfree[B].append(1.0 if c else 0.0)
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     with path.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["solver", "Batch-Size", "time_ms", "pos_err_mm", "ori_err_rad"])
+        w.writerow(["solver", "Batch-Size", "time_ms", "pos_err_mm", "ori_err_rad", "collision_free(%)"])
 
         for B in sorted(g_time.keys()):
             time_ms = sum(g_time[B]) / len(g_time[B])
             pos_mm  = (sum(g_pos[B]) / len(g_pos[B]))
             ori_rad = sum(g_ori[B]) / len(g_ori[B])
+            cfree   = (f"{100.0 * sum(g_cfree[B]) / len(g_cfree[B]):.4g}" if g_cfree[B] else "")
 
-            w.writerow([solver, int(B), f"{time_ms:.9f}", f"{pos_mm:.9g}", f"{ori_rad:.9g}"])
+            w.writerow([solver, int(B), f"{time_ms:.9f}", f"{pos_mm:.9g}", f"{ori_rad:.9g}", cfree])
 
 def main() -> None:
     ap = argparse.ArgumentParser()
@@ -355,8 +371,12 @@ def main() -> None:
     problems_text = ""
     targets = []
     problem_indices = []
+    world_by_pidx: Dict[int, dict] = {}   # pidx -> world_dict for post-hoc collision validation (Panda only)
 
     if args.collision_free:
+        # Post-hoc collision validation uses the SAME shared 59-sphere Panda model as the baselines
+        # (benchmark/panda_collision.py) — apples-to-apples with baseline_bench's pyroki/curobo columns.
+        from panda_collision import panda_config_collision_free, mb_instance_to_world_dict
         problems_text = _load_text(Path(args.problems_json))
         D = json.loads(problems_text)
         P = num_problems(D, args.problem_set)
@@ -380,6 +400,7 @@ def main() -> None:
             else:
                 targets.append(build_target_from_goal_pose(inst))
             problem_indices.append(pidx)
+            world_by_pidx[pidx] = mb_instance_to_world_dict(inst)
 
         if args.max_targets and args.max_targets > 0:
             targets = targets[: args.max_targets]
@@ -435,6 +456,7 @@ def main() -> None:
     y_time_ms = []
     y_pos = []
     y_ori = []
+    y_cfree = []   # per-solution collision-free (True/False; None when not validated)
 
     for i, (target, pidx) in enumerate(zip(targets, problem_indices)):
         for B in batches:
@@ -478,11 +500,21 @@ def main() -> None:
             pos_err = res["pos_errors"]
             ori_err = res["ori_errors"]
 
+            # Post-hoc collision-free validation of HJCD's OWN returned q against the shared sphere model
+            # (computed AFTER dt_ms is captured, so it never enters the timed region). Panda only: gated on
+            # a world_dict being present for this problem (open-world / non-Panda -> None).
+            jc = res.get("joint_config") if (args.collision_free and pidx in world_by_pidx) else None
+            world_dict = world_by_pidx.get(pidx) if jc is not None else None
+
             for r in range(count):
                 y_batch.append(B)
                 y_time_ms.append(dt_ms)
                 y_pos.append(float(pos_err[r]))
                 y_ori.append(float(ori_err[r]))
+                if world_dict is not None and jc is not None and r < len(jc):
+                    y_cfree.append(bool(panda_config_collision_free(jc[r], world_dict)))
+                else:
+                    y_cfree.append(None)
 
             if args.print_solutions:
                 joint_cfg = res.get("joint_config", None)
@@ -502,7 +534,7 @@ def main() -> None:
         if (i % 50) == 0 or i == len(targets):
             print(f"[info] processed {i}/{len(targets)} targets")
 
-    print_batch_summary(y_batch, y_time_ms, y_pos, y_ori)
+    print_batch_summary(y_batch, y_time_ms, y_pos, y_ori, y_cfree)
 
     if args.solutions_out:
         sol_path = Path(args.solutions_out)
@@ -521,13 +553,13 @@ def main() -> None:
         csv_path = Path(args.csv_out)
         if not csv_path.is_absolute():
             csv_path = (ROOT / csv_path).resolve()
-        write_csv_summary(csv_path, args.solver, y_batch, y_time_ms, y_pos, y_ori)
+        write_csv_summary(csv_path, args.solver, y_batch, y_time_ms, y_pos, y_ori, y_cfree)
         print(f"[OK] wrote CSV summary {csv_path}")
 
     out_path = Path(args.yaml_out)
     if not out_path.is_absolute():
         out_path = (ROOT / out_path).resolve()
-    write_yaml_flat(out_path, y_batch, y_time_ms, y_pos, y_ori)
+    write_yaml_flat(out_path, y_batch, y_time_ms, y_pos, y_ori, y_cfree)
     print(f"\n[OK] wrote {out_path} with {len(targets) * S * len(batches)} entries "
           f"({len(targets)} targets x {len(batches)} batches x {S} solutions each).")
 

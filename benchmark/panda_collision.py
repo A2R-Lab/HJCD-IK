@@ -67,3 +67,17 @@ def panda_config_collision_free(q, world_dict, exclude_base: bool = True, margin
     if exclude_base:
         spheres = spheres[SPHERE_TO_JOINT != 0]
     return config_is_collision_free(spheres, world_dict, margin)
+
+
+def mb_instance_to_world_dict(inst: dict) -> dict:
+    """A MotionBenchMaker problem instance -> the ``{"cuboid":{...}, "cylinder":{...}}`` world_dict that
+    ``config_is_collision_free`` / ``panda_config_collision_free`` consume. Pure data reshape (numpy-free),
+    so any solver's returned q can be validated against the same shared model without importing the heavy
+    baseline harness. Keep in sync with the identical reshape in benchmark/baseline_bench.py."""
+    obs = inst.get("obstacles", {})
+    world = {"cuboid": {}, "cylinder": {}}
+    for name, o in obs.get("cuboid", {}).items():
+        world["cuboid"][name] = {"dims": o["dims"], "pose": o["pose"]}
+    for name, o in obs.get("cylinder", {}).items():
+        world["cylinder"][name] = {"radius": o["radius"], "height": o["height"], "pose": o["pose"]}
+    return world

@@ -70,3 +70,19 @@ def test_exclude_base_matches_kernel():
     without_base = panda_config_collision_free(q, slab, exclude_base=True)
     # excluding the base can only ever be >= permissive; assert both are booleans and consistent shape
     assert isinstance(with_base, bool) and isinstance(without_base, bool)
+
+
+def test_mb_instance_to_world_dict_reshape():
+    # The instance->world_dict reshape both hjcd_ik_bench and baseline_bench validate against must produce
+    # the {"cuboid","cylinder"} shape config_is_collision_free consumes, preserving dims/pose/radius/height.
+    from panda_collision import mb_instance_to_world_dict
+    inst = {"obstacles": {
+        "cuboid": {"boxA": {"dims": [0.1, 0.2, 0.3], "pose": [1, 2, 3, 1, 0, 0, 0]}},
+        "cylinder": {"cylB": {"radius": 0.05, "height": 0.4, "pose": [0, 0, 1, 1, 0, 0, 0]}},
+    }}
+    w = mb_instance_to_world_dict(inst)
+    assert set(w) == {"cuboid", "cylinder"}
+    assert w["cuboid"]["boxA"] == {"dims": [0.1, 0.2, 0.3], "pose": [1, 2, 3, 1, 0, 0, 0]}
+    assert w["cylinder"]["cylB"] == {"radius": 0.05, "height": 0.4, "pose": [0, 0, 1, 1, 0, 0, 0]}
+    # missing obstacles -> empty but well-formed (never KeyErrors on an open-world instance)
+    assert mb_instance_to_world_dict({}) == {"cuboid": {}, "cylinder": {}}
