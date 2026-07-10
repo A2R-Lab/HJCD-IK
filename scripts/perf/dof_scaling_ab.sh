@@ -45,9 +45,15 @@ target_for() { case "$1" in 7|24) echo panda_grasptarget_hand ;;
                             12|18) echo panda_hand_joint ;;
                             *) echo "BAD DoF: $1" >&2; return 1 ;; esac; }
 
+# Restore the DEFAULT Panda build = 7-DoF WITH collision (grid_collision from the foam sphere model),
+# matching the committed build. The per-DoF regens below drop collision (other DoFs have no spherized
+# URDF; collision is irrelevant to the fp32/fp64 LM-timing question and the kernel guards it out via
+# HJCD_HAS_COLLISION), so the trap must re-enable collision — not leave a collision-less Panda behind.
+PANDA_SPHERIZED="external/foam/assets/panda/smaller_panda_spherized.urdf"
 restore_panda() {
-  echo ">> restoring Panda (7-DoF) build"
-  $PY scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_grasptarget_hand
+  echo ">> restoring Panda (7-DoF, WITH collision) build"
+  $PY scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_grasptarget_hand \
+      --collision --spherized-urdf "$PANDA_SPHERIZED"
   scripts/setup/rebuild.sh
 }
 trap restore_panda EXIT
