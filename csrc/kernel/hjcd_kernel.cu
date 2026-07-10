@@ -1619,6 +1619,11 @@ static constexpr int CC_TPB = 128;
 // Base-link spheres are already dropped at codegen (anchor < 0), matching the old pedestal skip.
 // Requires dynamic smem = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<float>() for the FK
 // extractor (TIER_SHARED => nullptr workspace).
+//
+// Both collision kernels reference the grid_collision namespace, which grid.cuh only carries when it
+// was generated with --collision (sentinel HJCD_HAS_COLLISION). A no-collision header (e.g. the
+// DoF-scaling regens) compiles fine: the kernels are omitted and the runtime collision path is off.
+#if defined(HJCD_HAS_COLLISION)
 __global__ void score_environment_costs(
     const double* __restrict__ q_in,                 // K x N
     int K,
@@ -1687,6 +1692,7 @@ __global__ void mark_collisions(
     const bool ok = gc::config_free<float>(s_q, d_robotModel, env, s_pos, s_r, nullptr);
     if (tid == 0) valid[i] = ok ? 1 : 0;
 }
+#endif  // HJCD_HAS_COLLISION
 
 const double ENV_COLLISION_COST_W = 1.5;
 const double CC_HARD_PENALTY      = 1e12;  // added to a colliding candidate's score in hard mode
@@ -1732,12 +1738,16 @@ Result<T> generate_ik_solutions(
 
     // Collision environment (grid_collision). Cache the uploaded obstacle set + an fp32 robot model
     // across calls with the same problem (both are constant per problem, keyed by set#idx).
+    // The whole collision path is compiled in only when grid.cuh was generated with --collision
+    // (HJCD_HAS_COLLISION); otherwise collision-free is disabled and the solver runs open-world.
+    bool have_env = false;
+    bool stop_on_first = 1;
+
+#if defined(HJCD_HAS_COLLISION)
     static hjcd_env::DeviceEnv g_cc_env;
     static std::string g_cc_key;
     static bool g_cc_ready = false;
     static const grid::robotModel<float>* d_robotModel_cc = nullptr;
-    bool have_env = false;
-    bool stop_on_first = 1;
 
     if (collision_free) {
         if (!problems_json_text || !problem_set_name) {
@@ -1770,6 +1780,13 @@ Result<T> generate_ik_solutions(
             }
         }
     }
+#else
+    if (collision_free) {
+        collision_free = false;
+        printf("[grid_collision] this build has no collision (regenerate grid.cuh with --collision); "
+               "running open-world\n");
+    }
+#endif  // HJCD_HAS_COLLISION
 
     if (!collision_free) have_env = false;
     const bool do_cc = collision_free && have_env;
@@ -2081,6 +2098,7 @@ Result<T> generate_ik_solutions(
     double* dx_coarse64 = nullptr;
     int n_cc_in_refined = 0, n_cc_in_coarse = 0;
 
+#if defined(HJCD_HAS_COLLISION)
     if (do_cc) {
         CUDA_OK(cudaMalloc(&dx_coarse64, sizeof(double) * num_elems_x));
         {
@@ -2144,6 +2162,7 @@ Result<T> generate_ik_solutions(
 
         if (dq_ref_owned) cudaFree(dq_ref);
     }
+#endif  // HJCD_HAS_COLLISION
 
     // Read the RT device results back into double host buffers (downstream stays fp64).
     std::vector<double> h_posmm64(Krep), h_orir64(Krep);

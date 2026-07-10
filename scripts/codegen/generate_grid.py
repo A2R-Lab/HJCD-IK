@@ -108,6 +108,17 @@ def main():
     )
     print(f"[generate_grid] wrote {out}")
 
+    # --- inject a collision-presence sentinel (compile guard for the kernel) ---
+    # grid.cuh only carries the grid_collision namespace when --collision was passed; the kernel and
+    # grid_env.cuh reference grid_collision:: symbols only under #if defined(HJCD_HAS_COLLISION), so a
+    # no-collision header (e.g. the DoF-scaling regens) still compiles. This is codegen output, not a
+    # hand-edit — every regen re-emits it deterministically.
+    if args.collision:
+        text = out.read_text()
+        if "HJCD_HAS_COLLISION" not in text:
+            out.write_text("#define HJCD_HAS_COLLISION 1\n" + text)
+        print("[generate_grid] collision sentinel: #define HJCD_HAS_COLLISION 1")
+
     # --- resolve + inject the EE fixed-frame index (per-robot, not hardcoded) ---
     # GRiD emits end_effector_pose_inner_<target>() whose epilogue composes the EE offset from a
     # single s_Xhom frame: `s_temp[ind] = s_Xhom[16*IDX + ind];`. That IDX is where the named EE

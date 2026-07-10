@@ -1,3 +1,4 @@
+#define HJCD_HAS_COLLISION 1
 /**
  * This instance of grid.cuh is optimized for the urdf: panda
  *

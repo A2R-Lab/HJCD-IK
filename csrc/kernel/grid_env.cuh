@@ -22,6 +22,11 @@
 #include <cuda_runtime.h>
 #include <nlohmann/json.hpp>
 
+// The grid_collision primitives (Sphere/Capsule/Cuboid/Environment) exist only when grid.cuh was
+// generated with --collision (sentinel HJCD_HAS_COLLISION). Without it this header is empty, so a
+// no-collision build (e.g. the DoF-scaling regens) still compiles; the kernel guards its uses too.
+#if defined(HJCD_HAS_COLLISION)
+
 namespace hjcd_env {
 
 namespace gc = grid_collision;
@@ -212,3 +217,5 @@ inline void free_env(DeviceEnv& d) {
 }
 
 }  // namespace hjcd_env
+
+#endif  // HJCD_HAS_COLLISION
