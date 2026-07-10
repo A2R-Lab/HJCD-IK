@@ -94,24 +94,30 @@ out = generate_solutions(targets[0], batch_size=2000, num_solutions=4)
   Do not drop the solver onto block-scoped primitives.
 - **Short, single-line commit messages; no `Co-Authored-By` footer.**
 
-## Integration in progress — `grid-glass-integration` branch
+## Integration — `grid-glass-integration` branch (pending PR to `main`)
 
 This branch re-bases HJCD-IK onto the latest GRiD (`modernizing-tests`) + GLASS (`main`) for modularity and
-upstreamable performance. The bespoke Panda-only FK (`X_warp` / `X_single_thread`, currently hand-written into
-the vendored `grid.cuh`) is being replaced by GRiD's stock warp FK (`grid::ee_pose_inner_warp`), and the
-hand-rolled math (`mat4_mul`, warp reduce, warp Cholesky) moved onto a new `glass::warp::` sub-namespace.
-The end-effector frame is now **per-robot** (codegen resolves `grid::EE_FIXED_FRAME_IDX` from the named
-target and injects it; `hjcd_settings.h` consumes it) — see [`docs/source/user_guide/benchmarks/results.rst`](docs/source/user_guide/benchmarks/results.rst)
+upstreamable performance. The bespoke Panda-only FK (`X_warp` / `X_single_thread`) was replaced by GRiD's
+stock warp FK (`grid::ee_pose_inner_warp`), and the hand-rolled math (`mat4_mul`, warp reduce, warp Cholesky)
+moved onto GLASS's `glass::warp::` sub-namespace. The end-effector frame is now **per-robot** (codegen
+resolves `grid::EE_FIXED_FRAME_IDX` from the named target and injects it; `hjcd_settings.h` consumes it) —
+see [`docs/source/user_guide/benchmarks/results.rst`](docs/source/user_guide/benchmarks/results.rst)
 for the per-robot EE map + how to regenerate the paper sweeps.
 
 **Collision migrated to `grid_collision`.** The former bespoke pRRTC stack (`csrc/collision/` +
 `csrc/robots/{panda,fetch}.cuh`) is gone; collision is now GRiD's URDF-driven `grid_collision` baked into
 `grid.cuh` (`--collision`), scored post-solve by `score_environment_costs` (a soft penetration cost,
 `grid_collision::collision_distance`; the hot warp solver never touches collision). The paper's 59-sphere
-model is preserved byte-for-byte via the foam spherized URDF, so collision-free rate is unchanged
-(bookshelf_thin_panda: 80% pre- and post-migration). The paper reference model lives frozen under
-`benchmark/reference/panda_collision_model.cuh` (independent oracle for the Table II collision-free column;
-`benchmark/panda_model.py`).
+model is preserved byte-for-byte via the foam spherized URDF, so the collision-free rate is unchanged. The
+paper reference model lives frozen under `benchmark/reference/panda_collision_model.cuh` (independent oracle
+for the Table II collision-free column; `benchmark/panda_model.py`).
+
+The collision code path is compiled in only when `grid.cuh` was generated with `--collision` — codegen emits
+a `#define HJCD_HAS_COLLISION 1` sentinel and the kernel + `grid_env.cuh` guard all `grid_collision::` use on
+it. A no-collision header (e.g. the DoF-scaling regens, or any BYO-URDF built without `--collision`) still
+compiles and runs open-world; a collision-free request in that build is ignored. **Timing (2026-07-10, RTX
+5090) confirms no regression** from the migration: open-world B=2000 ≈ 1.86 ms (matches pre-migration), and
+the collision-free leg reports a per-mode `soft`/`hard` column (`scripts/perf/run_all_timing_sweeps.sh`).
 
 > **Build/test gotcha:** `ninja -C build` does NOT update the imported `.so` (it's the editable copy in
 > site-packages). Always rebuild with **`scripts/setup/rebuild.sh`** (or `pip install -e . --no-build-isolation`).

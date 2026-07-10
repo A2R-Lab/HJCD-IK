@@ -16,9 +16,10 @@ Built on GRiD (kinematics codegen) + GLASS (single-block/warp linear algebra).
    read it if present; at the **end**, create or update it so the next session has the current state.
 4. `README.md` — user-facing usage + benchmark guide.
 
-**Where things live:** solver `csrc/kernel/hjcd_kernel.cu`; generated kinematics `csrc/generated/grid.cuh`
-(from `external/GRiD`); warp linalg `external/GLASS`; robot collision `csrc/robots/{panda,fetch}.cuh`;
-Python API `hjcdik/__init__.py` + `csrc/bindings/pybind_module.cpp`; benchmark `benchmark/hjcd_ik_bench.py`.
+**Where things live:** solver `csrc/kernel/hjcd_kernel.cu`; generated kinematics **and collision**
+`csrc/generated/grid.cuh` (from `external/GRiD`; `--collision` bakes `grid_collision`); obstacle-env
+parser `csrc/kernel/grid_env.cuh`; warp linalg `external/GLASS`; Python API `hjcdik/__init__.py` +
+`csrc/bindings/pybind_module.cpp`; benchmark `benchmark/hjcd_ik_bench.py`.
 
 **Discipline:** never hand-edit `grid.cuh`; keep `FLANGE_IDX`/target consistent; keep math warp-scoped;
 short single-line commits, no Co-Authored-By footer.

@@ -59,6 +59,20 @@ python scripts/codegen/generate_grid.py <PATH_TO_URDF> -t <FIXED_TARGET_NAME>
 * `FIXED_TARGET_NAME`: the name of the robot end-effector flange (e.g. Franka: `panda_grasptarget_hand`)
   * Note: GRiD prints out possible fixed joint names found (if any) during code generation
 
+**Bring-your-own-URDF collision.** Collision is generated from the same URDF — add `--collision`
+to bake GRiD's `grid_collision` spheres (and self-collision ranges) into `grid.cuh` alongside the
+kinematics. Spheres come either from spherizing the URDF's own collision geometry
+(`--collision-res <meters>`), or, when those meshes don't resolve on disk, from a pre-spherized
+[foam](https://github.com/CoMMALab/foam)-format URDF (`--spherized-urdf <foam.urdf>`):
+```bash
+# Panda uses the checked-in foam model (the paper's sphere model); the build wires this automatically
+python scripts/codegen/generate_grid.py csrc/urdf/panda.urdf --collision \
+    --spherized-urdf external/foam/assets/panda/smaller_panda_spherized.urdf
+```
+Any URDF then gets both FK **and** collision with no hand-written per-robot code. (Regenerating
+without `--collision` is fine — the kernel compiles and runs open-world; collision-free requests
+are simply ignored.)
+
 ## Benchmark
 To run IK benchmark, use:
 ```bash
@@ -114,11 +128,16 @@ python benchmark/hjcd_ik_bench.py --skip-grid-codegen --collision-free --problem
   * Problem set within json file to run benchmarking.
 * `--problem-idx <int>`
   * Run collision-free benchmarking on specific problem index within problem set.
-  
+
+**Collision scoring mode** (env `HJCD_CC_MODE`, a comparison knob): `soft` (default) uses a
+penetration cost to bias selection away from collisions (environment-only); `hard` filters
+colliding candidates outright with `grid_collision::config_free` (self **and** environment);
+`both` combines them. All three run post-solve, off the hot solver loop.
+
 ## Creating Collision Environments
 Collision environments are specified in the Motion Benchmarker-style JSON problem format. Each problem contains a `goal_pose`, `start` configuration, `world_frame`, and an optional `obstacles` field. Examples of environments can be found in the `tests` folder.
 
-Obstacles are grouped by primitive type. Currently only `cuboid` and `cylinder` primitives are supported.
+Obstacles are grouped by primitive type: `sphere`, `cuboid`, and `cylinder`.
 
 ### Cuboid obstacles
 Cuboids are specified under `obstacles.cuboid`:
@@ -154,9 +173,27 @@ Each cylinder requires:
 * `height`: cylinder height in meters
 * `pose`: `[x, y, z, qw, qx, qy, qz]` in the problem's `world_frame`
 
+### Sphere obstacles
+Spheres are specified under `obstacles.sphere`:
+
+```json
+"sphere": {
+  "ball": {
+    "radius": 0.05,
+    "pose": [0.40, 0.10, 0.30, 1, 0, 0, 0]
+  }
+}
+```
+
+Each sphere requires:
+* `radius`: sphere radius in meters
+* `pose`: `[x, y, z, qw, qx, qy, qz]` in the problem's `world_frame` (only the position is used)
+
 ### Additional Notes
 * HJCD-IK currently only supports robots using revolute, prismatic, and fixed joints without any closed kinematic loops.
-* Collision-Free support is currently limited to the Franka Panda and Fetch Arms with support for additional and custom robots coming soon!
+* Collision is **URDF-driven** (GRiD's `grid_collision`): pass `--collision` to `generate_grid.py`
+  to bring your own robot with no hand-written collision code (see *Using different robots*). The
+  Panda uses the checked-in foam sphere model out of the box.
 
 ## Cite
 Please cite HJCD-IK if you found this work useful:

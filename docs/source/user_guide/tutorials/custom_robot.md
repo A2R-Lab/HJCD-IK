@@ -13,8 +13,18 @@ python scripts/codegen/generate_grid.py path/to/robot.urdf -t <ee_target_frame>
 
 Then rebuild: `python -m pip install -e .`.
 
+## Collision (bring-your-own-URDF)
+Add `--collision` to bake GRiD's `grid_collision` spheres (and self-collision ranges) into the same
+`grid.cuh` — no hand-written per-robot collision code:
+```bash
+# spherize the URDF's own collision meshes:
+python scripts/codegen/generate_grid.py path/to/robot.urdf -t <ee_target> --collision --collision-res 0.05
+# or read a pre-spherized foam URDF (when the URDF's meshes don't resolve on disk, e.g. Panda):
+python scripts/codegen/generate_grid.py path/to/robot.urdf -t <ee_target> --collision --spherized-urdf path/to/robot_spherized.urdf
+```
+
 ## Caveats
 - The solver currently assumes revolute/prismatic/fixed joints, no kinematic loops.
-- **Collision** geometry is per-robot and only provided for Panda/Fetch. A new robot needs its own collision
-  spheres in `csrc/robots/` (or run with `collision_free=False`).
+- Without `--collision` the build runs open-world; a `collision_free=True` request is ignored
+  (the collision path is compiled out via the `HJCD_HAS_COLLISION` sentinel).
 - Keep the EE-target frame consistent with `FLANGE_IDX` usage in the kernel.

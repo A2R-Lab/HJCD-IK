@@ -40,10 +40,13 @@ sizes.
 
 ## Collision avoidance
 
-With `collision_free=True`, the refined candidates are filtered against the environment using per-block
-pRRTC collision checking. The robot is approximated by collision spheres defined per robot in
-`csrc/robots/{panda,fetch}.cuh`; obstacles come from the problem set (cuboids / cylinders).
+With `collision_free=True`, the refined candidates are scored against the environment *after* optimization
+(never on the hot solver loop) using GRiD's URDF-driven `grid_collision`. The robot is approximated by
+covering spheres baked into `grid.cuh` at codegen (`--collision`); obstacles (spheres / cuboids / cylinders)
+come from the problem set. `soft` mode (default) adds a penetration cost that biases selection; `hard` mode
+filters colliding candidates with `grid_collision::config_free` (self **and** environment); `both` combines
+them (env `HJCD_CC_MODE`).
 
-Collision geometry is currently hand-tuned for Panda and Fetch. Adding a new robot requires its collision
-spheres and a matching kinematics header — see {doc}`../tutorials/custom_robot`. Without collision data,
-run unconstrained (`collision_free=False`).
+Because collision geometry is generated from the same URDF as the kinematics, adding a robot needs no
+hand-written collision code — see {doc}`../tutorials/custom_robot`. A `grid.cuh` built without `--collision`
+runs open-world (a `collision_free=True` request is ignored).

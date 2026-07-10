@@ -52,8 +52,12 @@ is a 19-DOF robot; Panda regenerates to `NUM_JOINTS=7`.
 
 ### 1f. Collision geometry mismatch
 **Symptom:** free targets flagged in-collision (or vice versa).
-**Cause:** per-robot collision spheres (`csrc/robots/{panda,fetch}.cuh`) are hand-tuned and Panda/Fetch-only.
-**Fix:** for a new robot, add its collision primitives or run without `--collision-free`.
+**Cause:** the baked collision spheres don't match the robot — `grid.cuh` was generated without
+`--collision` (no `grid_collision` namespace → collision-free requests are ignored, see the
+`HJCD_HAS_COLLISION` guard), or the spherization source is wrong (Panda needs the foam
+`--spherized-urdf`, not on-disk meshes).
+**Fix:** regenerate with `--collision` (and, for Panda, `--spherized-urdf …/smaller_panda_spherized.urdf`);
+or run without `--collision-free`.
 
 ## 2. Debugging methodology
 - **Shrink:** `--num-targets 1 --batches "1"`, print inputs/outputs, check the numbers are sane.
