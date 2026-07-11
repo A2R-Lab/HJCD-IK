@@ -31,6 +31,8 @@ CMakeCache.txt
 CMakeFiles/
 Testing/
 Makefile
+# docs/Makefile is required by scripts/build_site.sh (make -C docs all); not a CMake artifact
+!docs/Makefile
 cmake_install.cmake
 install_manifest.txt
 compile_commands.json
