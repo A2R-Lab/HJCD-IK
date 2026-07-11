@@ -866,7 +866,7 @@ if __name__ == "__main__":
     parser.add_argument("--high_precision", action="store_true", default=False)
     parser.add_argument("--file_name", type=str, default="results")
     parser.add_argument("--robot_file", type=str, default="franka.yml")
-    parser.add_argument("--problem_set", type=str, default="bookshelf_small_panda")
+    parser.add_argument("--problem_set", type=str, default="box_panda")
     parser.add_argument("--num_instances", type=int, default=100)
     parser.add_argument(
         "--mode", type=str, choices=["pyroki", "curobo"], default="pyroki",
@@ -1022,8 +1022,8 @@ if __name__ == "__main__":
             # FAIR cuRobo collision timing: build the solver ONCE per seed count (mirroring cuRobo's own
             # benchmark/ik_benchmark.py) and swap the obstacle scene per instance via update_world(), which
             # writes in-place into the pre-allocated collision_cache buffers and therefore keeps the captured
-            # CUDA graph valid (no per-scene re-capture). All bookshelf instances share one obstacle topology
-            # (12 cuboids + 10 cylinders << the 64/64 cache), so update_world never reallocates. Rebuilding a
+            # CUDA graph valid (no per-scene re-capture). All instances of a given scene share one obstacle
+            # topology (well under the 64/64 cache), so update_world never reallocates. Rebuilding a
             # solver per scene (the old path) both lost graph amortization AND hit cudaErrorStreamCaptureInvalidated.
             for num_seeds in seed_list:
                 print(f"  curobo num_seeds: {num_seeds}")

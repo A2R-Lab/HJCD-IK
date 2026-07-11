@@ -322,7 +322,7 @@ def main() -> None:
     # Collision-free (RoboMetrics)
     ap.add_argument("--collision-free", action="store_true",help="Enable collision-free solutions.")
     ap.add_argument( "--problems-json", type=str, default=str(ROOT / "tests" / "mb_problems.json"),help="Path to problems JSON (e.g., mb_problems.json).")
-    ap.add_argument("--problem-set", type=str, default="bookshelf_thin",help="Problem set name in JSON.")
+    ap.add_argument("--problem-set", type=str, default="box_panda",help="Problem set name in JSON (paper Table II scene).")
     ap.add_argument("--problem-idx", type=int, default=-1,help="If >=0, run only this problem index; if -1 run all.")
 
     ap.add_argument("--assoc-eps", type=float, default=1e-4,help="Axis-coincidence epsilon for association (meters).")

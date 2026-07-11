@@ -12,7 +12,7 @@
 #
 # Sweeps (comma-list in SWEEPS; default = all, in this order):
 #   openworld  — Table I open-world Panda latency vs batch (also the post-GRiD-bump regression reference)
-#   collfree   — Table II collision-free Panda (bookshelf_thin_panda), one time+CF column per CC_MODES
+#   collfree   — Table II collision-free Panda (box_panda), one time+CF column per CC_MODES
 #                (default soft,hard) → merged into collfree_compare.csv
 #   multiwarp  — W=1,2,4,8 x fp64/fp32 sweep (scripts/perf/time_multiwarp_sweep.py)
 #   dof        — Table III DoF 7/12/18/24 fp32-vs-fp64 A/B (regen+rebuild per DoF; restores Panda) — HEAVIEST, runs last
@@ -31,7 +31,7 @@ BATCHES="${BATCHES:-1,10,100,1000,2000}"
 NUM_TARGETS="${NUM_TARGETS:-100}"
 SWEEPS="${SWEEPS:-openworld,collfree,multiwarp,dof}"
 MB_JSON="tests/mb_problems.json"
-PROBLEM_SET="${PROBLEM_SET:-bookshelf_thin_panda}"
+PROBLEM_SET="${PROBLEM_SET:-box_panda}"
 SETTLE_SECS="${SETTLE_SECS:-6}"
 
 has() { echo ",${SWEEPS}," | grep -q ",$1,"; }
