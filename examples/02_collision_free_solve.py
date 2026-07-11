@@ -12,7 +12,7 @@ from pathlib import Path
 from hjcdik import generate_solutions
 
 PROBLEMS = Path(__file__).resolve().parents[1] / "tests" / "mb_problems.json"
-PROBLEM_SET = "bookshelf_thin_panda"
+PROBLEM_SET = "box_panda"
 PROBLEM_IDX = 0
 
 problems_text = PROBLEMS.read_text()
