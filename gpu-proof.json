@@ -12,7 +12,7 @@
   },
   "fingerprint": {
     "algorithm": "sha256",
-    "digest": "20489f49a5b0127a863b594b245a4f64388a6ab53d14f9b7e91b2e103a3e015f",
+    "digest": "4643be1ddeac78822989809af9944fd328f176a2de81b74e2ea2727a6b888dd3",
     "file_count": 10,
     "included_paths": [
       "tests"
@@ -20,20 +20,30 @@
   },
   "mode": "local",
   "repo": {
-    "branch": "grid-glass-integration",
-    "commit_sha": "0550c9480eb8525cd5ca6308c3c5f9b687aeb612",
+    "branch": "main",
+    "commit_sha": "fde05be987c510b238a674287e374f9b36ec7e4f",
     "dirty": false,
     "github_username": "plancherb1",
     "remote_url": "git@github.com:A2R-Lab/HJCD-IK.git"
   },
   "schema_version": "1",
   "session": {
-    "ended_at": "2026-07-07T20:01:51Z",
+    "ended_at": "2026-07-11T14:00:24Z",
     "node_ids": [
       "tests/test_collision.py::test_collision_free_runs_and_solves",
       "tests/test_collision.py::test_collision_free_matches_unconstrained_reach",
       "tests/test_fk_equivalence.py::test_ee_position_matches_reference",
       "tests/test_fk_equivalence.py::test_ee_orientation_matches_reference",
+      "tests/test_fk_equivalence.py::test_cp_wang_hash_known_values",
+      "tests/test_fk_equivalence.py::test_cp_shifts_known_values_and_range",
+      "tests/test_fk_equivalence.py::test_cp_shifts_dimension_specific_and_seed_dependent",
+      "tests/test_fk_equivalence.py::test_cp_deterministic_for_fixed_seed",
+      "tests/test_fk_equivalence.py::test_cp_seed_changes_sequence",
+      "tests/test_fk_equivalence.py::test_cp_unit_interval_and_index_convention",
+      "tests/test_fk_equivalence.py::test_no_scramble_is_raw_halton_and_ignores_method",
+      "tests/test_fk_equivalence.py::test_legacy_digit_permutation_unchanged",
+      "tests/test_fk_equivalence.py::test_cp_q_matches_direct_cuda_transcription",
+      "tests/test_fk_equivalence.py::test_cp_generated_poses_finite_and_normalized",
       "tests/test_multiwarp.py::test_multiwarp_matches_w1[2]",
       "tests/test_multiwarp.py::test_multiwarp_matches_w1[4]",
       "tests/test_multiwarp.py::test_multiwarp_matches_w1[8]",
@@ -48,61 +58,121 @@
       "tests/test_regression.py::test_no_regression_vs_baseline",
       "tests/test_regression.py::test_solver_runs_and_returns_solutions"
     ],
-    "started_at": "2026-07-07T20:01:50Z"
+    "started_at": "2026-07-11T14:00:23Z"
   },
   "signature": {
     "algorithm": "ed25519",
     "backend": "ssh-local",
     "key_fingerprint": "SHA256:hfyUcDJTDLry3j7nJ9V2X8iEIgNFmFJQKGQirOdyWtY",
     "signer": "plancherb1",
-    "value": "KTE/R6JZ99nvmG9r/jOhTuSaekyjlMzxvTq2qYXUSlZ/PcMn3j/GeU0GzBwc1ZedFZjQnhd4caPEDddx85DHAA=="
+    "value": "7zj5Pwj0mbXMpY+D9Q8dgivfBzbnoMsqI6fFfrK3Sf3x2vNjqyvok34589fJRFgySBnmtlJ43P9KzlSYBpVhAQ=="
   },
   "tests": [
     {
       "checks": [],
-      "duration_s": 0.4545,
+      "duration_s": 0.5343,
       "node_id": "tests/test_collision.py::test_collision_free_runs_and_solves",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0582,
+      "duration_s": 0.071,
       "node_id": "tests/test_collision.py::test_collision_free_matches_unconstrained_reach",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0353,
+      "duration_s": 0.0435,
       "node_id": "tests/test_fk_equivalence.py::test_ee_position_matches_reference",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0349,
+      "duration_s": 0.0377,
       "node_id": "tests/test_fk_equivalence.py::test_ee_orientation_matches_reference",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0246,
-      "node_id": "tests/test_multiwarp.py::test_multiwarp_matches_w1[2]",
+      "duration_s": 0.0001,
+      "node_id": "tests/test_fk_equivalence.py::test_cp_wang_hash_known_values",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0247,
-      "node_id": "tests/test_multiwarp.py::test_multiwarp_matches_w1[4]",
+      "duration_s": 0.0003,
+      "node_id": "tests/test_fk_equivalence.py::test_cp_shifts_known_values_and_range",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0001,
+      "node_id": "tests/test_fk_equivalence.py::test_cp_shifts_dimension_specific_and_seed_dependent",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0006,
+      "node_id": "tests/test_fk_equivalence.py::test_cp_deterministic_for_fixed_seed",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0003,
+      "node_id": "tests/test_fk_equivalence.py::test_cp_seed_changes_sequence",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0003,
+      "node_id": "tests/test_fk_equivalence.py::test_cp_unit_interval_and_index_convention",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0124,
+      "node_id": "tests/test_fk_equivalence.py::test_no_scramble_is_raw_halton_and_ignores_method",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.001,
+      "node_id": "tests/test_fk_equivalence.py::test_legacy_digit_permutation_unchanged",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0012,
+      "node_id": "tests/test_fk_equivalence.py::test_cp_q_matches_direct_cuda_transcription",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0017,
+      "node_id": "tests/test_fk_equivalence.py::test_cp_generated_poses_finite_and_normalized",
       "outcome": "passed"
     },
     {
       "checks": [],
       "duration_s": 0.0251,
+      "node_id": "tests/test_multiwarp.py::test_multiwarp_matches_w1[2]",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0251,
+      "node_id": "tests/test_multiwarp.py::test_multiwarp_matches_w1[4]",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0254,
       "node_id": "tests/test_multiwarp.py::test_multiwarp_matches_w1[8]",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0112,
+      "duration_s": 0.0114,
       "node_id": "tests/test_multiwarp.py::test_multiwarp_high_w_opt_in_smem",
       "outcome": "passed"
     },
@@ -114,49 +184,49 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0245,
+      "duration_s": 0.0248,
       "node_id": "tests/test_multiwarp.py::test_run_to_run_stability",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0092,
+      "duration_s": 0.0093,
       "node_id": "tests/test_multiwarp.py::test_default_config_solves",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.024,
+      "duration_s": 0.0242,
       "node_id": "tests/test_precision.py::test_fp32_refine_accuracy",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0863,
+      "duration_s": 0.0864,
       "node_id": "tests/test_precision.py::test_fp64_refine_accuracy",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0607,
+      "duration_s": 0.0612,
       "node_id": "tests/test_precision.py::test_auto_select_matches_explicit",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0091,
+      "duration_s": 0.0093,
       "node_id": "tests/test_precision.py::test_default_arg_is_auto",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.1189,
+      "duration_s": 0.1201,
       "node_id": "tests/test_regression.py::test_no_regression_vs_baseline",
       "outcome": "passed"
     },
     {
       "checks": [],
-      "duration_s": 0.0183,
+      "duration_s": 0.0184,
       "node_id": "tests/test_regression.py::test_solver_runs_and_returns_solutions",
       "outcome": "passed"
     }
