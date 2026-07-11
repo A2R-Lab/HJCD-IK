@@ -1,0 +1,164 @@
+{
+  "environment": {
+    "gpu_info": {
+      "driver_version": "610.43.02",
+      "memory": "32607 MiB",
+      "name": "NVIDIA GeForce RTX 5090"
+    },
+    "platform": "linux",
+    "plugin_version": "0.1.0",
+    "pytest_version": "9.1.0",
+    "python_version": "3.12.3"
+  },
+  "fingerprint": {
+    "algorithm": "sha256",
+    "digest": "20489f49a5b0127a863b594b245a4f64388a6ab53d14f9b7e91b2e103a3e015f",
+    "file_count": 10,
+    "included_paths": [
+      "tests"
+    ]
+  },
+  "mode": "local",
+  "repo": {
+    "branch": "grid-glass-integration",
+    "commit_sha": "0550c9480eb8525cd5ca6308c3c5f9b687aeb612",
+    "dirty": false,
+    "github_username": "plancherb1",
+    "remote_url": "git@github.com:A2R-Lab/HJCD-IK.git"
+  },
+  "schema_version": "1",
+  "session": {
+    "ended_at": "2026-07-07T20:01:51Z",
+    "node_ids": [
+      "tests/test_collision.py::test_collision_free_runs_and_solves",
+      "tests/test_collision.py::test_collision_free_matches_unconstrained_reach",
+      "tests/test_fk_equivalence.py::test_ee_position_matches_reference",
+      "tests/test_fk_equivalence.py::test_ee_orientation_matches_reference",
+      "tests/test_multiwarp.py::test_multiwarp_matches_w1[2]",
+      "tests/test_multiwarp.py::test_multiwarp_matches_w1[4]",
+      "tests/test_multiwarp.py::test_multiwarp_matches_w1[8]",
+      "tests/test_multiwarp.py::test_multiwarp_high_w_opt_in_smem",
+      "tests/test_multiwarp.py::test_partial_last_block_no_crash",
+      "tests/test_multiwarp.py::test_run_to_run_stability",
+      "tests/test_multiwarp.py::test_default_config_solves",
+      "tests/test_precision.py::test_fp32_refine_accuracy",
+      "tests/test_precision.py::test_fp64_refine_accuracy",
+      "tests/test_precision.py::test_auto_select_matches_explicit",
+      "tests/test_precision.py::test_default_arg_is_auto",
+      "tests/test_regression.py::test_no_regression_vs_baseline",
+      "tests/test_regression.py::test_solver_runs_and_returns_solutions"
+    ],
+    "started_at": "2026-07-07T20:01:50Z"
+  },
+  "signature": {
+    "algorithm": "ed25519",
+    "backend": "ssh-local",
+    "key_fingerprint": "SHA256:hfyUcDJTDLry3j7nJ9V2X8iEIgNFmFJQKGQirOdyWtY",
+    "signer": "plancherb1",
+    "value": "KTE/R6JZ99nvmG9r/jOhTuSaekyjlMzxvTq2qYXUSlZ/PcMn3j/GeU0GzBwc1ZedFZjQnhd4caPEDddx85DHAA=="
+  },
+  "tests": [
+    {
+      "checks": [],
+      "duration_s": 0.4545,
+      "node_id": "tests/test_collision.py::test_collision_free_runs_and_solves",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0582,
+      "node_id": "tests/test_collision.py::test_collision_free_matches_unconstrained_reach",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0353,
+      "node_id": "tests/test_fk_equivalence.py::test_ee_position_matches_reference",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0349,
+      "node_id": "tests/test_fk_equivalence.py::test_ee_orientation_matches_reference",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0246,
+      "node_id": "tests/test_multiwarp.py::test_multiwarp_matches_w1[2]",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0247,
+      "node_id": "tests/test_multiwarp.py::test_multiwarp_matches_w1[4]",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0251,
+      "node_id": "tests/test_multiwarp.py::test_multiwarp_matches_w1[8]",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0112,
+      "node_id": "tests/test_multiwarp.py::test_multiwarp_high_w_opt_in_smem",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0069,
+      "node_id": "tests/test_multiwarp.py::test_partial_last_block_no_crash",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0245,
+      "node_id": "tests/test_multiwarp.py::test_run_to_run_stability",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0092,
+      "node_id": "tests/test_multiwarp.py::test_default_config_solves",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.024,
+      "node_id": "tests/test_precision.py::test_fp32_refine_accuracy",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0863,
+      "node_id": "tests/test_precision.py::test_fp64_refine_accuracy",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0607,
+      "node_id": "tests/test_precision.py::test_auto_select_matches_explicit",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0091,
+      "node_id": "tests/test_precision.py::test_default_arg_is_auto",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.1189,
+      "node_id": "tests/test_regression.py::test_no_regression_vs_baseline",
+      "outcome": "passed"
+    },
+    {
+      "checks": [],
+      "duration_s": 0.0183,
+      "node_id": "tests/test_regression.py::test_solver_runs_and_returns_solutions",
+      "outcome": "passed"
+    }
+  ]
+}

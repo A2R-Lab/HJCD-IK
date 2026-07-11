@@ -66,6 +66,28 @@ x64/
 
 # Generated output
 hjcd_ik_per_batch.yml
+# Benchmark run outputs + generated shared targets (regenerable per run/machine)
+benchmark/results/
+benchmark/targets/
+# Large pretrained baseline weights (staged into the solver's own cache; not a repo artifact)
+benchmark/assets/ikflow/weights/
 
 # Python venv
 *.venv
+# Local agent working notes (not project artifacts)
+docs/open-tasks/
+docs/HANDOFF.md
+# Reviewer guide — sent to colleagues manually, not tracked (remove this line to track it)
+docs/REVIEW_GUIDE.md
+
+# docs/assets is the user's media drop zone (figures/video, camera-ready paper).
+# Keep the manifest; never commit the media or local benchmark output here.
+docs/assets/*
+!docs/assets/README.md
+
+# Generated docs output (Sphinx HTML + Doxygen XML)
+docs/build/
+docs/doxygen/
+
+# Assembled Pages site (landing + docs), built by CI
+_site/

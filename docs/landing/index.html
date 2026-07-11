@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <title>HJCD-IK: GPU-Accelerated Inverse Kinematics through Batched Hybrid Jacobian Coordinate Descent</title>
+  <meta name="description" content="HJCD-IK is a GPU-accelerated, sampling-based hybrid inverse kinematics solver pairing orientation-aware greedy coordinate descent with Jacobian polishing and a parallel collision filter — order-of-magnitude gains in speed and accuracy on the accuracy-latency Pareto frontier. IROS 2026.">
+  <meta name="keywords" content="inverse kinematics, IK, GPU, CUDA, robotics, coordinate descent, Jacobian, collision avoidance, IROS 2026">
+  <meta name="author" content="Cael Yasutake, Andrew H. Liu, Zachary Kingston, Brian Plancher">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="A2R Lab">
+  <meta property="og:title" content="HJCD-IK: GPU-Accelerated Inverse Kinematics through Batched Hybrid Jacobian Coordinate Descent">
+  <meta property="og:description" content="A GPU-accelerated hybrid IK solver on the accuracy-latency Pareto frontier. IROS 2026.">
+  <meta property="og:url" content="https://a2r-lab.org/HJCD-IK/">
+  <meta property="og:image" content="https://a2r-lab.org/HJCD-IK/static/images/solution_distributions.png">
+
+  <link rel="icon" href="static/images/favicon.ico">
+
+  <!-- Bulma + icons (CDN) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
+  <link rel="stylesheet" href="static/css/index.css">
+</head>
+<body>
+
+<!-- ===================== HERO ===================== -->
+<section class="hero">
+  <div class="hero-body">
+    <div class="container is-max-desktop has-text-centered">
+      <a href="https://a2r-lab.org"><img class="lab-logo" src="static/images/a2r_lab.png" alt="A2R Lab"></a>
+      <br>
+      <span class="tag is-medium iros-badge">Accepted to IROS 2026</span>
+      <h1 class="title is-2 publication-title">
+        HJCD-IK: GPU-Accelerated Inverse Kinematics<br>through Batched Hybrid Jacobian Coordinate Descent
+      </h1>
+
+      <div class="is-size-5 publication-authors">
+        <span class="author-block"><a href="https://www.linkedin.com/in/cael-yasutake-3649a6237">Cael Yasutake</a><sup>1</sup>,</span>
+        <span class="author-block"><a href="https://www.linkedin.com/in/andrew-h-liu-b6a45b168">Andrew H. Liu</a><sup>2</sup>,</span>
+        <span class="author-block"><a href="https://zkingston.com/">Zachary Kingston</a><sup>2</sup>,</span>
+        <span class="author-block"><a href="https://brianplancher.com">Brian Plancher</a><sup>3</sup></span>
+      </div>
+
+      <div class="is-size-6 publication-affiliations">
+        <span><sup>1</sup>Columbia University</span> &nbsp;·&nbsp;
+        <span><sup>2</sup>Purdue University</span> &nbsp;·&nbsp;
+        <span><sup>3</sup>Barnard College, Columbia University &amp; Dartmouth College</span>
+      </div>
+
+      <!-- Links -->
+      <div class="publication-links">
+        <a class="button is-dark is-rounded" href="https://arxiv.org/abs/2510.07514">
+          <span class="icon"><i class="ai ai-arxiv"></i></span><span>arXiv</span>
+        </a>
+        <a class="button is-dark is-rounded" href="https://github.com/A2R-Lab/HJCD-IK">
+          <span class="icon"><i class="fab fa-github"></i></span><span>Code</span>
+        </a>
+        <a class="button is-dark is-rounded" href="docs/index.html">
+          <span class="icon"><i class="fas fa-book"></i></span><span>Docs</span>
+        </a>
+        <a class="button is-dark is-rounded" href="#bibtex">
+          <span class="icon"><i class="fas fa-quote-left"></i></span><span>BibTeX</span>
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== TEASER ===================== -->
+<section class="section teaser-section">
+  <div class="container is-max-desktop has-text-centered">
+    <video class="teaser-video" autoplay muted loop playsinline controls
+           poster="static/images/solution_distributions.png">
+      <source src="static/videos/teaser.mp4" type="video/mp4">
+      Your browser does not support the video tag.
+    </video>
+    <p class="is-size-6 has-text-grey mt-2">
+      Real-time, collision-free IK tracking a target amid moving obstacles on a 7-DoF Franka Research 3.
+    </p>
+  </div>
+</section>
+
+<!-- ===================== ABSTRACT ===================== -->
+<section class="section">
+  <div class="container is-max-desktop">
+    <h2 class="title is-3 has-text-centered">Abstract</h2>
+    <div class="content has-text-justified">
+      <p>
+        Inverse Kinematics (IK) is a core problem in robotics, in which joint configurations are found to
+        achieve a (collision free) desired end-effector pose. Modern IK solvers face a fundamental
+        trade-off: analytical methods are fast but lack generality, while numerical optimization-based
+        methods are broadly applicable but prone to local minima and high computational costs. To overcome
+        this challenge, we introduce HJCD-IK, a GPU-accelerated, sampling-based hybrid solver. By pairing a
+        novel orientation-aware greedy coordinate descent initialization with Jacobian-based polishing and a
+        parallel collision filter, our method achieves up to order-of-magnitude gains in speed and accuracy
+        over state-of-the-art solvers, consistently finding collision-free solutions on the accuracy-latency
+        Pareto frontier, while producing a diverse distribution of high-quality samples. We validate our
+        solver on a physical Franka manipulator and release our code open-source.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== METHOD ===================== -->
+<section class="section has-background-light">
+  <div class="container is-max-desktop">
+    <h2 class="title is-3 has-text-centered">Approach</h2>
+    <p class="has-text-centered is-size-5 mb-5">
+      HJCD-IK is a GPU-accelerated, three-phase sampling-based solver — co-designed for block-, warp-, and
+      thread-level parallelism.
+    </p>
+
+    <figure class="image mb-5">
+      <img src="static/images/design.png"
+           alt="HJCD-IK pipeline: orientation-aware CCD initialization, parallel Jacobian polishing, and a parallel collision filter.">
+    </figure>
+
+    <div class="columns">
+      <div class="column">
+        <div class="box stage-box">
+          <h3 class="title is-5">1 · Orientation-aware CCD (PO-CCD)</h3>
+          <p>Hundreds to low-thousands of seeds run in parallel. A novel orientation-aware greedy coordinate
+          descent — projecting in both position <em>and</em> orientation space — produces fast, diverse coarse
+          solutions from random initializations.</p>
+        </div>
+      </div>
+      <div class="column">
+        <div class="box stage-box">
+          <h3 class="title is-5">2 · Parallel Jacobian IK (PJ-IK)</h3>
+          <p>The best seeds are polished by a batched Levenberg–Marquardt solver (trust region + line search,
+          with dogleg / single-coordinate fallbacks), built on the GRiD library, to sub-millimeter and
+          sub-degree accuracy.</p>
+        </div>
+      </div>
+      <div class="column">
+        <div class="box stage-box">
+          <h3 class="title is-5">3 · Parallel collision filter</h3>
+          <p>A GPU-parallel two-stage hierarchical collision check against bounding spheres filters the
+          refined batch for feasibility, returning collision-free solutions on the self-motion manifold.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== RESULTS ===================== -->
+<section class="section">
+  <div class="container is-max-desktop">
+    <h2 class="title is-3 has-text-centered">Results</h2>
+
+    <figure class="image mb-2">
+      <img src="static/images/solution_distributions.png"
+           alt="Distribution of collision-free IK solutions for cuRobo, PyRoki, and HJCD-IK at a representative target.">
+    </figure>
+    <p class="has-text-centered is-size-6 has-text-grey mb-5">
+      Distribution of collision-free IK solutions for a representative target — cuRobo (left), PyRoki
+      (center), HJCD-IK (right). HJCD-IK returns a broader spread of locally-optimal solutions, and a more
+      accurate final result, in less time.
+    </p>
+
+    <p class="content has-text-justified">
+      We benchmark HJCD-IK against three GPU-parallel solvers — <strong>cuRobo</strong>,
+      <strong>IKFlow</strong>, and <strong>PyRoki</strong> — on the 7-DoF Franka Panda and Fetch arms
+      (100 Halton open-world poses; the <em>bookshelf_thin_panda</em> MotionBenchMaker scene for
+      collision-free), on an NVIDIA RTX 4060. HJCD-IK stays on or near the accuracy–latency Pareto frontier
+      across every batch size and DoF, with order-of-magnitude gains:
+    </p>
+    <ul class="content">
+      <li><strong>Open-world.</strong> Position / orientation error drop by ~3.8×10³× / ~3.9×10⁴× (Panda) and
+        ~10⁵× (Fetch) with batch size, while solve time rises only 4.04→4.37 ms (Panda) and 2.59→2.73 ms
+        (Fetch) — &gt;3.1× faster than PyRoki and cuRobo, and order-of-magnitude over IKFlow.</li>
+      <li><strong>Collision-free (Panda).</strong> 14.1× / 280× error reduction with latency only 4.69→6.16 ms
+        — order-of-magnitude speedups over PyRoki and cuRobo.</li>
+      <li><strong>DoF scalability (7–24 DoF, B=1000).</strong> Lowest pose error at every DoF; 3.55×–5.22×
+        faster than PyRoki and 2.14×–4.19× faster than cuRobo.</li>
+      <li><strong>Solution diversity.</strong> Lowest Maximum Mean Discrepancy to the TRAC-IK reference
+        (MMD 0.02261, MMD² 0.00051) — the most diverse, manifold-covering solution set.</li>
+    </ul>
+
+    <div class="columns">
+      <div class="column">
+        <h3 class="title is-5 has-text-centered">Solve time vs. DoF (ms, B = 1000)</h3>
+        <table class="table is-bordered is-narrow result-table">
+          <thead>
+            <tr><th>DoF</th><th class="hjcd">HJCD-IK</th><th>PyRoki</th><th>cuRobo</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>7</td> <td class="hjcd">4.25</td><td>15.09</td><td>9.11</td></tr>
+            <tr><td>12</td><td class="hjcd">4.55</td><td>16.29</td><td>12.66</td></tr>
+            <tr><td>18</td><td class="hjcd">4.62</td><td>20.82</td><td>16.26</td></tr>
+            <tr><td>24</td><td class="hjcd">4.66</td><td>24.34</td><td>19.55</td></tr>
+          </tbody>
+        </table>
+        <p class="is-size-7 has-text-grey has-text-centered">Lowest error at every DoF, too (see paper Table III).</p>
+      </div>
+      <div class="column">
+        <h3 class="title is-5 has-text-centered">Solution diversity — MMD vs. TRAC-IK (↓)</h3>
+        <table class="table is-bordered is-narrow result-table">
+          <thead>
+            <tr><th>Metric</th><th class="hjcd">HJCD-IK</th><th>PyRoki</th><th>cuRobo</th><th>IKFlow</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>MMD</td> <td class="hjcd">0.02261</td><td>0.04514</td><td>0.05348</td><td>0.03670</td></tr>
+            <tr><td>MMD²</td><td class="hjcd">0.00051</td><td>0.00203</td><td>0.00286</td><td>0.00134</td></tr>
+          </tbody>
+        </table>
+        <p class="is-size-7 has-text-grey has-text-centered">Closest match to the full IK manifold.</p>
+      </div>
+    </div>
+    <h3 class="title is-5 has-text-centered mt-6">Accuracy–latency Pareto frontier</h3>
+    <p class="has-text-centered is-size-6 has-text-grey mb-4">
+      Position / orientation / combined error vs. solve time — HJCD-IK (orange), cuRobo (blue),
+      PyRoki (green). HJCD-IK stays on or near the frontier across batch sizes, collision-free problems,
+      and degrees of freedom.
+    </p>
+    <div class="columns is-multiline">
+      <div class="column is-one-third has-text-centered">
+        <img src="static/images/pareto_batch.png" alt="Open-world batch-size accuracy-latency Pareto plot">
+        <p class="is-size-7 has-text-grey">Open-world, by batch size (Table I)</p>
+      </div>
+      <div class="column is-one-third has-text-centered">
+        <img src="static/images/pareto_collfree.png" alt="Collision-free accuracy-latency Pareto plot">
+        <p class="is-size-7 has-text-grey">Collision-free, bookshelf (Fig. 4, Table II)</p>
+      </div>
+      <div class="column is-one-third has-text-centered">
+        <img src="static/images/pareto_dof.png" alt="DoF scaling accuracy-latency Pareto plot">
+        <p class="is-size-7 has-text-grey">DoF scaling, 7–24 (Fig. 5, Table III)</p>
+      </div>
+    </div>
+
+    <p class="has-text-centered is-size-6 mt-4">
+      Full per-batch open-world and collision-free tables (Tables I–II) are in the
+      <a href="docs/index.html">documentation</a>.
+    </p>
+  </div>
+</section>
+
+<!-- ===================== HARDWARE ===================== -->
+<section class="section has-background-light">
+  <div class="container is-max-desktop">
+    <h2 class="title is-3 has-text-centered">Hardware deployment</h2>
+    <figure class="image mb-3">
+      <img src="static/images/hardware.png"
+           alt="HJCD-IK running on a 7-DoF Franka Research 3, tracking a target around obstacles in real time.">
+    </figure>
+    <p class="content has-text-justified">
+      We deploy HJCD-IK on a 7-DoF Franka Research 3. Each camera frame yields the target and obstacle
+      poses; HJCD-IK solves with a batch size of 1000 to obtain a diverse set of collision-free
+      configurations on the self-motion manifold, and we move toward the one nearest the current
+      configuration for smooth, real-time, collision-free tracking of moving obstacles.
+    </p>
+  </div>
+</section>
+
+<!-- ===================== BIBTEX ===================== -->
+<section class="section has-background-light" id="bibtex">
+  <div class="container is-max-desktop">
+    <h2 class="title is-3 has-text-centered">BibTeX</h2>
+    <pre class="bibtex"><code>@inproceedings{yasutake2026hjcdik,
+  title     = {{HJCD-IK}: {GPU}-Accelerated Inverse Kinematics through Batched Hybrid Jacobian Coordinate Descent},
+  author    = {Yasutake, Cael and Liu, Andrew H. and Kingston, Zachary and Plancher, Brian},
+  booktitle = {2026 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)},
+  year      = {2026},
+  note      = {arXiv:2510.07514}
+}</code></pre>
+  </div>
+</section>
+
+<!-- ===================== FOOTER ===================== -->
+<footer class="footer">
+  <div class="container has-text-centered content">
+    <p>
+      This material is based upon work supported by the National Science Foundation (Award 2411369).
+      Correspondence to <a href="mailto:plancher@dartmouth.edu">plancher@dartmouth.edu</a>.
+    </p>
+    <p class="is-size-7 has-text-grey">
+      Website template adapted from the
+      <a href="https://github.com/eliahuhorwitz/Academic-project-page-template">Academic Project Page Template</a>
+      (CC BY-SA 4.0). Built by the <a href="https://a2r-lab.org">A2R Lab</a>.
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>

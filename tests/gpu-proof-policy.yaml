@@ -1,0 +1,11 @@
+# pytest-gpu-proof verification policy for HJCD-IK.
+#
+# allow_dirty:false is load-bearing, not cosmetic. The fingerprint hashes only the
+# test harness (tests/*.py + the problem-set JSON). The actual code under test —
+# the CUDA kernel and the GRiD/GLASS submodules — is pinned by the parent tree's
+# commit + gitlinks, which the fingerprinter cannot descend into. A clean tree is
+# what guarantees the receipt's commit SHA faithfully describes the code that was
+# exercised; a dirty tree could hide an uncommitted kernel or submodule-pin change,
+# so we refuse to honor such a receipt.
+allow_dirty: false
+max_age_days: 30

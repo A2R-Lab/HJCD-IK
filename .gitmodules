@@ -2,3 +2,11 @@
 	path = external/GRiD
 	url = https://github.com/A2R-Lab/GRiD
 	fetchRecurseSubmodules = true
+	branch = modernizing-tests
+[submodule "external/GLASS"]
+	path = external/GLASS
+	url = https://github.com/A2R-Lab/GLASS.git
+	branch = main
+[submodule "external/foam"]
+	path = external/foam
+	url = https://github.com/CoMMALab/foam

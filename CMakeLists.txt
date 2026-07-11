@@ -16,7 +16,7 @@ project(hjcdik LANGUAGES CXX CUDA)
 
 option(HJCDIK_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
 option(BUILD_PYTHON "Build the Python extension module" ON)
-option(HJCDIK_AUTO_CODEGEN "Automatically generate grid.cuh using GRiD if missing" OFF)
+option(HJCDIK_AUTO_CODEGEN "Regenerate grid.cuh from the URDF via GRiD codegen before building" OFF)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -25,44 +25,43 @@ set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-  set(CMAKE_CUDA_ARCHITECTURES 86;89)
+  # Build for the GPU present at configure time. Override with
+  # -DCMAKE_CUDA_ARCHITECTURES=86;89 (or a specific list) for cross-compiling / CI without a GPU.
+  set(CMAKE_CUDA_ARCHITECTURES native)
 endif()
 
 find_package(CUDAToolkit REQUIRED)
-find_package(yaml-cpp CONFIG REQUIRED)
 find_package(Eigen3 CONFIG REQUIRED)
 
-if(TARGET yaml-cpp::yaml-cpp)
-  set(HJCDIK_YAML_CPP_TARGET yaml-cpp::yaml-cpp)
-elseif(TARGET yaml-cpp)
-  set(HJCDIK_YAML_CPP_TARGET yaml-cpp)
-else()
-  message(FATAL_ERROR "yaml-cpp was found, but no usable CMake target was exported")
-endif()
+# Note: the CLI (csrc/kernel/main.cpp) emits its results YAML by hand via std::ofstream and
+# nothing in the project includes the yaml-cpp library, so it is not a dependency.
 
 set(PYBIND11_FINDPYTHON ON)
 if(BUILD_PYTHON)
   find_package(pybind11 CONFIG REQUIRED)
 endif()
 
-# GRiD codegen assets
-set(GRID_DIR              ${CMAKE_SOURCE_DIR}/external/GRiD)
-set(GRID_CODEGEN_SCRIPT   ${GRID_DIR}/generateGRiD.py)
-set(GRID_HEADER_GENERATED ${GRID_DIR}/grid.cuh)
-set(GRID_HEADER_FALLBACK  ${CMAKE_SOURCE_DIR}/include/test_cuh/panda_grid.cuh)
+# GRiD kinematics header. The committed, build-default header lives at
+# csrc/generated/grid.cuh and is #included as "grid.cuh" (that directory is on the
+# include path below). Regenerate it with scripts/codegen/generate_grid.py, or opt into a build-time
+# regenerate with -DHJCDIK_AUTO_CODEGEN=ON (uses the external/GRiD submodule's codegen).
+set(GRID_HEADER         "${CMAKE_SOURCE_DIR}/csrc/generated/grid.cuh")
+set(GRID_CODEGEN_SCRIPT "${CMAKE_SOURCE_DIR}/scripts/codegen/generate_grid.py")
+set(GRID_CODEGEN_URDF   "${CMAKE_SOURCE_DIR}/csrc/urdf/panda.urdf")
+# Panda's collision meshes don't resolve on-disk, so the grid_collision spheres come from the
+# checked-in foam spherized URDF (the paper's 59-sphere model) rather than the mesh spherizer.
+set(GRID_CODEGEN_SPHERIZED "${CMAKE_SOURCE_DIR}/external/foam/assets/panda/smaller_panda_spherized.urdf")
 
-if(NOT EXISTS "${GRID_HEADER_GENERATED}" AND HJCDIK_AUTO_CODEGEN)
+if(HJCDIK_AUTO_CODEGEN)
   if(NOT EXISTS "${GRID_CODEGEN_SCRIPT}")
-    message(FATAL_ERROR "HJCD-IK: GRiD codegen requested, but ${GRID_CODEGEN_SCRIPT} is missing")
+    message(FATAL_ERROR "HJCD-IK: codegen requested, but ${GRID_CODEGEN_SCRIPT} is missing")
   endif()
-
-  message(STATUS "HJCD-IK: grid.cuh missing — running GRiD codegen")
+  message(STATUS "HJCD-IK: regenerating grid.cuh via ${GRID_CODEGEN_SCRIPT}")
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
-  set(HJCDIK_CODEGEN_URDF "${CMAKE_SOURCE_DIR}/include/test_urdf/panda.urdf")
-
   execute_process(
-    COMMAND ${Python3_EXECUTABLE} "${GRID_CODEGEN_SCRIPT}" "${HJCDIK_CODEGEN_URDF}" -t panda_grasptarget_hand
-    WORKING_DIRECTORY ${GRID_DIR}
+    COMMAND ${Python3_EXECUTABLE} "${GRID_CODEGEN_SCRIPT}" "${GRID_CODEGEN_URDF}"
+            -t panda_grasptarget_hand -o "${GRID_HEADER}"
+            --collision --spherized-urdf "${GRID_CODEGEN_SPHERIZED}"
     RESULT_VARIABLE _codegen_result
   )
   if(NOT _codegen_result EQUAL 0)
@@ -70,49 +69,33 @@ if(NOT EXISTS "${GRID_HEADER_GENERATED}" AND HJCDIK_AUTO_CODEGEN)
   endif()
 endif()
 
-if(EXISTS "${GRID_HEADER_GENERATED}")
-  message(STATUS "HJCD-IK: using generated GRiD header")
-  set(GRID_HEADER "${GRID_HEADER_GENERATED}")
-  add_compile_definitions(HJCDIK_HAS_GENERATED_GRID_CUH=1)
-  if(EXISTS "${CMAKE_BINARY_DIR}/grid.cuh")
-    file(REMOVE "${CMAKE_BINARY_DIR}/grid.cuh")
-  endif()
-else()
-  message(WARNING "HJCD-IK: grid.cuh missing — using fallback")
-  set(GRID_HEADER "${GRID_HEADER_FALLBACK}")
-  add_compile_definitions(HJCDIK_HAS_GENERATED_GRID_CUH=0)
+if(NOT EXISTS "${GRID_HEADER}")
+  message(FATAL_ERROR
+    "HJCD-IK: ${GRID_HEADER} is missing. Run scripts/codegen/generate_grid.py "
+    "(or configure with -DHJCDIK_AUTO_CODEGEN=ON).")
 endif()
-
-if(NOT EXISTS "${GRID_HEADER_GENERATED}")
-  set(GRID_HEADER_SHIM "${CMAKE_BINARY_DIR}/grid.cuh")
-  file(WRITE "${GRID_HEADER_SHIM}"
-"#pragma once\n"
-"#include \"test_cuh/panda_grid.cuh\"\n"
-  )
-endif()
+message(STATUS "HJCD-IK: using GRiD header ${GRID_HEADER}")
 
 # Sources
 set(HJCDIK_HEADERS
-  include/hjcd_settings.h
-  include/device_utils.cuh
-  src/collision/prrtc_collision.cuh
-  src/collision/prrtc_env_from_json.hpp
-  src/collision/prrtc_env_cache.hpp
+  csrc/kernel/hjcd_settings.h
+  csrc/kernel/device_utils.cuh
+  csrc/kernel/grid_env.cuh
 )
 
 set(HJCDIK_COMMON_SOURCES
-  src/hjcd_kernel.cu
-  src/collision/prrtc_env_from_json.cpp
+  csrc/kernel/hjcd_kernel.cu
   ${HJCDIK_HEADERS}
 )
 
 set(HJCDIK_INCLUDE_DIRS
   ${CMAKE_SOURCE_DIR}/external/GRiD
   ${CMAKE_SOURCE_DIR}/external/GRiD/include
+  ${CMAKE_SOURCE_DIR}/external/GRiD/collision   # grid_collision_geometry.cuh (SDF primitives, bare-included by grid.cuh)
+  ${CMAKE_SOURCE_DIR}/external/GLASS
   ${CMAKE_BINARY_DIR}
-  ${CMAKE_SOURCE_DIR}
-  ${CMAKE_SOURCE_DIR}/include
-  ${CMAKE_SOURCE_DIR}/src
+  ${CMAKE_SOURCE_DIR}/csrc
+  ${CMAKE_SOURCE_DIR}/csrc/generated
 )
 
 if(MSVC)
@@ -129,7 +112,7 @@ set(HJCDIK_CUDA_FLAGS
 
 # Native Executable
 add_executable(hjcdik
-  src/main.cpp
+  csrc/kernel/main.cpp
   ${HJCDIK_COMMON_SOURCES}
 )
 target_sources(hjcdik PRIVATE ${GRID_HEADER})
@@ -140,14 +123,13 @@ set_target_properties(hjcdik PROPERTIES CUDA_RUNTIME_LIBRARY Static)
 
 target_link_libraries(hjcdik PRIVATE
   CUDA::cudart
-  ${HJCDIK_YAML_CPP_TARGET}
   Eigen3::Eigen
 )
 
 # Python
 if(BUILD_PYTHON)
   pybind11_add_module(_hjcdik MODULE
-    src/pybind_module.cpp
+    csrc/bindings/pybind_module.cpp
     ${HJCDIK_COMMON_SOURCES}
   )
   target_sources(_hjcdik PRIVATE ${GRID_HEADER})
@@ -162,7 +144,6 @@ if(BUILD_PYTHON)
 
   target_link_libraries(_hjcdik PRIVATE
     CUDA::cudart
-    ${HJCDIK_YAML_CPP_TARGET}
     Eigen3::Eigen
   )
 
