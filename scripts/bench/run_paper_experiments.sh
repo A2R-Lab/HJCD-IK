@@ -36,7 +36,8 @@ TGT="$(pwd)/benchmark/targets/panda_open"
 mkdir -p "$OUT_DIR" "$(dirname "$TGT")"
 
 echo "=== [0] shared open-world targets (neutral Halton, panda_hand frame) ==="
-"$PY" benchmark/gen_targets.py --num-targets "$NUM_TARGETS" --out "$TGT"
+# Match HJCD's internal sample_targets sequence for the Panda Table I targets.
+"$PY" benchmark/gen_targets.py --scramble cranley-patterson --num-targets "$NUM_TARGETS" --out "$TGT"
 
 echo "=== [0b] EE-frame equivalence check (informational; installed backends only) ==="
 "$PY" benchmark/check_ee_frames.py --num 8 || echo "(frame check flagged a mismatch — see docs/source/user_guide/benchmarks/results.rst)"

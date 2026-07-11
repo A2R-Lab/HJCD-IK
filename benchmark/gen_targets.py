@@ -14,7 +14,9 @@ targets. The numpy FK here is the same independent reference validated in tests/
 (<0.1 mm / <1e-3 quat vs the GRiD kernel), so the emitted grasptarget poses match HJCD-IK's EE frame.
 
 Halton spec (co-author): one prime per joint dimension — Panda {2,3,5,7,11,13,17} — with random
-scrambling, across the FULL joint limits. Implemented here as a seeded digit-scramble (see `_halton`);
+scrambling, across the FULL joint limits. Two scramble strategies are available (see `_halton`):
+`digit-permutation` (the legacy external default) and `cranley-patterson` (a seeded additive rotation
+that matches HJCD's internal `sample_targets`, `csrc/kernel/hjcd_kernel.cu:sample_q_halton_kernel`);
 `--no-scramble` reverts to raw Halton. No self-collision/reachability filter is applied (a fair shared
 set, not necessarily the paper's exact 100 poses — that would also need their seed).
 """
@@ -137,15 +139,75 @@ def _fk(chain, q):
     return T
 
 
-def _halton(n, dim, skip, scramble=True, seed=0):
+# --- Cranley-Patterson primitives: exact transcription of HJCD's internal sample_q_halton_kernel ---
+# (csrc/kernel/hjcd_kernel.cu:1427-1455 + csrc/kernel/device_utils.cuh:11). uint32 arithmetic is masked
+# to 32 bits so Python's unbounded ints wrap exactly like CUDA's uint32.
+_U32 = 0xFFFFFFFF
+_CP_SEED_XOR = 0x9E3779B97F4A7C15   # 64-bit golden-ratio seed mix (low 32 bits are used)
+_CP_DIM_STRIDE = 0x9E3779B9         # 32-bit golden-ratio per-dimension stride
+
+
+def _wang_hash_u32(a):
+    """Wang integer hash (uint32), matching csrc/kernel/device_utils.cuh:wanghash bit-for-bit."""
+    a &= _U32
+    a = ((a ^ 61) ^ (a >> 16)) & _U32
+    a = (a * 9) & _U32
+    a = (a ^ (a >> 4)) & _U32
+    a = (a * 0x27D4EB2D) & _U32
+    a = (a ^ (a >> 15)) & _U32
+    return a
+
+
+def _radical_inverse(n, base):
+    """Van der Corput radical inverse in fp64, matching hjcd_kernel.cu:radical_inverse op order."""
+    inv = 1.0 / base
+    f = inv
+    x = 0.0
+    while n > 0:
+        x += (n % base) * f
+        n //= base
+        f *= inv
+    return x
+
+
+def _cranley_patterson_shifts(seed, dim):
+    """Per-dimension Cranley-Patterson rotations in [0,1): shift_d =
+    (wanghash((hseed + d*0x9E3779B9) mod 2^32) & 0xFFFFFF)/2^24, hseed=(seed ^ 0x9E3779B97F4A7C15) mod 2^32.
+    One scalar per dimension, from the seed only (independent of the point index)."""
+    hseed = (int(seed) ^ _CP_SEED_XOR) & _U32
+    shifts = np.empty(dim)
+    for d in range(dim):
+        sh = _wang_hash_u32((hseed + d * _CP_DIM_STRIDE) & _U32)
+        shifts[d] = (sh & 0xFFFFFF) / float(0x1000000)
+    return shifts
+
+
+def _halton(n, dim, skip, scramble=True, seed=0, method="digit-permutation"):
     """Scrambled Halton: one prime per joint dim (co-author spec: Panda {2,3,5,7,11,13,17}).
 
-    Scrambling = a seeded random permutation of the digit alphabet {0..base-1} per dimension applied to
-    every digit (random linear / Faure-Tezuka-style digit scramble) — breaks the well-known correlation
-    artifacts of raw van-der-Corput while staying low-discrepancy and fully reproducible from `seed`.
+    Returns an (n, dim) array of points in [0,1). `method` selects the scramble when `scramble=True`:
+
+      * "digit-permutation" (default, legacy): a seeded random permutation of the digit alphabet
+        {0..base-1} per dimension (random linear / Faure-Tezuka-style digit scramble).
+      * "cranley-patterson": the unscrambled van der Corput value plus a seeded per-dimension additive
+        rotation mod 1, matching HJCD's internal `sample_targets` exactly (see the primitives above).
+
+    `scramble=False` yields raw Halton (identity permutation) and ignores `method`. In all cases the
+    index runs 1..n for skip=0 (index 0, the origin, is excluded), matching the internal offset=1.
     """
     if dim > len(_PRIMES):
         raise SystemExit(f"need {dim} Halton dims but only {len(_PRIMES)} primes available")
+
+    if scramble and method == "cranley-patterson":
+        shifts = _cranley_patterson_shifts(seed, dim)
+        pts = np.empty((n, dim))
+        for k in range(n):
+            i = k + skip + 1                      # skip=0 => indices 1..N == internal offset=1
+            for d in range(dim):
+                u = _radical_inverse(i, _PRIMES[d]) + shifts[d]
+                pts[k, d] = u - np.floor(u)       # Cranley-Patterson rotation, mod 1
+        return pts
+
     rng = np.random.default_rng(seed)
     perms = [rng.permutation(_PRIMES[d]) if scramble else np.arange(_PRIMES[d]) for d in range(dim)]
     pts = np.empty((n, dim))
@@ -172,10 +234,18 @@ def main():
                          "open-world EE (PyRoki ik_beam_hand). Use panda_grasptarget_hand for the TCP frame.")
     ap.add_argument("--num-targets", type=int, default=100)
     ap.add_argument("--seed", type=int, default=0,
-                    help="seed for the Halton digit-scramble (deterministic).")
-    ap.add_argument("--skip", type=int, default=0, help="Halton start-index offset.")
-    ap.add_argument("--no-scramble", action="store_true",
-                    help="disable random digit-scrambling (raw Halton; not recommended).")
+                    help="seed for the Halton scramble/rotation (deterministic).")
+    ap.add_argument("--skip", type=int, default=0,
+                    help="Halton start-index offset; skip=0 => indices 1..N, matching HJCD's internal "
+                         "sample_targets (offset=1). A nonzero skip shifts only the external set.")
+    g = ap.add_mutually_exclusive_group()
+    g.add_argument("--scramble", choices=["digit-permutation", "cranley-patterson"],
+                   default="digit-permutation",
+                   help="Halton scramble strategy: 'digit-permutation' (legacy external default) or "
+                        "'cranley-patterson' (matches HJCD's internal sample_targets). "
+                        "Mutually exclusive with --no-scramble.")
+    g.add_argument("--no-scramble", action="store_true",
+                   help="disable scrambling (raw Halton; not recommended). Cannot combine with --scramble.")
     ap.add_argument("--out", type=str, default=str(root / "benchmark" / "targets" / "panda_open"),
                     help="Output path prefix; writes <out>.json (HJCD) and <out>.yml (baselines).")
     args = ap.parse_args()
@@ -184,9 +254,12 @@ def main():
     chain = _chain_to_target(joints, args.target)
     lo, hi = _actuated_limits(chain)
     dof = len(lo)
-    print(f"[gen_targets] {args.urdf} -> '{args.target}': {dof} actuated joints on chain")
+    scramble_method = "none (raw Halton)" if args.no_scramble else args.scramble
+    print(f"[gen_targets] {args.urdf} -> '{args.target}': {dof} actuated joints on chain "
+          f"[scramble={scramble_method}, seed={args.seed}, skip={args.skip}]")
 
-    u = _halton(args.num_targets, dof, args.skip, scramble=not args.no_scramble, seed=args.seed)
+    u = _halton(args.num_targets, dof, args.skip,
+                scramble=not args.no_scramble, seed=args.seed, method=args.scramble)
     configs = lo + u * (hi - lo)
 
     targets = []   # [x,y,z, qw,qx,qy,qz]

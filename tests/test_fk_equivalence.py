@@ -144,3 +144,152 @@ def test_ee_orientation_matches_reference():
             quat = -quat
         worst = max(worst, float(np.linalg.norm(quat - kq)))
     assert worst < QUAT_ATOL, f"max EE quaternion error {worst:.2e} exceeds {QUAT_ATOL:.2e}"
+
+
+# ===================================================================================================
+# Cranley-Patterson scramble equivalence: benchmark/gen_targets.py's cranley-patterson path must be an
+# exact transcription of HJCD's internal sample_targets (csrc/kernel/hjcd_kernel.cu:sample_q_halton_kernel
+# + csrc/kernel/device_utils.cuh:wanghash). These checks are pure-numpy (no GPU); they run wherever this
+# module runs. See Milestone 1 spec.
+# ===================================================================================================
+import sys as _sys  # noqa: E402
+
+_sys.path.insert(0, os.path.join(REPO, "benchmark"))
+import gen_targets as _gt  # noqa: E402
+
+
+def _ref_wang_hash(a):
+    """Independent uint32 transcription of device_utils.cuh:wanghash (not the module under test)."""
+    M = 0xFFFFFFFF
+    a &= M
+    a = ((a ^ 61) ^ (a >> 16)) & M
+    a = (a * 9) & M
+    a = (a ^ (a >> 4)) & M
+    a = (a * 0x27D4EB2D) & M
+    a = (a ^ (a >> 15)) & M
+    return a
+
+
+def _ref_internal_q(seed, i, lo, hi):
+    """Independent transcription of sample_q_halton_kernel for one 0-based config index i."""
+    M = 0xFFFFFFFF
+    n = 1 + i
+    hseed = (seed ^ 0x9E3779B97F4A7C15) & M
+    q = np.empty(len(lo))
+    for j in range(len(lo)):
+        base = _gt._PRIMES[j]
+        inv = 1.0 / base
+        f = inv
+        u = 0.0
+        nn = n
+        while nn > 0:
+            u += (nn % base) * f
+            nn //= base
+            f *= inv
+        sh = _ref_wang_hash((hseed + j * 0x9E3779B9) & M)
+        shift = (sh & 0xFFFFFF) / float(0x1000000)
+        u = u + shift
+        u = u - np.floor(u)
+        q[j] = lo[j] + u * (hi[j] - lo[j])
+    return q
+
+
+def test_cp_wang_hash_known_values():
+    assert _gt._wang_hash_u32(0) == 3232319850
+    assert _gt._wang_hash_u32(1) == 663891101
+    assert _gt._wang_hash_u32(0x9E3779B9) == 1125925706
+    # 64-bit input must wrap to its low 32 bits before hashing.
+    assert _gt._wang_hash_u32((1 << 32) | 0x9E3779B9) == 1125925706
+
+
+def test_cp_shifts_known_values_and_range():
+    sh = _gt._cranley_patterson_shifts(0, 7)
+    assert sh.shape == (7,)
+    assert abs(sh[0] - 0.9202864766120911) < 1e-15
+    assert abs(sh[1] - 0.7119667530059814) < 1e-15
+    assert np.all((sh >= 0.0) & (sh < 1.0))
+
+
+def test_cp_shifts_dimension_specific_and_seed_dependent():
+    sh = _gt._cranley_patterson_shifts(0, 7)
+    assert len(set(sh.tolist())) == 7                          # a distinct scalar per dimension
+    assert not np.allclose(sh, _gt._cranley_patterson_shifts(1, 7))   # a different seed => different shifts
+
+
+def test_cp_deterministic_for_fixed_seed():
+    a = _gt._halton(100, 7, 0, scramble=True, seed=0, method="cranley-patterson")
+    b = _gt._halton(100, 7, 0, scramble=True, seed=0, method="cranley-patterson")
+    assert np.array_equal(a, b)
+
+
+def test_cp_seed_changes_sequence():
+    a = _gt._halton(50, 7, 0, scramble=True, seed=0, method="cranley-patterson")
+    b = _gt._halton(50, 7, 0, scramble=True, seed=1, method="cranley-patterson")
+    assert not np.allclose(a, b)
+
+
+def test_cp_unit_interval_and_index_convention():
+    u = _gt._halton(100, 7, 0, scramble=True, seed=0, method="cranley-patterson")
+    assert u.shape == (100, 7)
+    assert np.all((u >= 0.0) & (u < 1.0))
+    # skip=0 => first emitted index is n=1 (origin n=0 excluded), matching the internal offset=1.
+    sh = _gt._cranley_patterson_shifts(0, 7)
+    for j in range(7):
+        expect = (_gt._radical_inverse(1, _gt._PRIMES[j]) + sh[j])
+        expect = expect - np.floor(expect)
+        assert abs(u[0, j] - expect) < 1e-15
+
+
+def test_no_scramble_is_raw_halton_and_ignores_method():
+    # raw Halton (identity digits, division-chain) must be unchanged and independent of `method`.
+    u = _gt._halton(20, 7, 0, scramble=False, seed=0, method="cranley-patterson")
+    ref = np.empty((20, 7))
+    for k in range(20):
+        for d in range(7):
+            base, f, r, ii = _gt._PRIMES[d], 1.0, 0.0, k + 1
+            while ii > 0:
+                f /= base
+                r += f * (ii % base)
+                ii //= base
+            ref[k, d] = r
+    assert np.array_equal(u, ref)
+
+
+def test_legacy_digit_permutation_unchanged():
+    # Regression guard: the default path is byte-identical to the pre-change implementation.
+    u = _gt._halton(30, 7, 0, scramble=True, seed=0, method="digit-permutation")
+    rng = np.random.default_rng(0)
+    perms = [rng.permutation(_gt._PRIMES[d]) for d in range(7)]
+    ref = np.empty((30, 7))
+    for k in range(30):
+        for d in range(7):
+            base, perm, f, r, ii = _gt._PRIMES[d], perms[d], 1.0, 0.0, k + 1
+            while ii > 0:
+                f /= base
+                r += f * perm[ii % base]
+                ii //= base
+            ref[k, d] = r
+    assert np.array_equal(u, ref)
+
+
+def test_cp_q_matches_direct_cuda_transcription():
+    # The generator's CP config q must equal an independent transcription of the CUDA kernel (bitwise).
+    joints = _gt._parse_joints(URDF)
+    chain = _gt._chain_to_target(joints, "panda_hand_joint")
+    lo, hi = _gt._actuated_limits(chain)
+    u = _gt._halton(100, len(lo), 0, scramble=True, seed=0, method="cranley-patterson")
+    q = lo + u * (hi - lo)
+    worst = max(float(np.max(np.abs(q[i] - _ref_internal_q(0, i, lo, hi)))) for i in range(100))
+    assert worst == 0.0, f"CP q differs from direct transcription by {worst} (expected bitwise-equal)"
+
+
+def test_cp_generated_poses_finite_and_normalized():
+    joints = _gt._parse_joints(URDF)
+    chain = _gt._chain_to_target(joints, "panda_hand_joint")
+    lo, hi = _gt._actuated_limits(chain)
+    u = _gt._halton(16, len(lo), 0, scramble=True, seed=0, method="cranley-patterson")
+    for q in (lo + u * (hi - lo)):
+        T = _gt._fk(chain, q)
+        quat = _gt._quat_from_R(T[:3, :3])
+        assert np.all(np.isfinite(T)) and np.all(np.isfinite(quat))
+        assert abs(np.linalg.norm(quat) - 1.0) < 1e-9
