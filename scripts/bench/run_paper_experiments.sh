@@ -12,7 +12,7 @@
 #   PYTHON      interpreter                 (default: .venv/bin/python, else python3)
 #   NUM_TARGETS open-world target count     (default: 100)
 #   BATCHES     batch / seed sweep          (default: 1,10,100,1000,2000)
-#   PROBLEM_SET collision-free MB set       (default: bookshelf_thin_panda)
+#   PROBLEM_SET collision-free MB set       (default: box_panda)
 #   SKIP_HJCD / SKIP_PYROKI / SKIP_CUROBO   set =1 to skip a solver
 #
 # Prereqs: a built `hjcdik` (GPU) for HJCD; `scripts/setup/install_baselines.sh` for the baselines.
@@ -30,7 +30,7 @@ fi
 OUT_DIR="${OUT_DIR:-benchmark/results}"
 NUM_TARGETS="${NUM_TARGETS:-100}"
 BATCHES="${BATCHES:-1,10,100,1000,2000}"
-PROBLEM_SET="${PROBLEM_SET:-bookshelf_thin_panda}"
+PROBLEM_SET="${PROBLEM_SET:-box_panda}"
 MB_JSON="$(pwd)/tests/mb_problems.json"
 TGT="$(pwd)/benchmark/targets/panda_open"
 mkdir -p "$OUT_DIR" "$(dirname "$TGT")"

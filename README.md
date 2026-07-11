@@ -2,165 +2,437 @@
 
 [![arXiv:2510.07514](https://img.shields.io/badge/arXiv-2510.07514-b31b1b.svg)](https://arxiv.org/abs/2510.07514)
 
-This repository contains the code from ["HJCD-IK: GPU-Accelerated Inverse Kinematics through Batched Hybrid Jacobian Coordinate Descent"](https://arxiv.org/abs/2510.07514)
+This repository contains the implementation from
+[“HJCD-IK: GPU-Accelerated Inverse Kinematics through Batched Hybrid Jacobian Coordinate Descent”](https://arxiv.org/abs/2510.07514).
+
+HJCD-IK is a GPU-accelerated, sampling-based hybrid inverse kinematics solver for generating one or
+more robot configurations for a target end-effector pose.
 
 ## Requirements
 
-- NVIDIA GPU + **CUDA Toolkit 12.x or 13.x**
-- **Python &ge; 3.9**
-- **CMake &ge; 3.23**
-- **Visual Studio 2022** (Windows) or **GCC/Clang** (Linux)
-- System header libraries **Eigen3** and **nlohmann-json**. On Debian/Ubuntu:
-  ```bash
-  sudo apt install -y libeigen3-dev nlohmann-json3-dev
-  ```
-  (`scripts/setup/setup_dev.sh` installs these for you on apt-based systems.)
+- Linux
+- NVIDIA GPU
+- CUDA Toolkit 12.x or 13.x
+- Python 3.9 or newer
+- CMake 3.23 or newer
+- GCC or Clang
+- Eigen3
+- nlohmann-json
 
 ## Installation
+
+Clone the repository:
+
 ```bash
-git clone https://github.com/A2R-Lab/HJCD-IK.git
+git clone --recurse-submodules https://github.com/A2R-Lab/HJCD-IK.git
 cd HJCD-IK
 ```
 
-HJCD-IK relies on [GRiD](https://github.com/A2R-Lab/GRiD), a GPU-accelerated library for rigid body dynamics and analytical gradients.
+Run the development setup:
 
-(Linux)
 ```bash
-chmod +x scripts/setup/bootstrap.sh
+chmod +x scripts/setup/setup_dev.sh
+./scripts/setup/setup_dev.sh
+source .venv/bin/activate
+```
+
+The script initializes the required submodules, creates a virtual environment,
+installs dependencies, generates the robot model, and builds `hjcdik`.
+
+If needed, convert the shell scripts to Unix line endings:
+
+```bash
+dos2unix scripts/setup/*.sh scripts/bench/*.sh
+```
+
+Verify the installation:
+
+```bash
+python - <<'PY'
+import hjcdik
+
+print("hjcdik:", hjcdik.__file__)
+print("robot DoF:", hjcdik.num_joints())
+PY
+```
+
+### Manual build
+
+Initialize the required submodules:
+
+```bash
 ./scripts/setup/bootstrap.sh
 ```
-Note: may need to run ```dos2unix scripts/setup/bootstrap.sh ``` before ```./scripts/setup/bootstrap.sh``` first
 
-(Windows)
+Create a virtual environment:
+
 ```bash
-.\scripts\setup\bootstrap_windows.bat
+python3 -m venv .venv
+source .venv/bin/activate
 ```
 
-You can install `hjcdik` with `pip` on Python &ge; 3.9:
+Install dependencies:
+
 ```bash
-python -m pip install -e .
+python -m pip install --upgrade \
+  pip \
+  setuptools \
+  wheel \
+  cmake \
+  ninja \
+  scikit-build-core
+
+python -m pip install \
+  numpy \
+  scipy \
+  sympy \
+  beautifulsoup4 \
+  lxml \
+  pytest
 ```
 
-### Optional: competitor baselines (PyRoki / cuRobo)
-The base install is lightweight and needs none of the baselines. To benchmark HJCD-IK against the
-paper's competitors, install them with the helper (each stage is skippable — some are heavy):
+Generate the Panda model:
+
 ```bash
-./scripts/setup/install_baselines.sh                 # PyRoki + cuRobo
-SKIP_CUROBO=1 ./scripts/setup/install_baselines.sh   # PyRoki only
+python scripts/codegen/generate_grid.py \
+  csrc/urdf/panda.urdf \
+  -t panda_grasptarget_hand
 ```
-See [`docs/source/user_guide/benchmarks/results.rst`](docs/source/user_guide/benchmarks/results.rst) for the full install/run guide and reproduction coverage.
 
-## Using different robots
-At installation, HJCD-IK creates a new GRiD header file for the Franka Panda Arm and sets `panda_grasptarget_hand` as its end-effector flange. To use a different robot, you must first create a new `grid.cuh` header file using:
+Build the package:
+
 ```bash
-python scripts/codegen/generate_grid.py <PATH_TO_URDF> -t <FIXED_TARGET_NAME>
+python -m pip install -e . --no-build-isolation
 ```
-* `PATH_TO_URDF`: the path to the new robot URDF file
-* `FIXED_TARGET_NAME`: the name of the robot end-effector flange (e.g. Franka: `panda_grasptarget_hand`)
-  * Note: GRiD prints out possible fixed joint names found (if any) during code generation
 
-**Bring-your-own-URDF collision.** Collision is generated from the same URDF — add `--collision`
-to bake GRiD's `grid_collision` spheres (and self-collision ranges) into `grid.cuh` alongside the
-kinematics. Spheres come either from spherizing the URDF's own collision geometry
-(`--collision-res <meters>`), or, when those meshes don't resolve on disk, from a pre-spherized
-[foam](https://github.com/CoMMALab/foam)-format URDF (`--spherized-urdf <foam.urdf>`):
+## Quick Start
+
+```python
+import hjcdik
+
+target = hjcdik.sample_targets(num_targets=1, seed=0)[0]
+
+result = hjcdik.generate_solutions(
+    target,
+    batch_size=2000,
+    num_solutions=1,
+)
+
+print("solutions:", result["count"])
+print("joint configurations:", result["joint_config"])
+print("position errors:", result["pos_errors"])
+print("orientation errors:", result["ori_errors"])
+```
+
+Target poses use:
+
+```text
+[x, y, z, qw, qx, qy, qz]
+```
+
+Position is in meters and quaternions use `wxyz` order.
+
+## Collision-Enabled Build
+
+Generate the Panda collision model:
+
 ```bash
-# Panda uses the checked-in foam model (the paper's sphere model); the build wires this automatically
-python scripts/codegen/generate_grid.py csrc/urdf/panda.urdf --collision \
-    --spherized-urdf external/foam/assets/panda/smaller_panda_spherized.urdf
+python scripts/codegen/generate_grid.py \
+  csrc/urdf/panda.urdf \
+  -t panda_grasptarget_hand \
+  --collision \
+  --spherized-urdf \
+  external/foam/assets/panda/smaller_panda_spherized.urdf
 ```
-Any URDF then gets both FK **and** collision with no hand-written per-robot code. (Regenerating
-without `--collision` is fine — the kernel compiles and runs open-world; collision-free requests
-are simply ignored.)
 
-## Benchmark
-To run IK benchmark, use:
+Rebuild:
+
 ```bash
-python benchmark/hjcd_ik_bench.py --skip-grid-codegen
+python -m pip install -e . --no-build-isolation
 ```
-which performs IK using the Panda Arm with batches of `1, 10, 100, 1000, 2000`. Results are written to a `results.yml`.
 
-### Usage
-* `--num-targets <int>`
-  * How many target poses to sample. Default: `100`
-* `--batches "<list>"`
-  * Batch sizes to test (comma or space separated). Default: `"1,10,100,1000,2000"`
-* `--num-solutions <int>`
-  * How many IK solutions to return per call. Default: `1`
-* `--yaml-out <path>`
-  * Output result file. Default: `results.yml`
-* `--urdf <path>`
-  * URDF path used if running GRiD codegen. Default: `csrc/urdf/panda.urdf`
-* `--grid-target <FIXED_TARGET_NAME>`
-  * The name of the robot end-effector flange offset
-* `--skip-grid-codegen`
-  * Skips creating GRiD header file and immediately runs benchmarks. Default: off
-* `--seed <int>`
-  * Seed for target sampling. Default: `0`
+After any code-generation change, rebuild with:
 
-### Usage Examples
-* Custom batches/targets/solutions, out file name:
+```bash
+bash scripts/setup/rebuild.sh
+```
+
+Note: the tests and collision-free example require a collision-enabled build.
+
+## Examples
+
+Run the included examples:
+
+```bash
+python examples/01_open_world_solve.py
+python examples/02_collision_free_solve.py
+python examples/03_batch_sweep.py
+```
+
+## Tests
+
+For the full test suite, use the collision-enabled Panda build above.
+
+Run:
+
+```bash
+python -m pytest tests/ -v
+```
+
+Run one test file:
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+python -m pytest tests/test_fk_equivalence.py -v
+```
+
+## HJCD-IK Benchmark
+
+Run the default HJCD benchmark:
+
+```bash
+python benchmark/hjcd_ik_bench.py \
+  --skip-grid-codegen
+```
+
+This runs 100 targets with batch sizes:
+
+```text
+1, 10, 100, 1000, 2000
+```
+
+and writes results to:
+
+```text
+results.yml
+```
+
+### Common options
+
+```text
+--num-targets <int>
+--batches "<list>"
+--num-solutions <int>
+--yaml-out <path>
+--urdf <path>
+--grid-target <name>
+--skip-grid-codegen
+--seed <int>
+```
+
+Example:
+
 ```bash
 python benchmark/hjcd_ik_bench.py \
   --batches "1,32,256,2048" \
   --num-targets 250 \
   --num-solutions 4 \
-  --yaml-out results.yml \ 
+  --yaml-out results.yml \
   --skip-grid-codegen
 ```
-* To generate a new GRiD header on a different robot, run:
+
+## Collision-Free Benchmark
+
+Run the Panda MotionBenchMaker benchmark:
+
 ```bash
-python benchmark/hjcd_ik_bench.py --urdf csrc/urdf/fetch.urdf
+python benchmark/hjcd_ik_bench.py \
+  --skip-grid-codegen \
+  --collision-free \
+  --problems-json tests/mb_problems.json \
+  --problem-set box_panda \
+  --batches "1,10,100,1000,2000"
 ```
 
-### Collision-Free Benchmark
-To run collision-free benchmark on the [MotionBenchMaker](https://github.com/KavrakiLab/motion_bench_maker) dataset, run:
+Collision modes are selected with `HJCD_CC_MODE`:
+
 ```bash
-python benchmark/hjcd_ik_bench.py --skip-grid-codegen --collision-free --problems-json tests/mb_problems.json --problem-set bookshelf_thin_panda
+HJCD_CC_MODE=soft python benchmark/hjcd_ik_bench.py ...
+HJCD_CC_MODE=hard python benchmark/hjcd_ik_bench.py ...
+HJCD_CC_MODE=both python benchmark/hjcd_ik_bench.py ...
 ```
 
-### Collision-Free Benchmark Additional Usage
-* `--collision-free`
-  * Enable collision filter on solutions.
-* `--problems-json <path>` 
-  * Path to json problem file for collision-free benchmarking.
-* `--problem-set <str>`
-  * Problem set within json file to run benchmarking.
-* `--problem-idx <int>`
-  * Run collision-free benchmarking on specific problem index within problem set.
+- `soft`: biases solutions away from environment collisions
+- `hard`: filters self- and environment-colliding solutions
+- `both`: combines both modes
 
-**Collision scoring mode** (env `HJCD_CC_MODE`, a comparison knob): `soft` (default) uses a
-penetration cost to bias selection away from collisions (environment-only); `hard` filters
-colliding candidates outright with `grid_collision::config_free` (self **and** environment);
-`both` combines them. All three run post-solve, off the hot solver loop.
+## Optional Baselines
 
-## Creating Collision Environments
-Collision environments are specified in the Motion Benchmarker-style JSON problem format. Each problem contains a `goal_pose`, `start` configuration, `world_frame`, and an optional `obstacles` field. Examples of environments can be found in the `tests` folder.
+The paper benchmark can also run:
 
-Obstacles are grouped by primitive type: `sphere`, `cuboid`, and `cylinder`.
+- PyRoki
+- cuRobo v2
+- IKFlow
+- TRAC-IK
 
-### Cuboid obstacles
-Cuboids are specified under `obstacles.cuboid`:
+Install available baselines:
+
+```bash
+./scripts/setup/install_baselines.sh
+```
+
+Skip individual solvers when needed:
+
+```bash
+SKIP_CUROBO=1 ./scripts/setup/install_baselines.sh
+SKIP_PYROKI=1 ./scripts/setup/install_baselines.sh
+SKIP_IKFLOW=1 ./scripts/setup/install_baselines.sh
+SKIP_TRACIK=1 ./scripts/setup/install_baselines.sh
+```
+
+Notes:
+
+- cuRobo requires a compatible `cuda-core` backend.
+- IKFlow requires model weights under `benchmark/assets/ikflow/weights/`.
+- TRAC-IK requires additional native dependencies.
+
+See
+[`docs/source/user_guide/benchmarks/results.rst`](docs/source/user_guide/benchmarks/results.rst)
+for detailed baseline instructions.
+
+## Reproducing the Paper Benchmarks
+
+### HJCD-only benchmark (open-world and collision-free)
+
+```bash
+HJCD_REGEN=1 \
+SKIP_PYROKI=1 \
+SKIP_CUROBO=1 \
+SKIP_IKFLOW=1 \
+./scripts/bench/run_paper_experiments.sh
+```
+
+### All installed solvers (open-world and collision-free)
+
+```bash
+HJCD_REGEN=1 \
+./scripts/bench/run_paper_experiments.sh
+```
+
+### Tables I–IV, including Fetch, DoF scaling, and MMD
+
+```bash
+HJCD_REGEN=1 \
+RUN_FETCH=1 \
+RUN_DOF=1 \
+RUN_MMD=1 \
+./scripts/bench/run_paper_experiments.sh
+```
+
+Results are written to:
+
+```text
+benchmark/results/
+```
+
+Use `HJCD_REGEN=1` when running the paper benchmarks to ensure that HJCD-IK is rebuilt for the correct robot and end-effector frame.
+
+After running the paper harness, restore the collision-enabled Panda build if
+you plan to run collision examples or tests:
+
+```bash
+python scripts/codegen/generate_grid.py \
+  csrc/urdf/panda.urdf \
+  -t panda_grasptarget_hand \
+  --collision \
+  --spherized-urdf \
+  external/foam/assets/panda/smaller_panda_spherized.urdf
+
+python -m pip install -e . --no-build-isolation
+```
+
+Benchmark timings depend on the GPU and system load. Run timing experiments on
+an otherwise idle GPU.
+
+## Using a Different Robot
+
+Generate a robot-specific model:
+
+```bash
+python scripts/codegen/generate_grid.py \
+  <PATH_TO_URDF> \
+  -t <FIXED_TARGET_NAME>
+```
+
+Example:
+
+```bash
+python scripts/codegen/generate_grid.py \
+  csrc/urdf/fetch.urdf \
+  -t ee_fixed
+```
+
+Then rebuild:
+
+```bash
+python -m pip install -e . --no-build-isolation
+```
+
+HJCD-IK supports revolute, prismatic, and fixed joints.
+
+### Collision checking for a custom robot
+
+Generate collision spheres from the URDF:
+
+```bash
+python scripts/codegen/generate_grid.py \
+  path/to/robot.urdf \
+  -t end_effector_fixed_joint \
+  --collision \
+  --collision-res 0.02
+```
+
+Or use a pre-spherized foam URDF:
+
+```bash
+python scripts/codegen/generate_grid.py \
+  path/to/robot.urdf \
+  -t end_effector_fixed_joint \
+  --collision \
+  --spherized-urdf path/to/robot_spherized.urdf
+```
+
+## Collision Environments
+
+Collision environments use a MotionBenchMaker-style JSON format.
+
+Each problem may contain:
+
+```text
+goal_pose
+start
+world_frame
+obstacles
+```
+
+Examples are available in:
+
+```text
+tests/mb_problems.json
+```
+
+Supported obstacle types are:
+
+- `sphere`
+- `cuboid`
+- `cylinder`
+
+### Cuboid
 
 ```json
 "cuboid": {
-  "cube_robot_stand": {
+  "box": {
     "dims": [0.30, 0.25, 0.80],
     "pose": [-0.05, 0.00, -0.40, 1, 0, 0, 0]
   }
 }
 ```
 
-Each cuboid requires:
-* `dims`: `[x, y, z]` sides lengths in meters
-* `pose`: `[x, y, z, qw, qx, qy, qz]` in the problem's `world_frame`
-
-### Cylinder obstacles
-Cylinders are specificed under `obstacles.cylinder`:
+### Cylinder
 
 ```json
 "cylinder": {
-  "goal_post": {
+  "post": {
     "radius": 0.035,
     "height": 0.24,
     "pose": [0.35, 0.15, 0.12, 1, 0, 0, 0]
@@ -168,13 +440,7 @@ Cylinders are specificed under `obstacles.cylinder`:
 }
 ```
 
-Each cylinder requires:
-* `radius`: cylinder radius in meters
-* `height`: cylinder height in meters
-* `pose`: `[x, y, z, qw, qx, qy, qz]` in the problem's `world_frame`
-
-### Sphere obstacles
-Spheres are specified under `obstacles.sphere`:
+### Sphere
 
 ```json
 "sphere": {
@@ -185,18 +451,14 @@ Spheres are specified under `obstacles.sphere`:
 }
 ```
 
-Each sphere requires:
-* `radius`: sphere radius in meters
-* `pose`: `[x, y, z, qw, qx, qy, qz]` in the problem's `world_frame` (only the position is used)
+All poses use:
 
-### Additional Notes
-* HJCD-IK currently only supports robots using revolute, prismatic, and fixed joints without any closed kinematic loops.
-* Collision is **URDF-driven** (GRiD's `grid_collision`): pass `--collision` to `generate_grid.py`
-  to bring your own robot with no hand-written collision code (see *Using different robots*). The
-  Panda uses the checked-in foam sphere model out of the box.
+```text
+[x, y, z, qw, qx, qy, qz]
+```
 
-## Cite
-Please cite HJCD-IK if you found this work useful:
+## Citation
+
 ```bibtex
 @inproceedings{yasutake2026hjcdik,
   title     = {{HJCD-IK}: {GPU}-Accelerated Inverse Kinematics through Batched Hybrid Jacobian Coordinate Descent},
@@ -208,4 +470,5 @@ Please cite HJCD-IK if you found this work useful:
 ```
 
 ## License
+
 HJCD-IK is released under the [MIT License](LICENSE).
