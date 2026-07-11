@@ -60,7 +60,7 @@ the GPU baselines cuRobo, PyRoki, and IKFlow, while returning the most diverse (
    **All numbers below are from the camera-ready paper** (`arXiv:2510.07514
    <https://arxiv.org/abs/2510.07514>`_, IROS 2026) — the single source of truth. They were collected on
    an NVIDIA RTX 4060 (Intel i7-14700HX, WSL Ubuntu 24.04, CUDA 12.5) over 100 Halton open-world poses and
-   the *bookshelf_thin_panda* MotionBenchMaker scene. Benchmarks you run locally (see *Reproducing these
+   the *box_panda* MotionBenchMaker scene. Benchmarks you run locally (see *Reproducing these
    results*, below) are for your own validation and will differ with hardware. Position error is in **mm**, orientation error in
    **rad**, time in **ms**; **bold** marks the best (HJCD-IK) value.
 
@@ -242,8 +242,8 @@ Open-world IK — Fetch (Table I)
 
    Open-world accuracy–latency frontier (Table I) — HJCD-IK (orange), cuRobo (blue), PyRoki (green).
 
-Collision-free IK — Panda, bookshelf_thin_panda (Table II)
-----------------------------------------------------------
+Collision-free IK — Panda, box_panda (Table II)
+-----------------------------------------------
 
 .. list-table::
    :header-rows: 1
@@ -253,68 +253,86 @@ Collision-free IK — Panda, bookshelf_thin_panda (Table II)
      - HJCD-IK Time
      - HJCD-IK Pos
      - HJCD-IK Ori
+     - HJCD-IK Succ
      - PyRoki Time
      - PyRoki Pos
      - PyRoki Ori
+     - PyRoki Succ
      - cuRobo Time
      - cuRobo Pos
      - cuRobo Ori
+     - cuRobo Succ
    * - 1
-     - **4.69**
-     - **3.41**
-     - **6.02e-3**
-     - 77.07
-     - 6.09e2
-     - 3.93e-1
-     - 33.70
-     - 8.03
-     - 3.39e-2
+     - **5.44**
+     - 8.17
+     - 1.96e-2
+     - 89.0
+     - 34.04
+     - 5.18e2
+     - 3.96e-1
+     - 6.0
+     - 23.76
+     - 7.85
+     - 2.61e-3
+     - 97.0
    * - 10
-     - **4.48**
-     - **2.78e-1**
-     - **9.57e-5**
-     - 72.17
-     - 3.56
-     - 6.34e-3
-     - 35.43
-     - 8.03
-     - 1.22e-3
+     - **4.19**
+     - 7.11e-4
+     - 5.34e-7
+     - 98.0
+     - 46.29
+     - 9.90e-5
+     - 1.69e-7
+     - 89.0
+     - 29.31
+     - 2.43e-3
+     - 4.00e-6
+     - 100.0
    * - 100
-     - **5.43**
-     - **2.38e-1**
-     - **3.53e-5**
-     - 66.25
-     - 2.72e-1
-     - 1.03e-4
-     - 34.85
-     - 7.84
-     - 2.05e-3
+     - **4.42**
+     - **8.83e-5**
+     - **3.56e-8**
+     - **100.0**
+     - 48.98
+     - 9.80e-5
+     - 1.41e-7
+     - 93.0
+     - 30.76
+     - 6.99e-4
+     - 2.00e-6
+     - 100.0
    * - 1000
-     - **5.16**
-     - **2.38e-1**
-     - **3.50e-5**
-     - 46.83
-     - 2.46e-1
-     - 1.13e-4
-     - 32.05
-     - 7.84
-     - 2.05e-3
+     - **5.04**
+     - **2.03e-5**
+     - **9.06e-9**
+     - **100.0**
+     - 46.98
+     - 8.70e-5
+     - 1.36e-7
+     - 92.0
+     - 28.50
+     - 2.93e-4
+     - 2.00e-6
+     - 100.0
    * - 2000
-     - **6.16**
-     - **2.41e-1**
-     - **2.09e-5**
-     - 45.72
-     - 2.46e-1
-     - 1.14e-4
-     - 70.55
-     - 7.92
-     - 2.94e-3
+     - **5.35**
+     - **1.71e-5**
+     - **7.16e-9**
+     - **100.0**
+     - 35.74
+     - 8.80e-5
+     - 1.49e-7
+     - 90.0
+     - 61.96
+     - 2.47e-4
+     - 2.00e-6
+     - 100.0
 
 .. figure:: /_static/paper/pareto_collfree.png
    :width: 100%
    :alt: Collision-free accuracy–latency Pareto frontier
 
-   Collision-free frontier on the *bookshelf_thin_panda* scene (Fig. 4, Table II).
+   Collision-free frontier on the *box_panda* scene (Fig. 4, Table II).
 
 .. note::
 
@@ -434,9 +452,9 @@ comparison.
 .. code-block:: bash
 
    python benchmark/hjcd_ik_bench.py --skip-grid-codegen --batches 1,10,100,1000,2000 --num-targets 100
-   # collision-free (Panda bookshelf):
+   # collision-free (Panda box_panda, the paper's Table II scene):
    python benchmark/hjcd_ik_bench.py --skip-grid-codegen --collision-free \
-       --problems-json tests/mb_problems.json --problem-set bookshelf_thin_panda --batches 1,10,100,1000
+       --problems-json tests/mb_problems.json --problem-set box_panda --batches 1,10,100,1000
 
 The harness reports solved-rate, mean position / orientation error, and timing per batch size — the metrics
 ``tests/test_regression.py`` asserts against a committed baseline. Isolate timing runs (no concurrent GPU

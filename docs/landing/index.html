@@ -165,7 +165,7 @@
     <p class="content has-text-justified">
       We benchmark HJCD-IK against three GPU-parallel solvers — <strong>cuRobo</strong>,
       <strong>IKFlow</strong>, and <strong>PyRoki</strong> — on the 7-DoF Franka Panda and Fetch arms
-      (100 Halton open-world poses; the <em>bookshelf_thin_panda</em> MotionBenchMaker scene for
+      (100 Halton open-world poses; the <em>box_panda</em> MotionBenchMaker scene for
       collision-free), on an NVIDIA RTX 4060. HJCD-IK stays on or near the accuracy–latency Pareto frontier
       across every batch size and DoF, with order-of-magnitude gains:
     </p>
@@ -224,7 +224,7 @@
       </div>
       <div class="column is-one-third has-text-centered">
         <img src="static/images/pareto_collfree.png" alt="Collision-free accuracy-latency Pareto plot">
-        <p class="is-size-7 has-text-grey">Collision-free, bookshelf (Fig. 4, Table II)</p>
+        <p class="is-size-7 has-text-grey">Collision-free, box_panda (Fig. 4, Table II)</p>
       </div>
       <div class="column is-one-third has-text-centered">
         <img src="static/images/pareto_dof.png" alt="DoF scaling accuracy-latency Pareto plot">
