@@ -94,9 +94,9 @@ out = generate_solutions(targets[0], batch_size=2000, num_solutions=4)
   Do not drop the solver onto block-scoped primitives.
 - **Short, single-line commit messages; no `Co-Authored-By` footer.**
 
-## Integration — `grid-glass-integration` branch (pending PR to `main`)
+## Integration — re-based on GRiD/GLASS (merged to `main`, 2026-07-11)
 
-This branch re-bases HJCD-IK onto the latest GRiD (`modernizing-tests`) + GLASS (`main`) for modularity and
+HJCD-IK is re-based onto the latest GRiD (`modernizing-tests`) + GLASS (`main`) for modularity and
 upstreamable performance. The bespoke Panda-only FK (`X_warp` / `X_single_thread`) was replaced by GRiD's
 stock warp FK (`grid::ee_pose_inner_warp`), and the hand-rolled math (`mat4_mul`, warp reduce, warp Cholesky)
 moved onto GLASS's `glass::warp::` sub-namespace. The end-effector frame is now **per-robot** (codegen
