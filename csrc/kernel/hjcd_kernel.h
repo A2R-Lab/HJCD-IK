@@ -115,6 +115,12 @@ struct SolveInputs {
     const void* q; const void* tgt_p; const void* tgt_q; const void* wp; const void* wo;
     const unsigned int* active;
     bool f32;
+    // Multi-problem layout. q is [B, N] (candidate-level). tgt_p/tgt_q/wp/wo are [P, K, ...] and
+    // active is [P] (problem-level, stored ONCE per problem, never broadcast to [P, S, ...]).
+    // B == num_problems * seeds_per_problem. The legacy single-problem path sets num_problems = B
+    // and seeds_per_problem = 1, i.e. every candidate is its own problem with its own target copy.
+    int num_problems = 0;         // P; 0 means "legacy: P = B, S = 1" (filled in by the launcher)
+    int seeds_per_problem = 1;    // S
 };
 
 // Multi-target coarse search (Phase 5): aggregate weighted coordinate Gauss-Newton, one warp per
@@ -193,6 +199,43 @@ LMRefineOutputs compute_lm_refine(
     // are not comparable and a "relative improvement" computed from them is meaningless.
     int stag_patience, double stag_rel,
     HjcdWorkspace* ws, void* out_q_ct);
+
+
+// Milestone 3: batched-problem solve with on-device per-problem top-1 selection. Selected outputs
+// are [P, ...]; when return_all is set the full [B, ...] candidate arrays are also filled.
+struct SolveProblemsOutputs {
+    int P = 0, S = 0, K = 0, M = 1, fp32 = 0;
+    double coarse_ms = 0.0, lm_ms = 0.0, select_ms = 0.0;
+    // Selected top-1 per problem (fp32 stored in *_f when fp32, else in the double vectors).
+    std::vector<double> sel_q, sel_pe, sel_oe, sel_cost;     // [P,N] [P,K] [P,K] [P]
+    std::vector<float>  sel_q_f;                             // [P,N] when fp32
+    std::vector<double> sel_ephys;                           // [P]
+    std::vector<int>    sel_seed;                            // [P]  (-1 = no valid candidate)
+    std::vector<unsigned char> sel_succ, sel_valid, sel_cfree, sel_fb;   // [P]
+    // Per-problem summaries.
+    std::vector<int> num_solved, num_valid, num_cfree, num_lm_coll, num_fb, num_infeas;  // [P]
+    std::vector<unsigned char> prob_success;                 // [P]
+    bool cc_enabled = false;
+    // Full candidate arrays (only when return_all). Candidate config comes back via out_all_q_ct.
+    std::vector<double> all_pe, all_oe, all_cost;            // [B,K] [B,K] [B]
+    std::vector<unsigned char> all_succ, all_cfree, all_fb;  // [B]
+};
+
+// Orchestrate coarse -> LM -> (collision + candidate-local fallback) -> segmented top-1, all
+// device-resident. Only the selected [P,...] outputs (and, if return_all, the [B,...] arrays) leave
+// the device. use_coarse_host is a [B] uint8 per-candidate dispatch flag. out_sel_q_ct receives the
+// selected [P,N] config in the compute type; out_all_q_ct (may be null) the full [B,N].
+SolveProblemsOutputs compute_solve_problems(
+    const SolveInputs& in,
+    int B, int num_solutions,
+    double eps_pos, double eps_ori,
+    double lambda_coord, double h_min, double max_step, int coarse_iters, int coarse_stall_lim,
+    int use_incremental, unsigned long long seed, int max_pert_attempts,
+    double lambda_init, int lm_iters, int stag_patience, double stag_rel,
+    const grid::robotModel<double>* d_robotModel, int precision,
+    const unsigned char* use_coarse_host, bool run_coarse,
+    const void* cc_model, const void* cc_env_ptr,
+    bool return_all, HjcdWorkspace* ws, void* out_sel_q_ct, void* out_all_q_ct);
 
 // Incremental (subtree) FK + incremental target cache (Phase 4). Probe entry point: runs a sequence
 // of accepted/rejected coordinate updates and dumps the resulting state for comparison vs full FK.

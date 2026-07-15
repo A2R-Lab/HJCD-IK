@@ -32,6 +32,7 @@ from ._hjcdik import (
     _normal_equations_raw,
     _lm_refine_raw,
     _coarse_search_raw,
+    _solve_problems_raw,
     collision_free,
     _incremental_probe_raw,
     _bench_fk_raw,
@@ -41,7 +42,7 @@ __all__ = [
     "generate_solutions", "sample_targets", "num_joints", "num_frames", "num_targets", "joint_limits",
     "link_transforms", "target_transforms", "target_metadata", "target_residuals",
     "normal_equations", "refine", "coarse_search", "incremental_probe", "bench_fk",
-    "pack_active_mask", "collision_free", "solve", "HJCDSolver",
+    "pack_active_mask", "collision_free", "solve", "solve_problems", "HJCDSolver",
 ]
 
 # The generated target order is FIXED and is the order of every [.., K, ..] axis in this API,
@@ -347,6 +348,9 @@ class HJCDSolver:
     def solve(self, *a, **kw):
         return solve(*a, _solver=self, **kw)
 
+    def solve_problems(self, *a, **kw):
+        return solve_problems(*a, _solver=self, **kw)
+
     def refine(self, *a, **kw):
         return refine(*a, _solver=self, **kw)
 
@@ -384,7 +388,7 @@ def refine(q, target_positions, target_quaternions, active_target_mask=None,
            position_tol=1e-4, orientation_tol=1e-3, lambda_init=5e-3, max_iters=40,
            diagnostics=False, return_trace=False,
            precision="float32",
-           stag_patience=2, stag_rel=1e-3, _solver=None, _canonical=False):
+           stag_patience=2, stag_rel=1e-3, _solver=None, _canonical=False, _seeds_per_problem=1):
     """Multi-target Levenberg-Marquardt refinement of seed configurations. LM only, no coarse search.
 
     Solves (J^T W J + lambda diag(A)) dq = J^T W e per iteration, accumulating A and b target by
@@ -436,7 +440,8 @@ def refine(q, target_positions, target_quaternions, active_target_mask=None,
                               float(position_tol), float(orientation_tol),
                               float(lambda_init), int(max_iters),
                               bool(diagnostics), bool(return_trace), pc,
-                              int(stag_patience), float(stag_rel), sv._ws)
+                              int(stag_patience), float(stag_rel), sv._ws,
+                              int(_seeds_per_problem))
     finally:
         sv._exit()
 
@@ -497,7 +502,8 @@ def coarse_search(q, target_positions, target_quaternions, active_target_mask=No
                   max_iters=60, stall_lim=5, use_incremental=True, seed=0,
                   diagnostics=False, return_trace=False,
                   problems_json_text="", problem_set_name="", problem_idx=0,
-                  max_pert_attempts=4, precision="float32", _solver=None, _canonical=False):
+                  max_pert_attempts=4, precision="float32", _solver=None, _canonical=False,
+                  _seeds_per_problem=1):
     """Multi-target coarse search: aggregate weighted coordinate Gauss-Newton.
 
     Per outer iteration, every joint lane forms ONE aggregate scalar proposal
@@ -562,7 +568,7 @@ def coarse_search(q, target_positions, target_quaternions, active_target_mask=No
                                   int(max_iters), int(stall_lim), int(bool(use_incremental)),
                                   int(seed), bool(diagnostics), bool(return_trace),
                                   str(problems_json_text), str(problem_set_name), int(problem_idx),
-                                  int(max_pert_attempts), pc, sv._ws)
+                                  int(max_pert_attempts), pc, sv._ws, int(_seeds_per_problem))
     finally:
         sv._exit()
 
@@ -743,4 +749,169 @@ def solve(q, target_positions, target_quaternions, active_target_mask=None,
         out["coarse_perturbation_attempts"] = _c("coarse_perturbation_attempts")
         out["coarse_perturbations_rejected"] = _c("coarse_perturbations_rejected")
         out["coarse_perturbations_exhausted"] = _c("coarse_perturbations_exhausted")
+    return out
+
+
+# =================================================================================================
+# BATCHED-PROBLEM API (Milestone 2). Solve P distinct multi-target IK problems in parallel, each
+# with its own targets/mask and S candidate seeds, in ONE GPU submission (no Python loop).
+#
+#   b = p*S + s   flattens (problem p, seed s) into a candidate index. The candidate kernels see
+#   B = P*S blocks; a block reads its PROBLEM-level data (targets, mask, weights) via pid = gp/S and
+#   its CANDIDATE-level data (seed, all outputs) via gp. Targets/masks are stored ONCE per problem
+#   ([P, K, ...] / [P]) and never broadcast to [P, S, K, ...].
+# =================================================================================================
+def _canonical_problems(target_poses, active_masks, seed_configs, dtype):
+    """Validate + canonicalize the batched-problem inputs. Returns
+        seeds_flat [B, N] (wire dtype, C-contig),
+        tgt_p [P, K, 3], tgt_q [P, K, 4]  (split from the [P,K,7] poses; quats WXYZ, normalized),
+        packed [P] uint32 masks,
+        P, S.
+    Raises a clear ValueError/TypeError BEFORE any CUDA work on malformed input.
+    """
+    N, K = num_joints(), num_targets()
+
+    tp = _np.asarray(target_poses)
+    if tp.ndim != 3 or tp.shape[1] != K or tp.shape[2] != 7:
+        raise ValueError(f"target_poses must be [P, K={K}, 7], got {tp.shape}")
+    P = int(tp.shape[0])
+
+    sc = _np.asarray(seed_configs)
+    if sc.ndim != 3 or sc.shape[2] != N:
+        raise ValueError(f"seed_configs must be [P, S, N={N}], got {sc.shape}")
+    if sc.shape[0] != P:
+        raise ValueError(f"seed_configs P={sc.shape[0]} != target_poses P={P}")
+    S = int(sc.shape[1])
+
+    am = _np.asarray(active_masks)
+    if am.ndim != 1 or am.shape[0] != P:
+        raise ValueError(f"active_masks must be [P={P}], got {am.shape}")
+
+    if P <= 0 or S <= 0:
+        raise ValueError(f"need P>0 and S>0, got P={P}, S={S}")
+    # B = P*S must not overflow a C int (the kernel grid and workspace index it as int/size_t).
+    if P * S > 2**31 - 1:
+        raise ValueError(f"P*S = {P*S} overflows int32; reduce the batch")
+
+    if not _np.all(_np.isfinite(tp)):
+        raise ValueError("target_poses contains NaN or inf")
+    if not _np.all(_np.isfinite(sc)):
+        raise ValueError("seed_configs contains NaN or inf")
+
+    # masks: pack + validate bits (reuses the single-problem validator, which rejects empty masks
+    # and bits above K).
+    packed = pack_active_mask(am.astype(_np.int64) if _np.issubdtype(am.dtype, _np.integer)
+                              else am, P, K)
+
+    # Split pose7 -> position + quaternion; normalize (WXYZ). The quaternion is cast to the WIRE
+    # dtype BEFORE normalizing, exactly as _canonical_problem does -- otherwise normalizing in
+    # float64 and then narrowing differs by ~1 float32 ulp, which Policy B amplifies and breaks the
+    # bitwise P=B,S=1 == candidate-specific-solve identity.
+    pos = _np.ascontiguousarray(tp[:, :, 0:3], dtype=dtype)
+    quat = _np.asarray(tp[:, :, 3:7], dtype=dtype)
+    nrm = _np.linalg.norm(quat, axis=-1, keepdims=True)
+    act = ((packed[:, None] >> _np.arange(K, dtype=_np.uint32)) & 1).astype(bool)
+    if _np.any(nrm[act] < 1e-8):
+        raise ValueError("target_poses has a (near-)zero quaternion for an active target")
+    quat = _np.where(nrm > 0, quat / _np.where(nrm > 0, nrm, 1.0), quat).astype(dtype, copy=False)
+
+    seeds_flat = _np.ascontiguousarray(sc.reshape(P * S, N), dtype=dtype)
+    return seeds_flat, _np.ascontiguousarray(pos), _np.ascontiguousarray(quat), packed, P, S
+
+
+def solve_problems(target_poses, active_masks, seed_configs,
+                   num_solutions=1, precision="float32", coarse_mode="auto",
+                   coarse_iters=120, lm_iters=60, seed=0, diagnostics=False,
+                   stag_patience=2, stag_rel=1e-3,
+                   position_tol=1e-4, orientation_tol=1e-3,
+                   position_weights=1.0, orientation_weights=1.0,
+                   problems_json_text="", problem_set_name="", problem_idx=0,
+                   return_all_candidates=False, _solver=None):
+    """Solve P distinct multi-target IK problems in parallel, returning the top-1 per problem.
+
+    Args:
+        target_poses  [P, K, 7]  per problem: K target poses [x,y,z, qw,qx,qy,qz] (WXYZ).
+        active_masks  [P]        per problem: uint bitmask, bit k = target k active.
+        seed_configs  [P, S, N]  per problem: S candidate seed configurations.
+
+    Selection (on the GPU, one block per problem) ranks candidates by the deterministic three-class
+    key R = (class, E_phys, seed): class 0 solved < class 1 valid-unsolved < class 2 invalid, then
+    lower E_phys, then lower seed index. E_phys is the STABLE tolerance-normalised physical error --
+    the row-scaled LM cost is NEVER used for selection (carried only as cost_lm).
+
+    Returns (num_solutions=1), keeping the solution dimension for M4 top-M compatibility:
+        joint_config        [P, 1, N]     the selected config, in the requested precision
+        success             [P, 1]        the selected candidate met every active tolerance
+        valid               [P, 1]        a valid (finite, feasible) candidate was selected
+        cost_physical       [P, 1]        E_phys of the selected candidate (+inf if none valid)
+        cost_lm             [P, 1]        row-scaled LM cost of the selected candidate (diagnostic)
+        position_errors     [P, 1, K]     of the selected candidate
+        orientation_errors  [P, 1, K]
+        selected_seed_ids   [P, 1]        seed index within the problem, or -1 if none valid
+        problem_success     [P]           at least one solved candidate existed
+        num_solved          [P]  num_valid [P]
+        active_masks        [P]
+      when collision is enabled, also collision_free [P,1], used_coarse_fallback [P,1], and the
+      per-problem counts num_collision_free / num_lm_colliding / num_coarse_fallbacks / num_infeasible.
+
+    ALL-INVALID FILL: if every candidate of a problem is invalid, the returned config is that
+    problem's FIRST input seed (if finite) else zeros, with selected_seed_id=-1, cost=+inf,
+    success=valid=False, and (collision) collision_free=False -- never marked feasible.
+
+    return_all_candidates=True additionally returns the full [P, S, ...] post-fallback candidate
+    arrays under all_* keys, for debugging. The SELECTED outputs are identical either way.
+    """
+    if coarse_mode not in ("auto", "none", "multi_target"):
+        raise ValueError(f"coarse_mode must be auto|none|multi_target, got '{coarse_mode}'")
+    pc = _precision_code(precision)
+    wire = _np.float32 if pc == 1 else _np.float64
+    N, K = num_joints(), num_targets()
+
+    seeds_flat, pos, quat, packed, P, S = _canonical_problems(
+        target_poses, active_masks, seed_configs, wire)
+    B = P * S
+    if not (1 <= num_solutions <= S):
+        raise ValueError(f"num_solutions must be in [1, S={S}], got {num_solutions}")
+
+    wp = _bcast_weights(position_weights, P, K, "position_weights").astype(wire, copy=False)
+    wo = _bcast_weights(orientation_weights, P, K, "orientation_weights").astype(wire, copy=False)
+    wp = _np.ascontiguousarray(wp); wo = _np.ascontiguousarray(wo)
+
+    cc_enabled = bool(problems_json_text) and bool(problem_set_name)
+
+    # PER-PROBLEM dispatch, expanded to per-candidate [B] uint8. use_coarse[p] from popcount(mask[p]).
+    popc = _np.array([bin(int(m)).count("1") for m in packed])
+    if coarse_mode == "none":
+        use_coarse_p = _np.zeros(P, dtype=bool)
+    elif coarse_mode == "multi_target":
+        use_coarse_p = _np.ones(P, dtype=bool)
+    else:
+        use_coarse_p = popc >= 2
+    if coarse_iters <= 0:
+        use_coarse_p = _np.zeros(P, dtype=bool)
+    use_coarse = _np.ascontiguousarray(_np.repeat(use_coarse_p, S).astype(_np.uint8))   # [B]
+    run_coarse = bool(use_coarse.any()) or cc_enabled
+
+    sv = _solver or _default_solver()
+    sv._enter()
+    try:
+        out = _solve_problems_raw(
+            seeds_flat, pos, quat, packed, wp, wo, use_coarse, bool(run_coarse),
+            float(position_tol), float(orientation_tol),
+            1e-6, 1e-9, 0.35, int(coarse_iters), 5, 1, int(seed), 4,
+            5e-3, int(lm_iters), int(stag_patience), float(stag_rel),
+            int(num_solutions), pc, bool(return_all_candidates),
+            str(problems_json_text), str(problem_set_name), int(problem_idx), sv._ws)
+    finally:
+        sv._exit()
+
+    out["num_problems"] = P
+    out["seeds_per_problem"] = S
+    if return_all_candidates:
+        # E_phys per candidate for the debug arrays (matches the device selection metric).
+        act = ((packed[:, None] >> _np.arange(K, dtype=_np.uint32)) & 1).astype(bool)   # [P,K]
+        act_b = act[:, None, :]                                                          # [P,1,K]
+        pe = out["all_position_errors"]; oe = out["all_orientation_errors"]
+        out["all_cost_physical"] = (((pe / position_tol) ** 2 + (oe / orientation_tol) ** 2)
+                                    * act_b).sum(axis=2)
     return out

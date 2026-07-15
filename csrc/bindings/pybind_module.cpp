@@ -319,17 +319,22 @@ py::dict py_lm_refine(py::array q, py::array tgt_p, py::array tgt_q, arru active
                       py::array w_pos, py::array w_ori,
                       double eps_pos, double eps_ori, double lambda_init, int max_iters,
                       bool diagnostics, bool return_trace, int precision,
-                      int stag_patience, double stag_rel, PyWorkspace* ws) {
+                      int stag_patience, double stag_rel, PyWorkspace* ws,
+                      int seeds_per_problem) {
   auto* model = ensure_robot();
   const int N = grid_num_joints();
   const int K = grid_num_targets();
-  const int B = (int)q.shape(0);
+  const int B = (int)q.shape(0);                 // candidates
+  const int P = (int)active.shape(0);            // problems: targets/weights/mask are [P, ...]
+  const int S = seeds_per_problem >= 1 ? seeds_per_problem : 1;
+  if ((long long)P * S != (long long)B)
+    throw std::invalid_argument("candidates B != num_problems * seeds_per_problem");
 
   // Python guarantees these are C-contiguous and all of ONE dtype: float32 for an fp32 solve
   // (direct H2D, zero host conversion), float64 otherwise (compatibility, narrowed once).
   const bool in_f32 = q.dtype().is(py::dtype::of<float>());
   SolveInputs in{q.data(), tgt_p.data(), tgt_q.data(), w_pos.data(), w_ori.data(),
-                 (const unsigned int*)active.data(), in_f32};
+                 (const unsigned int*)active.data(), in_f32, P, S};
 
   // Allocate the OUTPUT config first, in the compute type, and let the D2H land straight in it.
   const bool out_f32 = (precision == 1);
@@ -346,7 +351,7 @@ py::dict py_lm_refine(py::array q, py::array tgt_p, py::array tgt_q, arru active
   o["orientation_errors"] = arr_from(r.ori_err, {B, K});
   o["cost"] = arr_from(r.cost, {B});
   o["success"] = barr_from(r.success, {B});
-  o["active_target_mask"] = arr_from((const unsigned int*)active.data(), {B});
+  o["active_target_mask"] = arr_from((const unsigned int*)active.data(), {P});
   if (diagnostics) {
     o["lm_iterations"] = arr_from(r.lm_iterations, {B});
     o["lm_trials"] = arr_from(r.lm_trials, {B});
@@ -413,11 +418,16 @@ py::dict py_coarse_search(py::array q, py::array tgt_p, py::array tgt_q, arru ac
                           double max_step, int max_iters, int stall_lim, int use_incremental,
                           std::uint64_t seed, bool diagnostics, bool return_trace,
                           const std::string& problems_json_text, const std::string& problem_set_name,
-                          int problem_idx, int max_pert_attempts, int precision, PyWorkspace* ws) {
+                          int problem_idx, int max_pert_attempts, int precision, PyWorkspace* ws,
+                          int seeds_per_problem) {
   auto* model = ensure_robot();
   const int N = grid_num_joints();
   const int K = grid_num_targets();
   const int B = (int)q.shape(0);
+  const int P = (int)active.shape(0);
+  const int S = seeds_per_problem >= 1 ? seeds_per_problem : 1;
+  if ((long long)P * S != (long long)B)
+    throw std::invalid_argument("candidates B != num_problems * seeds_per_problem");
 
   const void* cc_model = nullptr;
   const void* cc_env = nullptr;
@@ -430,7 +440,7 @@ py::dict py_coarse_search(py::array q, py::array tgt_p, py::array tgt_q, arru ac
 
   const bool in_f32 = q.dtype().is(py::dtype::of<float>());
   SolveInputs in{q.data(), tgt_p.data(), tgt_q.data(), w_pos.data(), w_ori.data(),
-                 (const unsigned int*)active.data(), in_f32};
+                 (const unsigned int*)active.data(), in_f32, P, S};
 
   const bool out_f32 = (precision == 1);
   py::array qa = out_f32 ? py::array(make_arr<float>({B, N})) : py::array(make_arr<double>({B, N}));
@@ -448,7 +458,7 @@ py::dict py_coarse_search(py::array q, py::array tgt_p, py::array tgt_q, arru ac
   o["orientation_errors"] = arr_from(r.ori_err, {B, K});
   o["cost"] = arr_from(r.cost, {B});
   o["success"] = barr_from(r.success, {B});
-  o["active_target_mask"] = arr_from((const unsigned int*)active.data(), {B});
+  o["active_target_mask"] = arr_from((const unsigned int*)active.data(), {P});
   if (diagnostics) {
     o["coarse_iterations"] = arr_from(r.iterations, {B});
     o["accepted_coarse_steps"] = arr_from(r.accepted, {B});
@@ -471,6 +481,97 @@ py::array_t<bool> py_collision_free(arrd q, const std::string& json, const std::
   const int B = (int)q.shape(0);
   std::vector<unsigned char> v = check_collision_free(q.data(), B, json.c_str(), set_name.c_str(), idx);
   return barr_from(v, {B});
+}
+
+// Milestone 3: batched-problem solve with on-device per-problem top-1 selection. Consumes already
+// canonicalized [B,N] seeds + [P,K,...] problem data + a [B] per-candidate dispatch flag. Returns
+// only the selected [P,1,...] outputs and per-problem summaries (and, if return_all, [P,S,...]).
+py::dict py_solve_problems(py::array q, py::array tgt_p, py::array tgt_q, arru active,
+                           py::array w_pos, py::array w_ori,
+                           py::array_t<unsigned char, py::array::c_style | py::array::forcecast> use_coarse,
+                           bool run_coarse,
+                           double eps_pos, double eps_ori,
+                           double lambda_coord, double h_min, double max_step,
+                           int coarse_iters, int coarse_stall_lim, int use_incremental,
+                           std::uint64_t seed, int max_pert_attempts,
+                           double lambda_init, int lm_iters, int stag_patience, double stag_rel,
+                           int num_solutions, int precision, bool return_all,
+                           const std::string& problems_json_text, const std::string& problem_set_name,
+                           int problem_idx, PyWorkspace* ws) {
+  auto* model = ensure_robot();
+  const int N = grid_num_joints();
+  const int K = grid_num_targets();
+  const int B = (int)q.shape(0);
+  const int P = (int)active.shape(0);
+  const int S = (P > 0) ? B / P : 0;
+  if ((long long)P * S != (long long)B) throw std::invalid_argument("B != P*S");
+
+  const void* cc_model = nullptr; const void* cc_env = nullptr;
+  if (!problems_json_text.empty() && !problem_set_name.empty())
+    if (bind_collision_env(problems_json_text.c_str(), problem_set_name.c_str(), problem_idx)) {
+      cc_model = collision_model_ptr(); cc_env = collision_env_ptr();
+    }
+
+  const bool in_f32 = q.dtype().is(py::dtype::of<float>());
+  SolveInputs in{q.data(), tgt_p.data(), tgt_q.data(), w_pos.data(), w_ori.data(),
+                 (const unsigned int*)active.data(), in_f32, P, S};
+
+  const bool out_f32 = (precision == 1);
+  const int M = (num_solutions >= 1) ? num_solutions : 1;
+  // selected config, shape [P, M, N]
+  py::array sel_q = out_f32 ? py::array(make_arr<float>({P, M, N}))
+                            : py::array(make_arr<double>({P, M, N}));
+  py::array all_q;                                          // [P, S, N] only when return_all
+  void* all_ptr = nullptr;
+  if (return_all) {
+    all_q = out_f32 ? py::array(make_arr<float>({P, S, N})) : py::array(make_arr<double>({P, S, N}));
+    all_ptr = all_q.mutable_data();
+  }
+
+  SolveProblemsOutputs r = compute_solve_problems(
+      in, B, num_solutions, eps_pos, eps_ori, lambda_coord, h_min, max_step, coarse_iters,
+      coarse_stall_lim, use_incremental, seed, max_pert_attempts, lambda_init, lm_iters,
+      stag_patience, stag_rel, model, precision, use_coarse.data(), run_coarse,
+      cc_model, cc_env, return_all, ws->get(), sel_q.mutable_data(), all_ptr);
+
+  py::dict o;
+  o["joint_config"] = std::move(sel_q);                    // [P,M,N]
+  o["position_errors"] = arr_from(r.sel_pe, {P, M, K});
+  o["orientation_errors"] = arr_from(r.sel_oe, {P, M, K});
+  o["cost_lm"] = arr_from(r.sel_cost, {P, M});
+  o["cost_physical"] = arr_from(r.sel_ephys, {P, M});
+  o["selected_seed_ids"] = arr_from(r.sel_seed, {P, M});
+  o["success"] = barr_from(r.sel_succ, {P, M});
+  o["valid"] = barr_from(r.sel_valid, {P, M});
+  o["problem_success"] = barr_from(r.prob_success, {P});
+  o["num_solved"] = arr_from(r.num_solved, {P});
+  o["num_valid"] = arr_from(r.num_valid, {P});
+  o["active_masks"] = arr_from((const unsigned int*)active.data(), {P});
+  o["precision"] = out_f32 ? "float32" : "float64";
+  o["coarse_kernel_ms"] = r.coarse_ms;
+  o["lm_kernel_ms"] = r.lm_ms;
+  o["select_kernel_ms"] = r.select_ms;
+  o["collision_enabled"] = r.cc_enabled;
+  if (r.cc_enabled) {
+    o["collision_free"] = barr_from(r.sel_cfree, {P, M});
+    o["used_coarse_fallback"] = barr_from(r.sel_fb, {P, M});
+    o["num_collision_free"] = arr_from(r.num_cfree, {P});
+    o["num_lm_colliding"] = arr_from(r.num_lm_coll, {P});
+    o["num_coarse_fallbacks"] = arr_from(r.num_fb, {P});
+    o["num_infeasible"] = arr_from(r.num_infeas, {P});
+  }
+  if (return_all) {
+    o["all_joint_config"] = std::move(all_q);              // [P,S,N]
+    o["all_position_errors"] = arr_from(r.all_pe, {P, S, K});
+    o["all_orientation_errors"] = arr_from(r.all_oe, {P, S, K});
+    o["all_cost_lm"] = arr_from(r.all_cost, {P, S});
+    o["all_success"] = barr_from(r.all_succ, {P, S});
+    if (r.cc_enabled) {
+      o["all_collision_free"] = barr_from(r.all_cfree, {P, S});
+      o["all_used_coarse_fallback"] = barr_from(r.all_fb, {P, S});
+    }
+  }
+  return o;
 }
 
 PYBIND11_MODULE(_hjcdik, m) {
@@ -536,11 +637,22 @@ PYBIND11_MODULE(_hjcdik, m) {
         py::arg("max_step"), py::arg("max_iters"), py::arg("stall_lim"), py::arg("use_incremental"),
         py::arg("seed"), py::arg("diagnostics"), py::arg("return_trace"),
         py::arg("problems_json_text"), py::arg("problem_set_name"), py::arg("problem_idx"),
-        py::arg("max_pert_attempts"), py::arg("precision"), py::arg("workspace"));
+        py::arg("max_pert_attempts"), py::arg("precision"), py::arg("workspace"), py::arg("seeds_per_problem") = 1);
   m.def("_lm_refine_raw", &py_lm_refine,
         py::arg("q"), py::arg("target_positions"), py::arg("target_quaternions"),
         py::arg("active_target_mask"), py::arg("position_weights"), py::arg("orientation_weights"),
         py::arg("eps_pos"), py::arg("eps_ori"), py::arg("lambda_init"), py::arg("max_iters"),
         py::arg("diagnostics"), py::arg("return_trace"), py::arg("precision"),
-        py::arg("stag_patience"), py::arg("stag_rel"), py::arg("workspace"));
+        py::arg("stag_patience"), py::arg("stag_rel"), py::arg("workspace"), py::arg("seeds_per_problem") = 1);
+  m.def("_solve_problems_raw", &py_solve_problems,
+        py::arg("q"), py::arg("target_positions"), py::arg("target_quaternions"),
+        py::arg("active_target_mask"), py::arg("position_weights"), py::arg("orientation_weights"),
+        py::arg("use_coarse"), py::arg("run_coarse"),
+        py::arg("eps_pos"), py::arg("eps_ori"), py::arg("lambda_coord"), py::arg("h_min"),
+        py::arg("max_step"), py::arg("coarse_iters"), py::arg("coarse_stall_lim"),
+        py::arg("use_incremental"), py::arg("seed"), py::arg("max_pert_attempts"),
+        py::arg("lambda_init"), py::arg("lm_iters"), py::arg("stag_patience"), py::arg("stag_rel"),
+        py::arg("num_solutions"), py::arg("precision"), py::arg("return_all"),
+        py::arg("problems_json_text"), py::arg("problem_set_name"), py::arg("problem_idx"),
+        py::arg("workspace"));
 }

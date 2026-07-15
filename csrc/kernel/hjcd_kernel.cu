@@ -1538,13 +1538,18 @@ __global__ void lm_multi_target_kernel(
     const T eps_pos, const T eps_ori, const T lambda_init, const int k_max, const int B,
     const int stop_on_first,
     const int stag_patience,                  // Policy B: 0 DISABLES stagnation stopping (default)
-    const T stag_rel)                         //           relative E_phys improvement threshold
+    const T stag_rel,                         //           relative E_phys improvement threshold
+    const int seeds_per_problem)              // S: candidates that share one problem's targets/mask
 {
     constexpr int K = hjcd::NT;
     const int lane = threadIdx.x & 31;
     const int warp = threadIdx.x >> 5;
     const int wpb = max(1, (int)(blockDim.x >> 5));
     const int gp = blockIdx.x * wpb + warp;
+    // pid selects PROBLEM-LEVEL data (targets, mask, weights); gp stays for CANDIDATE-LEVEL data
+    // (seed, all outputs). With seeds_per_problem == 1 this is pid == gp -- byte-identical to the
+    // pre-multi-problem path, where every candidate carried its own target copy.
+    const int pid = gp / seeds_per_problem;
 
     extern __shared__ __align__(16) unsigned char s_lm_raw[];
     LMScratch<T>* all = reinterpret_cast<LMScratch<T>*>(s_lm_raw);
@@ -1580,17 +1585,17 @@ __global__ void lm_multi_target_kernel(
     // Registers + a floating-point output buffer + in-loop publication all agree with the trace.
     int c_trials = 0, c_lsearch = 0, c_accept = 0;
 
-    if (lane < N) st->s_x[lane] = x[(size_t)gp * N + lane];
+    if (lane < N) st->s_x[lane] = x[(size_t)gp * N + lane];      // seed: candidate-level
     if (lane < K) {
-        st->s_wp[lane] = w_pos[(size_t)gp * K + lane];
-        st->s_wo[lane] = w_ori[(size_t)gp * K + lane];
+        st->s_wp[lane] = w_pos[(size_t)pid * K + lane];          // weights: problem-level
+        st->s_wo[lane] = w_ori[(size_t)pid * K + lane];
         #pragma unroll
-        for (int c = 0; c < 3; ++c) st->s_tgt_p[3*lane + c] = tgt_p[((size_t)gp*K + lane)*3 + c];
+        for (int c = 0; c < 3; ++c) st->s_tgt_p[3*lane + c] = tgt_p[((size_t)pid*K + lane)*3 + c];
         #pragma unroll
-        for (int c = 0; c < 4; ++c) st->s_tgt_q[4*lane + c] = tgt_q[((size_t)gp*K + lane)*4 + c];
+        for (int c = 0; c < 4; ++c) st->s_tgt_q[4*lane + c] = tgt_q[((size_t)pid*K + lane)*4 + c];
     }
     if (lane == 0) {
-        st->active = active[gp];
+        st->active = active[pid];                                // mask: problem-level
         st->s_break = 0; st->stall = 0; st->prev_cost = (T)-1;
         st->stag_n = 0;  st->prev_ephys = (T)-1;
     }
@@ -2013,6 +2018,7 @@ __global__ void coarse_search_mt_kernel(
     const T eps_pos, const T eps_ori,
     const T lambda_coord, const T h_min, const T max_step,
     const int k_max, const int stall_lim, const int B,
+    const int seeds_per_problem,              // S: candidates that share one problem's targets/mask
     const int use_incremental,                // 1 = Phase-4 subtree FK, 0 = full FK (ablation)
     const uint64_t seed,
     const int max_pert_attempts,              // bounded retries for a collision-free kick
@@ -2028,6 +2034,9 @@ __global__ void coarse_search_mt_kernel(
     const int lane = threadIdx.x & 31;
     const int gp = blockIdx.x;
     if (gp >= B) return;
+    // pid selects problem-level data; gp stays for candidate-level. S == 1 -> pid == gp (identical
+    // to the pre-multi-problem path).
+    const int pid = gp / seeds_per_problem;
 
     // STATIC shared, deliberately: grid_collision::config_free uses the DYNAMIC shared arena for its
     // own sphere-FK extractor (an extern __shared__ inside GRiD), so the coarse scratch cannot live
@@ -2046,16 +2055,16 @@ __global__ void coarse_search_mt_kernel(
     __shared__ float s_ccr[NS];
 #endif
 
-    if (lane < N) st->s_x[lane] = x[(size_t)gp * N + lane];
+    if (lane < N) st->s_x[lane] = x[(size_t)gp * N + lane];      // seed: candidate-level
     if (lane < K) {
-        st->s_wp[lane] = w_pos[(size_t)gp * K + lane];
-        st->s_wo[lane] = w_ori[(size_t)gp * K + lane];
+        st->s_wp[lane] = w_pos[(size_t)pid * K + lane];          // weights: problem-level
+        st->s_wo[lane] = w_ori[(size_t)pid * K + lane];
         #pragma unroll
-        for (int c = 0; c < 3; ++c) st->s_tgt_p[3*lane + c] = tgt_p[((size_t)gp*K + lane)*3 + c];
+        for (int c = 0; c < 3; ++c) st->s_tgt_p[3*lane + c] = tgt_p[((size_t)pid*K + lane)*3 + c];
         #pragma unroll
-        for (int c = 0; c < 4; ++c) st->s_tgt_q[4*lane + c] = tgt_q[((size_t)gp*K + lane)*4 + c];
+        for (int c = 0; c < 4; ++c) st->s_tgt_q[4*lane + c] = tgt_q[((size_t)pid*K + lane)*4 + c];
     }
-    if (lane == 0) { st->active = active[gp]; st->stall = 0; }
+    if (lane == 0) { st->active = active[pid]; st->stall = 0; }  // mask: problem-level
     __syncwarp(FULL_WARP_MASK);
 
     grid::load_update_XmatsHom_helpers<T>(st->s_XmatsHom, s_topo, st->s_x, RM, s_tmp);
@@ -2670,25 +2679,28 @@ public:
     HjcdWorkspace(const HjcdWorkspace&) = delete;
     HjcdWorkspace& operator=(const HjcdWorkspace&) = delete;
 
-    // Bytes needed for one launch at (B, trace_cap) with element size `elem`.
-    static size_t bytes_for(int B, int trace_cap, size_t elem) {
-        const size_t K = (size_t)hjcd::NT, n = (size_t)N, b = (size_t)B;
+    // Bytes needed for one launch at (P problems, B candidates, trace_cap) with element `elem`.
+    // PROBLEM-level buffers (targets, weights, mask) are sized by P; CANDIDATE-level buffers by B.
+    // The legacy path passes P == B, so this reduces exactly to the old sizing.
+    static size_t bytes_for(int P, int B, int trace_cap, size_t elem) {
+        const size_t K = (size_t)hjcd::NT, n = (size_t)N, b = (size_t)B, p = (size_t)P;
         size_t t = 0;
-        t += align(b * n * elem);                       // q
-        t += align(b * K * 3 * elem);                   // tgt_p
-        t += align(b * K * 4 * elem);                   // tgt_q
-        t += align(b * K * elem) * 4;                   // wp, wo, pn, on
-        t += align(b * elem);                           // cost
-        t += align(b * sizeof(unsigned int));           // active
-        t += align(b * sizeof(unsigned char));          // success
+        t += align(b * n * elem);                       // q                (candidate)
+        t += align(p * K * 3 * elem);                   // tgt_p            (problem)
+        t += align(p * K * 4 * elem);                   // tgt_q            (problem)
+        t += align(p * K * elem) * 2;                   // wp, wo           (problem)
+        t += align(b * K * elem) * 2;                   // pn, on           (candidate)
+        t += align(b * elem);                           // cost             (candidate)
+        t += align(p * sizeof(unsigned int));           // active           (problem)
+        t += align(b * sizeof(unsigned char));          // success          (candidate)
         if (trace_cap > 0) t += align(b * (size_t)trace_cap * 16 * elem);  // trace (>= CTRACE_COLS)
         return t;
     }
 
-    // Grow to fit (B, trace_cap, elem). Geometric, never shrinks. Returns true if it allocated.
-    bool ensure(int B, int precision, int trace_cap) {
+    // Grow to fit (P, B, trace_cap, elem). Geometric, never shrinks. Returns true if it allocated.
+    bool ensure(int P, int B, int precision, int trace_cap) {
         const size_t elem = precision == 1 ? sizeof(float) : sizeof(double);
-        const size_t need = bytes_for(B, trace_cap, elem);
+        const size_t need = bytes_for(P, B, trace_cap, elem);
         if (need <= bytes_ && precision_ == precision) { head_ = 0; return false; }
         // a precision change reuses the arena when it is already big enough -- the LAYOUT is rebuilt
         // per launch by the bump allocator, so only total size matters.
@@ -2699,7 +2711,23 @@ public:
         CUDA_OK(cudaMalloc(&arena_, grow));
         ++n_malloc_;
         bytes_ = grow; precision_ = precision; head_ = 0;
-        cap_B_ = std::max(cap_B_, B); cap_trace_ = std::max(cap_trace_, trace_cap);
+        cap_B_ = std::max(cap_B_, B); cap_P_ = std::max(cap_P_, P);
+        cap_trace_ = std::max(cap_trace_, trace_cap);
+        return true;
+    }
+
+    // Grow to at least `need` bytes. Used by the batched solve_problems orchestrator, which lays out
+    // many buffers (coarse_q, lm_q, per-candidate metrics, selected [P,...] outputs) in ONE arena
+    // and bump-allocates them itself. Geometric, never shrinks.
+    bool ensure_raw(size_t need, int precision) {
+        if (need <= bytes_ && precision_ == precision) { head_ = 0; return false; }
+        if (need <= bytes_) { precision_ = precision; head_ = 0; return false; }
+        size_t grow = bytes_ ? bytes_ : need;
+        while (grow < need) grow *= 2;
+        release();
+        CUDA_OK(cudaMalloc(&arena_, grow));
+        ++n_malloc_;
+        bytes_ = grow; precision_ = precision; head_ = 0;
         return true;
     }
 
@@ -2727,7 +2755,7 @@ private:
     void* arena_ = nullptr;
     size_t bytes_ = 0, head_ = 0;
     size_t n_malloc_ = 0, n_free_ = 0;
-    int precision_ = -1, cap_B_ = 0, cap_trace_ = 0, device_ = -1;
+    int precision_ = -1, cap_B_ = 0, cap_P_ = 0, cap_trace_ = 0, device_ = -1;
 };
 
 
@@ -2799,26 +2827,31 @@ static CoarseOutputs launch_coarse_mt(
     const grid::robotModel<CT>* d_rm = robot_model_for<CT>(d_robotModel);
     std::vector<CT> stage;                       // reused per-call staging (only for a dtype mismatch)
 
-    ws->ensure(B, std::is_same<CT,float>::value ? 1 : 0, R.trace_cap);
+    // Problem count P and seeds-per-problem S. Legacy callers leave num_problems == 0 -> P = B, S = 1
+    // (every candidate its own problem). Targets/weights/mask are stored ONCE per problem.
+    const int S = (in.seeds_per_problem >= 1) ? in.seeds_per_problem : 1;
+    const int P = (in.num_problems >= 1) ? in.num_problems : B;
+
+    ws->ensure(P, B, std::is_same<CT,float>::value ? 1 : 0, R.trace_cap);
     ws->rewind();
     CT* d_q  = ws->take<CT>((size_t)B*N);
-    CT* d_tp = ws->take<CT>((size_t)B*K*3);
-    CT* d_tq = ws->take<CT>((size_t)B*K*4);
-    CT* d_wp = ws->take<CT>((size_t)B*K);
-    CT* d_wo = ws->take<CT>((size_t)B*K);
+    CT* d_tp = ws->take<CT>((size_t)P*K*3);
+    CT* d_tq = ws->take<CT>((size_t)P*K*4);
+    CT* d_wp = ws->take<CT>((size_t)P*K);
+    CT* d_wo = ws->take<CT>((size_t)P*K);
     CT* d_pn = ws->take<CT>((size_t)B*K);
     CT* d_on = ws->take<CT>((size_t)B*K);
     CT* d_c  = ws->take<CT>((size_t)B);
-    unsigned int*  d_act = ws->take<unsigned int>((size_t)B);
+    unsigned int*  d_act = ws->take<unsigned int>((size_t)P);
     unsigned char* d_s   = ws->take<unsigned char>((size_t)B);
     CT* d_tr = (R.trace_cap > 0) ? ws->take<CT>((size_t)B * R.trace_cap * CTRACE_COLS) : nullptr;
 
     upload_in<CT>(d_q,  in.q,     in.f32, (size_t)B*N,   stage);
-    upload_in<CT>(d_tp, in.tgt_p, in.f32, (size_t)B*K*3, stage);
-    upload_in<CT>(d_tq, in.tgt_q, in.f32, (size_t)B*K*4, stage);
-    upload_in<CT>(d_wp, in.wp,    in.f32, (size_t)B*K,   stage);
-    upload_in<CT>(d_wo, in.wo,    in.f32, (size_t)B*K,   stage);
-    CUDA_OK(cudaMemcpy(d_act, in.active, sizeof(unsigned int)*B, cudaMemcpyHostToDevice));
+    upload_in<CT>(d_tp, in.tgt_p, in.f32, (size_t)P*K*3, stage);
+    upload_in<CT>(d_tq, in.tgt_q, in.f32, (size_t)P*K*4, stage);
+    upload_in<CT>(d_wp, in.wp,    in.f32, (size_t)P*K,   stage);
+    upload_in<CT>(d_wo, in.wo,    in.f32, (size_t)P*K,   stage);
+    CUDA_OK(cudaMemcpy(d_act, in.active, sizeof(unsigned int)*P, cudaMemcpyHostToDevice));
     if (d_tr) CUDA_OK(cudaMemset(d_tr, 0, sizeof(CT) * (size_t)B * R.trace_cap * CTRACE_COLS));
 
     // Dynamic shared is reserved ENTIRELY for grid_collision::config_free's internal arena; the
@@ -2837,7 +2870,7 @@ static CoarseOutputs launch_coarse_mt(
     coarse_search_mt_kernel<CT><<<B, 32, cc_smem>>>(
         d_q, d_tp, d_tq, d_act, d_wp, d_wo, d_pn, d_on, d_c, d_s, d_tr, R.trace_cap,
         d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_coord, (CT)h_min, (CT)max_step,
-        max_iters, stall_lim, B, use_incremental, seed, max_pert_attempts,
+        max_iters, stall_lim, B, S, use_incremental, seed, max_pert_attempts,
         cc_enabled,
         reinterpret_cast<const grid::robotModel<float>*>(cc_model),
         cc_env_ptr ? *reinterpret_cast<const grid_collision::Environment<float>*>(cc_env_ptr)
@@ -2850,7 +2883,7 @@ static CoarseOutputs launch_coarse_mt(
     coarse_search_mt_kernel<CT><<<B, 32, 0>>>(
         d_q, d_tp, d_tq, d_act, d_wp, d_wo, d_pn, d_on, d_c, d_s, d_tr, R.trace_cap,
         d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_coord, (CT)h_min, (CT)max_step,
-        max_iters, stall_lim, B, use_incremental, seed, max_pert_attempts, cc_enabled);
+        max_iters, stall_lim, B, S, use_incremental, seed, max_pert_attempts, cc_enabled);
 #endif
     CUDA_OK(cudaEventRecord(ev1));
     CUDA_OK(cudaPeekAtLastError());
@@ -2950,24 +2983,27 @@ static LMRefineOutputs launch_lm_mt(
     const grid::robotModel<CT>* d_rm = robot_model_for<CT>(d_robotModel);
     std::vector<CT> stage;
 
-    ws->ensure(B, std::is_same<CT,float>::value ? 1 : 0, R.trace_cap);
+    const int S = (in.seeds_per_problem >= 1) ? in.seeds_per_problem : 1;
+    const int P = (in.num_problems >= 1) ? in.num_problems : B;
+
+    ws->ensure(P, B, std::is_same<CT,float>::value ? 1 : 0, R.trace_cap);
     ws->rewind();
     CT* d_q  = ws->take<CT>((size_t)B*N);
-    CT* d_tp = ws->take<CT>((size_t)B*K*3);
-    CT* d_tq = ws->take<CT>((size_t)B*K*4);
-    CT* d_wp = ws->take<CT>((size_t)B*K);
-    CT* d_wo = ws->take<CT>((size_t)B*K);
+    CT* d_tp = ws->take<CT>((size_t)P*K*3);
+    CT* d_tq = ws->take<CT>((size_t)P*K*4);
+    CT* d_wp = ws->take<CT>((size_t)P*K);
+    CT* d_wo = ws->take<CT>((size_t)P*K);
     CT* d_pn = ws->take<CT>((size_t)B*K);
     CT* d_on = ws->take<CT>((size_t)B*K);
     CT* d_c  = ws->take<CT>((size_t)B);
-    unsigned int*  d_act = ws->take<unsigned int>((size_t)B);
+    unsigned int*  d_act = ws->take<unsigned int>((size_t)P);
     unsigned char* d_s   = ws->take<unsigned char>((size_t)B);
     upload_in<CT>(d_q,  in.q,     in.f32, (size_t)B*N,   stage);
-    upload_in<CT>(d_tp, in.tgt_p, in.f32, (size_t)B*K*3, stage);
-    upload_in<CT>(d_tq, in.tgt_q, in.f32, (size_t)B*K*4, stage);
-    upload_in<CT>(d_wp, in.wp,    in.f32, (size_t)B*K,   stage);
-    upload_in<CT>(d_wo, in.wo,    in.f32, (size_t)B*K,   stage);
-    CUDA_OK(cudaMemcpy(d_act, in.active, sizeof(unsigned int)*B, cudaMemcpyHostToDevice));
+    upload_in<CT>(d_tp, in.tgt_p, in.f32, (size_t)P*K*3, stage);
+    upload_in<CT>(d_tq, in.tgt_q, in.f32, (size_t)P*K*4, stage);
+    upload_in<CT>(d_wp, in.wp,    in.f32, (size_t)P*K,   stage);
+    upload_in<CT>(d_wo, in.wo,    in.f32, (size_t)P*K,   stage);
+    CUDA_OK(cudaMemcpy(d_act, in.active, sizeof(unsigned int)*P, cudaMemcpyHostToDevice));
 
     const int W = 1;                       // one warp per candidate (measured fastest; see CLAUDE.md)
     const size_t smem = (size_t)W * sizeof(LMScratch<CT>);
@@ -2985,7 +3021,7 @@ static LMRefineOutputs launch_lm_mt(
         d_q, d_tp, d_tq, d_act, d_wp, d_wo, d_pn, d_on, d_c, d_s, /*out_pose=*/nullptr,
         d_tr, R.trace_cap,
         d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_init, max_iters, B, /*stop_on_first=*/0,
-        stag_patience, (CT)stag_rel);
+        stag_patience, (CT)stag_rel, S);
     CUDA_OK(cudaEventRecord(ev1));
     CUDA_OK(cudaPeekAtLastError());
     CUDA_OK(cudaDeviceSynchronize());
@@ -3045,6 +3081,548 @@ LMRefineOutputs compute_lm_refine(
     return launch_lm_mt<double>(in, B, eps_pos, eps_ori, lambda_init, max_iters,
                                 d_robotModel, diagnostics, stag_patience, stag_rel,
                                 ws, out_q_ct);
+}
+
+// =============================================================================================
+// MILESTONE 3: per-problem segmented top-1 selection, on device.
+//
+// After all B = P*S candidates finish (and, when collision is on, after the candidate-local coarse
+// fallback), one block per problem scans its S candidates and picks the single winner by the
+// deterministic three-class lexicographic key
+//     R = (class, E_phys, seed)   lower is better
+//     class 0 solved  <  class 1 valid-unsolved  <  class 2 invalid
+// E_phys = sum_{k in active} [ |e_p|^2/eps_p^2 + |e_R|^2/eps_R^2 ] is the STABLE cross-candidate
+// metric. The row-scaled LM cost is NEVER used for selection (carried only as cost_lm).
+//
+// Per-problem summaries (num_solved / num_valid / problem_success and, with collision, the collision
+// counts) are accumulated INSIDE this scan -- no second pass over the candidates.
+// =============================================================================================
+
+// LM input = coarse output for coarse-dispatched candidates, raw seed otherwise (mixed masks).
+template<typename CT>
+__global__ void pick_lm_seed_kernel(CT* __restrict__ lm_in, const CT* __restrict__ coarse_q,
+                                    const CT* __restrict__ seeds, const unsigned char* __restrict__ use_coarse,
+                                    size_t BN, int N_) {
+    const size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= BN) return;
+    const int b = (int)(i / N_);
+    lm_in[i] = use_coarse[b] ? coarse_q[i] : seeds[i];
+}
+
+#if defined(HJCD_HAS_COLLISION)
+// Batched exact collision check reading a CT (float/double) config buffer. valid[b] = config_free.
+template<typename CT>
+__global__ void mark_collisions_ct(const CT* __restrict__ q_in, int Bn,
+                                   unsigned char* __restrict__ valid,
+                                   const grid::robotModel<float>* d_robotModel,
+                                   grid_collision::Environment<float> env) {
+    namespace gc = grid_collision;
+    constexpr int NS = gc::NUM_COLLISION_SPHERES;
+    const int b = (int)blockIdx.x;
+    if (b >= Bn) return;
+    __shared__ float s_q[N];
+    __shared__ float s_pos[3 * NS];
+    __shared__ float s_r[NS];
+    for (int j = threadIdx.x; j < N; j += blockDim.x) s_q[j] = (float)q_in[(size_t)b*N + j];
+    __syncthreads();
+    const bool ok = gc::config_free<float>(s_q, d_robotModel, env, s_pos, s_r, nullptr);
+    if (threadIdx.x == 0) valid[b] = ok ? 1 : 0;
+}
+#endif
+
+// A candidate's ranking key. class_id: 0 solved, 1 valid-unsolved, 2 invalid.
+struct Cand {
+    int class_id;
+    double ephys;
+    int seed;        // seed index within the problem (0..S-1); the tie-break
+};
+__device__ __forceinline__ bool cand_better(const Cand& a, const Cand& b) {
+    if (a.class_id != b.class_id) return a.class_id < b.class_id;
+    if (a.ephys != b.ephys)       return a.ephys < b.ephys;      // both finite here (invalid=+inf)
+    return a.seed < b.seed;
+}
+
+// Copy lm[b] <- coarse[b] where the candidate needs the collision fallback, and set the final
+// per-candidate collision/fallback flags. Open-world callers skip this (final_free = 1, fb = 0).
+template<typename CT>
+__global__ void apply_fallback_kernel(
+    CT* __restrict__ lm_q, CT* __restrict__ lm_pe, CT* __restrict__ lm_oe,
+    CT* __restrict__ lm_cost, unsigned char* __restrict__ lm_succ,
+    const CT* __restrict__ coarse_q, const CT* __restrict__ coarse_pe, const CT* __restrict__ coarse_oe,
+    const CT* __restrict__ coarse_cost, const unsigned char* __restrict__ coarse_succ,
+    const unsigned char* __restrict__ lm_free, const unsigned char* __restrict__ coarse_free,
+    unsigned char* __restrict__ final_free, unsigned char* __restrict__ fallback,
+    int B, int K)
+{
+    const int b = blockIdx.x;
+    if (b >= B) return;
+    const bool lm_ok = lm_free[b] != 0;
+    const bool co_ok = coarse_free[b] != 0;
+    const bool fb = (!lm_ok) && co_ok;                 // LM collided, coarse is a feasible fallback
+    if (threadIdx.x == 0) {
+        fallback[b] = fb ? 1 : 0;
+        final_free[b] = (lm_ok || fb) ? 1 : 0;         // 0 => infeasible (invalid)
+    }
+    if (fb) {
+        for (int j = threadIdx.x; j < N; j += blockDim.x) lm_q[(size_t)b*N + j] = coarse_q[(size_t)b*N + j];
+        for (int k = threadIdx.x; k < K; k += blockDim.x) {
+            lm_pe[(size_t)b*K + k] = coarse_pe[(size_t)b*K + k];
+            lm_oe[(size_t)b*K + k] = coarse_oe[(size_t)b*K + k];
+        }
+        if (threadIdx.x == 0) { lm_cost[b] = coarse_cost[b]; lm_succ[b] = coarse_succ[b]; }
+    }
+}
+
+// One block per problem. threadIdx scans candidates s in [0,S) with a grid-stride, keeps the best
+// under cand_better, then a shared-memory tree reduction picks the block winner. Counts are summed
+// the same way. Thread 0 gathers the winner's state into the [P,...] selected buffers.
+template<typename CT>
+__global__ void segmented_top1_kernel(
+    const CT* __restrict__ q,          // B x N   (post-fallback config)
+    const CT* __restrict__ pe,         // B x K
+    const CT* __restrict__ oe,         // B x K
+    const CT* __restrict__ cost_lm,    // B
+    const unsigned char* __restrict__ succ,       // B  (kernel's own tolerance success flag)
+    const unsigned char* __restrict__ final_free, // B  (1 = collision-free / feasible)
+    const unsigned char* __restrict__ fallback,   // B  (1 = used coarse fallback), may be null
+    const unsigned char* __restrict__ lm_free,    // B  (1 = LM output was free), may be null
+    const CT* __restrict__ seeds,      // B x N   (for the all-invalid fill)
+    const unsigned int* __restrict__ active,      // P
+    const CT eps_pos, const CT eps_ori, const int S, const int P, const int cc_enabled,
+    // outputs, all [P] or [P,N]/[P,K]
+    CT* __restrict__ sel_q, CT* __restrict__ sel_pe, CT* __restrict__ sel_oe,
+    CT* __restrict__ sel_cost, double* __restrict__ sel_ephys, int* __restrict__ sel_seed,
+    unsigned char* __restrict__ sel_succ, unsigned char* __restrict__ sel_valid,
+    unsigned char* __restrict__ sel_cfree, unsigned char* __restrict__ sel_fb,
+    int* __restrict__ num_solved, int* __restrict__ num_valid, unsigned char* __restrict__ prob_success,
+    int* __restrict__ num_cfree, int* __restrict__ num_lm_coll, int* __restrict__ num_fb,
+    int* __restrict__ num_infeas)
+{
+    const int p = blockIdx.x;
+    if (p >= P) return;
+    constexpr int K = hjcd::NT;
+    const unsigned int mask = active[p];
+    const int tid = threadIdx.x, nt = blockDim.x;
+
+    extern __shared__ unsigned char s_raw[];
+    Cand* s_best = reinterpret_cast<Cand*>(s_raw);
+    int*  s_cnt  = reinterpret_cast<int*>(s_best + nt);   // 6 ints per thread: solved,valid,cfree,lmcoll,fb,infeas
+
+    Cand best{2, INFINITY, 1 << 30};
+    int c_solved=0, c_valid=0, c_cfree=0, c_lmcoll=0, c_fb=0, c_infeas=0;
+
+    for (int s = tid; s < S; s += nt) {
+        const int b = p * S + s;
+        // finiteness of the config
+        bool finite = true;
+        #pragma unroll 1
+        for (int j = 0; j < N; ++j) { const CT v = q[(size_t)b*N + j]; if (!isfinite((double)v)) { finite = false; break; } }
+
+        // E_phys over ACTIVE targets, in double (matches the host reference exactly).
+        double ephys = 0.0;
+        bool within = true;
+        #pragma unroll
+        for (int k = 0; k < K; ++k) {
+            if (!((mask >> k) & 1u)) continue;
+            const double ep = (double)pe[(size_t)b*K + k], eo = (double)oe[(size_t)b*K + k];
+            if (!isfinite(ep) || !isfinite(eo)) { finite = false; continue; }
+            const double rp = ep / (double)eps_pos, ro = eo / (double)eps_ori;
+            ephys += rp*rp + ro*ro;
+            if (ep > (double)eps_pos || eo > (double)eps_ori) within = false;
+        }
+        const bool feasible = cc_enabled ? (final_free[b] != 0) : true;
+
+        int cls;
+        if (!finite || !feasible) { cls = 2; ephys = INFINITY; }
+        else if (within)         { cls = 0; }
+        else                     { cls = 1; }
+
+        // counts
+        if (cls == 0) ++c_solved;
+        if (cls <= 1) ++c_valid;
+        if (cc_enabled) {
+            if (feasible)          ++c_cfree;
+            if (lm_free && lm_free[b] == 0) ++c_lmcoll;
+            if (fallback && fallback[b])    ++c_fb;
+            if (!feasible)         ++c_infeas;
+        }
+
+        Cand cur{cls, ephys, s};
+        if (cand_better(cur, best)) best = cur;
+    }
+
+    s_best[tid] = best;
+    s_cnt[tid*6+0]=c_solved; s_cnt[tid*6+1]=c_valid; s_cnt[tid*6+2]=c_cfree;
+    s_cnt[tid*6+3]=c_lmcoll; s_cnt[tid*6+4]=c_fb;    s_cnt[tid*6+5]=c_infeas;
+    __syncthreads();
+
+    for (int stride = nt >> 1; stride > 0; stride >>= 1) {
+        if (tid < stride) {
+            if (cand_better(s_best[tid+stride], s_best[tid])) s_best[tid] = s_best[tid+stride];
+            #pragma unroll
+            for (int q6 = 0; q6 < 6; ++q6) s_cnt[tid*6+q6] += s_cnt[(tid+stride)*6+q6];
+        }
+        __syncthreads();
+    }
+
+    if (tid != 0) return;
+    const Cand win = s_best[0];
+    const int win_s = win.seed, win_b = p * S + win_s;
+    const bool invalid = (win.class_id == 2);
+
+    num_solved[p] = s_cnt[0]; num_valid[p] = s_cnt[1];
+    prob_success[p] = (s_cnt[0] > 0) ? 1 : 0;
+    if (cc_enabled) {
+        num_cfree[p] = s_cnt[2]; num_lm_coll[p] = s_cnt[3];
+        num_fb[p] = s_cnt[4]; num_infeas[p] = s_cnt[5];
+    }
+
+    if (!invalid) {
+        for (int j = 0; j < N; ++j) sel_q[(size_t)p*N + j] = q[(size_t)win_b*N + j];
+        for (int k = 0; k < K; ++k) { sel_pe[(size_t)p*K+k] = pe[(size_t)win_b*K+k];
+                                      sel_oe[(size_t)p*K+k] = oe[(size_t)win_b*K+k]; }
+        sel_cost[p]  = cost_lm[win_b];
+        sel_ephys[p] = win.ephys;
+        sel_seed[p]  = win_s;
+        sel_succ[p]  = (win.class_id == 0) ? 1 : 0;
+        sel_valid[p] = 1;
+        sel_cfree[p] = cc_enabled ? final_free[win_b] : 1;
+        sel_fb[p]    = (cc_enabled && fallback) ? fallback[win_b] : 0;
+    } else {
+        // Every candidate invalid. Deterministic fill: the problem's FIRST seed if finite, else zeros.
+        bool s0_finite = true;
+        for (int j = 0; j < N; ++j) if (!isfinite((double)seeds[(size_t)(p*S)*N + j])) { s0_finite = false; break; }
+        for (int j = 0; j < N; ++j)
+            sel_q[(size_t)p*N + j] = s0_finite ? seeds[(size_t)(p*S)*N + j] : (CT)0;
+        for (int k = 0; k < K; ++k) { sel_pe[(size_t)p*K+k] = (CT)INFINITY; sel_oe[(size_t)p*K+k] = (CT)INFINITY; }
+        sel_cost[p]  = (CT)INFINITY;
+        sel_ephys[p] = INFINITY;
+        sel_seed[p]  = -1;                 // documented: -1 == no valid candidate
+        sel_succ[p]  = 0;
+        sel_valid[p] = 0;
+        sel_cfree[p] = 0;                  // never marked feasible
+        sel_fb[p]    = 0;
+    }
+}
+
+// Deterministic segmented top-M. One block per problem; M rounds of masked argmin. Round m finds the
+// m-th best candidate under (class, E_phys, seed), skipping the m already-selected seeds, so the M
+// winners are DISTINCT candidate IDs. When a problem has fewer than M valid candidates, the leftover
+// slots are INVALID PADS (seed=-1, cost=+inf, valid=False) -- never duplicates of a real candidate.
+// M == 1 reproduces segmented_top1_kernel exactly. Per-problem summaries are counted in round 0.
+template<typename CT>
+__global__ void segmented_topM_kernel(
+    const CT* __restrict__ q, const CT* __restrict__ pe, const CT* __restrict__ oe,
+    const CT* __restrict__ cost_lm, const unsigned char* __restrict__ succ,
+    const unsigned char* __restrict__ final_free, const unsigned char* __restrict__ fallback,
+    const unsigned char* __restrict__ lm_free, const CT* __restrict__ seeds,
+    const unsigned int* __restrict__ active,
+    const CT eps_pos, const CT eps_ori, const int S, const int P, const int M, const int cc_enabled,
+    CT* __restrict__ sel_q, CT* __restrict__ sel_pe, CT* __restrict__ sel_oe,
+    CT* __restrict__ sel_cost, double* __restrict__ sel_ephys, int* __restrict__ sel_seed,
+    unsigned char* __restrict__ sel_succ, unsigned char* __restrict__ sel_valid,
+    unsigned char* __restrict__ sel_cfree, unsigned char* __restrict__ sel_fb,
+    int* __restrict__ num_solved, int* __restrict__ num_valid, unsigned char* __restrict__ prob_success,
+    int* __restrict__ num_cfree, int* __restrict__ num_lm_coll, int* __restrict__ num_fb,
+    int* __restrict__ num_infeas)
+{
+    const int p = blockIdx.x;
+    if (p >= P) return;
+    constexpr int K = hjcd::NT;
+    const unsigned int mask = active[p];
+    const int tid = threadIdx.x, nt = blockDim.x;
+
+    extern __shared__ unsigned char s_raw[];
+    Cand* s_best = reinterpret_cast<Cand*>(s_raw);
+    int*  s_cnt  = reinterpret_cast<int*>(s_best + nt);   // 6 ints/thread (round 0)
+    int*  s_taken = s_cnt + nt * 6;                       // M selected seed indices (-1 = pad)
+
+    for (int m = 0; m < M; ++m) {
+        Cand best{2, INFINITY, 1 << 30};
+        int c0=0,c1=0,c2=0,c3=0,c4=0,c5=0;
+        for (int s = tid; s < S; s += nt) {
+            const int b = p * S + s;
+            bool taken = false;
+            for (int t = 0; t < m; ++t) if (s_taken[t] == s) { taken = true; break; }
+
+            bool finite = true;
+            #pragma unroll 1
+            for (int j = 0; j < N; ++j) { if (!isfinite((double)q[(size_t)b*N+j])) { finite=false; break; } }
+            double ephys = 0.0; bool within = true;
+            #pragma unroll
+            for (int k = 0; k < K; ++k) {
+                if (!((mask >> k) & 1u)) continue;
+                const double ep=(double)pe[(size_t)b*K+k], eo=(double)oe[(size_t)b*K+k];
+                if (!isfinite(ep) || !isfinite(eo)) { finite=false; continue; }
+                const double rp=ep/(double)eps_pos, ro=eo/(double)eps_ori; ephys += rp*rp+ro*ro;
+                if (ep>(double)eps_pos || eo>(double)eps_ori) within=false;
+            }
+            const bool feas = cc_enabled ? (final_free[b]!=0) : true;
+            int cls; if (!finite||!feas){cls=2;ephys=INFINITY;} else if(within)cls=0; else cls=1;
+            if (m == 0) {
+                if (cls==0)++c0; if (cls<=1)++c1;
+                if (cc_enabled){ if(feas)++c2; if(lm_free&&lm_free[b]==0)++c3;
+                                 if(fallback&&fallback[b])++c4; if(!feas)++c5; }
+            }
+            if (taken) continue;
+            Cand cur{cls, ephys, s};
+            if (cand_better(cur, best)) best = cur;
+        }
+        s_best[tid] = best;
+        if (m == 0) { s_cnt[tid*6+0]=c0; s_cnt[tid*6+1]=c1; s_cnt[tid*6+2]=c2;
+                      s_cnt[tid*6+3]=c3; s_cnt[tid*6+4]=c4; s_cnt[tid*6+5]=c5; }
+        __syncthreads();
+        for (int stride = nt >> 1; stride > 0; stride >>= 1) {
+            if (tid < stride) {
+                if (cand_better(s_best[tid+stride], s_best[tid])) s_best[tid] = s_best[tid+stride];
+                if (m == 0) {
+                    #pragma unroll
+                    for (int q6=0;q6<6;++q6) s_cnt[tid*6+q6] += s_cnt[(tid+stride)*6+q6];
+                }
+            }
+            __syncthreads();
+        }
+
+        if (tid == 0) {
+            const Cand win = s_best[0];
+            const bool invalid = (win.class_id == 2);
+            if (m == 0) {
+                num_solved[p]=s_cnt[0]; num_valid[p]=s_cnt[1]; prob_success[p]=(s_cnt[0]>0)?1:0;
+                if (cc_enabled){ num_cfree[p]=s_cnt[2]; num_lm_coll[p]=s_cnt[3];
+                                 num_fb[p]=s_cnt[4]; num_infeas[p]=s_cnt[5]; }
+            }
+            s_taken[m] = invalid ? -1 : win.seed;
+            const size_t slot = (size_t)p*M + m, wb = (size_t)(p*S + win.seed);
+            if (!invalid) {
+                for (int j=0;j<N;++j) sel_q[slot*N+j] = q[wb*N+j];
+                for (int k=0;k<K;++k){ sel_pe[slot*K+k]=pe[wb*K+k]; sel_oe[slot*K+k]=oe[wb*K+k]; }
+                sel_cost[slot]=cost_lm[wb]; sel_ephys[slot]=win.ephys; sel_seed[slot]=win.seed;
+                sel_succ[slot]=(win.class_id==0)?1:0; sel_valid[slot]=1;
+                sel_cfree[slot]=cc_enabled?final_free[wb]:1;
+                sel_fb[slot]=(cc_enabled&&fallback)?fallback[wb]:0;
+            } else {
+                bool s0f=true; for(int j=0;j<N;++j) if(!isfinite((double)seeds[(size_t)(p*S)*N+j])){s0f=false;break;}
+                for(int j=0;j<N;++j) sel_q[slot*N+j] = s0f ? seeds[(size_t)(p*S)*N+j] : (CT)0;
+                for(int k=0;k<K;++k){ sel_pe[slot*K+k]=(CT)INFINITY; sel_oe[slot*K+k]=(CT)INFINITY; }
+                sel_cost[slot]=(CT)INFINITY; sel_ephys[slot]=INFINITY; sel_seed[slot]=-1;
+                sel_succ[slot]=0; sel_valid[slot]=0; sel_cfree[slot]=0; sel_fb[slot]=0;
+            }
+        }
+        __syncthreads();
+    }
+}
+
+static int seg_block_size(int S) {
+    if (S <= 64)  return 64;
+    if (S <= 128) return 128;
+    return 256;                 // production default for larger S (benchmarked in the M3 report)
+}
+
+template<typename CT>
+static SolveProblemsOutputs launch_solve_problems(
+    const SolveInputs& in, int B, int num_solutions,
+    double eps_pos, double eps_ori,
+    double lambda_coord, double h_min, double max_step, int coarse_iters, int coarse_stall_lim,
+    int use_incremental, unsigned long long seed, int max_pert_attempts,
+    double lambda_init, int lm_iters, int stag_patience, double stag_rel,
+    const grid::robotModel<double>* d_robotModel, const unsigned char* use_coarse_host, bool run_coarse,
+    const void* cc_model, const void* cc_env_ptr,
+    bool return_all, HjcdWorkspace* ws, void* out_sel_q_ct, void* out_all_q_ct)
+{
+    constexpr int K = hjcd::NT;
+    const int S = in.seeds_per_problem, P = in.num_problems;
+    const int M = (num_solutions >= 1) ? num_solutions : 1;   // top-M per problem
+    SolveProblemsOutputs R;
+    R.P = P; R.S = S; R.K = K; R.M = M; R.fp32 = std::is_same<CT,float>::value;
+    R.cc_enabled = (cc_model && cc_env_ptr);
+    if (B <= 0 || P <= 0 || S <= 0 || !d_robotModel || !ws) return R;
+    init_joint_limits_from_grid();
+    const grid::robotModel<CT>* d_rm = robot_model_for<CT>(d_robotModel);
+    std::vector<CT> stage;
+
+    auto al = [](size_t n){ return (n + 255) & ~size_t(255); };
+    const size_t ct = sizeof(CT);
+    const size_t bn=(size_t)B*N, bk=(size_t)B*K, pk=(size_t)P*K;
+    const size_t pm=(size_t)P*M, pmn=pm*N, pmk=pm*K;      // selected buffers scale with M
+    size_t need = 0;
+    for (size_t s : {al(bn*ct), al(pk*3*ct), al(pk*4*ct), al(pk*ct), al(pk*ct), al((size_t)P*4),
+                     al((size_t)B),                                        // use_coarse
+                     al(bn*ct), al(bk*ct), al(bk*ct), al((size_t)B*ct), al((size_t)B),   // coarse
+                     al(bn*ct), al(bk*ct), al(bk*ct), al((size_t)B*ct), al((size_t)B),   // lm
+                     al((size_t)B)*4,                                      // lm_free,coarse_free,final_free,fb
+                     al(pmn*ct), al(pmk*ct), al(pmk*ct), al(pm*ct), al(pm*8), al(pm*4), // sel [P,M,..]
+                     al(pm)*4,                                             // sel succ/valid/cfree/fb
+                     al((size_t)P*4)*6, al((size_t)P)})                    // summaries [P]
+        need += s;
+    ws->ensure_raw(need, R.fp32 ? 1 : 0);
+    ws->rewind();
+
+    CT* d_seeds  = ws->take<CT>(bn);
+    CT* d_tp = ws->take<CT>(pk*3);  CT* d_tq = ws->take<CT>(pk*4);
+    CT* d_wp = ws->take<CT>(pk);    CT* d_wo = ws->take<CT>(pk);
+    unsigned int* d_act = ws->take<unsigned int>(P);
+    unsigned char* d_usec = ws->take<unsigned char>(B);
+    CT* d_cq = ws->take<CT>(bn); CT* d_cpe = ws->take<CT>(bk); CT* d_coe = ws->take<CT>(bk);
+    CT* d_cc = ws->take<CT>(B);  unsigned char* d_cs = ws->take<unsigned char>(B);
+    CT* d_lq = ws->take<CT>(bn); CT* d_lpe = ws->take<CT>(bk); CT* d_loe = ws->take<CT>(bk);
+    CT* d_lc = ws->take<CT>(B);  unsigned char* d_ls = ws->take<unsigned char>(B);
+    unsigned char* d_lmfree = ws->take<unsigned char>(B);
+    unsigned char* d_cofree = ws->take<unsigned char>(B);
+    unsigned char* d_final  = ws->take<unsigned char>(B);
+    unsigned char* d_fb     = ws->take<unsigned char>(B);
+    CT* d_sq = ws->take<CT>(pmn); CT* d_spe = ws->take<CT>(pmk); CT* d_soe = ws->take<CT>(pmk);
+    CT* d_sc = ws->take<CT>(pm);  double* d_sephys = ws->take<double>(pm); int* d_sseed = ws->take<int>(pm);
+    unsigned char* d_ssucc = ws->take<unsigned char>(pm); unsigned char* d_svalid = ws->take<unsigned char>(pm);
+    unsigned char* d_scfree = ws->take<unsigned char>(pm); unsigned char* d_sfb = ws->take<unsigned char>(pm);
+    int* d_nsolved = ws->take<int>(P); int* d_nvalid = ws->take<int>(P);
+    int* d_ncfree = ws->take<int>(P); int* d_nlmcoll = ws->take<int>(P);
+    int* d_nfb = ws->take<int>(P); int* d_ninfeas = ws->take<int>(P);
+    unsigned char* d_psucc = ws->take<unsigned char>(P);
+
+    upload_in<CT>(d_seeds, in.q,     in.f32, bn, stage);
+    upload_in<CT>(d_tp,    in.tgt_p, in.f32, pk*3, stage);
+    upload_in<CT>(d_tq,    in.tgt_q, in.f32, pk*4, stage);
+    upload_in<CT>(d_wp,    in.wp,    in.f32, pk, stage);
+    upload_in<CT>(d_wo,    in.wo,    in.f32, pk, stage);
+    CUDA_OK(cudaMemcpy(d_act, in.active, sizeof(unsigned int)*P, cudaMemcpyHostToDevice));
+    CUDA_OK(cudaMemcpy(d_usec, use_coarse_host, B, cudaMemcpyHostToDevice));
+
+    cudaEvent_t e0,e1,e2,e3; for (auto e:{&e0,&e1,&e2,&e3}) CUDA_OK(cudaEventCreate(e));
+    const int cc_enabled = R.cc_enabled ? 1 : 0;
+
+    // ---- coarse ----
+    CUDA_OK(cudaEventRecord(e0));
+    if (run_coarse) {
+        CUDA_OK(cudaMemcpy(d_cq, d_seeds, sizeof(CT)*bn, cudaMemcpyDeviceToDevice));
+        size_t cc_smem = 0;
+#if defined(HJCD_HAS_COLLISION)
+        if (cc_enabled) {
+            cc_smem = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<float>();
+            CUDA_OK(cudaFuncSetAttribute(coarse_search_mt_kernel<CT>,
+                    cudaFuncAttributeMaxDynamicSharedMemorySize, (int)cc_smem));
+        }
+        coarse_search_mt_kernel<CT><<<B,32,cc_smem>>>(
+            d_cq, d_tp, d_tq, d_act, d_wp, d_wo, d_cpe, d_coe, d_cc, d_cs, nullptr, 0,
+            d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_coord, (CT)h_min, (CT)max_step,
+            coarse_iters, coarse_stall_lim, B, S, use_incremental, seed, max_pert_attempts,
+            cc_enabled, reinterpret_cast<const grid::robotModel<float>*>(cc_model),
+            cc_env_ptr ? *reinterpret_cast<const grid_collision::Environment<float>*>(cc_env_ptr)
+                       : grid_collision::Environment<float>{});
+#else
+        (void)cc_smem;
+        coarse_search_mt_kernel<CT><<<B,32,0>>>(
+            d_cq, d_tp, d_tq, d_act, d_wp, d_wo, d_cpe, d_coe, d_cc, d_cs, nullptr, 0,
+            d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_coord, (CT)h_min, (CT)max_step,
+            coarse_iters, coarse_stall_lim, B, S, use_incremental, seed, max_pert_attempts, cc_enabled);
+#endif
+        CUDA_OK(cudaPeekAtLastError());
+        const int NB = (int)((bn + 255) / 256);
+        pick_lm_seed_kernel<CT><<<NB,256>>>(d_lq, d_cq, d_seeds, d_usec, bn, N);
+    } else {
+        CUDA_OK(cudaMemcpy(d_lq, d_seeds, sizeof(CT)*bn, cudaMemcpyDeviceToDevice));
+    }
+    CUDA_OK(cudaEventRecord(e1));
+
+    // ---- LM ----
+    const size_t smem = sizeof(LMScratch<CT>);
+    if (smem > 48u*1024u)
+        CUDA_OK(cudaFuncSetAttribute(lm_multi_target_kernel<CT>,
+                cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smem));
+    lm_multi_target_kernel<CT><<<B,32,smem>>>(
+        d_lq, d_tp, d_tq, d_act, d_wp, d_wo, d_lpe, d_loe, d_lc, d_ls, nullptr, nullptr, 0,
+        d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_init, lm_iters, B, 0, stag_patience, (CT)stag_rel, S);
+    CUDA_OK(cudaPeekAtLastError());
+    CUDA_OK(cudaEventRecord(e2));
+
+    // ---- collision + candidate-local fallback ----
+#if defined(HJCD_HAS_COLLISION)
+    if (cc_enabled) {
+        const auto env = *reinterpret_cast<const grid_collision::Environment<float>*>(cc_env_ptr);
+        const auto* rmcc = reinterpret_cast<const grid::robotModel<float>*>(cc_model);
+        // config_free's internal sphere-FK extractor uses the DYNAMIC shared arena, exactly like the
+        // standalone mark_collisions / the coarse gate -- launch with the same smem and attribute.
+        const size_t mc_smem = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<float>();
+        CUDA_OK(cudaFuncSetAttribute(mark_collisions_ct<CT>,
+                cudaFuncAttributeMaxDynamicSharedMemorySize, (int)mc_smem));
+        mark_collisions_ct<CT><<<B,128,mc_smem>>>(d_lq, B, d_lmfree, rmcc, env);
+        mark_collisions_ct<CT><<<B,128,mc_smem>>>(d_cq, B, d_cofree, rmcc, env);
+        apply_fallback_kernel<CT><<<B,32>>>(d_lq,d_lpe,d_loe,d_lc,d_ls, d_cq,d_cpe,d_coe,d_cc,d_cs,
+                                            d_lmfree,d_cofree,d_final,d_fb, B, K);
+        CUDA_OK(cudaPeekAtLastError());
+    }
+#endif
+
+    // ---- segmented top-M (M == 1 reproduces top-1) ----
+    const int blk = seg_block_size(S);
+    const size_t sel_smem = (size_t)blk * (sizeof(Cand) + 6*sizeof(int)) + (size_t)M*sizeof(int);
+    segmented_topM_kernel<CT><<<P, blk, sel_smem>>>(
+        d_lq, d_lpe, d_loe, d_lc, d_ls, d_final, d_fb, d_lmfree, d_seeds, d_act,
+        (CT)eps_pos, (CT)eps_ori, S, P, M, cc_enabled,
+        d_sq, d_spe, d_soe, d_sc, d_sephys, d_sseed, d_ssucc, d_svalid, d_scfree, d_sfb,
+        d_nsolved, d_nvalid, d_psucc, d_ncfree, d_nlmcoll, d_nfb, d_ninfeas);
+    CUDA_OK(cudaEventRecord(e3));
+    CUDA_OK(cudaPeekAtLastError());
+    CUDA_OK(cudaDeviceSynchronize());
+    { float ms; CUDA_OK(cudaEventElapsedTime(&ms,e0,e1)); R.coarse_ms=ms;
+      CUDA_OK(cudaEventElapsedTime(&ms,e1,e2)); R.lm_ms=ms;
+      CUDA_OK(cudaEventElapsedTime(&ms,e2,e3)); R.select_ms=ms; }
+    for (auto e:{e0,e1,e2,e3}) CUDA_OK(cudaEventDestroy(e));
+
+    // ---- D2H: selected only (config goes straight into the caller's [P,N] buffer) ----
+    auto d2hb=[&](unsigned char* d, std::vector<unsigned char>& v, int n){ v.assign(n,0);
+        CUDA_OK(cudaMemcpy(v.data(), d, n, cudaMemcpyDeviceToHost)); };
+    auto d2hi=[&](int* d, std::vector<int>& v){ v.assign(P,0);
+        CUDA_OK(cudaMemcpy(v.data(), d, sizeof(int)*P, cudaMemcpyDeviceToHost)); };
+
+    CUDA_OK(cudaMemcpy(out_sel_q_ct, d_sq, sizeof(CT)*pmn, cudaMemcpyDeviceToHost));
+    widen_d2h<CT>(d_spe, R.sel_pe, pmk);
+    widen_d2h<CT>(d_soe, R.sel_oe, pmk);
+    widen_d2h<CT>(d_sc,  R.sel_cost, pm);
+    R.sel_ephys.assign(pm,0); CUDA_OK(cudaMemcpy(R.sel_ephys.data(), d_sephys, sizeof(double)*pm, cudaMemcpyDeviceToHost));
+    R.sel_seed.assign(pm,0);  CUDA_OK(cudaMemcpy(R.sel_seed.data(),  d_sseed,  sizeof(int)*pm,    cudaMemcpyDeviceToHost));
+    d2hb(d_ssucc,R.sel_succ,(int)pm); d2hb(d_svalid,R.sel_valid,(int)pm);
+    d2hb(d_scfree,R.sel_cfree,(int)pm); d2hb(d_sfb,R.sel_fb,(int)pm);
+    d2hb(d_psucc,R.prob_success,P);
+    d2hi(d_nsolved,R.num_solved); d2hi(d_nvalid,R.num_valid);
+    if (cc_enabled) { d2hi(d_ncfree,R.num_cfree); d2hi(d_nlmcoll,R.num_lm_coll);
+                      d2hi(d_nfb,R.num_fb); d2hi(d_ninfeas,R.num_infeas); }
+
+    if (return_all) {
+        if (out_all_q_ct) CUDA_OK(cudaMemcpy(out_all_q_ct, d_lq, sizeof(CT)*bn, cudaMemcpyDeviceToHost));
+        widen_d2h<CT>(d_lpe, R.all_pe, bk);
+        widen_d2h<CT>(d_loe, R.all_oe, bk);
+        widen_d2h<CT>(d_lc,  R.all_cost, (size_t)B);
+        d2hb(d_ls, R.all_succ, B);
+        R.all_cfree.assign(B, 1);
+        R.all_fb.assign(B, 0);
+        if (cc_enabled) {
+            CUDA_OK(cudaMemcpy(R.all_cfree.data(), d_final, B, cudaMemcpyDeviceToHost));
+            CUDA_OK(cudaMemcpy(R.all_fb.data(),    d_fb,    B, cudaMemcpyDeviceToHost));
+        }
+    }
+    return R;
+}
+
+SolveProblemsOutputs compute_solve_problems(
+    const SolveInputs& in, int B, int num_solutions,
+    double eps_pos, double eps_ori,
+    double lambda_coord, double h_min, double max_step, int coarse_iters, int coarse_stall_lim,
+    int use_incremental, unsigned long long seed, int max_pert_attempts,
+    double lambda_init, int lm_iters, int stag_patience, double stag_rel,
+    const grid::robotModel<double>* d_robotModel, int precision,
+    const unsigned char* use_coarse_host, bool run_coarse,
+    const void* cc_model, const void* cc_env_ptr,
+    bool return_all, HjcdWorkspace* ws, void* out_sel_q_ct, void* out_all_q_ct)
+{
+    if (precision == 1)
+        return launch_solve_problems<float>(in, B, num_solutions, eps_pos, eps_ori, lambda_coord,
+            h_min, max_step, coarse_iters, coarse_stall_lim, use_incremental, seed, max_pert_attempts,
+            lambda_init, lm_iters, stag_patience, stag_rel, d_robotModel, use_coarse_host, run_coarse,
+            cc_model, cc_env_ptr, return_all, ws, out_sel_q_ct, out_all_q_ct);
+    return launch_solve_problems<double>(in, B, num_solutions, eps_pos, eps_ori, lambda_coord,
+        h_min, max_step, coarse_iters, coarse_stall_lim, use_incremental, seed, max_pert_attempts,
+        lambda_init, lm_iters, stag_patience, stag_rel, d_robotModel, use_coarse_host, run_coarse,
+        cc_model, cc_env_ptr, return_all, ws, out_sel_q_ct, out_all_q_ct);
 }
 
 // Workspace factory (the solver object owns one).
@@ -4110,7 +4688,8 @@ Result<T> generate_ik_solutions(
             /*out_trace=*/nullptr, /*trace_cap=*/0,
             d_robotModel_rt, eps_pos, eps_ori, (RT)5e-3, max_iters, Krep,
             /*stop_on_first=*/(num_solutions > 1) ? 0 : 1,
-            /*stag_patience=*/0, /*stag_rel=*/(RT)1e-4);   // legacy single-target path: Policy B off
+            /*stag_patience=*/0, /*stag_rel=*/(RT)1e-4,     // legacy single-target path: Policy B off
+            /*seeds_per_problem=*/1);                        // one problem per candidate (P = B)
         cudaGetLastError();
         CUDA_OK(cudaDeviceSynchronize());
 
