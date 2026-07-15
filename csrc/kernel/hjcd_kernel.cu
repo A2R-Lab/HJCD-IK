@@ -40,6 +40,21 @@ constexpr int EE_IDX     = N;
 constexpr int NX         = FLANGE_IDX + 1;
 
 __constant__ double2 c_joint_limits[N];
+// fp32 MIRROR of the joint limits. Without it every fp32 kernel would load a double2 from constant
+// memory and cvt.f64.f32 it on the hot path -- FP64-pipe work on a GPU where FP64 runs at 1/64 rate,
+// and, at the two perturbation sites, an actual double subtraction ((T)(L.y - L.x)) before the cast.
+// The mirror keeps the fp32 path free of FP64 entirely. Both copies are written from the SAME
+// validated doubles, so the fp64 path is bit-for-bit unchanged.
+__constant__ float2  c_joint_limits_f[N];
+
+// Joint limits in the kernel's own compute type. Specialised, never converted.
+template<typename T> __device__ __forceinline__ void joint_limit(int j, T* lo, T* hi);
+template<> __device__ __forceinline__ void joint_limit<double>(int j, double* lo, double* hi) {
+    const double2 L = c_joint_limits[j];   *lo = L.x; *hi = L.y;
+}
+template<> __device__ __forceinline__ void joint_limit<float>(int j, float* lo, float* hi) {
+    const float2 L = c_joint_limits_f[j];  *lo = L.x; *hi = L.y;
+}
 
 // GRiD HELPER FUNCTIONS
 namespace grid {
@@ -72,6 +87,13 @@ void init_joint_limits_from_grid()
 
     CUDA_OK(cudaMemcpyToSymbol(c_joint_limits, packed.data(),
                                sizeof(double2) * N));
+
+    // fp32 mirror, narrowed from the SAME validated doubles.
+    std::vector<float2> packed_f(N);
+    for (int j = 0; j < N; ++j)
+        packed_f[j] = make_float2((float)packed[j].x, (float)packed[j].y);
+    CUDA_OK(cudaMemcpyToSymbol(c_joint_limits_f, packed_f.data(),
+                               sizeof(float2) * N));
 }
 
 template<typename T>
@@ -268,11 +290,8 @@ __device__ T solve_pos(const T* s_jointXforms, const T* pos, const T* target_pos
         s_jointXforms[joint * 16 + 14]
     };
 
-    T r[3] = {
-        s_jointXforms[joint * 16 + 8],
-        s_jointXforms[joint * 16 + 9],
-        s_jointXforms[joint * 16 + 10]
-    };
+    T r[3];
+    joint_world_axis<T>(&s_jointXforms[joint * 16], joint, r);
     normalize_vec3(r);
 
     T u[3] = {
@@ -319,11 +338,8 @@ __device__ T solve_pos(const T* s_jointXforms, const T* pos, const T* target_pos
 template<typename T>
 __device__ T solve_ori(const T* s_jointXforms, const T* q_t, int joint, int k, int k_max) {
 
-    T r[3] = {
-        s_jointXforms[joint * 16 + 8],
-        s_jointXforms[joint * 16 + 9],
-        s_jointXforms[joint * 16 + 10]
-    };
+    T r[3];
+    joint_world_axis<T>(&s_jointXforms[joint * 16], joint, r);
     normalize_vec3(r);
 
     T q_ee[4];
@@ -378,645 +394,6 @@ __device__ __forceinline__ T safe_normN(const T* v, int n) {
     T s = (T)0; for (int i = 0; i < n; ++i) s += v[i] * v[i]; return sqrt(s);
 }
 
-template<typename T>
-__device__ __forceinline__
-void recompute_cost_scaled(T* xcur,
-    T* s_jointX, T* s_XmatsHom,
-    const T* row_s,
-    const T* tp, const T* q_goal,
-    T& cost_sq, T& pos_err_m, T& ori_err_rad)
-{
-    ee_fk_thread<T>(s_jointX, s_XmatsHom, xcur, EE_IDX, s_XmatsHom);
-    const T* Cn = &s_jointX[EE_IDX * 16];
-    const T dx = tp[0] - Cn[12];
-    const T dy = tp[1] - Cn[13];
-    const T dz = tp[2] - Cn[14];
-    T qee[4]; mat_to_quat(Cn, qee);
-    if (qee[0] * q_goal[0] + qee[1] * q_goal[1] + qee[2] * q_goal[2] + qee[3] * q_goal[3] < (T)0) {
-        qee[0] = -qee[0]; qee[1] = -qee[1]; qee[2] = -qee[2]; qee[3] = -qee[3];
-    }
-    T wv[3]; quat_err_rotvec(qee, q_goal, wv);
-    const T rt0 = row_s[0] * dx, rt1 = row_s[1] * dy, rt2 = row_s[2] * dz;
-    const T rt3 = row_s[3] * wv[0], rt4 = row_s[4] * wv[1], rt5 = row_s[5] * wv[2];
-    cost_sq = (T)0.5 * (rt0 * rt0 + rt1 * rt1 + rt2 * rt2 + rt3 * rt3 + rt4 * rt4 + rt5 * rt5);
-    pos_err_m = sqrt(dx * dx + dy * dy + dz * dz);
-    ori_err_rad = sqrt(wv[0] * wv[0] + wv[1] * wv[1] + wv[2] * wv[2]);
-}
-
-template<typename T>
-__device__ bool try_dogleg_step(
-    T* s_x, const T* x_old,
-    T* s_jointX, T* s_XmatsHom,
-    const T* row_s,
-    const T* tp, const T* q_goal,
-    const T R,
-    const T* dq_gn,
-    const T* gvec, const T* diagA,
-    T& cost_sq, T& pos_err_m, T& ori_err_rad,
-    T& lambda, const T lambda_min, const T lambda_max,
-    const double2* limits)
-{
-    T gtg = (T)0, gAg = (T)0;
-#pragma unroll
-    for (int i = 0; i < N; ++i) { T gi = gvec[i]; gtg += gi * gi; gAg += diagA[i] * gi * gi; }
-    if (!(gtg > (T)0) || !(gAg > (T)0)) return false;
-
-    T alpha = gtg / gAg;
-    T gnorm = sqrt(gtg);
-    if (alpha * gnorm > R) alpha = R / (gnorm + (T)1e-18);
-
-    // Gradient
-    T p_sd[N];
-#pragma unroll
-    for (int i = 0; i < N; ++i) p_sd[i] = -alpha * gvec[i];
-
-    // Trial step (GN)
-    T p_try[N], p_gn_norm = safe_normN(dq_gn, N);
-    if (p_gn_norm <= R) {
-#pragma unroll
-        for (int i = 0; i < N; ++i) p_try[i] = dq_gn[i];
-    }
-    else {
-        T a = 0, b = 0, c = 0;
-#pragma unroll
-        for (int i = 0; i < N; ++i) { T di = dq_gn[i] - p_sd[i]; a += di * di; b += (T)2 * (p_sd[i] * di); c += p_sd[i] * p_sd[i]; }
-        T disc = b * b - (T)4 * a * (c - R * R);
-        if (!(disc >= (T)0)) return false;
-        T tau = (-b + sqrt(disc)) / ((T)2 * a);
-        tau = fmin((T)1, fmax((T)0, tau));
-#pragma unroll
-        for (int i = 0; i < N; ++i) p_try[i] = p_sd[i] + tau * (dq_gn[i] - p_sd[i]);
-    }
-
-    T x_trial[N];
-    clamp_into_limits(x_old, p_try, x_trial, limits);
-
-    T c_new = cost_sq, p_new = pos_err_m, o_new = ori_err_rad;
-    recompute_cost_scaled(x_trial, s_jointX, s_XmatsHom, row_s, tp, q_goal, c_new, p_new, o_new);
-
-    const bool ok = (c_new + (T)1e-20 < cost_sq) && (p_new <= pos_err_m + (T)1e-12);
-    if (ok) {
-#pragma unroll
-        for (int i = 0; i < N; ++i) s_x[i] = x_trial[i];
-        cost_sq = c_new; pos_err_m = p_new; ori_err_rad = o_new;
-        lambda = fmax(lambda * (T)0.5, lambda_min);
-        return true;
-    }
-    else {
-        lambda = fmin(lambda * (T)2.0, lambda_max);
-        return false;
-    }
-}
-
-template<typename T>
-__device__ bool try_coord_linesearch(
-    T* s_x, const T* x_old,
-    T* s_jointX, T* s_XmatsHom,
-    const T* row_s,
-    const T* tp, const T* q_goal,
-    const T* gvec,
-    const T R, const T pos_err_m_hint,
-    T& cost_sq, T& pos_err_m, T& ori_err_rad,
-    T& lambda, const T lambda_min, const T lambda_max,
-    const double2* limits)
-{
-    int i_star = 0; T gmax = fabs(gvec[0]);
-#pragma unroll
-    for (int i = 1; i < N; ++i) { T a = fabs(gvec[i]); if (a > gmax) { gmax = a; i_star = i; } }
-
-    const T clip =
-        (pos_err_m_hint > (T)1e-2) ? (T)0.30 :
-        (pos_err_m_hint > (T)1e-3) ? (T)0.15 :
-        (pos_err_m_hint > (T)2e-4) ? (T)0.08 : (T)0.03;
-
-    const T mag = clip;
-    T best_cost = cost_sq, best_pos = pos_err_m, best_ori = ori_err_rad;
-    T x_trial[N]; bool accepted = false;
-
-    for (int sgn = -1; sgn <= 1; sgn += 2) {
-#pragma unroll
-        for (int j = 0; j < N; ++j) x_trial[j] = x_old[j];
-        const double2 L = limits[i_star];
-        const T xi = x_old[i_star] + (T)sgn * mag;
-        x_trial[i_star] = fmin(fmax(xi, (T)L.x), (T)L.y);
-        T c, p, o; recompute_cost_scaled(x_trial, s_jointX, s_XmatsHom, row_s, tp, q_goal, c, p, o);
-        if ((p <= pos_err_m + (T)1e-12) && (c + (T)1e-20 < best_cost)) {
-            best_cost = c; best_pos = p; best_ori = o; accepted = true;
-#pragma unroll
-            for (int j = 0; j < N; ++j) s_x[j] = x_trial[j];
-        }
-    }
-    if (accepted) {
-        cost_sq = best_cost; pos_err_m = best_pos; ori_err_rad = best_ori;
-        lambda = fmax(lambda * (T)0.8, lambda_min);
-        return true;
-    }
-    else {
-        lambda = fmin(lambda * (T)2.0, lambda_max);
-        return false;
-    }
-}
-
-
-// Warp-cooperative NE build
-template<typename T, int DIM>
-__device__ inline void build_ne_and_solve_warp(
-    const T* __restrict__ J,
-    const T* __restrict__ r_scaled,
-    T lambda,
-    T* __restrict__ dq,
-    T* __restrict__ diagA,
-    T* __restrict__ gvec,
-    T* __restrict__ A_sh,
-    T* __restrict__ b_sh,
-    int* __restrict__ s_fail_ptr
-) {
-    const unsigned mask = FULL_WARP_MASK;
-    const int lane = threadIdx.x & 31;
-
-    // Build A = J^T J  (solve precision = T: fp64 by default, fp32 when the refine knob is on,
-    // with no fp32<->fp64 casts in the hot path).
-    if (lane < DIM) {
-        const int r = lane;
-        #pragma unroll
-        for (int c = 0; c < DIM; ++c) {
-            T acc = (T)0;
-            #pragma unroll
-            for (int k = 0; k < 6; ++k) acc += J[k*DIM + r] * J[k*DIM + c];
-            A_sh[r*DIM + c] = acc;
-        }
-        // b = J^T r
-        T accb = (T)0;
-        #pragma unroll
-        for (int k = 0; k < 6; ++k) accb += J[k*DIM + r] * r_scaled[k];
-        b_sh[r] = accb;
-    }
-    __syncwarp(mask);
-
-    // Save diag(A) and g = b for the downstream LM trust-region tuner (still consumed there).
-    // The REG_DIAG posv applies the Levenberg lambda*diag(A) shift internally at factor time,
-    // so we no longer mutate A's diagonal here; diagA holds the UN-shifted diagonal as before.
-    if (lane < DIM) {
-        diagA[lane] = A_sh[lane*DIM + lane];
-        gvec[lane]  = b_sh[lane];
-    }
-    __syncwarp(mask);
-
-    // One composed GLASS call folds: A += lambda*diag(A) (REG_DIAG Levenberg shift, == the old
-    // `di + lambda*di` damping bit-for-bit) + Cholesky + forward/back solve + non-PD CHECK.
-    // CHECK trips at the non-PD pivot (d<=0 || isnan), catching the finite-but-garbage
-    // near-singular solves the former isfinite net let through. cholDecomp_InPlace writes
-    // *s_fail_ptr from lane 0 (zeroed at entry); s_fail_ptr is a per-warp SHARED int
-    // (LMWarpScratch::s_fail), so every lane reads it after the trailing __syncwarp.
-    glass::warp::posv<T, DIM, /*NRHS=*/1, /*REGULARIZE=*/true, /*CHECK=*/true, /*REG_DIAG=*/true>(
-        A_sh, b_sh, lambda, s_fail_ptr);  // A_sh <- L; b_sh <- x; *s_fail_ptr = 1 if non-PD pivot
-    __syncwarp(mask);
-
-    // Non-SPD fallback: dq=0 so LM grows lambda and retries (matches the old `ok ? x : 0`).
-    const bool spd_ok = (*s_fail_ptr == 0);
-    if (lane < DIM) dq[lane] = spd_ok ? (T)b_sh[lane] : (T)0;
-    __syncwarp(mask);
-}
-
-// Per-warp scratch for the multi-warp LM refine: one independent LM candidate per warp,
-// W warps per block. All of solve_lm_batched's former __shared__ arrays/scalars live here,
-// placed W-wide in dynamic shared and indexed by warp_id, so each warp has a private copy
-// and the iteration loop is fully warp-independent (every barrier __syncwarp, never
-// __syncthreads). The constant cells of s_XmatsHom are q-independent (identical across
-// candidates) and loaded once block-cooperatively in the prologue; ee_pose_inner_warp
-// refreshes the q-dependent cells per-warp.
-template<typename T>
-struct LMWarpScratch {
-    T s_x[N], x_old[N];
-    T s_XmatsHom[grid::XHOM_T_COUNT], s_jointX[NX*16];
-    T J[6*N], r_scaled[6], row_s[6], q_goal[4];
-    T dq[N], diagA[N], gvec[N];
-    T best_x_pos[N];
-    T Ad_sh[N*N], rhsd_sh[N];
-    T row_norm2[6];
-    T pos_err_m, ori_err_rad, cost_sq, prev_cost, best_pos_seen;
-    int s_break, stall, accepted;
-    int s_fail;   // per-warp non-PD flag written by warp::posv CHECK (cholDecomp, lane 0)
-};
-
-template<typename T>
-__device__ void solve_lm_batched(
-    T* __restrict__ x,
-    T* __restrict__ pose,
-    const T* __restrict__ target_poses,
-    T* __restrict__ pos_error,
-    T* __restrict__ ori_error,
-    const grid::robotModel<T>* d_robotModel,
-    const T eps_pos,
-    const T eps_ori,
-    T lambda_init,
-    const int k_max,
-    const int B,
-    int stop_on_first)
-{
-    // Multi-warp LM: one independent candidate per warp, W warps per block. All barriers
-    // inside the iteration loop are warp-scoped (the only __syncthreads are in the one-time
-    // constant-load prologue below, where the whole block genuinely participates).
-    #define SYNC() __syncwarp(FULL_WARP_MASK)
-
-    const int lane = threadIdx.x & 31;
-    const int warp_id = threadIdx.x >> 5;
-    const int warps_per_block = max(1, (int)(blockDim.x >> 5));
-    const int gp  = blockIdx.x * warps_per_block + warp_id;
-    const int tid = lane;   // all per-candidate work is now lane-indexed within the warp
-    if (!x || !pose || !target_poses || !pos_error || !ori_error || !d_robotModel) return;
-
-    // Per-warp scratch slice in dynamic shared (compiler computes per-warp offsets).
-    extern __shared__ __align__(16) unsigned char s_lm_dyn_raw[];
-    LMWarpScratch<T>* all_st = reinterpret_cast<LMWarpScratch<T>*>(s_lm_dyn_raw);
-    LMWarpScratch<T>* st = &all_st[warp_id];
-
-    // --- one-time block-cooperative constant-XmatsHom prologue ---
-    // ee_pose_inner_warp refreshes the q-DEPENDENT cells of s_XmatsHom per-warp; only the
-    // q-INDEPENDENT (constant) cells must be pre-present, and those are identical across all
-    // candidates. Load once (any valid q -> only the constant cells are consumed) and
-    // replicate into every warp slice. Block barriers are confined to this prologue.
-    {
-        __shared__ T s_xhom_tmpl[grid::XHOM_T_COUNT];
-        __shared__ T s_q_tmpl[N];
-        __shared__ T s_tmp_tmpl[NX*2];
-        const int base0 = min(blockIdx.x * warps_per_block, B - 1);
-        if (threadIdx.x < N) s_q_tmpl[threadIdx.x] = x[base0 * N + threadIdx.x];
-        __syncthreads();
-        grid::load_update_XmatsHom_helpers<T>(s_xhom_tmpl, /*s_topology_helpers=*/nullptr, s_q_tmpl, d_robotModel, s_tmp_tmpl);
-        __syncthreads();
-        for (int i = threadIdx.x; i < warps_per_block * grid::XHOM_T_COUNT; i += blockDim.x) {
-            const int w = i / grid::XHOM_T_COUNT;
-            const int c = i - w * grid::XHOM_T_COUNT;
-            all_st[w].s_XmatsHom[c] = s_xhom_tmpl[c];
-        }
-        __syncthreads();
-    }
-
-    if (gp >= B) return;   // partial last block: excess warps exit cleanly (no block barrier below)
-
-    // Per-warp aliases: the body below is unchanged (tid==lane, arrays/scalars are this warp's).
-    T* s_x         = st->s_x;
-    T* x_old       = st->x_old;
-    T* s_XmatsHom  = st->s_XmatsHom;
-    T* s_jointX    = st->s_jointX;
-    T* J           = st->J;
-    T* r_scaled    = st->r_scaled;
-    T* row_s       = st->row_s;
-    T* q_goal      = st->q_goal;
-    T* dq          = st->dq;
-    T* diagA       = st->diagA;
-    T* gvec        = st->gvec;
-    T* best_x_pos  = st->best_x_pos;
-    T* Ad_sh       = st->Ad_sh;
-    T* rhsd_sh     = st->rhsd_sh;
-    T* row_norm2   = st->row_norm2;
-    T& pos_err_m   = st->pos_err_m;
-    T& ori_err_rad = st->ori_err_rad;
-    T& cost_sq     = st->cost_sq;
-    T& prev_cost   = st->prev_cost;
-    T& best_pos_seen = st->best_pos_seen;
-    int& s_break   = st->s_break;
-    int& stall     = st->stall;
-    int& accepted  = st->accepted;
-
-    const T  lambda_min = (T)1e-12, lambda_max = (T)1e6;
-    const int stall_lim = 5;
-
-    const T* tp = &target_poses[gp*7];
-    if (tid < N) s_x[tid] = x[gp*N + tid];
-    if (tid == 0) {
-        q_goal[0]=tp[3]; q_goal[1]=tp[4]; q_goal[2]=tp[5]; q_goal[3]=tp[6];
-        T n = rsqrt(q_goal[0]*q_goal[0]+q_goal[1]*q_goal[1]+q_goal[2]*q_goal[2]+q_goal[3]*q_goal[3]);
-        q_goal[0]*=n; q_goal[1]*=n; q_goal[2]*=n; q_goal[3]*=n;
-        s_break=0; stall=0; prev_cost=(T)-1; cost_sq=(T)0;
-    }
-    SYNC();
-
-    T lambda = lambda_init;
-
-    // q-dependent cells refreshed per-warp by the FK (constants came from the prologue).
-    ee_fk_warp<T>(s_jointX, s_XmatsHom, s_x, EE_IDX);
-    SYNC();
-
-    if (tid == 0) {
-        pos_err_m   = compute_pos_err(s_jointX, tp);
-        ori_err_rad = compute_ori_err(s_jointX, &tp[3]);
-    }
-    SYNC();
-
-    best_pos_seen = pos_err_m;
-    if (tid < N) best_x_pos[tid] = s_x[tid];
-    if (tid == 0 && pos_err_m < eps_pos && ori_err_rad < eps_ori) s_break = 1;
-    SYNC(); if (s_break) goto WRITE_OUT;
-
-    for (int it = 0; it < k_max; ++it) {
-        if (stop_on_first && tid == 0 && ((it & 1) == 0)) {
-            if (atomicAdd(&g_stop, 0)) s_break = 1;
-        }
-        SYNC(); if (s_break) break;
-
-        // Position and orientation residual
-        if (tid == 0) {
-            const T* Cn = &s_jointX[EE_IDX * 16];
-            T qee[4]; mat_to_quat(Cn, qee);
-            if (qee[0]*q_goal[0] + qee[1]*q_goal[1] + qee[2]*q_goal[2] + qee[3]*q_goal[3] < (T)0) {
-                qee[0]=-qee[0]; qee[1]=-qee[1]; qee[2]=-qee[2]; qee[3]=-qee[3];
-            }
-            T wv[3]; quat_err_rotvec(qee, q_goal, wv);
-            const T dx = tp[0]-Cn[12], dy = tp[1]-Cn[13], dz = tp[2]-Cn[14];
-            r_scaled[0]=dx; r_scaled[1]=dy; r_scaled[2]=dz;
-            r_scaled[3]=wv[0]; r_scaled[4]=wv[1]; r_scaled[5]=wv[2];
-        }
-        SYNC();
-
-        // Build J and row-norms (row_norm2 is per-warp, aliased from the scratch struct)
-        if (tid < 6) row_norm2[tid] = (T)0;
-        SYNC();
-
-        T p0 = (T)0, p1 = (T)0, p2 = (T)0, p3 = (T)0, p4 = (T)0, p5 = (T)0;
-
-        if (tid < N) {
-            const int i = tid;
-            const T* Ci = &s_jointX[i*16];
-            const T* Cn = &s_jointX[EE_IDX * 16];
-
-            const T oi0=Ci[12], oi1=Ci[13], oi2=Ci[14];
-            const T on0=Cn[12], on1=Cn[13], on2=Cn[14];
-            const T zi0=Ci[8],  zi1=Ci[9],  zi2=Ci[10];
-            const T r0=on0-oi0, r1=on1-oi1, r2=on2-oi2;
-
-            const T j0 = zi1*r2 - zi2*r1;
-            const T j1 = zi2*r0 - zi0*r2;
-            const T j2 = zi0*r1 - zi1*r0;
-            const T j3 = zi0;
-            const T j4 = zi1;
-            const T j5 = zi2;
-
-            J[0*N+i]=j0;  J[1*N+i]=j1;  J[2*N+i]=j2;
-            J[3*N+i]=j3;  J[4*N+i]=j4;  J[5*N+i]=j5;
-
-            p0 = j0*j0; p1 = j1*j1; p2 = j2*j2; p3 = j3*j3; p4 = j4*j4; p5 = j5*j5;
-        }
-
-        // Warp row-norm reductions via glass::warp::reduce (returns the warp-wide sum
-        // on every lane; equivalent to the previous __shfl_down_sync ladder, full warp).
-        p0 = glass::warp::reduce(p0);
-        p1 = glass::warp::reduce(p1);
-        p2 = glass::warp::reduce(p2);
-        p3 = glass::warp::reduce(p3);
-        p4 = glass::warp::reduce(p4);
-        p5 = glass::warp::reduce(p5);
-
-        // Lane per warp accumulate into shared row sums
-        if ((threadIdx.x & 31) == 0) {
-            row_norm2[0] += p0; row_norm2[1] += p1; row_norm2[2] += p2;
-            row_norm2[3] += p3; row_norm2[4] += p4; row_norm2[5] += p5;
-        }
-        SYNC();
-
-        if (tid == 0) {
-            #pragma unroll
-            for (int k=0;k<6;++k)
-                row_s[k] = (row_norm2[k] > (T)1e-18) ? rsqrt(row_norm2[k]) : (T)1;
-
-            #pragma unroll
-            for (int k=0;k<6;++k) r_scaled[k] *= row_s[k];
-
-            const T cp = fmax((T)1e-4, (T)5e-3 * (T)fmax((T)1, (T)1e3*pos_err_m));
-            const T co = (T)0.5;
-            #pragma unroll
-            for (int k=0;k<3;++k){
-                const T a=fabs(r_scaled[k]);
-                const T w=(a<=cp)?(T)1:(cp/(a+(T)1e-30));
-                const T s=sqrt(w);
-                row_s[k]*=s; r_scaled[k]*=s;
-            }
-            #pragma unroll
-            for (int k=3;k<6;++k){
-                const T a=fabs(r_scaled[k]);
-                const T w=(a<=co)?(T)1:(co/(a+(T)1e-30));
-                const T s=sqrt(w);
-                row_s[k]*=s; r_scaled[k]*=s;
-            }
-
-            T w_ori = (pos_err_m > (T)1e-3) ? (T)0.5 :
-                      (pos_err_m > (T)2e-4) ? (T)1.0 : (T)1.5;
-            const T s = sqrt(w_ori);
-            row_s[3]*=s; row_s[4]*=s; row_s[5]*=s;
-            r_scaled[3]*=s; r_scaled[4]*=s; r_scaled[5]*=s;
-
-            cost_sq = (T)0.5*(
-                r_scaled[0]*r_scaled[0]+r_scaled[1]*r_scaled[1]+r_scaled[2]*r_scaled[2]+
-                r_scaled[3]*r_scaled[3]+r_scaled[4]*r_scaled[4]+r_scaled[5]*r_scaled[5]);
-        }
-        SYNC();
-
-        // Apply row_s to J
-        if (tid < N) {
-            const int i = tid;
-#pragma unroll
-            for (int k=0;k<6;++k) J[k*N+i] *= row_s[k];
-        }
-
-        // Joint-limit column scaling + LM diag/prior
-        if (tid < N) {
-            const int i = tid;
-            const T col = (T)1.0;
-
-            #pragma unroll
-            for (int k=0;k<6;++k) J[k*N+i] *= col;
-
-            // Disable joint-center prior near limits
-            diagA[i] = (T)0;
-            gvec[i]  = (T)0;
-        }
-        SYNC();
-
-        // Build normal equations and solve (per-warp: each warp solves its own candidate)
-        build_ne_and_solve_warp<T, N>(J, r_scaled, lambda, dq, diagA, gvec, Ad_sh, rhsd_sh, &st->s_fail);
-        SYNC();
-
-        if (tid == 0) {
-            T R;
-            if      (pos_err_m > (T)1e-2 || ori_err_rad > (T)0.6)  R=(T)0.38;
-            else if (pos_err_m > (T)1e-3 || ori_err_rad > (T)0.25) R=(T)0.22;
-            else if (pos_err_m > (T)2e-4 || ori_err_rad > (T)0.08) R=(T)0.12;
-            else                                                   R=(T)0.05;
-
-            T nrm=(T)0; for (int i=0;i<N;++i) nrm += dq[i]*dq[i]; nrm = sqrt(nrm);
-            if (nrm > R) { T s = R/(nrm + (T)1e-18); for (int i=0;i<N;++i) dq[i]*=s; }
-
-            const T clip = (pos_err_m > (T)1e-2)?(T)0.30:
-                           (pos_err_m > (T)1e-3)?(T)0.15:
-                           (pos_err_m > (T)2e-4)?(T)0.08:(T)0.03;
-            for (int i=0;i<N;++i){
-                dq[i]=fmin(fmax(dq[i],-clip),clip);
-                x_old[i]=s_x[i];
-            }
-        }
-        SYNC();
-
-        // accepted is per-warp (aliased from the scratch struct)
-        if (tid == 0) accepted = 0;
-        SYNC();
-
-        T best_cost=(T)1e38, best_pos=pos_err_m, best_ori=ori_err_rad, best_a=(T)0;
-
-        // Backtracking schedule: 1.0, 0.5, 0.25, 0.125
-        for (int tries=0; tries<4; ++tries) {
-            const T a = (tries==0)?(T)1.0 : (T)0.5 * (T)pow((T)0.5, tries-1);
-            if (tid == 0) {
-                for (int i=0;i<N;++i){
-                    const double2 lim=c_joint_limits[i];
-                    const T xi= x_old[i] + a*dq[i];
-                    s_x[i] = fmin(fmax(xi,(T)lim.x),(T)lim.y);
-                }
-            }
-            SYNC();
-
-            ee_fk_warp<T>(s_jointX, s_XmatsHom, s_x, EE_IDX);
-            SYNC();
-
-            if (tid == 0) {
-                const T pos_new = compute_pos_err(s_jointX, tp);
-                const T ori_new = compute_ori_err(s_jointX, &tp[3]);
-
-                const T* Cn=&s_jointX[EE_IDX * 16];
-                T qee[4]; mat_to_quat(Cn, qee);
-                if (qee[0]*q_goal[0] + qee[1]*q_goal[1] + qee[2]*q_goal[2] + qee[3]*q_goal[3] < (T)0) {
-                    qee[0]=-qee[0]; qee[1]=-qee[1]; qee[2]=-qee[2]; qee[3]=-qee[3];
-                }
-                T wv[3]; quat_err_rotvec(qee, q_goal, wv);
-                T dx = tp[0]-Cn[12], dy = tp[1]-Cn[13], dz = tp[2]-Cn[14];
-
-                T rr[6] = { dx,dy,dz, wv[0],wv[1],wv[2] };
-#pragma unroll
-                for (int k=0;k<6;++k) rr[k] *= row_s[k];
-
-                const T cp2 = fmax((T)1e-4, (T)5e-3 * (T)fmax((T)1, (T)1e3*pos_new));
-                const T co2 = (T)0.5;
-#pragma unroll
-                for (int k=0;k<3;++k){ 
-                    const T a2=fabs(rr[k]); const T w=(a2<=cp2)?(T)1:(cp2/(a2+(T)1e-30)); rr[k]*=sqrt(w); 
-                }
-#pragma unroll
-                for (int k=3;k<6;++k){ 
-                    const T a2=fabs(rr[k]); const T w=(a2<=co2)?(T)1:(co2/(a2+(T)1e-30)); rr[k]*=sqrt(w); 
-                }
-
-                T trial=(T)0.5*(rr[0]*rr[0]+rr[1]*rr[1]+rr[2]*rr[2]+rr[3]*rr[3]+rr[4]*rr[4]+rr[5]*rr[5]);
-
-                const bool nonincreasing_pos = (pos_new <= pos_err_m + (T)1e-12);
-                const bool improves_cost     = (trial + (T)1e-20 < best_cost);
-                if (improves_cost && nonincreasing_pos) { 
-                    best_cost=trial; best_pos=pos_new; best_ori=ori_new; best_a=a; accepted=1; 
-                }
-            }
-            SYNC();
-            if (accepted) break;
-        }
-
-        if (tid == 0) {
-            if (accepted) {
-                T ared = cost_sq - best_cost, pred=(T)0;
-                for (int i=0;i<N;++i){ const T ad=best_a*dq[i]; pred += (T)0.5 * (lambda*diagA[i]*ad*ad + ad*gvec[i]); }
-                pred = fmax((T)1e-20, pred);
-                const T rho = ared / pred;
-
-                if      (rho > (T)0.90) lambda=fmax(lambda*(T)0.3, lambda_min);
-                else if (rho > (T)0.50) lambda=fmax(lambda*(T)0.5, lambda_min);
-                else if (rho < (T)0.25) lambda=fmin(lambda*(T)3.0, lambda_max);
-
-                cost_sq=best_cost; pos_err_m=best_pos; ori_err_rad=best_ori;
-
-                if (pos_err_m + (T)1e-20 < best_pos_seen) { best_pos_seen=pos_err_m; for (int i=0;i<N;++i) best_x_pos[i]=s_x[i]; }
-                if (prev_cost > (T)0 && (prev_cost - cost_sq)/prev_cost < (T)1e-9) ++stall; else stall=0;
-                prev_cost=cost_sq;
-            } else {
-                // Dogleg + linesearch
-                T R;
-                if      (pos_err_m > (T)1e-2 || ori_err_rad > (T)0.6)  R=(T)0.45;
-                else if (pos_err_m > (T)1e-3 || ori_err_rad > (T)0.25) R=(T)0.28;
-                else if (pos_err_m > (T)2e-4 || ori_err_rad > (T)0.08) R=(T)0.10;
-                else                                                   R=(T)0.04;
-
-                bool took = try_dogleg_step<T>(s_x, x_old, s_jointX, s_XmatsHom,
-                                               row_s, tp, q_goal, R,
-                                               dq, gvec, diagA,
-                                               cost_sq, pos_err_m, ori_err_rad,
-                                               lambda, lambda_min, lambda_max,
-                                               c_joint_limits);
-                if (!took) {
-                    took = try_coord_linesearch<T>(s_x, x_old, s_jointX, s_XmatsHom,
-                                                   row_s, tp, q_goal, gvec,
-                                                   R, pos_err_m,
-                                                   cost_sq, pos_err_m, ori_err_rad,
-                                                   lambda, lambda_min, lambda_max,
-                                                   c_joint_limits);
-                }
-                if (!took) ++stall;
-            }
-            if (stall >= stall_lim) {
-                for (int i=0;i<N;++i){
-                    const double2 L=c_joint_limits[i];
-                    const T span=(T)(L.y-L.x);
-                    uint32_t u = 0x9E3779B9u ^ (uint32_t)(i*0xC2B2AE35u);
-                    T sgn = (T)((int)(u&1)?1:-1);
-                    T kick = (T)0.005 * span * sgn;
-                    T xi = s_x[i] + kick;
-                    s_x[i] = fmin(fmax(xi,(T)L.x),(T)L.y);
-                }
-                ee_fk_thread<T>(s_jointX, s_XmatsHom, s_x, EE_IDX, s_XmatsHom);
-                pos_err_m   = compute_pos_err(s_jointX,tp);
-                ori_err_rad = compute_ori_err(s_jointX,&tp[3]);
-                stall = 0;
-            }
-
-            if (pos_err_m < eps_pos && ori_err_rad < eps_ori) { atomicCAS(&g_stop, 0, 1); s_break = 1; }
-        }
-        SYNC();
-        if (s_break) break;
-
-        ee_fk_warp<T>(s_jointX, s_XmatsHom, s_x, EE_IDX);
-        SYNC();
-
-        if (tid == 0) {
-            pos_err_m   = compute_pos_err(s_jointX, tp);
-            ori_err_rad = compute_ori_err(s_jointX, &tp[3]);
-        }
-        SYNC();
-    }
-
-WRITE_OUT:
-
-    // Drift guard against noisy acceptances
-    {
-        const T MAX_DRIFT = (T)2e-4;
-        if (pos_err_m > best_pos_seen + MAX_DRIFT) {
-            if (tid < N) s_x[tid] = best_x_pos[tid];
-            SYNC();
-            ee_fk_warp<T>(s_jointX, s_XmatsHom, s_x, EE_IDX);
-            SYNC();
-        }
-    }
-
-    if (tid == 0) {
-        pos_err_m   = compute_pos_err(s_jointX, tp);
-        ori_err_rad = compute_ori_err(s_jointX, &tp[3]);
-
-        const T* Cn = &s_jointX[EE_IDX * 16];
-        T q_out[4]; mat_to_quat(Cn, q_out);
-        pose[gp*7+0]=Cn[12]; pose[gp*7+1]=Cn[13]; pose[gp*7+2]=Cn[14];
-        pose[gp*7+3]=q_out[0]; pose[gp*7+4]=q_out[1]; pose[gp*7+5]=q_out[2]; pose[gp*7+6]=q_out[3];
-        pos_error[gp] = pos_err_m * (T)1000.0;
-        ori_error[gp] = ori_err_rad;
-        for (int i=0;i<N;++i) x[gp*N+i] = s_x[i];
-    }
-
-    #undef SYNC
-}
-
 // COARSE SEARCH
 template<typename T>
 __global__ void coarse_search(
@@ -1062,6 +439,7 @@ __global__ void coarse_search(
     __shared__ T s_XmatsHom[grid::XHOM_T_COUNT];
     __shared__ T s_jointXforms[NX*16];
     __shared__ T s_temp[NX*2];
+    __shared__ int s_topology_helpers[hjcd::TOPO];
 
     const T* target_pose_local = &targetsB[gp * 7];
     const T q_t[4] = { target_pose_local[3], target_pose_local[4],
@@ -1083,7 +461,7 @@ __global__ void coarse_search(
     }
     __syncthreads();
 
-    grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, /*s_topology_helpers=*/nullptr, s_x, d_robotModel, s_temp);
+    grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_x, d_robotModel, s_temp);
     __syncthreads();
 
     if ((threadIdx.x >> 5) == 0) { // warp 0
@@ -1311,39 +689,6 @@ __global__ void coarse_search(
 }
 
 
-template<typename T>
-__global__ void lm_tuner(
-    T* __restrict__ x,
-    T* __restrict__ pose,
-    const T* __restrict__ targetsB,
-    T* __restrict__ pos_errors,
-    T* __restrict__ ori_errors,
-    const grid::robotModel<T>* d_robotModel,
-    T eps_pos_m,
-    T eps_ori_rad,
-    T lambda_init,
-    int k_max,
-    int B,
-    int stop_on_first
-) {
-    // B = total candidates (Krep). grid = ceil(B / warps_per_block); each warp does one candidate.
-    solve_lm_batched<T>(
-        x,
-        pose,
-        targetsB,
-        pos_errors,
-        ori_errors,
-        d_robotModel,
-        eps_pos_m,
-        eps_ori_rad,
-        lambda_init,
-        k_max,
-        B,
-        stop_on_first
-    );
-}
-
-
 template <typename T>
 __global__ void gather_rows_kernel(const T* __restrict__ xsrc,
     const int* __restrict__ idx,
@@ -1373,12 +718,13 @@ __global__ void forward_kinematics_kernel(
     __shared__ T s_XmatsHom[grid::XHOM_T_COUNT];
     __shared__ T s_jointX[NX * 16];
     __shared__ T s_tmp[NX * 2];
+    __shared__ int s_topology_helpers[hjcd::TOPO];
 
     for (int j = threadIdx.x; j < N; j += blockDim.x)
         s_q[j] = q[b * N + j];
     __syncthreads();
 
-    grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, /*s_topology_helpers=*/nullptr, s_q, RM, s_tmp);
+    grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, RM, s_tmp);
     __syncthreads();
 
     if (threadIdx.x == 0) {
@@ -1403,6 +749,2551 @@ __global__ void forward_kinematics_kernel(
             for (int i = 0; i < NX * 16; ++i) out[i] = s_jointX[i];
         }
     }
+}
+
+// World transforms of every movable joint, for a batch of configs. Slots 0..N-1 are GRiD's
+// cumulative world transform of joint j (column-major 4x4); slot EE_IDX is the appended
+// single-target grasptarget frame (only meaningful on a build whose FLANGE_JID/GRASP_FIXED_IDX
+// match the robot — i.e. the single-EE serial-chain robots, not G1). Test/introspection entry
+// point: it is what tests/test_joint_axis.py checks the FK and the joint-axis metadata against.
+template<typename T>
+std::vector<T> compute_link_transforms(const T* h_q, int B, const grid::robotModel<T>* d_robotModel)
+{
+    std::vector<T> out((size_t)B * NX * 16, (T)0);
+    if (!h_q || !d_robotModel || B <= 0) return out;
+
+    T *d_q = nullptr, *d_T = nullptr;
+    CUDA_OK(cudaMalloc(&d_q, sizeof(T) * (size_t)B * N));
+    CUDA_OK(cudaMalloc(&d_T, sizeof(T) * (size_t)B * NX * 16));
+    CUDA_OK(cudaMemcpy(d_q, h_q, sizeof(T) * (size_t)B * N, cudaMemcpyHostToDevice));
+
+    forward_kinematics_kernel<T><<<B, 32>>>(d_q, nullptr, d_T, d_robotModel, B);
+    CUDA_OK(cudaPeekAtLastError());
+    CUDA_OK(cudaDeviceSynchronize());
+
+    CUDA_OK(cudaMemcpy(out.data(), d_T, sizeof(T) * (size_t)B * NX * 16, cudaMemcpyDeviceToHost));
+    cudaFree(d_q);
+    cudaFree(d_T);
+    return out;
+}
+
+extern "C" int grid_num_frames() { return NX; }
+
+// ---------------------------------------------------------------------------
+// Multi-target frame FK (Phase 1B): ONE full GRiD FK, then compose every target frame from it.
+// Nothing here touches the solver; it is the kinematic layer the later phases build on, and the
+// entry point the target-FK tests validate against the numpy URDF oracle.
+// ---------------------------------------------------------------------------
+template<typename T>
+__global__ void target_fk_kernel(
+    const T* __restrict__ q,
+    T* __restrict__ out_target_T,      // B x NT x 16, column-major 4x4 per target
+    const grid::robotModel<T>* __restrict__ RM,
+    const int B)
+{
+    const int b = blockIdx.x;
+    if (!q || !RM || !out_target_T || b >= B) return;
+
+    __shared__ T s_q[N];
+    __shared__ T s_XmatsHom[grid::XHOM_T_COUNT];
+    __shared__ T s_jointX[N * 16];              // world transform of every movable joint
+    __shared__ T s_target_X[hjcd::NT * 16];     // the composed target frames (warp-shared, not per-lane)
+    __shared__ T s_tmp[NX * 2];
+    __shared__ int s_topology_helpers[hjcd::TOPO];
+
+    for (int j = threadIdx.x; j < N; j += blockDim.x) s_q[j] = q[(size_t)b * N + j];
+    __syncthreads();
+
+    grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, RM, s_tmp);
+    __syncthreads();
+
+    grid::ee_pose_inner_warp<T>(s_jointX, s_XmatsHom, s_q, N - 1);
+    __syncwarp(FULL_WARP_MASK);
+
+    compose_target_frames_warp<T>(s_target_X, s_jointX);
+
+    for (int i = threadIdx.x; i < hjcd::NT * 16; i += blockDim.x)
+        out_target_T[(size_t)b * hjcd::NT * 16 + i] = s_target_X[i];
+}
+
+template<typename T>
+std::vector<T> compute_target_transforms(const T* h_q, int B, const grid::robotModel<T>* d_robotModel)
+{
+    std::vector<T> out((size_t)B * hjcd::NT * 16, (T)0);
+    if (!h_q || !d_robotModel || B <= 0) return out;
+
+    T *d_q = nullptr, *d_T = nullptr;
+    CUDA_OK(cudaMalloc(&d_q, sizeof(T) * (size_t)B * N));
+    CUDA_OK(cudaMalloc(&d_T, sizeof(T) * out.size()));
+    CUDA_OK(cudaMemcpy(d_q, h_q, sizeof(T) * (size_t)B * N, cudaMemcpyHostToDevice));
+
+    target_fk_kernel<T><<<B, 32>>>(d_q, d_T, d_robotModel, B);
+    CUDA_OK(cudaPeekAtLastError());
+    CUDA_OK(cudaDeviceSynchronize());
+
+    CUDA_OK(cudaMemcpy(out.data(), d_T, sizeof(T) * out.size(), cudaMemcpyDeviceToHost));
+    cudaFree(d_q);
+    cudaFree(d_T);
+    return out;
+}
+
+// Read the generated metadata back out of DEVICE code. The arrays are __device__ constexpr, so a
+// host-side copy would be a different object and could silently drift from what the kernels use;
+// this dumps exactly what the hot path sees. Test-only, off every solver path.
+__global__ void dump_target_metadata_kernel(int* __restrict__ anchor,
+                                            unsigned int* __restrict__ tgt_anc_mask,
+                                            unsigned int* __restrict__ joint_tgt_mask,
+                                            double* __restrict__ tool)
+{
+    if (threadIdx.x != 0 || blockIdx.x != 0) return;
+    for (int k = 0; k < hjcd::NT; ++k) {
+        anchor[k] = hjcd_gen::TARGET_ANCHOR_JID[k];
+        tgt_anc_mask[k] = hjcd_gen::TARGET_ANCESTOR_MASK[k];
+        for (int i = 0; i < 16; ++i) tool[16 * k + i] = hjcd_gen::TARGET_TOOL_XFORM[16 * k + i];
+    }
+    for (int j = 0; j < N; ++j) joint_tgt_mask[j] = hjcd_gen::JOINT_TARGET_MASK[j];
+}
+
+TargetMetadata read_target_metadata()
+{
+    TargetMetadata m;
+    m.num_targets = hjcd::NT;
+    m.num_joints = N;
+    m.anchor_jid.resize(hjcd::NT);
+    m.target_ancestor_mask.resize(hjcd::NT);
+    m.joint_target_mask.resize(N);
+    m.tool_xform.resize((size_t)hjcd::NT * 16);
+
+    int* d_a = nullptr; unsigned int *d_tam = nullptr, *d_jtm = nullptr; double* d_tool = nullptr;
+    CUDA_OK(cudaMalloc(&d_a, sizeof(int) * hjcd::NT));
+    CUDA_OK(cudaMalloc(&d_tam, sizeof(unsigned int) * hjcd::NT));
+    CUDA_OK(cudaMalloc(&d_jtm, sizeof(unsigned int) * N));
+    CUDA_OK(cudaMalloc(&d_tool, sizeof(double) * hjcd::NT * 16));
+
+    dump_target_metadata_kernel<<<1, 1>>>(d_a, d_tam, d_jtm, d_tool);
+    CUDA_OK(cudaPeekAtLastError());
+    CUDA_OK(cudaDeviceSynchronize());
+
+    CUDA_OK(cudaMemcpy(m.anchor_jid.data(), d_a, sizeof(int) * hjcd::NT, cudaMemcpyDeviceToHost));
+    CUDA_OK(cudaMemcpy(m.target_ancestor_mask.data(), d_tam, sizeof(unsigned int) * hjcd::NT,
+                       cudaMemcpyDeviceToHost));
+    CUDA_OK(cudaMemcpy(m.joint_target_mask.data(), d_jtm, sizeof(unsigned int) * N,
+                       cudaMemcpyDeviceToHost));
+    CUDA_OK(cudaMemcpy(m.tool_xform.data(), d_tool, sizeof(double) * hjcd::NT * 16,
+                       cudaMemcpyDeviceToHost));
+    cudaFree(d_a); cudaFree(d_tam); cudaFree(d_jtm); cudaFree(d_tool);
+    return m;
+}
+
+extern "C" int grid_num_targets() { return hjcd::NT; }
+
+// The joint limits the solver actually clamps to -- i.e. c_joint_limits, including the +-PI fallback
+// applied to non-finite URDF limits. Exposed so callers (and tests) can sample the exact feasible
+// set the LM enforces; sampling outside it silently produces infeasible targets.
+std::vector<double> get_joint_limits()
+{
+    init_joint_limits_from_grid();
+    std::vector<double2> packed(N);
+    CUDA_OK(cudaMemcpyFromSymbol(packed.data(), c_joint_limits, sizeof(double2) * N));
+    std::vector<double> out(2 * N);
+    for (int j = 0; j < N; ++j) { out[2*j] = packed[j].x; out[2*j + 1] = packed[j].y; }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// Multi-target residual layer (Phase 2). Small, reusable __device__ helpers plus a standalone
+// diagnostic kernel. Nothing here is wired into lm_tuner / coarse_search yet -- those kernels are
+// already at the 255-register cap on G1 and are Phase 3/5 work.
+//
+// CONVENTIONS (fixed here; Phase 3's Jacobian must match):
+//   quaternions        WXYZ, unit (the host normalizes; device does not renormalize the target)
+//   position residual  e_p = p* - p                                    (world frame, metres)
+//   orientation resid. e_R = Log(R* R^T)  == rotvec(q* (x) q^-1)       (WORLD frame, radians)
+// e_R is the SPATIAL (world) error, matching the existing quat_err_rotvec and pairing with a
+// world-frame angular Jacobian Jw = axis_world. A body-frame Log(R^T R*) would NOT pair with it.
+// Both residuals are UNWEIGHTED physical quantities; weights enter only in the cost below.
+// ---------------------------------------------------------------------------
+
+// Unweighted residual of one target frame. X is its world 4x4 (column-major).
+template<typename T>
+__device__ __forceinline__
+void target_residual(const T* __restrict__ X, const T* __restrict__ tgt_p,
+                     const T* __restrict__ tgt_q, T* __restrict__ e_p, T* __restrict__ e_R)
+{
+    e_p[0] = tgt_p[0] - X[12];
+    e_p[1] = tgt_p[1] - X[13];
+    e_p[2] = tgt_p[2] - X[14];
+
+    T qee[4];
+    mat_to_quat(X, qee);
+    // Double cover: q and -q are the same rotation. Flip the CURRENT quat into the target's
+    // hemisphere so quat_err_rotvec's fabs(qe.w) picks the short way round (it assumes this).
+    if (qee[0]*tgt_q[0] + qee[1]*tgt_q[1] + qee[2]*tgt_q[2] + qee[3]*tgt_q[3] < (T)0) {
+        qee[0] = -qee[0]; qee[1] = -qee[1]; qee[2] = -qee[2]; qee[3] = -qee[3];
+    }
+    quat_err_rotvec(qee, tgt_q, e_R);
+}
+
+// Weighted cost of one target from its UNWEIGHTED residual norms:
+//     c_k = w_p * |e_p|^2 + w_R * |e_R|^2
+// Residuals are never pre-scaled by sqrt(w) -- weights are applied exactly once, here.
+template<typename T>
+__device__ __forceinline__
+T target_cost(T pnorm, T onorm, T wp, T wo) {
+    return wp * pnorm * pnorm + wo * onorm * onorm;
+}
+
+// Normalization denominator epsilon (reporting only; never divides anything in an optimizer).
+template<typename T> __device__ __forceinline__ T cost_norm_eps() { return (T)1e-12; }
+
+// Standalone diagnostic kernel: one block (one warp) per problem. Full FK -> target frames ->
+// per-target unweighted residuals -> weighted costs -> per-target and all-target success.
+// Inactive targets write exactly zero everywhere (never NaN).
+template<typename T>
+__global__ void target_residual_kernel(
+    const T* __restrict__ q,                 // B x N
+    const T* __restrict__ tgt_p,             // B x NT x 3
+    const T* __restrict__ tgt_q,             // B x NT x 4   (wxyz, unit)
+    const unsigned int* __restrict__ active, // B            (bit k = target k active)
+    const T* __restrict__ w_pos,             // B x NT
+    const T* __restrict__ w_ori,             // B x NT
+    const T* __restrict__ eps_pos,           // NT
+    const T* __restrict__ eps_ori,           // NT
+    T* __restrict__ out_e_pos,               // B x NT x 3
+    T* __restrict__ out_e_ori,               // B x NT x 3
+    T* __restrict__ out_pnorm,               // B x NT
+    T* __restrict__ out_onorm,               // B x NT
+    T* __restrict__ out_cost,                // B x NT
+    T* __restrict__ out_cost_raw,            // B
+    T* __restrict__ out_cost_norm,           // B
+    unsigned char* __restrict__ out_succ,    // B x NT
+    unsigned char* __restrict__ out_succ_all,// B
+    const grid::robotModel<T>* __restrict__ RM,
+    const int B)
+{
+    const int b = blockIdx.x;
+    if (b >= B) return;
+
+    __shared__ T s_q[N];
+    __shared__ T s_XmatsHom[grid::XHOM_T_COUNT];
+    __shared__ T s_jointX[N * 16];
+    __shared__ T s_target_X[hjcd::NT * 16];
+    __shared__ T s_tmp[NX * 2];
+    __shared__ int s_topology_helpers[hjcd::TOPO];
+    __shared__ T s_cost[hjcd::NT];
+    __shared__ unsigned char s_ok[hjcd::NT];
+
+    for (int j = threadIdx.x; j < N; j += blockDim.x) s_q[j] = q[(size_t)b * N + j];
+    __syncthreads();
+
+    grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topology_helpers, s_q, RM, s_tmp);
+    __syncthreads();
+    grid::ee_pose_inner_warp<T>(s_jointX, s_XmatsHom, s_q, N - 1);
+    __syncwarp(FULL_WARP_MASK);
+    compose_target_frames_warp<T>(s_target_X, s_jointX);
+
+    const unsigned int mask = active[b];
+    const int lane = threadIdx.x & 31;
+
+    // One lane per target (NT <= MAX_TARGETS = 4): 6 scalars of residual live per lane, no
+    // per-target arrays. Lanes >= NT idle.
+    if (lane < hjcd::NT) {
+        const int k = lane;
+        const size_t o3 = ((size_t)b * hjcd::NT + k) * 3;
+        const size_t o1 = (size_t)b * hjcd::NT + k;
+        const bool on = (mask >> k) & 1u;
+
+        T e_p[3] = {(T)0, (T)0, (T)0};
+        T e_R[3] = {(T)0, (T)0, (T)0};
+        T pn = (T)0, on_ = (T)0, c = (T)0;
+        unsigned char ok = 0;
+
+        if (on) {
+            target_residual<T>(&s_target_X[16 * k], &tgt_p[o3], &tgt_q[((size_t)b * hjcd::NT + k) * 4],
+                               e_p, e_R);
+            pn  = sqrt(e_p[0]*e_p[0] + e_p[1]*e_p[1] + e_p[2]*e_p[2]);
+            on_ = sqrt(e_R[0]*e_R[0] + e_R[1]*e_R[1] + e_R[2]*e_R[2]);
+            const T wp = w_pos[o1], wo = w_ori[o1];
+            c = target_cost<T>(pn, on_, wp, wo);
+            // A zero-weight channel is "don't care", not "must be zero".
+            const bool pos_ok = (wp == (T)0) || (pn  <= eps_pos[k]);
+            const bool ori_ok = (wo == (T)0) || (on_ <= eps_ori[k]);
+            ok = (pos_ok && ori_ok) ? 1 : 0;
+        }
+        // Inactive => exactly zero residual/norm/cost, success 0 (not evaluated).
+        out_e_pos[o3 + 0] = e_p[0]; out_e_pos[o3 + 1] = e_p[1]; out_e_pos[o3 + 2] = e_p[2];
+        out_e_ori[o3 + 0] = e_R[0]; out_e_ori[o3 + 1] = e_R[1]; out_e_ori[o3 + 2] = e_R[2];
+        out_pnorm[o1] = pn;
+        out_onorm[o1] = on_;
+        out_cost[o1]  = c;
+        out_succ[o1]  = ok;
+        s_cost[k] = c;
+        s_ok[k] = ok;
+    }
+    __syncwarp(FULL_WARP_MASK);
+
+    if (lane == 0) {
+        T raw = (T)0, wsum = (T)0;
+        unsigned char all_ok = (mask != 0u) ? 1 : 0;   // an empty mask never "succeeds"
+        #pragma unroll
+        for (int k = 0; k < hjcd::NT; ++k) {
+            if (!((mask >> k) & 1u)) continue;
+            raw  += s_cost[k];
+            wsum += w_pos[(size_t)b * hjcd::NT + k] + w_ori[(size_t)b * hjcd::NT + k];
+            if (!s_ok[k]) all_ok = 0;
+        }
+        out_cost_raw[b]  = raw;
+        // Reporting only. Constant per problem, so it cannot change the minimizer -- the optimizer
+        // (Phase 3) will consume out_cost_raw and never divide by this.
+        out_cost_norm[b] = raw / (wsum + cost_norm_eps<T>());
+        out_succ_all[b]  = all_ok;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3: direct normal-equation accumulation.
+//
+//   e(q + dq) ~= e(q) - J dq        =>       (J^T W J + lambda D) dq = J^T W e
+//
+// A and b are accumulated TARGET BY TARGET; the stacked 6K x N Jacobian is never formed:
+//   A_ij += w_p,k Jv_k,i . Jv_k,j  +  w_R,k Jw_k,i . Jw_k,j
+//   b_i  += w_p,k Jv_k,i . e_p,k   +  w_R,k Jw_k,i . e_R,k
+//
+// Lane i owns joint i's column and holds its SIX Jacobian scalars in registers; other lanes'
+// columns arrive by __shfl_sync. Only one target's Jacobian is live at a time -- there is no
+// [K][6][N] array anywhere, and no 6*N scratch buffer.
+//
+// TARGET_ANCESTOR_MASK is a CORRECTNESS constraint, not an optimization: a joint that is not an
+// ancestor of target k has an exactly-zero column for k. On a branched robot, filling it with
+// axis x (p_target - p_joint) would invent motion that cannot happen.
+// ---------------------------------------------------------------------------
+// Row-norm preconditioner  s_{k,r} = 1 / ||J_{k,r}||  (r = 0..5, the six rows of target k's
+// Jacobian), i.e. the DERIVED default scaling recovered from the old single-target LM.
+//
+// The old LM scaled BOTH residual and Jacobian rows by s: r~ = S e, J~ = S J, then formed
+// A = J~^T J~ = J^T S^2 J and b = J~^T r~ = J^T S^2 e. So it was already solving J^T W J dq = J^T W e
+// with W = S^2 -- weights applied exactly once, exactly the Phase-3 formulation. The scaling is
+// therefore not an extra heuristic to be dropped; it IS the old default weighting, and dropping it
+// is what broke Panda: without it A = J^T J is badly scaled (position rows carry metres-scale lever
+// arms, orientation rows carry unit axes), the gain ratio runs far above 0.9 every iteration, lambda
+// collapses to ~1e-11, and the rank-deficient Panda system (6 task rows, 7 joints) then yields a huge
+// null-space step that the trust region scales away. Measured mean ||Jv_row||^2 = 0.39 vs
+// ||Jw_row||^2 = 2.33, i.e. s_p^2/s_R^2 ~ 6.
+//
+// User weights multiply on top: W_{k,r} = w_{p|R,k} * s_{k,r}^2. The scaling is frozen for the whole
+// iteration (computed once, reused by the trial evaluations) so that accept/reject compares like with
+// like -- exactly as the old LM's frozen row_s did.
+template<typename T>
+__device__ __forceinline__
+void compute_row_scales_warp(
+    T* __restrict__ s_scale,                 // NT*6 out
+    const T* __restrict__ s_jointX,
+    const T* __restrict__ s_target_X,
+    unsigned int active)
+{
+    const unsigned m = FULL_WARP_MASK;
+    const int lane = threadIdx.x & 31;
+
+    #pragma unroll
+    for (int k = 0; k < hjcd::NT; ++k) {
+        if (!((active >> k) & 1u)) {
+            if (lane < 6) s_scale[6 * k + lane] = (T)1;
+            continue;
+        }
+        const unsigned int amask = hjcd_gen::TARGET_ANCESTOR_MASK[k];
+        const T* __restrict__ Xt = &s_target_X[16 * k];
+        const T px = Xt[12], py = Xt[13], pz = Xt[14];
+
+        T c[6] = {(T)0,(T)0,(T)0,(T)0,(T)0,(T)0};
+        if ((lane < N) && ((amask >> lane) & 1u)) {
+            const T* __restrict__ Ci = &s_jointX[16 * lane];
+            T ax[3];
+            joint_world_axis<T>(Ci, lane, ax);
+            const bool prism = grid::HAS_PRISMATIC && grid::JOINT_IS_PRISMATIC[lane];
+            const T rx = px - Ci[12], ry = py - Ci[13], rz = pz - Ci[14];
+            c[0] = prism ? ax[0] : (ax[1]*rz - ax[2]*ry);
+            c[1] = prism ? ax[1] : (ax[2]*rx - ax[0]*rz);
+            c[2] = prism ? ax[2] : (ax[0]*ry - ax[1]*rx);
+            c[3] = prism ? (T)0 : ax[0];
+            c[4] = prism ? (T)0 : ax[1];
+            c[5] = prism ? (T)0 : ax[2];
+        }
+        #pragma unroll
+        for (int r = 0; r < 6; ++r) {
+            T v = c[r] * c[r];
+            #pragma unroll
+            for (int off = 16; off > 0; off >>= 1) v += __shfl_down_sync(m, v, off);
+            v = __shfl_sync(m, v, 0);                       // ||J_{k,r}||^2 on every lane
+            if (lane == r) s_scale[6 * k + r] = (v > (T)1e-18) ? rsqrt(v) : (T)1;
+        }
+        __syncwarp(m);
+    }
+    __syncwarp(m);
+}
+
+// Weighted cost using the frozen row scaling:  c_k = sum_r W_{k,r} * e_{k,r}^2,
+// W_{k,r} = (r < 3 ? w_p,k : w_R,k) * s_{k,r}^2.
+template<typename T>
+__device__ __forceinline__
+void weighted_cost_warp(const T* __restrict__ s_e_pos, const T* __restrict__ s_e_ori,
+                        const T* __restrict__ s_wp, const T* __restrict__ s_wo,
+                        const T* __restrict__ s_scale, unsigned int active,
+                        T* __restrict__ out_cost)
+{
+    const int lane = threadIdx.x & 31;
+    if (lane == 0) {
+        T c = (T)0;
+        #pragma unroll
+        for (int k = 0; k < hjcd::NT; ++k) {
+            if (!((active >> k) & 1u)) continue;
+            #pragma unroll
+            for (int r = 0; r < 3; ++r) {
+                const T sp = s_scale[6*k + r], so = s_scale[6*k + 3 + r];
+                c += s_wp[k] * sp * sp * s_e_pos[3*k + r] * s_e_pos[3*k + r]
+                   + s_wo[k] * so * so * s_e_ori[3*k + r] * s_e_ori[3*k + r];
+            }
+        }
+        *out_cost = c;
+    }
+    __syncwarp(FULL_WARP_MASK);
+}
+
+template<typename T>
+__device__ __forceinline__
+void accumulate_normal_equations_warp(
+    T* __restrict__ A,                       // N*N shared, row-major (lane i owns row i)
+    T* __restrict__ b,                       // N   shared
+    const T* __restrict__ s_jointX,          // N*16 world joint transforms
+    const T* __restrict__ s_target_X,        // NT*16 target frames
+    const T* __restrict__ s_e_pos,           // NT*3 unweighted position residuals
+    const T* __restrict__ s_e_ori,           // NT*3 unweighted orientation residuals
+    const T* __restrict__ s_wp,              // NT
+    const T* __restrict__ s_wo,              // NT
+    const T* __restrict__ s_scale,           // NT*6 row preconditioner (nullptr => all ones)
+    unsigned int active)
+{
+    const unsigned m = FULL_WARP_MASK;
+    const int lane = threadIdx.x & 31;
+
+    for (int idx = lane; idx < N * N; idx += WARP_SIZE) A[idx] = (T)0;
+    if (lane < N) b[lane] = (T)0;
+    __syncwarp(m);
+
+    #pragma unroll
+    for (int k = 0; k < hjcd::NT; ++k) {
+        if (!((active >> k) & 1u)) continue;                  // inactive target: contributes nothing
+        const T wp = s_wp[k], wo = s_wo[k];
+        if (wp == (T)0 && wo == (T)0) continue;               // fully unweighted: contributes nothing
+
+        // Per-ROW weights: W_{k,r} = w * s_{k,r}^2.  s == nullptr => unit scaling (the raw J^T W J
+        // reference used by normal_equations(), which the CPU stacked-Jacobian test compares against).
+        T Wp[3], Wo[3];
+        #pragma unroll
+        for (int r = 0; r < 3; ++r) {
+            const T sp = s_scale ? s_scale[6*k + r]     : (T)1;
+            const T so = s_scale ? s_scale[6*k + 3 + r] : (T)1;
+            Wp[r] = wp * sp * sp;
+            Wo[r] = wo * so * so;
+        }
+
+        const unsigned int amask = hjcd_gen::TARGET_ANCESTOR_MASK[k];
+        const T* __restrict__ Xt = &s_target_X[16 * k];
+        const T px = Xt[12], py = Xt[13], pz = Xt[14];
+
+        // This lane's column of J_k. Non-ancestor => exactly zero (not "small").
+        T jv0 = (T)0, jv1 = (T)0, jv2 = (T)0, jw0 = (T)0, jw1 = (T)0, jw2 = (T)0;
+        const bool mine = (lane < N) && ((amask >> lane) & 1u);
+        if (mine) {
+            const T* __restrict__ Ci = &s_jointX[16 * lane];
+            T ax[3];
+            joint_world_axis<T>(Ci, lane, ax);
+            const bool prism = grid::HAS_PRISMATIC && grid::JOINT_IS_PRISMATIC[lane];
+            const T rx = px - Ci[12], ry = py - Ci[13], rz = pz - Ci[14];
+            jv0 = prism ? ax[0] : (ax[1] * rz - ax[2] * ry);
+            jv1 = prism ? ax[1] : (ax[2] * rx - ax[0] * rz);
+            jv2 = prism ? ax[2] : (ax[0] * ry - ax[1] * rx);
+            jw0 = prism ? (T)0 : ax[0];
+            jw1 = prism ? (T)0 : ax[1];
+            jw2 = prism ? (T)0 : ax[2];
+
+            b[lane] += Wp[0]*jv0*s_e_pos[3*k+0] + Wp[1]*jv1*s_e_pos[3*k+1] + Wp[2]*jv2*s_e_pos[3*k+2]
+                     + Wo[0]*jw0*s_e_ori[3*k+0] + Wo[1]*jw1*s_e_ori[3*k+1] + Wo[2]*jw2*s_e_ori[3*k+2];
+        }
+
+        // Row i of A: broadcast lane j's column to every lane, then lane i accumulates A[i][j].
+        // ALL lanes must reach the shuffles (they are warp-collective), so the mask guard is on the
+        // accumulate, not on the loop.
+        for (int j = 0; j < N; ++j) {
+            const T ov0 = __shfl_sync(m, jv0, j);
+            const T ov1 = __shfl_sync(m, jv1, j);
+            const T ov2 = __shfl_sync(m, jv2, j);
+            const T ow0 = __shfl_sync(m, jw0, j);
+            const T ow1 = __shfl_sync(m, jw1, j);
+            const T ow2 = __shfl_sync(m, jw2, j);
+            if (mine)
+                A[lane * N + j] += Wp[0]*jv0*ov0 + Wp[1]*jv1*ov1 + Wp[2]*jv2*ov2
+                                 + Wo[0]*jw0*ow0 + Wo[1]*jw1*ow1 + Wo[2]*jw2*ow2;
+        }
+        __syncwarp(m);
+    }
+    __syncwarp(m);
+}
+
+// Per-target residuals of the CURRENT config into shared, plus the raw weighted cost.
+// Reuses the Phase-2 helpers verbatim: residuals stay UNWEIGHTED; weights enter only in the cost.
+template<typename T>
+__device__ __forceinline__
+void eval_targets_warp(
+    const T* __restrict__ s_target_X,
+    const T* __restrict__ s_tgt_p, const T* __restrict__ s_tgt_q,
+    const T* __restrict__ s_wp, const T* __restrict__ s_wo,
+    unsigned int active,
+    T* __restrict__ s_e_pos, T* __restrict__ s_e_ori,
+    T* __restrict__ s_pn, T* __restrict__ s_on,
+    T* __restrict__ out_cost)
+{
+    const unsigned m = FULL_WARP_MASK;
+    const int lane = threadIdx.x & 31;
+
+    if (lane < hjcd::NT) {
+        const int k = lane;
+        T e_p[3] = {(T)0,(T)0,(T)0}, e_R[3] = {(T)0,(T)0,(T)0};
+        T pn = (T)0, on = (T)0;
+        if ((active >> k) & 1u) {
+            target_residual<T>(&s_target_X[16*k], &s_tgt_p[3*k], &s_tgt_q[4*k], e_p, e_R);
+            pn = sqrt(e_p[0]*e_p[0] + e_p[1]*e_p[1] + e_p[2]*e_p[2]);
+            on = sqrt(e_R[0]*e_R[0] + e_R[1]*e_R[1] + e_R[2]*e_R[2]);
+        }
+        s_e_pos[3*k+0]=e_p[0]; s_e_pos[3*k+1]=e_p[1]; s_e_pos[3*k+2]=e_p[2];
+        s_e_ori[3*k+0]=e_R[0]; s_e_ori[3*k+1]=e_R[1]; s_e_ori[3*k+2]=e_R[2];
+        s_pn[k] = pn;
+        s_on[k] = on;
+    }
+    __syncwarp(m);
+
+    if (lane == 0) {
+        T c = (T)0;
+        #pragma unroll
+        for (int k = 0; k < hjcd::NT; ++k)
+            if ((active >> k) & 1u)
+                c += target_cost<T>(s_pn[k], s_on[k], s_wp[k], s_wo[k]);
+        *out_cost = c;                       // RAW weighted cost: what acceptance and rho use.
+    }
+    __syncwarp(m);
+}
+
+// Per-target cost under the frozen row preconditioner:
+//     c_k = sum_r  w_p,k * s_{k,r}^2   * e_p,k[r]^2
+//         + sum_r  w_R,k * s_{k,3+r}^2 * e_R,k[r]^2
+// s_scale == nullptr collapses this to the plain w_p|e_p|^2 + w_R|e_R|^2 of Phase 2 (which is what
+// the residual/incremental diagnostic paths still use).
+template<typename T>
+__device__ __forceinline__
+T scaled_target_cost(const T* e_p, const T* e_R, T wp, T wo, const T* s_scale, int k) {
+    if (!s_scale) {
+        const T pn2 = e_p[0]*e_p[0] + e_p[1]*e_p[1] + e_p[2]*e_p[2];
+        const T on2 = e_R[0]*e_R[0] + e_R[1]*e_R[1] + e_R[2]*e_R[2];
+        return wp * pn2 + wo * on2;
+    }
+    T c = (T)0;
+    #pragma unroll
+    for (int r = 0; r < 3; ++r) {
+        const T sp = s_scale[6*k + r], so = s_scale[6*k + 3 + r];
+        c += wp * sp * sp * e_p[r] * e_p[r] + wo * so * so * e_R[r] * e_R[r];
+    }
+    return c;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: incremental target state.
+//
+// Recompute residual + cost for the AFFECTED targets only, and fold the total cost incrementally:
+//     C_new = C_old - sum_{k in A_j} c_k^old + sum_{k in A_j} c_k^new
+// Unaffected targets are never read, never written, never rescored -- their cached state stays
+// bitwise identical.  `tmask` must already be (JOINT_TARGET_MASK[j] & active_target_mask).
+// ---------------------------------------------------------------------------
+template<typename T>
+__device__ __forceinline__
+void eval_targets_masked_warp(
+    const T* __restrict__ s_target_X,
+    const T* __restrict__ s_tgt_p, const T* __restrict__ s_tgt_q,
+    const T* __restrict__ s_wp, const T* __restrict__ s_wo,
+    const T* __restrict__ s_scale,     // frozen row preconditioner; nullptr => unit weights
+    unsigned int tmask,
+    T* __restrict__ s_e_pos, T* __restrict__ s_e_ori,
+    T* __restrict__ s_pn, T* __restrict__ s_on, T* __restrict__ s_ck,
+    T* __restrict__ io_total)
+{
+    const int lane = threadIdx.x & 31;
+
+    if (lane == 0) {                       // drop the OLD contributions of the affected targets
+        T sub = (T)0;
+        #pragma unroll
+        for (int k = 0; k < hjcd::NT; ++k)
+            if ((tmask >> k) & 1u) sub += s_ck[k];
+        *io_total -= sub;
+    }
+    __syncwarp(FULL_WARP_MASK);
+
+    if (lane < hjcd::NT && ((tmask >> lane) & 1u)) {
+        const int k = lane;
+        T e_p[3], e_R[3];
+        target_residual<T>(&s_target_X[16*k], &s_tgt_p[3*k], &s_tgt_q[4*k], e_p, e_R);
+        const T pn = sqrt(e_p[0]*e_p[0] + e_p[1]*e_p[1] + e_p[2]*e_p[2]);
+        const T on = sqrt(e_R[0]*e_R[0] + e_R[1]*e_R[1] + e_R[2]*e_R[2]);
+        s_e_pos[3*k+0]=e_p[0]; s_e_pos[3*k+1]=e_p[1]; s_e_pos[3*k+2]=e_p[2];
+        s_e_ori[3*k+0]=e_R[0]; s_e_ori[3*k+1]=e_R[1]; s_e_ori[3*k+2]=e_R[2];
+        s_pn[k] = pn;
+        s_on[k] = on;
+        s_ck[k] = scaled_target_cost<T>(e_p, e_R, s_wp[k], s_wo[k], s_scale, k);
+    }
+    __syncwarp(FULL_WARP_MASK);
+
+    if (lane == 0) {                       // add the NEW contributions
+        T add = (T)0;
+        #pragma unroll
+        for (int k = 0; k < hjcd::NT; ++k)
+            if ((tmask >> k) & 1u) add += s_ck[k];
+        *io_total += add;
+    }
+    __syncwarp(FULL_WARP_MASK);
+}
+
+// Full per-target eval that also fills the per-target cost cache (the incremental path's baseline).
+template<typename T>
+__device__ __forceinline__
+void eval_targets_full_warp(
+    const T* __restrict__ s_target_X,
+    const T* __restrict__ s_tgt_p, const T* __restrict__ s_tgt_q,
+    const T* __restrict__ s_wp, const T* __restrict__ s_wo,
+    const T* __restrict__ s_scale,     // frozen row preconditioner; nullptr => unit weights
+    unsigned int active,
+    T* __restrict__ s_e_pos, T* __restrict__ s_e_ori,
+    T* __restrict__ s_pn, T* __restrict__ s_on, T* __restrict__ s_ck,
+    T* __restrict__ out_total)
+{
+    const int lane = threadIdx.x & 31;
+    if (lane < hjcd::NT) {
+        const int k = lane;
+        T e_p[3] = {(T)0,(T)0,(T)0}, e_R[3] = {(T)0,(T)0,(T)0};
+        T pn = (T)0, on = (T)0, ck = (T)0;
+        if ((active >> k) & 1u) {
+            target_residual<T>(&s_target_X[16*k], &s_tgt_p[3*k], &s_tgt_q[4*k], e_p, e_R);
+            pn = sqrt(e_p[0]*e_p[0] + e_p[1]*e_p[1] + e_p[2]*e_p[2]);
+            on = sqrt(e_R[0]*e_R[0] + e_R[1]*e_R[1] + e_R[2]*e_R[2]);
+            ck = scaled_target_cost<T>(e_p, e_R, s_wp[k], s_wo[k], s_scale, k);
+        }
+        s_e_pos[3*k+0]=e_p[0]; s_e_pos[3*k+1]=e_p[1]; s_e_pos[3*k+2]=e_p[2];
+        s_e_ori[3*k+0]=e_R[0]; s_e_ori[3*k+1]=e_R[1]; s_e_ori[3*k+2]=e_R[2];
+        s_pn[k]=pn; s_on[k]=on; s_ck[k]=ck;
+    }
+    __syncwarp(FULL_WARP_MASK);
+    if (lane == 0) {
+        T c = (T)0;
+        #pragma unroll
+        for (int k = 0; k < hjcd::NT; ++k)
+            if ((active >> k) & 1u) c += s_ck[k];
+        *out_total = c;
+    }
+    __syncwarp(FULL_WARP_MASK);
+}
+
+// Worst active per-target errors -> convergence. Maximum, never mean: a solved left hand must not
+// hide an unsolved right foot. A zero-weight channel is "don't care" and is excluded.
+template<typename T>
+__device__ __forceinline__
+void worst_active_errors(const T* s_pn, const T* s_on, const T* s_wp, const T* s_wo,
+                         unsigned int active, T* out_maxp, T* out_maxo)
+{
+    T mp = (T)0, mo = (T)0;
+    #pragma unroll
+    for (int k = 0; k < hjcd::NT; ++k) {
+        if (!((active >> k) & 1u)) continue;
+        if (s_wp[k] > (T)0 && s_pn[k] > mp) mp = s_pn[k];
+        if (s_wo[k] > (T)0 && s_on[k] > mo) mo = s_on[k];
+    }
+    *out_maxp = mp;
+    *out_maxo = mo;
+}
+
+template<typename T>
+__device__ __forceinline__
+bool all_active_converged(const T* s_pn, const T* s_on, const T* s_wp, const T* s_wo,
+                          unsigned int active, T eps_p, T eps_o)
+{
+    if (active == 0u) return false;
+    #pragma unroll
+    for (int k = 0; k < hjcd::NT; ++k) {
+        if (!((active >> k) & 1u)) continue;
+        if (s_wp[k] > (T)0 && !(s_pn[k] <= eps_p)) return false;
+        if (s_wo[k] > (T)0 && !(s_on[k] <= eps_o)) return false;
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3: multi-target LM refine. ONE LM for every K -- the single-target public path routes
+// through this with K=1 and mask bit 0 set; there is no second LM implementation.
+//
+// Per iteration: full GRiD FK -> compose active target frames -> Phase-2 residuals -> all-target
+// convergence check -> direct A/b accumulation -> lambda*diag(A) damping + one N x N warp-Cholesky
+// -> backtracking trial -> accept/reject + lambda update.
+//
+// Damping is UNCHANGED from the single-target LM: the same lambda*diag(A) Levenberg shift through
+// glass::warp::posv<REG_DIAG>, the same backtracking schedule (1, 1/2, 1/4, 1/8), the same gain-
+// ratio thresholds (0.9/0.5/0.25) and factors (0.3/0.5/3.0), the same stall limit and kick.
+// What changed is only WHAT is being minimized: the raw weighted multi-target cost.
+// ---------------------------------------------------------------------------
+// One LM trace row. Column 0 is an EXPLICIT validity flag -- row validity is never inferred from
+// cost, lambda or the iteration index (a converged row legitimately has cost == 0, and it == 0 is a
+// real first row). Every public LM diagnostic is derived from these rows.
+//   0 valid   1 it   2 lm_trials(cum)   3 accepted(this iter)   4 accepted(cum)
+//   5 cost    6 max_pos_err   7 max_ori_err   8 lambda   9 line_searches(cum)
+static constexpr int TRACE_COLS = 11;   // ... + col 10 = E_phys (tolerance-normalised PHYSICAL
+                                        // error, the only cross-iteration-comparable metric here)
+
+// E_phys(q) = sum_k [ |e_p,k|^2 / eps_p^2  +  |e_R,k|^2 / eps_R^2 ]  over ACTIVE targets.
+//
+// The row-scaled cost CANNOT be compared across iterations: the row scales s_{k,r} = 1/||J_{k,r}||
+// are re-frozen every iteration, so C^(t) and C^(t-1) are expressed in different units and a
+// "relative improvement" between them is not a real quantity. E_phys is built from the physical
+// residual norms and fixed tolerances, so it is stable across iterations. It is ANALYSIS/STOPPING
+// only -- nothing in the optimizer ever reads it.
+template<typename T>
+__device__ __forceinline__ T e_phys(const T* s_pn, const T* s_on, unsigned int active,
+                                    T eps_p, T eps_o) {
+    T e = (T)0;
+    #pragma unroll
+    for (int k = 0; k < hjcd::NT; ++k) {
+        if (!((active >> k) & 1u)) continue;
+        const T rp = s_pn[k] / eps_p, ro = s_on[k] / eps_o;
+        e += rp * rp + ro * ro;
+    }
+    return e;
+}
+
+template<typename T>
+struct LMScratch {
+    T s_x[N], x_old[N], best_x[N];
+    T s_XmatsHom[grid::XHOM_T_COUNT];
+    T s_jointX[N * 16];
+    T s_target_X[hjcd::NT * 16];
+    T s_tgt_p[hjcd::NT * 3], s_tgt_q[hjcd::NT * 4];
+    T s_wp[hjcd::NT], s_wo[hjcd::NT];
+    T s_e_pos[hjcd::NT * 3], s_e_ori[hjcd::NT * 3];
+    T s_pn[hjcd::NT], s_on[hjcd::NT];
+    T s_scale[hjcd::NT * 6];   // frozen row preconditioner for this iteration
+    T A[N * N], b[N], g[N], dq[N], diagA[N];   // g = J^T W e, saved before posv overwrites b
+    T cost, trial_cost, best_cost, prev_cost;
+    T best_ephys;          // cross-iteration best-state metric (STABLE, physical)
+    int take_best;         // lane-0 decision, broadcast to the warp
+    T max_pn, max_on;
+    unsigned int active;
+    // Diagnostics. SEMANTICS (Phase 3C):
+    //   lm_iterations  outer LM linearizations = Jacobian rebuilds = normal-equation assemblies.
+    //   lm_trials      damped linear systems SOLVED, including ones whose step was rejected. One
+    //                  posv per outer iteration, so lm_trials == lm_iterations here; it is tracked
+    //                  separately because the backtracking line search inside an iteration evaluates
+    //                  several step LENGTHS without re-solving, and Phase 5 may re-solve per trial.
+    //   line_searches  cost evaluations inside the backtracking loop (step lengths tried).
+    //   accepted_steps / rejected_steps  outer iterations whose step was taken / not taken.
+    // A problem that is already converged on entry does ZERO outer iterations and reports all zeros.
+    int s_break, stall, accepted, s_fail, kicked;
+    int stag_n;            // consecutive negligible-E_phys-improvement iterations
+    T   prev_ephys, ephys;
+};
+
+// FK -> target frames -> residuals -> raw weighted cost, for the config currently in st->s_x.
+// FK -> target frames -> UNWEIGHTED residuals. The cost is NOT computed here: it depends on the
+// row preconditioner, which is frozen for the whole iteration, so the caller applies it.
+template<typename T>
+__device__ __forceinline__
+void lm_refresh(LMScratch<T>* st, T* out_cost) {
+    T dummy;
+    grid::ee_pose_inner_warp<T>(st->s_jointX, st->s_XmatsHom, st->s_x, N - 1);
+    __syncwarp(FULL_WARP_MASK);
+    compose_target_frames_warp<T>(st->s_target_X, st->s_jointX);
+    eval_targets_warp<T>(st->s_target_X, st->s_tgt_p, st->s_tgt_q, st->s_wp, st->s_wo,
+                         st->active, st->s_e_pos, st->s_e_ori, st->s_pn, st->s_on, &dummy);
+    weighted_cost_warp<T>(st->s_e_pos, st->s_e_ori, st->s_wp, st->s_wo, st->s_scale,
+                          st->active, out_cost);
+}
+
+template<typename T>
+__global__ void lm_multi_target_kernel(
+    T* __restrict__ x,                        // B x N, in-place (seed -> refined)
+    const T* __restrict__ tgt_p,              // B x NT x 3
+    const T* __restrict__ tgt_q,              // B x NT x 4 (wxyz, unit)
+    const unsigned int* __restrict__ active,  // B
+    const T* __restrict__ w_pos,              // B x NT
+    const T* __restrict__ w_ori,              // B x NT
+    T* __restrict__ out_pn,                   // B x NT
+    T* __restrict__ out_on,                   // B x NT
+    T* __restrict__ out_cost,                 // B
+    unsigned char* __restrict__ out_succ,     // B
+    T* __restrict__ out_pose,                 // B x NT x 7 (x,y,z, qw,qx,qy,qz), may be null
+    T* __restrict__ out_trace,                // B x trace_cap x TRACE_COLS, may be null
+    const int trace_cap,
+    const grid::robotModel<T>* __restrict__ RM,
+    const T eps_pos, const T eps_ori, const T lambda_init, const int k_max, const int B,
+    const int stop_on_first,
+    const int stag_patience,                  // Policy B: 0 DISABLES stagnation stopping (default)
+    const T stag_rel)                         //           relative E_phys improvement threshold
+{
+    constexpr int K = hjcd::NT;
+    const int lane = threadIdx.x & 31;
+    const int warp = threadIdx.x >> 5;
+    const int wpb = max(1, (int)(blockDim.x >> 5));
+    const int gp = blockIdx.x * wpb + warp;
+
+    extern __shared__ __align__(16) unsigned char s_lm_raw[];
+    LMScratch<T>* all = reinterpret_cast<LMScratch<T>*>(s_lm_raw);
+    LMScratch<T>* st = &all[warp];
+
+    // Block-cooperative one-time load of the q-INDEPENDENT XmatsHom cells (identical for every
+    // candidate); the per-warp FK refreshes the q-dependent cells. Only barriers in the kernel.
+    {
+        __shared__ T s_xhom_tmpl[grid::XHOM_T_COUNT];
+        __shared__ T s_q_tmpl[N];
+        __shared__ T s_tmp_tmpl[NX * 2];
+        __shared__ int s_topo_tmpl[hjcd::TOPO];
+        const int base0 = min(blockIdx.x * wpb, B - 1);
+        if (threadIdx.x < N) s_q_tmpl[threadIdx.x] = x[(size_t)base0 * N + threadIdx.x];
+        __syncthreads();
+        grid::load_update_XmatsHom_helpers<T>(s_xhom_tmpl, s_topo_tmpl, s_q_tmpl, RM, s_tmp_tmpl);
+        __syncthreads();
+        for (int i = threadIdx.x; i < wpb * grid::XHOM_T_COUNT; i += blockDim.x) {
+            const int w = i / grid::XHOM_T_COUNT;
+            all[w].s_XmatsHom[i - w * grid::XHOM_T_COUNT] = s_xhom_tmpl[i - w * grid::XHOM_T_COUNT];
+        }
+        __syncthreads();
+    }
+    if (gp >= B) return;
+
+    const T lambda_min = (T)1e-12, lambda_max = (T)1e6;
+    const int stall_lim = 5;
+    T lambda = lambda_init;
+
+    // Diagnostic counters live in lane-0 REGISTERS and are published to global memory from INSIDE
+    // the loop. Two things were verified the hard way against the trace: counters held in the shared
+    // LMScratch read back as a stale value, and an int output buffer did not carry them correctly.
+    // Registers + a floating-point output buffer + in-loop publication all agree with the trace.
+    int c_trials = 0, c_lsearch = 0, c_accept = 0;
+
+    if (lane < N) st->s_x[lane] = x[(size_t)gp * N + lane];
+    if (lane < K) {
+        st->s_wp[lane] = w_pos[(size_t)gp * K + lane];
+        st->s_wo[lane] = w_ori[(size_t)gp * K + lane];
+        #pragma unroll
+        for (int c = 0; c < 3; ++c) st->s_tgt_p[3*lane + c] = tgt_p[((size_t)gp*K + lane)*3 + c];
+        #pragma unroll
+        for (int c = 0; c < 4; ++c) st->s_tgt_q[4*lane + c] = tgt_q[((size_t)gp*K + lane)*4 + c];
+    }
+    if (lane == 0) {
+        st->active = active[gp];
+        st->s_break = 0; st->stall = 0; st->prev_cost = (T)-1;
+        st->stag_n = 0;  st->prev_ephys = (T)-1;
+    }
+    __syncwarp(FULL_WARP_MASK);
+
+    if (lane < hjcd::NT * 6) st->s_scale[lane] = (T)1;      // provisional; refined below
+    __syncwarp(FULL_WARP_MASK);
+    lm_refresh<T>(st, &st->cost);
+    compute_row_scales_warp<T>(st->s_scale, st->s_jointX, st->s_target_X, st->active);
+    weighted_cost_warp<T>(st->s_e_pos, st->s_e_ori, st->s_wp, st->s_wo, st->s_scale,
+                          st->active, &st->cost);
+    if (lane == 0) {
+        worst_active_errors<T>(st->s_pn, st->s_on, st->s_wp, st->s_wo, st->active,
+                               &st->max_pn, &st->max_on);
+        st->best_cost = st->cost;
+        // best_x is tracked on E_phys, NOT on the row-scaled cost. The row scales s_{k,r} =
+        // 1/||J_{k,r}|| are re-frozen every iteration, so C^(t) and C^(t-1) are expressed in
+        // DIFFERENT units -- comparing them across iterations is not a real comparison, and it made
+        // 41.8% of seeds return a configuration physically WORSE than one they had already visited
+        // (median 1.05x, worst 10.8x). E_phys is built from physical residual norms and fixed
+        // tolerances, so it is comparable across iterations. Within an iteration nothing changes:
+        // the trial acceptance, damping, line search and trust region all still use the row-scaled
+        // cost exactly as before.
+        st->best_ephys = e_phys<T>(st->s_pn, st->s_on, st->active, eps_pos, eps_ori);
+        if (all_active_converged<T>(st->s_pn, st->s_on, st->s_wp, st->s_wo, st->active,
+                                    eps_pos, eps_ori)) st->s_break = 1;
+    }
+    if (lane < N) st->best_x[lane] = st->s_x[lane];
+    __syncwarp(FULL_WARP_MASK);
+
+    for (int it = 0; it < k_max && !st->s_break; ++it) {
+        if (lane == 0) {
+            // Cooperative early-exit: once ANY candidate in the launch has converged, the rest stop.
+            // This is what makes the latency path (num_solutions == 1) fast -- without it every
+            // candidate grinds all k_max iterations. Same g_stop flag the coarse search uses.
+            if (stop_on_first && ((it & 1) == 0) && atomicAdd(&g_stop, 0)) st->s_break = 1;
+        }
+        __syncwarp(FULL_WARP_MASK);
+        if (st->s_break) break;      // bailed before any work: NOT counted as a linearization
+
+
+        // Re-derive the row preconditioner from the CURRENT Jacobian, then re-express the current
+        // cost under it. Frozen for the rest of this iteration so the trial comparison is like-for-like.
+        compute_row_scales_warp<T>(st->s_scale, st->s_jointX, st->s_target_X, st->active);
+        weighted_cost_warp<T>(st->s_e_pos, st->s_e_ori, st->s_wp, st->s_wo, st->s_scale,
+                              st->active, &st->cost);
+
+        accumulate_normal_equations_warp<T>(st->A, st->b, st->s_jointX, st->s_target_X,
+                                            st->s_e_pos, st->s_e_ori, st->s_wp, st->s_wo,
+                                            st->s_scale, st->active);
+        // Pin joints that cannot move ANY active target.
+        //
+        // Such a joint has an all-zero row AND column in A (by the ancestor mask) and a zero b --
+        // including a ZERO DIAGONAL. Marquardt damping is lambda*diag(A), so it adds nothing there:
+        // A + lambda*diag(A) stays singular, the Cholesky CHECK trips, dq collapses to 0 and the
+        // whole solve freezes. (This is exactly why "both hands" and "both feet" failed on G1 while
+        // "all four" passed -- with every limb active, every joint has a nonzero diagonal.)
+        // A unit diagonal makes A positive-definite and gives such a joint a step of exactly zero,
+        // which is the correct semantics: it is frozen, not merely undamped.
+        {
+            unsigned int act_joints = 0u;
+            #pragma unroll
+            for (int k = 0; k < K; ++k)
+                if ((st->active >> k) & 1u) act_joints |= hjcd_gen::TARGET_ANCESTOR_MASK[k];
+            if (lane < N && !((act_joints >> lane) & 1u)) {
+                st->A[lane * N + lane] = (T)1;
+                st->b[lane] = (T)0;
+            }
+        }
+        __syncwarp(FULL_WARP_MASK);
+
+        // posv overwrites A with its Cholesky factor and b with the solution, so keep diag(A) and
+        // the gradient g = J^T W e first -- the gain ratio below needs the UNDAMPED gradient.
+        if (lane < N) { st->diagA[lane] = st->A[lane * N + lane]; st->g[lane] = st->b[lane]; }
+        __syncwarp(FULL_WARP_MASK);
+
+        // (A + lambda*diag(A)) dq = b.   b is J^T W e with e = target - current, so dq is a
+        // DESCENT direction with a PLUS sign: x <- x + a*dq. No sign flip anywhere.
+        glass::warp::posv<T, N, /*NRHS=*/1, /*REGULARIZE=*/true, /*CHECK=*/true, /*REG_DIAG=*/true>(
+            st->A, st->b, lambda, &st->s_fail);
+        __syncwarp(FULL_WARP_MASK);
+        ++c_trials;
+        if (lane < N) st->dq[lane] = (st->s_fail == 0) ? st->b[lane] : (T)0;
+        __syncwarp(FULL_WARP_MASK);
+
+        if (lane == 0) {
+            // Trust region + per-joint clip, keyed on the WORST active errors (not the mean).
+            T R;
+            if      (st->max_pn > (T)1e-2 || st->max_on > (T)0.6)  R = (T)0.38;
+            else if (st->max_pn > (T)1e-3 || st->max_on > (T)0.25) R = (T)0.22;
+            else if (st->max_pn > (T)2e-4 || st->max_on > (T)0.08) R = (T)0.12;
+            else                                                   R = (T)0.05;
+            T nrm = (T)0;
+            for (int i = 0; i < N; ++i) nrm += st->dq[i] * st->dq[i];
+            nrm = sqrt(nrm);
+            if (nrm > R) { const T s = R / (nrm + (T)1e-18); for (int i = 0; i < N; ++i) st->dq[i] *= s; }
+            const T clip = (st->max_pn > (T)1e-2) ? (T)0.30 :
+                           (st->max_pn > (T)1e-3) ? (T)0.15 :
+                           (st->max_pn > (T)2e-4) ? (T)0.08 : (T)0.03;
+            for (int i = 0; i < N; ++i) {
+                st->dq[i] = fmin(fmax(st->dq[i], -clip), clip);
+                st->x_old[i] = st->s_x[i];
+            }
+            st->accepted = 0;
+        }
+        __syncwarp(FULL_WARP_MASK);
+
+        // Backtracking on the RAW WEIGHTED cost. Same schedule as the single-target LM.
+        T best_a = (T)0;
+        for (int tries = 0; tries < 4; ++tries) {
+            // a = 2^-tries: 1, 1/2, 1/4, 1/8. This WAS pow((T)0.5, tries - 1), which for T = float
+            // is pow(float, int) -- and the standard promotes an integral exponent to double, so the
+            // fp32 line search was calling a full double-precision pow on every backtracking trial,
+            // in the hot loop, on a GPU that runs FP64 at 1/64 rate. Every value here is exactly
+            // representable, so the shift is BITWISE identical in fp64 and the schedule is unchanged.
+            const T a = (T)1 / (T)(1 << tries);
+            if (lane < N) {
+                T Llo, Lhi; joint_limit<T>(lane, &Llo, &Lhi);
+                const T xi = st->x_old[lane] + a * st->dq[lane];
+                st->s_x[lane] = fmin(fmax(xi, Llo), Lhi);
+            }
+            __syncwarp(FULL_WARP_MASK);
+            lm_refresh<T>(st, &st->trial_cost);
+            ++c_lsearch;
+            if (lane == 0 && st->trial_cost + (T)1e-20 < st->cost) { st->accepted = 1; }
+            __syncwarp(FULL_WARP_MASK);
+            if (st->accepted) { best_a = a; break; }
+        }
+        __syncwarp(FULL_WARP_MASK);
+
+        if (st->accepted) ++c_accept;
+        if (lane == 0) {
+            if (st->accepted) {
+                const T ared = st->cost - st->trial_cost;
+                // Predicted reduction, derived for THIS cost. The cost is C = sum_k w_k |e_k|^2 with
+                // NO 1/2 factor (Phase-2 spec). Linearizing e(q+dq) ~ e - J dq:
+                //     C(q+dq) ~ C - 2 dq^T b + dq^T A dq,   and the LM step gives A dq = b - lambda D dq
+                //  => pred = 2 dq^T b - dq^T b + lambda dq^T D dq
+                //          = sum_i ( dq_i * g_i + lambda * diagA_i * dq_i^2 )
+                // The old single-target LM carried a 1/2 here because ITS cost was 0.5*||r||^2.
+                // Keeping that 1/2 with the unhalved cost made rho exactly 2x too large, so rho > 0.9
+                // fired constantly and lambda was driven to ~1e-11 -- i.e. the Levenberg damping was
+                // switched off. Panda's A is rank-6 in a 7-DoF space (6 task rows), so an undamped
+                // solve puts a large component along the null direction, which the trust region then
+                // clips away: the step is wasted and convergence crawls. THAT is the 21x regression.
+                T pred = (T)0;
+                for (int i = 0; i < N; ++i) {
+                    const T ad = best_a * st->dq[i];
+                    pred += lambda * st->diagA[i] * ad * ad + ad * st->g[i];
+                }
+                pred = fmax((T)1e-20, pred);
+                const T rho = ared / pred;
+                if      (rho > (T)0.90) lambda = fmax(lambda * (T)0.3, lambda_min);
+                else if (rho > (T)0.50) lambda = fmax(lambda * (T)0.5, lambda_min);
+                else if (rho < (T)0.25) lambda = fmin(lambda * (T)3.0, lambda_max);
+                st->cost = st->trial_cost;
+                if (st->prev_cost > (T)0 &&
+                    (st->prev_cost - st->cost) / st->prev_cost < (T)1e-9) ++st->stall;
+                else st->stall = 0;
+                st->prev_cost = st->cost;
+            } else {
+                lambda = fmin(lambda * (T)3.0, lambda_max);
+                ++st->stall;
+            }
+        }
+        __syncwarp(FULL_WARP_MASK);
+
+        if (!st->accepted) {                       // restore: every trial overwrote s_x
+            if (lane < N) st->s_x[lane] = st->x_old[lane];
+            __syncwarp(FULL_WARP_MASK);
+            lm_refresh<T>(st, &st->trial_cost);
+        }
+
+        if (lane == 0) {
+            worst_active_errors<T>(st->s_pn, st->s_on, st->s_wp, st->s_wo, st->active,
+                                   &st->max_pn, &st->max_on);
+            if (st->cost < st->best_cost) st->best_cost = st->cost;   // reporting only
+
+            // Policy B: stagnation on the STABLE physical metric E_phys. Computed HERE, from the
+            // same s_pn/s_on that max_pn/max_on were just taken from, so trace columns 6, 7 and 10
+            // all describe ONE state. (Computing it at the end of the iteration instead would read
+            // the post-stall-kick residuals, and the trace row would silently mix two moments.)
+            // patience == 0 disables the stop entirely -- the default.
+            const T ep = e_phys<T>(st->s_pn, st->s_on, st->active, eps_pos, eps_ori);
+            st->ephys = ep;
+            // STRICTLY better physical merit -> this state becomes best_x. A tie does not displace
+            // the incumbent, so the earliest state of equal merit wins (deterministic).
+            st->take_best = (ep < st->best_ephys) ? 1 : 0;
+            if (st->take_best) st->best_ephys = ep;
+            if (stag_patience > 0) {
+                const T prev = st->prev_ephys;
+                if (prev > (T)0 && (prev - ep) / prev < stag_rel) ++st->stag_n;
+                else st->stag_n = 0;
+                if (st->stag_n >= stag_patience) st->s_break = 1;
+            }
+            st->prev_ephys = ep;
+        }
+        __syncwarp(FULL_WARP_MASK);
+        if (lane < N && st->take_best) st->best_x[lane] = st->s_x[lane];
+
+        if (lane == 0) st->kicked = 0;
+        __syncwarp(FULL_WARP_MASK);
+        if (lane == 0 && st->stall >= stall_lim) {
+            for (int i = 0; i < N; ++i) {
+                T Llo, Lhi; joint_limit<T>(i, &Llo, &Lhi);
+                const T span = Lhi - Llo;                 // in T: no FP64 subtraction on the fp32 path
+                const uint32_t u = 0x9E3779B9u ^ (uint32_t)(i * 0xC2B2AE35u);
+                const T kick = (T)0.005 * span * ((u & 1u) ? (T)1 : (T)-1);
+                st->s_x[i] = fmin(fmax(st->s_x[i] + kick, Llo), Lhi);
+            }
+            st->stall = 0;
+            st->kicked = 1;
+        }
+        __syncwarp(FULL_WARP_MASK);
+        // Only a kick invalidates the cached FK/residual state -- after an accept the trial loop
+        // already left it consistent with s_x, so refreshing again was a whole wasted FK per iter.
+        if (st->kicked) { lm_refresh<T>(st, &st->cost); }
+
+        // Deterministic per-iteration trace -- the AUTHORITATIVE source of every LM diagnostic.
+        // Written from inside the loop straight to global memory (the compact per-problem counter
+        // buffer this replaced reported a stale value; see docs/PHASE3C in the report). Emitted only
+        // when diagnostics are on: with out_trace == nullptr there is not a single extra store.
+        if (out_trace && lane == 0 && it < trace_cap) {
+            T* row = &out_trace[((size_t)gp * trace_cap + it) * TRACE_COLS];
+            row[0] = (T)1;                              // VALID -- explicit, never inferred
+            row[1] = (T)it;
+            row[2] = (T)c_trials;
+            row[3] = (T)(st->accepted ? 1 : 0);
+            row[4] = (T)c_accept;
+            row[5] = st->cost;
+            row[6] = st->max_pn;
+            row[7] = st->max_on;
+            row[8] = lambda;
+            row[9] = (T)c_lsearch;
+            row[10] = st->ephys;      // same state as row[6]/row[7]
+        }
+        __syncwarp(FULL_WARP_MASK);
+
+        // Policy A (stop THIS seed the moment it is solved) -- already here, and per-warp, so it
+        // never terminates another seed in the batch. stop_on_first is 0 for the multi-target path.
+        if (lane == 0 && all_active_converged<T>(st->s_pn, st->s_on, st->s_wp, st->s_wo,
+                                                 st->active, eps_pos, eps_ori)) {
+            st->s_break = 1;
+            if (stop_on_first) atomicCAS(&g_stop, 0, 1);
+        }
+        __syncwarp(FULL_WARP_MASK);
+    }
+
+    // Report the BEST config seen, not the last one.
+    if (lane < N) st->s_x[lane] = st->best_x[lane];
+    __syncwarp(FULL_WARP_MASK);
+    lm_refresh<T>(st, &st->cost);
+
+    if (lane < K) {
+        out_pn[(size_t)gp * K + lane] = st->s_pn[lane];
+        out_on[(size_t)gp * K + lane] = st->s_on[lane];
+        if (out_pose) {
+            const T* Xt = &st->s_target_X[16 * lane];
+            T qq[4];
+            mat_to_quat(Xt, qq);
+            T* o = &out_pose[((size_t)gp * K + lane) * 7];
+            o[0]=Xt[12]; o[1]=Xt[13]; o[2]=Xt[14];
+            o[3]=qq[0];  o[4]=qq[1];  o[5]=qq[2]; o[6]=qq[3];
+        }
+    }
+    if (lane < N) x[(size_t)gp * N + lane] = st->s_x[lane];
+    if (lane == 0) {
+        out_cost[gp] = st->cost;
+        out_succ[gp] = all_active_converged<T>(st->s_pn, st->s_on, st->s_wp, st->s_wo,
+                                               st->active, eps_pos, eps_ori) ? 1 : 0;
+        // Zero-iteration case (already converged on entry): no trace row was written, so the host
+        // derives lm_iterations == 0 and every other counter == 0. That is the documented convention.
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5: multi-target coarse search -- aggregate weighted coordinate Gauss-Newton.
+//
+// One warp per problem; lane j owns joint j (N <= 31). Per outer coarse iteration:
+//
+//   1. Freeze the Phase-3B row preconditioner  s_{k,r} = 1/(||J_{k,r}|| + eps)  ONCE. The same frozen
+//      scaling ranks the proposals AND scores the exact trial, so they compare like with like.
+//   2. Every lane forms ONE aggregate scalar proposal for its joint:
+//          g_j = sum_{k in A_j} ( Jv_kj^T W_p,k e_p,k + Jw_kj^T W_R,k e_R,k )
+//          h_j = sum_{k in A_j} ( Jv_kj^T W_p,k Jv_kj + Jw_kj^T W_R,k Jw_kj )
+//          delta_j = g_j / (h_j + lambda_coord)
+//      with W_{k,r} = w_{k,r} s_{k,r}^2. de/dq = -J, so the numerator sign is POSITIVE.
+//      A_j = JOINT_TARGET_MASK[j] & active_target_mask; A_j == 0 => invalid proposal.
+//   3. Clip to the max coordinate step and to the joint limits, then take the LINEARIZED predicted
+//      improvement of the clipped step:  pred_j = 2 delta_j g_j - delta_j^2 h_j.
+//   4. Warp-wide reduction picks the single best proposal.
+//   5. ONLY the winner is evaluated exactly: apply -> Phase-4 subtree FK -> recompose only the
+//      affected targets -> exact scaled cost. Accept iff the exact cost improves (and, when a
+//      collision environment is bound, iff the config is exactly collision-free); otherwise the
+//      validated Phase-4 rollback restores the cached state.
+//
+// No FK, subtree FK or collision check is ever run for a losing proposal.
+// ---------------------------------------------------------------------------
+static constexpr int CTRACE_COLS = 13;   // valid, it, joint, delta, pred, cost_before, cost_after,
+                                         // accepted, stall, perturbed(=RETAINED kick),
+                                         // pert_attempts, pert_collision_rejects, pert_exhausted
+static constexpr int MAX_PERT_ATTEMPTS_DEFAULT = 4;
+
+template<typename T>
+struct CoarseScratch {
+    T s_x[N], best_x[N];
+    T s_XmatsHom[grid::XHOM_T_COUNT];
+    T s_jointX[N * 16];
+    T s_target_X[hjcd::NT * 16];
+    T s_tgt_p[hjcd::NT * 3], s_tgt_q[hjcd::NT * 4];
+    T s_wp[hjcd::NT], s_wo[hjcd::NT];
+    T s_e_pos[hjcd::NT * 3], s_e_ori[hjcd::NT * 3];
+    T s_pn[hjcd::NT], s_on[hjcd::NT], s_ck[hjcd::NT];
+    T s_scale[hjcd::NT * 6];
+    T s_loc16[16];
+    // Phase-4 rollback shadow (single-joint proposal)
+    T v_e_pos[hjcd::NT * 3], v_e_ori[hjcd::NT * 3];
+    T v_pn[hjcd::NT], v_on[hjcd::NT], v_ck[hjcd::NT];
+    T v_total, v_theta;
+    // Perturbation shadow. A kick rewrites EVERY joint, so unlike a coordinate proposal there is no
+    // subtree to exploit: we save the whole configuration and rebuild from it. coarse_full_refresh
+    // is a pure function of s_x (plus the targets/weights/active mask, none of which a kick
+    // touches), so restoring s_x bitwise and re-running it reproduces the transforms, residuals and
+    // costs exactly. p_total is kept anyway so the scalar cost is restored from the saved value
+    // rather than recomputed.
+    T p_x[N];
+    T p_total;
+    T total, best_total, trial_total;
+    T best_ephys;          // cross-iteration best-state metric (STABLE, physical)
+    int take_best;
+    T max_pn, max_on;
+    unsigned int active;
+    int stall, accepted, win_j;
+    T win_v, win_pred;
+};
+
+// One lane's aggregate coordinate Gauss-Newton proposal. Returns the clipped step in *out_delta**,
+// the absolute new joint value in *out_v*, the linearized predicted improvement in *out_pred*.
+// Invalid (no affected target, or curvature below the floor) => *out_pred = -1.
+template<typename T>
+__device__ __forceinline__
+void coord_proposal(const CoarseScratch<T>* st, int j, T lambda_coord, T h_min, T max_step,
+                    T* out_v, T* out_delta, T* out_pred)
+{
+    *out_pred = (T)-1;
+    *out_delta = (T)0;
+    *out_v = st->s_x[j];
+
+    const unsigned int affected = hjcd_gen::JOINT_TARGET_MASK[j] & st->active;
+    if (affected == 0u) return;                      // this joint cannot move any active target
+
+    const T* __restrict__ Ci = &st->s_jointX[16 * j];
+    T ax[3];
+    joint_world_axis<T>(Ci, j, ax);
+    const bool prism = grid::HAS_PRISMATIC && grid::JOINT_IS_PRISMATIC[j];
+
+    T g = (T)0, h = (T)0;
+    #pragma unroll
+    for (int k = 0; k < hjcd::NT; ++k) {
+        if (!((affected >> k) & 1u)) continue;
+        const T* __restrict__ Xt = &st->s_target_X[16 * k];
+        const T rx = Xt[12] - Ci[12], ry = Xt[13] - Ci[13], rz = Xt[14] - Ci[14];
+        T Jv[3], Jw[3];
+        Jv[0] = prism ? ax[0] : (ax[1]*rz - ax[2]*ry);
+        Jv[1] = prism ? ax[1] : (ax[2]*rx - ax[0]*rz);
+        Jv[2] = prism ? ax[2] : (ax[0]*ry - ax[1]*rx);
+        Jw[0] = prism ? (T)0 : ax[0];
+        Jw[1] = prism ? (T)0 : ax[1];
+        Jw[2] = prism ? (T)0 : ax[2];
+        const T wp = st->s_wp[k], wo = st->s_wo[k];
+        #pragma unroll
+        for (int r = 0; r < 3; ++r) {
+            const T sp = st->s_scale[6*k + r], so = st->s_scale[6*k + 3 + r];
+            const T Wp = wp * sp * sp, Wo = wo * so * so;
+            g += Wp * Jv[r] * st->s_e_pos[3*k + r] + Wo * Jw[r] * st->s_e_ori[3*k + r];
+            h += Wp * Jv[r] * Jv[r]                + Wo * Jw[r] * Jw[r];
+        }
+    }
+    if (!(h > h_min)) return;                        // curvature too flat: invalidate, do not damp it away
+
+    T delta = g / (h + lambda_coord);
+    delta = fmin(fmax(delta, -max_step), max_step);                 // max coordinate step
+    T Llo, Lhi; joint_limit<T>(j, &Llo, &Lhi);
+    const T v = fmin(fmax(st->s_x[j] + delta, Llo), Lhi);           // joint limits
+    delta = v - st->s_x[j];                                         // effective step after clipping
+    if (delta == (T)0) return;
+
+    const T pred = (T)2 * delta * g - delta * delta * h;            // linearized improvement
+    if (!(pred > (T)0)) return;
+    *out_v = v;
+    *out_delta = delta;
+    *out_pred = pred;
+}
+
+template<typename T>
+__device__ __forceinline__
+void coarse_full_refresh(CoarseScratch<T>* st) {
+    grid::ee_pose_inner_warp<T>(st->s_jointX, st->s_XmatsHom, st->s_x, N - 1);
+    __syncwarp(FULL_WARP_MASK);
+    compose_target_frames_warp<T>(st->s_target_X, st->s_jointX);
+    compute_row_scales_warp<T>(st->s_scale, st->s_jointX, st->s_target_X, st->active);
+    eval_targets_full_warp<T>(st->s_target_X, st->s_tgt_p, st->s_tgt_q, st->s_wp, st->s_wo,
+                              st->s_scale, st->active, st->s_e_pos, st->s_e_ori,
+                              st->s_pn, st->s_on, st->s_ck, &st->total);
+}
+
+template<typename T>
+__global__ void coarse_search_mt_kernel(
+    T* __restrict__ x,                        // B x N   seeds in, refined out (best seen)
+    const T* __restrict__ tgt_p,              // B x NT x 3
+    const T* __restrict__ tgt_q,              // B x NT x 4
+    const unsigned int* __restrict__ active,  // B
+    const T* __restrict__ w_pos, const T* __restrict__ w_ori,
+    T* __restrict__ out_pn, T* __restrict__ out_on,   // B x NT
+    T* __restrict__ out_cost,                 // B
+    unsigned char* __restrict__ out_succ,     // B
+    T* __restrict__ out_trace,                // B x trace_cap x CTRACE_COLS, may be null
+    const int trace_cap,
+    const grid::robotModel<T>* __restrict__ RM,
+    const T eps_pos, const T eps_ori,
+    const T lambda_coord, const T h_min, const T max_step,
+    const int k_max, const int stall_lim, const int B,
+    const int use_incremental,                // 1 = Phase-4 subtree FK, 0 = full FK (ablation)
+    const uint64_t seed,
+    const int max_pert_attempts,              // bounded retries for a collision-free kick
+#if defined(HJCD_HAS_COLLISION)
+    const int cc_enabled,                     // 1 = exact collision gate (proposals AND kicks)
+    const grid::robotModel<float>* __restrict__ RM_cc,
+    grid_collision::Environment<float> cc_env)
+#else
+    const int cc_enabled)
+#endif
+{
+    constexpr int K = hjcd::NT;
+    const int lane = threadIdx.x & 31;
+    const int gp = blockIdx.x;
+    if (gp >= B) return;
+
+    // STATIC shared, deliberately: grid_collision::config_free uses the DYNAMIC shared arena for its
+    // own sphere-FK extractor (an extern __shared__ inside GRiD), so the coarse scratch cannot live
+    // there too -- they would alias at offset 0. The dynamic arena is reserved for the collision
+    // evaluator; when collision is off, the kernel is launched with none.
+    __shared__ CoarseScratch<T> st_storage;
+    CoarseScratch<T>* st = &st_storage;
+
+    __shared__ T s_tmp[NX * 2];
+    __shared__ int s_topo[hjcd::TOPO];
+#if defined(HJCD_HAS_COLLISION)
+    namespace gc = grid_collision;
+    constexpr int NS = gc::NUM_COLLISION_SPHERES;
+    __shared__ float s_ccq[N];
+    __shared__ float s_ccpos[3 * NS];
+    __shared__ float s_ccr[NS];
+#endif
+
+    if (lane < N) st->s_x[lane] = x[(size_t)gp * N + lane];
+    if (lane < K) {
+        st->s_wp[lane] = w_pos[(size_t)gp * K + lane];
+        st->s_wo[lane] = w_ori[(size_t)gp * K + lane];
+        #pragma unroll
+        for (int c = 0; c < 3; ++c) st->s_tgt_p[3*lane + c] = tgt_p[((size_t)gp*K + lane)*3 + c];
+        #pragma unroll
+        for (int c = 0; c < 4; ++c) st->s_tgt_q[4*lane + c] = tgt_q[((size_t)gp*K + lane)*4 + c];
+    }
+    if (lane == 0) { st->active = active[gp]; st->stall = 0; }
+    __syncwarp(FULL_WARP_MASK);
+
+    grid::load_update_XmatsHom_helpers<T>(st->s_XmatsHom, s_topo, st->s_x, RM, s_tmp);
+    __syncwarp(FULL_WARP_MASK);
+    coarse_full_refresh<T>(st);
+    __syncwarp(FULL_WARP_MASK);
+
+    // ------------------------------------------------------------------------------------------
+    // THE FEASIBILITY INVARIANT: best_x -- and therefore the returned configuration -- is only ever
+    // copied from a state that satisfies every enabled hard constraint. `cur_free` tracks whether
+    // the CURRENT search state is feasible, and it is the gate on every best_x write below.
+    //
+    // The seed is a candidate like any other, so it is checked too: a colliding seed must not become
+    // the answer merely because nothing better turned up. When it does collide we start best_total
+    // at +inf, so the first feasible state displaces it however poor its task cost. If NOTHING
+    // feasible is ever reached, best_x falls back to the seed -- there is no feasible answer to
+    // give, and the caller's own collision_free() check will say so.
+    // ------------------------------------------------------------------------------------------
+    int cur_free = 1;
+#if defined(HJCD_HAS_COLLISION)
+    if (cc_enabled) {
+        for (int i = lane; i < N; i += WARP_SIZE) s_ccq[i] = (float)st->s_x[i];
+        __syncthreads();
+        cur_free = gc::config_free<float>(s_ccq, RM_cc, cc_env, s_ccpos, s_ccr, nullptr) ? 1 : 0;
+        __syncthreads();
+    }
+#endif
+    // best_x is tracked on E_phys, not on the row-scaled `total` -- the coarse search re-freezes its
+    // row scales every iteration too, so `total` is no more comparable across iterations here than it
+    // was in the LM. An INFEASIBLE seed starts at +inf so the first feasible state displaces it.
+    if (lane == 0)
+        st->best_ephys = cur_free ? e_phys<T>(st->s_pn, st->s_on, st->active, eps_pos, eps_ori)
+                                  : (T)INFINITY;
+    if (lane == 0) st->best_total = cur_free ? st->total : (T)INFINITY;
+    if (lane < N) st->best_x[lane] = st->s_x[lane];
+    __syncwarp(FULL_WARP_MASK);
+
+    int c_iters = 0, c_accept = 0, c_reject = 0, c_stalls = 0, c_perturb = 0;
+
+    for (int it = 0; it < k_max; ++it) {
+        ++c_iters;
+
+        // --- 1. freeze the row scaling and re-express the cost under it -------------------------
+        compute_row_scales_warp<T>(st->s_scale, st->s_jointX, st->s_target_X, st->active);
+        eval_targets_full_warp<T>(st->s_target_X, st->s_tgt_p, st->s_tgt_q, st->s_wp, st->s_wo,
+                                  st->s_scale, st->active, st->s_e_pos, st->s_e_ori,
+                                  st->s_pn, st->s_on, st->s_ck, &st->total);
+
+        // --- 2/3. one aggregate proposal per joint lane, clipped, with linearized improvement ----
+        T v = (T)0, delta = (T)0, pred = (T)-1;
+        if (lane < N) coord_proposal<T>(st, lane, lambda_coord, h_min, max_step, &v, &delta, &pred);
+
+        // --- 4. warp-wide best-proposal reduction (ties -> lowest joint index) -------------------
+        int best_j = (pred > (T)0) ? lane : -1;
+        T best_p = pred, best_v = v, best_d = delta;
+        #pragma unroll
+        for (int off = 16; off > 0; off >>= 1) {
+            const T   op = __shfl_down_sync(FULL_WARP_MASK, best_p, off);
+            const int oj = __shfl_down_sync(FULL_WARP_MASK, best_j, off);
+            const T   ov = __shfl_down_sync(FULL_WARP_MASK, best_v, off);
+            const T   od = __shfl_down_sync(FULL_WARP_MASK, best_d, off);
+            const bool take = (oj >= 0) && (best_j < 0 || op > best_p ||
+                                            (op == best_p && oj < best_j));
+            if (take) { best_p = op; best_j = oj; best_v = ov; best_d = od; }
+        }
+        best_j = __shfl_sync(FULL_WARP_MASK, best_j, 0);
+        best_p = __shfl_sync(FULL_WARP_MASK, best_p, 0);
+        best_v = __shfl_sync(FULL_WARP_MASK, best_v, 0);
+        best_d = __shfl_sync(FULL_WARP_MASK, best_d, 0);
+
+        const T cost_before = st->total;
+        int accepted = 0, perturbed = 0;
+
+        if (best_j >= 0) {
+            const unsigned int desc = hjcd_gen::JOINT_DESCENDANT_MASK[best_j];
+            const unsigned int tm   = hjcd_gen::JOINT_TARGET_MASK[best_j] & st->active;
+
+            // --- 5a. save (Phase-4 rollback shadow) --------------------------------------------
+            if (lane == 0) { st->v_theta = st->s_x[best_j]; st->v_total = st->total; }
+            if (lane < K && ((tm >> lane) & 1u)) {
+                const int k = lane;
+                #pragma unroll
+                for (int c = 0; c < 3; ++c) { st->v_e_pos[3*k+c] = st->s_e_pos[3*k+c];
+                                              st->v_e_ori[3*k+c] = st->s_e_ori[3*k+c]; }
+                st->v_pn[k] = st->s_pn[k]; st->v_on[k] = st->s_on[k]; st->v_ck[k] = st->s_ck[k];
+            }
+            __syncwarp(FULL_WARP_MASK);
+
+            // --- 5b. apply, subtree FK, affected targets only, exact cost ----------------------
+            if (lane == 0) st->s_x[best_j] = best_v;
+            __syncwarp(FULL_WARP_MASK);
+            if (use_incremental) {
+                update_joint_local_warp<T>(st->s_XmatsHom, st->s_loc16, best_j, best_v);
+                subtree_fk_warp<T>(st->s_jointX, st->s_XmatsHom, desc);
+                compose_target_frames_masked_warp<T>(st->s_target_X, st->s_jointX, tm);
+                if (lane == 0) st->trial_total = st->total;
+                __syncwarp(FULL_WARP_MASK);
+                eval_targets_masked_warp<T>(st->s_target_X, st->s_tgt_p, st->s_tgt_q,
+                                            st->s_wp, st->s_wo, st->s_scale, tm,
+                                            st->s_e_pos, st->s_e_ori, st->s_pn, st->s_on, st->s_ck,
+                                            &st->trial_total);
+            } else {                                   // ablation: full FK + full rescore
+                grid::ee_pose_inner_warp<T>(st->s_jointX, st->s_XmatsHom, st->s_x, N - 1);
+                __syncwarp(FULL_WARP_MASK);
+                compose_target_frames_warp<T>(st->s_target_X, st->s_jointX);
+                eval_targets_full_warp<T>(st->s_target_X, st->s_tgt_p, st->s_tgt_q,
+                                          st->s_wp, st->s_wo, st->s_scale, st->active,
+                                          st->s_e_pos, st->s_e_ori, st->s_pn, st->s_on, st->s_ck,
+                                          &st->trial_total);
+            }
+            __syncwarp(FULL_WARP_MASK);
+
+            // --- 6. accept only on an exact improvement AND exact collision-freedom -------------
+            // The task test comes first and is cheap; the collision evaluator only runs when the
+            // trial already improves the objective. This is HARD feasibility (grid_collision's
+            // config_free: SELF + environment), not a finite penalty -- a colliding trial is
+            // rejected outright however good its task cost.
+            accepted = (st->trial_total + (T)1e-20 < cost_before) ? 1 : 0;
+#if defined(HJCD_HAS_COLLISION)
+            if (accepted && cc_enabled) {
+                for (int i = lane; i < N; i += WARP_SIZE) s_ccq[i] = (float)st->s_x[i];
+                __syncthreads();
+                const bool free_ok = gc::config_free<float>(s_ccq, RM_cc, cc_env,
+                                                            s_ccpos, s_ccr, nullptr);
+                __syncthreads();
+                if (!free_ok) accepted = 0;      // colliding: reject, roll back below
+            }
+#endif
+
+            if (accepted) {
+                // It cleared the gate above (or there is no gate), so the new state is feasible.
+                cur_free = 1;
+                if (lane == 0) { st->total = st->trial_total; st->stall = 0; }
+            } else {
+                // --- 5c/6. validated rollback -------------------------------------------------
+                if (lane == 0) st->s_x[best_j] = st->v_theta;
+                __syncwarp(FULL_WARP_MASK);
+                update_joint_local_warp<T>(st->s_XmatsHom, st->s_loc16, best_j, st->v_theta);
+                subtree_fk_warp<T>(st->s_jointX, st->s_XmatsHom, desc);
+                compose_target_frames_masked_warp<T>(st->s_target_X, st->s_jointX, tm);
+                if (lane < K && ((tm >> lane) & 1u)) {
+                    const int k = lane;
+                    #pragma unroll
+                    for (int c = 0; c < 3; ++c) { st->s_e_pos[3*k+c] = st->v_e_pos[3*k+c];
+                                                  st->s_e_ori[3*k+c] = st->v_e_ori[3*k+c]; }
+                    st->s_pn[k] = st->v_pn[k]; st->s_on[k] = st->v_on[k]; st->s_ck[k] = st->v_ck[k];
+                }
+                if (lane == 0) { st->total = st->v_total; ++st->stall; }
+                __syncwarp(FULL_WARP_MASK);
+            }
+        } else {
+            if (lane == 0) ++st->stall;                // no valid proposal at all
+        }
+        __syncwarp(FULL_WARP_MASK);
+
+        if (accepted) ++c_accept; else ++c_reject;
+
+        // --- best-state preservation (in the UNSCALED sense the caller cares about) ------------
+        // Gated on cur_free: an infeasible current state can never become best_x.
+        // Feasibility first (a colliding state can NEVER become best_x), then strictly-better
+        // physical merit. A tie leaves the incumbent, so the earliest state of equal merit wins.
+        if (lane == 0) {
+            st->take_best = 0;
+            if (cur_free) {
+                const T ep = e_phys<T>(st->s_pn, st->s_on, st->active, eps_pos, eps_ori);
+                if (ep < st->best_ephys) { st->best_ephys = ep; st->take_best = 1; }
+                if (st->total < st->best_total) st->best_total = st->total;   // reporting only
+            }
+        }
+        __syncwarp(FULL_WARP_MASK);
+        if (lane < N && st->take_best) st->best_x[lane] = st->s_x[lane];
+        __syncwarp(FULL_WARP_MASK);
+
+        // --- stall -> COLLISION-GATED random perturbation ---------------------------------------
+        // A perturbation is EXPLORATORY: unlike a coordinate proposal it does NOT have to reduce the
+        // task cost to become the current state -- that is the whole point of a kick. But it is not
+        // exempt from the HARD constraints. Before this gate existed the kick rewrote every joint
+        // unchecked, and because best_x is copied from the current state, a colliding kick could
+        // become the returned answer. Measured on bookshelf_small_panda with collision-free seeds:
+        // 5/64 returned configs collided at stall_lim=5, and 0/64 with kicks disabled.
+        //
+        // Semantics: save -> kick -> full refresh -> exact config_free -> keep, or restore exactly.
+        // Bounded retries (max_pert_attempts), stopping at the first feasible kick. If every attempt
+        // collides the pre-perturbation state is restored bitwise, best_x is left alone, and the
+        // stall counter is reset anyway -- the alternative (leaving stall >= stall_lim) would retry
+        // the kick on every subsequent iteration and spin. The event is counted as `exhausted` so a
+        // pathologically boxed-in problem is visible rather than silent.
+        int p_att = 0, p_rej = 0, p_exh = 0;
+        if (st->stall >= stall_lim) {
+            ++c_stalls;
+
+            // save the pre-perturbation state (bitwise; a kick touches every joint)
+            if (lane < N) st->p_x[lane] = st->s_x[lane];
+            if (lane == 0) st->p_total = st->total;
+            __syncwarp(FULL_WARP_MASK);
+
+            int kick_ok = 0;
+            for (int att = 0; att < max_pert_attempts; ++att) {
+                ++p_att;
+                // perturb from the SAVED config, not the last rejected attempt, so retries do not
+                // compound into an ever-larger jump.
+                if (lane < N) {
+                    T Llo, Lhi; joint_limit<T>(lane, &Llo, &Lhi);
+                    const uint32_t h = wanghash((uint32_t)(seed ^ (uint64_t)(
+                        gp * 131u + it * 17u + lane + att * 0x9E3779B9u)));
+                    const T u = (T)((h & 0xFFFFFFu) / (T)0x1000000u) - (T)0.5;
+                    const T span = Lhi - Llo;             // in T: no FP64 subtraction on the fp32 path
+                    st->s_x[lane] = fmin(fmax(st->p_x[lane] + (T)0.1 * span * u, Llo), Lhi);
+                }
+                __syncwarp(FULL_WARP_MASK);
+                coarse_full_refresh<T>(st);        // a kick invalidates FK, targets, residuals, cost
+                __syncwarp(FULL_WARP_MASK);
+
+                int ok = 1;
+#if defined(HJCD_HAS_COLLISION)
+                if (cc_enabled) {                  // the SAME evaluator the proposal gate uses
+                    for (int i = lane; i < N; i += WARP_SIZE) s_ccq[i] = (float)st->s_x[i];
+                    __syncthreads();
+                    ok = gc::config_free<float>(s_ccq, RM_cc, cc_env,
+                                                s_ccpos, s_ccr, nullptr) ? 1 : 0;
+                    __syncthreads();
+                }
+#endif
+                if (ok) { kick_ok = 1; break; }    // uniform across the warp: config_free is collective
+                ++p_rej;
+            }
+
+            if (kick_ok) {
+                cur_free = 1;                      // it passed the gate (or there is no gate)
+                if (lane == 0) st->stall = 0;
+                perturbed = 1;
+                ++c_perturb;
+            } else {
+                // every attempt collided -> restore the saved state EXACTLY and leave best_x alone
+                if (lane < N) st->s_x[lane] = st->p_x[lane];
+                __syncwarp(FULL_WARP_MASK);
+                coarse_full_refresh<T>(st);        // pure function of s_x -> reproduces it exactly
+                if (lane == 0) { st->total = st->p_total; st->stall = 0; }
+                p_exh = 1;                         // cur_free is UNCHANGED: same state as before
+            }
+            __syncwarp(FULL_WARP_MASK);
+        }
+        __syncwarp(FULL_WARP_MASK);
+
+        if (out_trace && lane == 0 && it < trace_cap) {
+            T* row = &out_trace[((size_t)gp * trace_cap + it) * CTRACE_COLS];
+            row[0] = (T)1;                    // VALID -- explicit
+            row[1] = (T)it;
+            row[2] = (T)best_j;
+            row[3] = best_d;
+            row[4] = (best_j >= 0) ? best_p : (T)0;
+            row[5] = cost_before;
+            row[6] = st->total;
+            row[7] = (T)accepted;
+            row[8] = (T)st->stall;
+            row[9]  = (T)perturbed;   // a kick was RETAINED (collision-free)
+            row[10] = (T)p_att;       // kick attempts made this iteration
+            row[11] = (T)p_rej;       // attempts rejected by the collision gate
+            row[12] = (T)p_exh;       // 1 = every attempt collided, state restored
+        }
+        __syncwarp(FULL_WARP_MASK);
+
+        if (lane == 0)
+            worst_active_errors<T>(st->s_pn, st->s_on, st->s_wp, st->s_wo, st->active,
+                                   &st->max_pn, &st->max_on);
+        __syncwarp(FULL_WARP_MASK);
+        if (all_active_converged<T>(st->s_pn, st->s_on, st->s_wp, st->s_wo, st->active,
+                                    eps_pos, eps_ori)) break;
+    }
+
+    // report the BEST config seen
+    if (lane < N) st->s_x[lane] = st->best_x[lane];
+    __syncwarp(FULL_WARP_MASK);
+    coarse_full_refresh<T>(st);
+
+    if (lane < K) {
+        out_pn[(size_t)gp * K + lane] = st->s_pn[lane];
+        out_on[(size_t)gp * K + lane] = st->s_on[lane];
+    }
+    if (lane < N) x[(size_t)gp * N + lane] = st->s_x[lane];
+    if (lane == 0) {
+        out_cost[gp] = st->total;
+        out_succ[gp] = all_active_converged<T>(st->s_pn, st->s_on, st->s_wp, st->s_wo,
+                                               st->active, eps_pos, eps_ori) ? 1 : 0;
+    }
+    (void)c_iters; (void)c_accept; (void)c_reject; (void)c_stalls; (void)c_perturb;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 probe: run a SEQUENCE of coordinate updates through the incremental path, each accepted or
+// rejected, and dump the resulting state. Tests compare it against a fresh full FK at the final q.
+// This is the exact trial/rollback machinery Phase 5's coarse search will call.
+//
+// Trial:     save theta_j + the affected targets' cached state + C  ->  apply  ->  update j's local
+//            ->  subtree FK  ->  recompose affected targets  ->  incremental cost.
+// Rollback:  restore theta_j -> update j's local -> subtree FK -> recompose affected targets
+//            -> restore the cached residual/cost state bitwise.
+// Nothing copies the whole transform array.
+// ---------------------------------------------------------------------------
+template<typename T>
+__global__ void incremental_probe_kernel(
+    const T* __restrict__ q0,                 // B x N
+    const int* __restrict__ upd_j,            // B x M   joint index per step
+    const T* __restrict__ upd_v,              // B x M   new joint value
+    const unsigned char* __restrict__ accept, // B x M   1 = keep, 0 = roll back
+    const int M,
+    const T* __restrict__ tgt_p, const T* __restrict__ tgt_q,
+    const unsigned int* __restrict__ active,
+    const T* __restrict__ w_pos, const T* __restrict__ w_ori,
+    T* __restrict__ out_q,        // B x N
+    T* __restrict__ out_jointX,   // B x N*16
+    T* __restrict__ out_targetX,  // B x K*16
+    T* __restrict__ out_e_pos, T* __restrict__ out_e_ori,
+    T* __restrict__ out_pn, T* __restrict__ out_on, T* __restrict__ out_ck,
+    T* __restrict__ out_total,    // B
+    const grid::robotModel<T>* __restrict__ RM, const int B)
+{
+    const int b = blockIdx.x;
+    if (b >= B) return;
+    constexpr int K = hjcd::NT;
+    const int lane = threadIdx.x & 31;
+
+    __shared__ T s_q[N], s_XmatsHom[grid::XHOM_T_COUNT], s_jointX[N*16], s_target_X[K*16];
+    __shared__ T s_tmp[NX*2], s_loc16[16];
+    __shared__ int s_topo[hjcd::TOPO];
+    __shared__ T s_tp[K*3], s_tq[K*4], s_wp[K], s_wo[K];
+    __shared__ T s_e_pos[K*3], s_e_ori[K*3], s_pn[K], s_on[K], s_ck[K], s_total;
+    // rollback cache (only the affected targets are ever touched, but sizing by K is trivial)
+    __shared__ T v_e_pos[K*3], v_e_ori[K*3], v_pn[K], v_on[K], v_ck[K], v_total, v_theta;
+
+    for (int i = threadIdx.x; i < N; i += blockDim.x) s_q[i] = q0[(size_t)b*N + i];
+    for (int i = threadIdx.x; i < K*3; i += blockDim.x) s_tp[i] = tgt_p[(size_t)b*K*3 + i];
+    for (int i = threadIdx.x; i < K*4; i += blockDim.x) s_tq[i] = tgt_q[(size_t)b*K*4 + i];
+    for (int i = threadIdx.x; i < K; i += blockDim.x) {
+        s_wp[i] = w_pos[(size_t)b*K + i];
+        s_wo[i] = w_ori[(size_t)b*K + i];
+    }
+    __syncthreads();
+
+    // Baseline: one full FK + full target compose + full residual/cost cache.
+    grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topo, s_q, RM, s_tmp);
+    __syncthreads();
+    grid::ee_pose_inner_warp<T>(s_jointX, s_XmatsHom, s_q, N - 1);
+    __syncwarp(FULL_WARP_MASK);
+    compose_target_frames_warp<T>(s_target_X, s_jointX);
+    const unsigned int act = active[b];
+    eval_targets_full_warp<T>(s_target_X, s_tp, s_tq, s_wp, s_wo, /*s_scale=*/nullptr, act,
+                              s_e_pos, s_e_ori, s_pn, s_on, s_ck, &s_total);
+
+    for (int m = 0; m < M; ++m) {
+        const int j = upd_j[(size_t)b*M + m];
+        const T   v = upd_v[(size_t)b*M + m];
+        const bool keep = accept[(size_t)b*M + m] != 0;
+        const unsigned int desc = hjcd_gen::JOINT_DESCENDANT_MASK[j];
+        const unsigned int tm   = hjcd_gen::JOINT_TARGET_MASK[j] & act;
+
+        // 1. save
+        if (lane == 0) { v_theta = s_q[j]; v_total = s_total; }
+        if (lane < K && ((tm >> lane) & 1u)) {
+            const int k = lane;
+            #pragma unroll
+            for (int c = 0; c < 3; ++c) { v_e_pos[3*k+c] = s_e_pos[3*k+c];
+                                          v_e_ori[3*k+c] = s_e_ori[3*k+c]; }
+            v_pn[k] = s_pn[k]; v_on[k] = s_on[k]; v_ck[k] = s_ck[k];
+        }
+        __syncwarp(FULL_WARP_MASK);
+
+        // 2-4. apply, subtree FK, affected targets only
+        if (lane == 0) s_q[j] = v;
+        __syncwarp(FULL_WARP_MASK);
+        update_joint_local_warp<T>(s_XmatsHom, s_loc16, j, v);
+        subtree_fk_warp<T>(s_jointX, s_XmatsHom, desc);
+        compose_target_frames_masked_warp<T>(s_target_X, s_jointX, tm);
+        eval_targets_masked_warp<T>(s_target_X, s_tp, s_tq, s_wp, s_wo, /*s_scale=*/nullptr, tm,
+                                    s_e_pos, s_e_ori, s_pn, s_on, s_ck, &s_total);
+
+        // 5-6. accept, or restore
+        if (!keep) {
+            if (lane == 0) s_q[j] = v_theta;
+            __syncwarp(FULL_WARP_MASK);
+            update_joint_local_warp<T>(s_XmatsHom, s_loc16, j, v_theta);
+            subtree_fk_warp<T>(s_jointX, s_XmatsHom, desc);
+            compose_target_frames_masked_warp<T>(s_target_X, s_jointX, tm);
+            if (lane < K && ((tm >> lane) & 1u)) {
+                const int k = lane;
+                #pragma unroll
+                for (int c = 0; c < 3; ++c) { s_e_pos[3*k+c] = v_e_pos[3*k+c];
+                                              s_e_ori[3*k+c] = v_e_ori[3*k+c]; }
+                s_pn[k] = v_pn[k]; s_on[k] = v_on[k]; s_ck[k] = v_ck[k];
+            }
+            if (lane == 0) s_total = v_total;
+            __syncwarp(FULL_WARP_MASK);
+        }
+    }
+
+    for (int i = threadIdx.x; i < N; i += blockDim.x) out_q[(size_t)b*N + i] = s_q[i];
+    for (int i = threadIdx.x; i < N*16; i += blockDim.x) out_jointX[(size_t)b*N*16 + i] = s_jointX[i];
+    for (int i = threadIdx.x; i < K*16; i += blockDim.x) out_targetX[(size_t)b*K*16 + i] = s_target_X[i];
+    for (int i = threadIdx.x; i < K*3; i += blockDim.x) {
+        out_e_pos[(size_t)b*K*3 + i] = s_e_pos[i];
+        out_e_ori[(size_t)b*K*3 + i] = s_e_ori[i];
+    }
+    for (int i = threadIdx.x; i < K; i += blockDim.x) {
+        out_pn[(size_t)b*K + i] = s_pn[i];
+        out_on[(size_t)b*K + i] = s_on[i];
+        out_ck[(size_t)b*K + i] = s_ck[i];
+    }
+    if (threadIdx.x == 0) out_total[b] = s_total;
+}
+
+// Micro-benchmark: `iters` coordinate updates on joint j, either through the incremental subtree
+// path (mode 1) or a full FK + full recompose + full rescore each time (mode 0).
+template<typename T>
+__global__ void fk_bench_kernel(
+    const T* __restrict__ q0, const int j, const int iters, const int mode,
+    const T* __restrict__ tgt_p, const T* __restrict__ tgt_q,
+    const unsigned int* __restrict__ active,
+    const T* __restrict__ w_pos, const T* __restrict__ w_ori,
+    T* __restrict__ sink, const grid::robotModel<T>* __restrict__ RM, const int B)
+{
+    const int b = blockIdx.x;
+    if (b >= B) return;
+    constexpr int K = hjcd::NT;
+    const int lane = threadIdx.x & 31;
+
+    __shared__ T s_q[N], s_XmatsHom[grid::XHOM_T_COUNT], s_jointX[N*16], s_target_X[K*16];
+    __shared__ T s_tmp[NX*2], s_loc16[16];
+    __shared__ int s_topo[hjcd::TOPO];
+    __shared__ T s_tp[K*3], s_tq[K*4], s_wp[K], s_wo[K];
+    __shared__ T s_e_pos[K*3], s_e_ori[K*3], s_pn[K], s_on[K], s_ck[K], s_total;
+
+    for (int i = threadIdx.x; i < N; i += blockDim.x) s_q[i] = q0[(size_t)b*N + i];
+    for (int i = threadIdx.x; i < K*3; i += blockDim.x) s_tp[i] = tgt_p[(size_t)b*K*3 + i];
+    for (int i = threadIdx.x; i < K*4; i += blockDim.x) s_tq[i] = tgt_q[(size_t)b*K*4 + i];
+    for (int i = threadIdx.x; i < K; i += blockDim.x) {
+        s_wp[i] = w_pos[(size_t)b*K + i];
+        s_wo[i] = w_ori[(size_t)b*K + i];
+    }
+    __syncthreads();
+    grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topo, s_q, RM, s_tmp);
+    __syncthreads();
+    grid::ee_pose_inner_warp<T>(s_jointX, s_XmatsHom, s_q, N - 1);
+    __syncwarp(FULL_WARP_MASK);
+    compose_target_frames_warp<T>(s_target_X, s_jointX);
+    const unsigned int act = active[b];
+    eval_targets_full_warp<T>(s_target_X, s_tp, s_tq, s_wp, s_wo, /*s_scale=*/nullptr, act,
+                              s_e_pos, s_e_ori, s_pn, s_on, s_ck, &s_total);
+
+    const unsigned int desc = hjcd_gen::JOINT_DESCENDANT_MASK[j];
+    const unsigned int tm   = hjcd_gen::JOINT_TARGET_MASK[j] & act;
+    T acc = (T)0;
+    for (int it = 0; it < iters; ++it) {
+        const T v = s_q[j] + (T)1e-7;
+        if (mode == 1 || mode == 2) {
+            if (lane == 0) s_q[j] = v;
+            __syncwarp(FULL_WARP_MASK);
+            update_joint_local_warp<T>(s_XmatsHom, s_loc16, j, v);
+            if (mode == 1) subtree_fk_warp<T>(s_jointX, s_XmatsHom, desc);       // shipped: 0..N scan
+            else           subtree_fk_ffs_warp<T>(s_jointX, s_XmatsHom, desc);  // comparator: __ffs
+            compose_target_frames_masked_warp<T>(s_target_X, s_jointX, tm);
+            eval_targets_masked_warp<T>(s_target_X, s_tp, s_tq, s_wp, s_wo, /*s_scale=*/nullptr, tm,
+                                        s_e_pos, s_e_ori, s_pn, s_on, s_ck, &s_total);
+        } else {
+            if (lane == 0) s_q[j] = v;
+            __syncwarp(FULL_WARP_MASK);
+            grid::ee_pose_inner_warp<T>(s_jointX, s_XmatsHom, s_q, N - 1);
+            __syncwarp(FULL_WARP_MASK);
+            compose_target_frames_warp<T>(s_target_X, s_jointX);
+            eval_targets_full_warp<T>(s_target_X, s_tp, s_tq, s_wp, s_wo, /*s_scale=*/nullptr, act,
+                                      s_e_pos, s_e_ori, s_pn, s_on, s_ck, &s_total);
+        }
+        acc += s_total;
+    }
+    if (threadIdx.x == 0) sink[b] = acc;
+}
+
+// Test/reference entry point: dump the accumulated A and b for a batch. Uses the SAME device
+// function the LM uses, so a CPU stacked-Jacobian comparison validates the real accumulation.
+template<typename T>
+__global__ void normal_equations_kernel(
+    const T* __restrict__ q, const T* __restrict__ tgt_p, const T* __restrict__ tgt_q,
+    const unsigned int* __restrict__ active,
+    const T* __restrict__ w_pos, const T* __restrict__ w_ori,
+    T* __restrict__ out_A, T* __restrict__ out_b,
+    const grid::robotModel<T>* __restrict__ RM, const int B)
+{
+    const int b = blockIdx.x;
+    if (b >= B) return;
+    constexpr int K = hjcd::NT;
+
+    __shared__ T s_q[N], s_XmatsHom[grid::XHOM_T_COUNT], s_jointX[N*16], s_target_X[K*16];
+    __shared__ T s_tmp[NX*2];
+    __shared__ int s_topo[hjcd::TOPO];
+    __shared__ T s_e_pos[K*3], s_e_ori[K*3], s_pn[K], s_on[K], s_wp[K], s_wo[K];
+    __shared__ T s_tp[K*3], s_tq[K*4];
+    __shared__ T s_A[N*N], s_b[N], s_cost;
+
+    for (int i = threadIdx.x; i < N; i += blockDim.x) s_q[i] = q[(size_t)b*N + i];
+    for (int i = threadIdx.x; i < K*3; i += blockDim.x) s_tp[i] = tgt_p[(size_t)b*K*3 + i];
+    for (int i = threadIdx.x; i < K*4; i += blockDim.x) s_tq[i] = tgt_q[(size_t)b*K*4 + i];
+    for (int i = threadIdx.x; i < K; i += blockDim.x) {
+        s_wp[i] = w_pos[(size_t)b*K + i];
+        s_wo[i] = w_ori[(size_t)b*K + i];
+    }
+    __syncthreads();
+
+    grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topo, s_q, RM, s_tmp);
+    __syncthreads();
+    grid::ee_pose_inner_warp<T>(s_jointX, s_XmatsHom, s_q, N - 1);
+    __syncwarp(FULL_WARP_MASK);
+    compose_target_frames_warp<T>(s_target_X, s_jointX);
+
+    const unsigned int act = active[b];
+    eval_targets_warp<T>(s_target_X, s_tp, s_tq, s_wp, s_wo, act,
+                         s_e_pos, s_e_ori, s_pn, s_on, &s_cost);
+    accumulate_normal_equations_warp<T>(s_A, s_b, s_jointX, s_target_X,
+                                        s_e_pos, s_e_ori, s_wp, s_wo, /*s_scale=*/nullptr, act);
+
+    for (int i = threadIdx.x; i < N*N; i += blockDim.x) out_A[(size_t)b*N*N + i] = s_A[i];
+    for (int i = threadIdx.x; i < N;   i += blockDim.x) out_b[(size_t)b*N + i]   = s_b[i];
+}
+
+
+
+// ---------------------------------------------------------------------------
+// Shared collision-environment binding. The obstacle set and the fp32 robot model are constant per
+// problem, so both the coarse search (winner gate) and the post-solve scorers bind the SAME cached
+// upload. Returns true when a usable environment is bound.
+// ---------------------------------------------------------------------------
+#if defined(HJCD_HAS_COLLISION)
+static hjcd_env::DeviceEnv g_cc_env;
+static std::string g_cc_key;
+static bool g_cc_ready = false;
+static const grid::robotModel<float>* g_cc_model = nullptr;
+
+bool bind_collision_env(const char* json, const char* set_name, int idx)
+{
+    if (!json || !set_name) return false;
+    const std::string key = std::string(set_name) + "#" + std::to_string(idx);
+    if (g_cc_ready && g_cc_key == key) return true;
+    if (g_cc_ready) { hjcd_env::free_env(g_cc_env); g_cc_ready = false; }
+
+    nlohmann::json all = nlohmann::json::parse(json);
+    nlohmann::json data = hjcd_env::select_problem_instance(all.at("problems"), set_name, idx);
+    if (data.contains("valid") && !bool(data["valid"])) return false;
+
+    hjcd_env::HostEnv h = hjcd_env::problem_dict_to_env(data);
+    g_cc_env = hjcd_env::upload_env(h);
+    g_cc_key = key;
+    g_cc_ready = true;
+    if (!g_cc_model) g_cc_model = grid::init_robotModel<float>();
+    return true;
+}
+const void* collision_model_ptr() { return g_cc_ready ? (const void*)g_cc_model : nullptr; }
+const void* collision_env_ptr()   { return g_cc_ready ? (const void*)&g_cc_env.env : nullptr; }
+#else
+bool bind_collision_env(const char*, const char*, int) { return false; }
+const void* collision_model_ptr() { return nullptr; }
+const void* collision_env_ptr()   { return nullptr; }
+#endif
+
+
+// =============================================================================================
+// PRECISION (Phase 0B). The GPU compute type CT is float or double. The public C++/Python I/O
+// stays double: targets, weights and tolerances are NARROWED to CT once, at the call boundary,
+// before the kernel launches, and the results are WIDENED back once, after it finishes. Nothing
+// inside the solve loop ever touches the other precision -- there is no per-iteration conversion
+// and no double accumulator in an fp32 solve. `q_ct` carries the configuration back in CT so the
+// caller can have it at the precision it asked for; errors/costs are reported in double.
+//
+// The joint limits are the one thing the kernel reads from constant memory rather than from a
+// narrowed buffer, so they have their own CT mirror (see c_joint_limits_f / joint_limit<T>).
+// =============================================================================================
+template<typename CT>
+static std::vector<CT> narrow_h(const double* p, size_t n) {
+    std::vector<CT> v(n);
+    for (size_t i = 0; i < n; ++i) v[i] = (CT)p[i];
+    return v;
+}
+template<typename CT>
+static void widen_d2h(const CT* d_src, std::vector<double>& dst, size_t n) {
+    std::vector<CT> tmp(n);
+    CUDA_OK(cudaMemcpy(tmp.data(), d_src, sizeof(CT) * n, cudaMemcpyDeviceToHost));
+    dst.resize(n);
+    for (size_t i = 0; i < n; ++i) dst[i] = (double)tmp[i];
+}
+
+// =============================================================================================
+// PERSISTENT DEVICE WORKSPACE (Phase 0E-A)
+//
+// Every solve used to cudaMalloc ~10 device buffers, cudaFree them, allocate several std::vector
+// staging buffers on the host, and copy the B x N configuration FOUR times on the way out
+// (D2H -> widen to double -> narrow to float -> pybind copy into numpy). At B=2000 that marshalling
+// was ~5.2 ms of a ~20 ms solve -- the largest single stage after the two kernels.
+//
+// The workspace is a single capacity-based device arena, sub-allocated with a bump pointer that is
+// rewound at the start of every launch. Capacity grows geometrically and NEVER shrinks, so a steady
+// stream of same-or-smaller solves performs ZERO cudaMalloc and ZERO cudaFree.
+//
+// The KEY is (device, precision, batch capacity, trace capacity). A request that changes any of them
+// either fits inside the existing capacity or triggers exactly one growth; it never silently reuses
+// an incompatible layout.
+//
+// OWNERSHIP: a workspace is owned by exactly one HJCDSolver. It is NOT a process-global. It is bound
+// to the CUDA device current at construction and to the default stream. It is NOT thread-safe: one
+// active call per instance, enforced by a re-entrancy guard above this layer.
+// =============================================================================================
+class HjcdWorkspace {
+public:
+    HjcdWorkspace() { cudaGetDevice(&device_); }
+    ~HjcdWorkspace() { release(); }
+    HjcdWorkspace(const HjcdWorkspace&) = delete;
+    HjcdWorkspace& operator=(const HjcdWorkspace&) = delete;
+
+    // Bytes needed for one launch at (B, trace_cap) with element size `elem`.
+    static size_t bytes_for(int B, int trace_cap, size_t elem) {
+        const size_t K = (size_t)hjcd::NT, n = (size_t)N, b = (size_t)B;
+        size_t t = 0;
+        t += align(b * n * elem);                       // q
+        t += align(b * K * 3 * elem);                   // tgt_p
+        t += align(b * K * 4 * elem);                   // tgt_q
+        t += align(b * K * elem) * 4;                   // wp, wo, pn, on
+        t += align(b * elem);                           // cost
+        t += align(b * sizeof(unsigned int));           // active
+        t += align(b * sizeof(unsigned char));          // success
+        if (trace_cap > 0) t += align(b * (size_t)trace_cap * 16 * elem);  // trace (>= CTRACE_COLS)
+        return t;
+    }
+
+    // Grow to fit (B, trace_cap, elem). Geometric, never shrinks. Returns true if it allocated.
+    bool ensure(int B, int precision, int trace_cap) {
+        const size_t elem = precision == 1 ? sizeof(float) : sizeof(double);
+        const size_t need = bytes_for(B, trace_cap, elem);
+        if (need <= bytes_ && precision_ == precision) { head_ = 0; return false; }
+        // a precision change reuses the arena when it is already big enough -- the LAYOUT is rebuilt
+        // per launch by the bump allocator, so only total size matters.
+        if (need <= bytes_) { precision_ = precision; head_ = 0; return false; }
+        size_t grow = bytes_ ? bytes_ : need;
+        while (grow < need) grow *= 2;                  // geometric
+        release();
+        CUDA_OK(cudaMalloc(&arena_, grow));
+        ++n_malloc_;
+        bytes_ = grow; precision_ = precision; head_ = 0;
+        cap_B_ = std::max(cap_B_, B); cap_trace_ = std::max(cap_trace_, trace_cap);
+        return true;
+    }
+
+    template <typename T> T* take(size_t n) {
+        const size_t need = align(n * sizeof(T));
+        if (head_ + need > bytes_) return nullptr;      // caller falls back to raw cudaMalloc
+        T* p = reinterpret_cast<T*>(static_cast<char*>(arena_) + head_);
+        head_ += need;
+        return p;
+    }
+    void rewind() { head_ = 0; }
+    void release() {
+        if (arena_) { cudaFree(arena_); ++n_free_; arena_ = nullptr; }
+        bytes_ = 0; head_ = 0;
+    }
+    // instrumentation for the allocation-count test
+    size_t n_malloc() const { return n_malloc_; }
+    size_t n_free() const { return n_free_; }
+    size_t bytes() const { return bytes_; }
+    int cap_B() const { return cap_B_; }
+    int device() const { return device_; }
+
+private:
+    static size_t align(size_t n) { return (n + 255u) & ~(size_t)255u; }
+    void* arena_ = nullptr;
+    size_t bytes_ = 0, head_ = 0;
+    size_t n_malloc_ = 0, n_free_ = 0;
+    int precision_ = -1, cap_B_ = 0, cap_trace_ = 0, device_ = -1;
+};
+
+
+
+// Upload one input array. When the caller's dtype already IS the compute type, this is a plain H2D
+// from the numpy buffer -- no host loop, no staging vector. Otherwise it narrows once, into a
+// reusable per-launch staging buffer.
+template <typename CT>
+static void upload_in(CT* dst, const void* src, bool src_f32, size_t n, std::vector<CT>& stage) {
+    const bool ct_is_f32 = std::is_same<CT, float>::value;
+    if (src_f32 == ct_is_f32) {                       // dtypes match -> straight H2D
+        CUDA_OK(cudaMemcpy(dst, src, sizeof(CT) * n, cudaMemcpyHostToDevice));
+        return;
+    }
+    stage.resize(n);
+    if (src_f32) { const float*  p = (const float*)src;  for (size_t i=0;i<n;++i) stage[i]=(CT)p[i]; }
+    else         { const double* p = (const double*)src; for (size_t i=0;i<n;++i) stage[i]=(CT)p[i]; }
+    CUDA_OK(cudaMemcpy(dst, stage.data(), sizeof(CT) * n, cudaMemcpyHostToDevice));
+}
+
+// D2H a CT device buffer into a double host buffer (widening once, in place, no extra vector).
+template <typename CT>
+static void download_widen(const CT* src, double* dst, size_t n, std::vector<CT>& stage) {
+    if (std::is_same<CT, double>::value) {
+        CUDA_OK(cudaMemcpy(dst, src, sizeof(double) * n, cudaMemcpyDeviceToHost));
+        return;
+    }
+    stage.resize(n);
+    CUDA_OK(cudaMemcpy(stage.data(), src, sizeof(CT) * n, cudaMemcpyDeviceToHost));
+    for (size_t i = 0; i < n; ++i) dst[i] = (double)stage[i];
+}
+
+// The float robot model is a process-lifetime constant, cached like the double one.
+template<typename CT>
+static const grid::robotModel<CT>* robot_model_for(const grid::robotModel<double>* d64);
+template<> const grid::robotModel<double>* robot_model_for<double>(
+        const grid::robotModel<double>* d64) { return d64; }
+template<> const grid::robotModel<float>* robot_model_for<float>(
+        const grid::robotModel<double>*) {
+    static const grid::robotModel<float>* m = grid::init_robotModel<float>();
+    return m;
+}
+
+template<typename CT>
+static CoarseOutputs launch_coarse_mt(
+    const SolveInputs& in,
+    int B, double eps_pos, double eps_ori, double lambda_coord, double h_min, double max_step,
+    int max_iters, int stall_lim, int use_incremental, unsigned long long seed,
+    const grid::robotModel<double>* d_robotModel, bool diagnostics,
+    const void* cc_model, const void* cc_env_ptr, int max_pert_attempts,
+    HjcdWorkspace* ws, void* out_q_ct)
+{
+    if (max_pert_attempts < 1) max_pert_attempts = 1;
+    const int K = hjcd::NT;
+    CoarseOutputs R;
+    R.num_targets = K;
+    R.q.assign((size_t)B * N, 0.0);
+    R.pos_err.assign((size_t)B * K, 0.0);
+    R.ori_err.assign((size_t)B * K, 0.0);
+    R.cost.assign(B, 0.0);
+    R.success.assign(B, 0);
+    R.fp32 = std::is_same<CT, float>::value;
+    R.trace_cols = CTRACE_COLS;
+    R.trace_cap = diagnostics ? max_iters : 0;
+    R.trace.assign((size_t)B * R.trace_cap * CTRACE_COLS, 0.0);
+    if (!in.q || B <= 0 || !d_robotModel || !ws || !out_q_ct) return R;
+    init_joint_limits_from_grid();
+
+    const grid::robotModel<CT>* d_rm = robot_model_for<CT>(d_robotModel);
+    std::vector<CT> stage;                       // reused per-call staging (only for a dtype mismatch)
+
+    ws->ensure(B, std::is_same<CT,float>::value ? 1 : 0, R.trace_cap);
+    ws->rewind();
+    CT* d_q  = ws->take<CT>((size_t)B*N);
+    CT* d_tp = ws->take<CT>((size_t)B*K*3);
+    CT* d_tq = ws->take<CT>((size_t)B*K*4);
+    CT* d_wp = ws->take<CT>((size_t)B*K);
+    CT* d_wo = ws->take<CT>((size_t)B*K);
+    CT* d_pn = ws->take<CT>((size_t)B*K);
+    CT* d_on = ws->take<CT>((size_t)B*K);
+    CT* d_c  = ws->take<CT>((size_t)B);
+    unsigned int*  d_act = ws->take<unsigned int>((size_t)B);
+    unsigned char* d_s   = ws->take<unsigned char>((size_t)B);
+    CT* d_tr = (R.trace_cap > 0) ? ws->take<CT>((size_t)B * R.trace_cap * CTRACE_COLS) : nullptr;
+
+    upload_in<CT>(d_q,  in.q,     in.f32, (size_t)B*N,   stage);
+    upload_in<CT>(d_tp, in.tgt_p, in.f32, (size_t)B*K*3, stage);
+    upload_in<CT>(d_tq, in.tgt_q, in.f32, (size_t)B*K*4, stage);
+    upload_in<CT>(d_wp, in.wp,    in.f32, (size_t)B*K,   stage);
+    upload_in<CT>(d_wo, in.wo,    in.f32, (size_t)B*K,   stage);
+    CUDA_OK(cudaMemcpy(d_act, in.active, sizeof(unsigned int)*B, cudaMemcpyHostToDevice));
+    if (d_tr) CUDA_OK(cudaMemset(d_tr, 0, sizeof(CT) * (size_t)B * R.trace_cap * CTRACE_COLS));
+
+    // Dynamic shared is reserved ENTIRELY for grid_collision::config_free's internal arena; the
+    // coarse scratch is static shared. Zero when the collision gate is off.
+    const int cc_enabled = (cc_model && cc_env_ptr) ? 1 : 0;
+    size_t cc_smem = 0;
+#if defined(HJCD_HAS_COLLISION)
+    if (cc_enabled) {
+        cc_smem = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<float>();
+        CUDA_OK(cudaFuncSetAttribute(coarse_search_mt_kernel<CT>,
+                                     cudaFuncAttributeMaxDynamicSharedMemorySize, (int)cc_smem));
+    }
+    cudaEvent_t ev0, ev1;
+    CUDA_OK(cudaEventCreate(&ev0)); CUDA_OK(cudaEventCreate(&ev1));
+    CUDA_OK(cudaEventRecord(ev0));
+    coarse_search_mt_kernel<CT><<<B, 32, cc_smem>>>(
+        d_q, d_tp, d_tq, d_act, d_wp, d_wo, d_pn, d_on, d_c, d_s, d_tr, R.trace_cap,
+        d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_coord, (CT)h_min, (CT)max_step,
+        max_iters, stall_lim, B, use_incremental, seed, max_pert_attempts,
+        cc_enabled,
+        reinterpret_cast<const grid::robotModel<float>*>(cc_model),
+        cc_env_ptr ? *reinterpret_cast<const grid_collision::Environment<float>*>(cc_env_ptr)
+                   : grid_collision::Environment<float>{});
+#else
+    (void)cc_smem;
+    cudaEvent_t ev0, ev1;
+    CUDA_OK(cudaEventCreate(&ev0)); CUDA_OK(cudaEventCreate(&ev1));
+    CUDA_OK(cudaEventRecord(ev0));
+    coarse_search_mt_kernel<CT><<<B, 32, 0>>>(
+        d_q, d_tp, d_tq, d_act, d_wp, d_wo, d_pn, d_on, d_c, d_s, d_tr, R.trace_cap,
+        d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_coord, (CT)h_min, (CT)max_step,
+        max_iters, stall_lim, B, use_incremental, seed, max_pert_attempts, cc_enabled);
+#endif
+    CUDA_OK(cudaEventRecord(ev1));
+    CUDA_OK(cudaPeekAtLastError());
+    CUDA_OK(cudaDeviceSynchronize());
+    { float ms = 0.f; CUDA_OK(cudaEventElapsedTime(&ms, ev0, ev1)); R.kernel_ms = (double)ms; }
+    CUDA_OK(cudaEventDestroy(ev0)); CUDA_OK(cudaEventDestroy(ev1));
+
+    // The B x N configuration goes STRAIGHT from the device into the caller's numpy buffer -- one
+    // pass. It used to make four (D2H -> widen to double -> narrow back to float -> pybind copy).
+    CUDA_OK(cudaMemcpy(out_q_ct, d_q, sizeof(CT)*(size_t)B*N, cudaMemcpyDeviceToHost));
+    download_widen<CT>(d_pn, R.pos_err.data(), (size_t)B * K, stage);
+    download_widen<CT>(d_on, R.ori_err.data(), (size_t)B * K, stage);
+    download_widen<CT>(d_c,  R.cost.data(),    (size_t)B,     stage);
+    CUDA_OK(cudaMemcpy(R.success.data(), d_s, sizeof(unsigned char)*B, cudaMemcpyDeviceToHost));
+
+    if (d_tr) {
+        download_widen<CT>(d_tr, R.trace.data(), R.trace.size(), stage);
+        // Every public coarse counter is DERIVED FROM THE TRACE (Phase-3C rule). Row validity is
+        // column 0 -- explicit, never inferred.
+        R.iterations.assign(B, 0); R.accepted.assign(B, 0); R.rejected.assign(B, 0);
+        R.perturbations.assign(B, 0); R.max_stall.assign(B, 0);
+        R.pert_events.assign(B, 0); R.pert_attempts.assign(B, 0);
+        R.pert_rejected.assign(B, 0); R.pert_exhausted.assign(B, 0);
+        for (int b = 0; b < B; ++b) {
+            int n = 0, acc = 0, pert = 0, mstall = 0;
+            int pev = 0, patt = 0, prej = 0, pexh = 0;
+            for (int i = 0; i < R.trace_cap; ++i) {
+                const double* row = &R.trace[((size_t)b * R.trace_cap + i) * CTRACE_COLS];
+                if (row[0] == 0.0) continue;
+                ++n;
+                acc  += (int)llrint(row[7]);
+                pert += (int)llrint(row[9]);
+                mstall = std::max(mstall, (int)llrint(row[8]));
+                const int att = (int)llrint(row[10]);
+                patt += att;
+                if (att > 0) ++pev;                  // the kick fired this iteration
+                prej += (int)llrint(row[11]);
+                pexh += (int)llrint(row[12]);
+            }
+            R.iterations[b] = n;
+            R.accepted[b] = acc;
+            R.rejected[b] = n - acc;
+            R.perturbations[b] = pert;
+            R.max_stall[b] = mstall;
+            R.pert_events[b] = pev;
+            R.pert_attempts[b] = patt;
+            R.pert_rejected[b] = prej;
+            R.pert_exhausted[b] = pexh;
+        }
+    }
+    return R;                    // every buffer above lives in the workspace: nothing to free
+}
+
+// Public entry point. precision: 0 = float64 (default), 1 = float32. Validated above this layer.
+CoarseOutputs compute_coarse_search(
+    const SolveInputs& in,
+    int B, double eps_pos, double eps_ori, double lambda_coord, double h_min, double max_step,
+    int max_iters, int stall_lim, int use_incremental, unsigned long long seed,
+    const grid::robotModel<double>* d_robotModel, bool diagnostics,
+    const void* cc_model, const void* cc_env_ptr, int max_pert_attempts, int precision,
+    HjcdWorkspace* ws, void* out_q_ct)
+{
+    if (precision == 1)
+        return launch_coarse_mt<float>(in, B, eps_pos, eps_ori, lambda_coord, h_min, max_step,
+                                       max_iters, stall_lim, use_incremental, seed,
+                                       d_robotModel, diagnostics, cc_model, cc_env_ptr,
+                                       max_pert_attempts, ws, out_q_ct);
+    return launch_coarse_mt<double>(in, B, eps_pos, eps_ori, lambda_coord, h_min, max_step,
+                                    max_iters, stall_lim, use_incremental, seed,
+                                    d_robotModel, diagnostics, cc_model, cc_env_ptr,
+                                    max_pert_attempts, ws, out_q_ct);
+}
+
+template<typename CT>
+static LMRefineOutputs launch_lm_mt(
+    const SolveInputs& in,
+    int B, double eps_pos, double eps_ori, double lambda_init, int max_iters,
+    const grid::robotModel<double>* d_robotModel, bool diagnostics,
+    int stag_patience, double stag_rel,
+    HjcdWorkspace* ws, void* out_q_ct)
+{
+    const int K = hjcd::NT;
+    LMRefineOutputs R;
+    R.num_targets = K;
+    R.q.assign((size_t)B * N, 0.0);
+    R.pos_err.assign((size_t)B * K, 0.0);
+    R.ori_err.assign((size_t)B * K, 0.0);
+    R.cost.assign(B, 0.0);
+    R.success.assign(B, 0);
+    R.fp32 = std::is_same<CT, float>::value;
+    R.trace_cols = TRACE_COLS;
+    R.trace_cap = diagnostics ? max_iters : 0;
+    R.trace.assign((size_t)B * R.trace_cap * TRACE_COLS, 0.0);
+    if (!in.q || B <= 0 || !d_robotModel || !ws || !out_q_ct) return R;
+    init_joint_limits_from_grid();
+
+    const grid::robotModel<CT>* d_rm = robot_model_for<CT>(d_robotModel);
+    std::vector<CT> stage;
+
+    ws->ensure(B, std::is_same<CT,float>::value ? 1 : 0, R.trace_cap);
+    ws->rewind();
+    CT* d_q  = ws->take<CT>((size_t)B*N);
+    CT* d_tp = ws->take<CT>((size_t)B*K*3);
+    CT* d_tq = ws->take<CT>((size_t)B*K*4);
+    CT* d_wp = ws->take<CT>((size_t)B*K);
+    CT* d_wo = ws->take<CT>((size_t)B*K);
+    CT* d_pn = ws->take<CT>((size_t)B*K);
+    CT* d_on = ws->take<CT>((size_t)B*K);
+    CT* d_c  = ws->take<CT>((size_t)B);
+    unsigned int*  d_act = ws->take<unsigned int>((size_t)B);
+    unsigned char* d_s   = ws->take<unsigned char>((size_t)B);
+    upload_in<CT>(d_q,  in.q,     in.f32, (size_t)B*N,   stage);
+    upload_in<CT>(d_tp, in.tgt_p, in.f32, (size_t)B*K*3, stage);
+    upload_in<CT>(d_tq, in.tgt_q, in.f32, (size_t)B*K*4, stage);
+    upload_in<CT>(d_wp, in.wp,    in.f32, (size_t)B*K,   stage);
+    upload_in<CT>(d_wo, in.wo,    in.f32, (size_t)B*K,   stage);
+    CUDA_OK(cudaMemcpy(d_act, in.active, sizeof(unsigned int)*B, cudaMemcpyHostToDevice));
+
+    const int W = 1;                       // one warp per candidate (measured fastest; see CLAUDE.md)
+    const size_t smem = (size_t)W * sizeof(LMScratch<CT>);
+    if (smem > 48u * 1024u)
+        CUDA_OK(cudaFuncSetAttribute(lm_multi_target_kernel<CT>,
+                                     cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smem));
+    CT* d_tr = (R.trace_cap > 0) ? ws->take<CT>((size_t)B * R.trace_cap * TRACE_COLS) : nullptr;
+    if (d_tr) CUDA_OK(cudaMemset(d_tr, 0, sizeof(CT) * (size_t)B * R.trace_cap * TRACE_COLS));
+    // CUDA-event device time for THIS launch. Reported alongside the end-to-end time of the SAME
+    // invocation, so the two are always commensurable (see the Phase-0C timing note).
+    cudaEvent_t ev0, ev1;
+    CUDA_OK(cudaEventCreate(&ev0)); CUDA_OK(cudaEventCreate(&ev1));
+    CUDA_OK(cudaEventRecord(ev0));
+    lm_multi_target_kernel<CT><<<(B + W - 1) / W, 32 * W, smem>>>(
+        d_q, d_tp, d_tq, d_act, d_wp, d_wo, d_pn, d_on, d_c, d_s, /*out_pose=*/nullptr,
+        d_tr, R.trace_cap,
+        d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_init, max_iters, B, /*stop_on_first=*/0,
+        stag_patience, (CT)stag_rel);
+    CUDA_OK(cudaEventRecord(ev1));
+    CUDA_OK(cudaPeekAtLastError());
+    CUDA_OK(cudaDeviceSynchronize());
+    { float ms = 0.f; CUDA_OK(cudaEventElapsedTime(&ms, ev0, ev1)); R.kernel_ms = (double)ms; }
+    CUDA_OK(cudaEventDestroy(ev0)); CUDA_OK(cudaEventDestroy(ev1));
+
+    CUDA_OK(cudaMemcpy(out_q_ct, d_q, sizeof(CT)*(size_t)B*N, cudaMemcpyDeviceToHost));
+    download_widen<CT>(d_pn, R.pos_err.data(), (size_t)B * K, stage);
+    download_widen<CT>(d_on, R.ori_err.data(), (size_t)B * K, stage);
+    download_widen<CT>(d_c,  R.cost.data(),    (size_t)B,     stage);
+    CUDA_OK(cudaMemcpy(R.success.data(), d_s, sizeof(unsigned char)*B, cudaMemcpyDeviceToHost));
+    if (d_tr) {
+        download_widen<CT>(d_tr, R.trace.data(), R.trace.size(), stage);
+
+        // Derive every public LM diagnostic from the trace -- the authoritative source.
+        //   lm_iterations   = number of rows whose explicit VALID flag is set
+        //   lm_trials       = cumulative trial count on the last valid row
+        //   accepted_steps  = cumulative accepted count on the last valid row
+        //   rejected_steps  = lm_iterations - accepted_steps
+        //   line_searches   = cumulative line-search count on the last valid row
+        // A problem that converged on entry wrote no rows: everything is 0, by convention.
+        R.lm_iterations.assign(B, 0);
+        R.lm_trials.assign(B, 0);
+        R.line_searches.assign(B, 0);
+        R.accepted_steps.assign(B, 0);
+        R.rejected_steps.assign(B, 0);
+        for (int b = 0; b < B; ++b) {
+            int n = 0, last = -1;
+            for (int i = 0; i < R.trace_cap; ++i) {
+                const double* row = &R.trace[((size_t)b * R.trace_cap + i) * TRACE_COLS];
+                if (row[0] != 0.0) { ++n; last = i; }
+            }
+            R.lm_iterations[b] = n;
+            if (last >= 0) {
+                const double* row = &R.trace[((size_t)b * R.trace_cap + last) * TRACE_COLS];
+                R.lm_trials[b]      = (int)llrint(row[2]);
+                R.accepted_steps[b] = (int)llrint(row[4]);
+                R.line_searches[b]  = (int)llrint(row[9]);
+                R.rejected_steps[b] = n - R.accepted_steps[b];
+            }
+        }
+    }
+    return R;                    // workspace-owned buffers: nothing to free
+}
+
+// Public entry point. precision: 0 = float64 (default), 1 = float32.
+LMRefineOutputs compute_lm_refine(
+    const SolveInputs& in,
+    int B, double eps_pos, double eps_ori, double lambda_init, int max_iters,
+    const grid::robotModel<double>* d_robotModel, bool diagnostics, int precision,
+    int stag_patience, double stag_rel, HjcdWorkspace* ws, void* out_q_ct)
+{
+    if (precision == 1)
+        return launch_lm_mt<float>(in, B, eps_pos, eps_ori, lambda_init, max_iters,
+                                   d_robotModel, diagnostics, stag_patience, stag_rel,
+                                   ws, out_q_ct);
+    return launch_lm_mt<double>(in, B, eps_pos, eps_ori, lambda_init, max_iters,
+                                d_robotModel, diagnostics, stag_patience, stag_rel,
+                                ws, out_q_ct);
+}
+
+// Workspace factory (the solver object owns one).
+HjcdWorkspace* hjcd_workspace_new() { return new HjcdWorkspace(); }
+void hjcd_workspace_free(HjcdWorkspace* w) { delete w; }
+void hjcd_workspace_stats(const HjcdWorkspace* w, size_t* n_malloc, size_t* n_free,
+                          size_t* bytes, int* cap_B, int* device) {
+    *n_malloc = w->n_malloc(); *n_free = w->n_free(); *bytes = w->bytes();
+    *cap_B = w->cap_B(); *device = w->device();
+}
+
+IncrementalOutputs compute_incremental_probe(
+    const double* h_q, const int* h_upd_j, const double* h_upd_v,
+    const unsigned char* h_accept, int M,
+    const double* h_tgt_p, const double* h_tgt_q, const unsigned int* h_active,
+    const double* h_wp, const double* h_wo, int B,
+    const grid::robotModel<double>* d_robotModel)
+{
+    const int K = hjcd::NT;
+    IncrementalOutputs R;
+    R.n = N; R.num_targets = K;
+    R.q.assign((size_t)B*N, 0.0);
+    R.joint_xform.assign((size_t)B*N*16, 0.0);
+    R.target_xform.assign((size_t)B*K*16, 0.0);
+    R.e_pos.assign((size_t)B*K*3, 0.0);
+    R.e_ori.assign((size_t)B*K*3, 0.0);
+    R.pos_norm.assign((size_t)B*K, 0.0);
+    R.ori_norm.assign((size_t)B*K, 0.0);
+    R.cost.assign((size_t)B*K, 0.0);
+    R.total_cost.assign(B, 0.0);
+    if (!h_q || B <= 0 || M < 0 || !d_robotModel) return R;
+
+    double *d_q,*d_v,*d_tp,*d_tq,*d_wp,*d_wo,*d_oq,*d_jx,*d_tx,*d_ep,*d_eo,*d_pn,*d_on,*d_ck,*d_tot;
+    int* d_j; unsigned char* d_ac; unsigned int* d_act;
+    const size_t Mn = (size_t)B * (M > 0 ? M : 1);
+    CUDA_OK(cudaMalloc(&d_q,  sizeof(double)*(size_t)B*N));
+    CUDA_OK(cudaMalloc(&d_j,  sizeof(int)*Mn));
+    CUDA_OK(cudaMalloc(&d_v,  sizeof(double)*Mn));
+    CUDA_OK(cudaMalloc(&d_ac, sizeof(unsigned char)*Mn));
+    CUDA_OK(cudaMalloc(&d_tp, sizeof(double)*(size_t)B*K*3));
+    CUDA_OK(cudaMalloc(&d_tq, sizeof(double)*(size_t)B*K*4));
+    CUDA_OK(cudaMalloc(&d_act, sizeof(unsigned int)*B));
+    CUDA_OK(cudaMalloc(&d_wp, sizeof(double)*(size_t)B*K));
+    CUDA_OK(cudaMalloc(&d_wo, sizeof(double)*(size_t)B*K));
+    CUDA_OK(cudaMalloc(&d_oq, sizeof(double)*R.q.size()));
+    CUDA_OK(cudaMalloc(&d_jx, sizeof(double)*R.joint_xform.size()));
+    CUDA_OK(cudaMalloc(&d_tx, sizeof(double)*R.target_xform.size()));
+    CUDA_OK(cudaMalloc(&d_ep, sizeof(double)*R.e_pos.size()));
+    CUDA_OK(cudaMalloc(&d_eo, sizeof(double)*R.e_ori.size()));
+    CUDA_OK(cudaMalloc(&d_pn, sizeof(double)*R.pos_norm.size()));
+    CUDA_OK(cudaMalloc(&d_on, sizeof(double)*R.ori_norm.size()));
+    CUDA_OK(cudaMalloc(&d_ck, sizeof(double)*R.cost.size()));
+    CUDA_OK(cudaMalloc(&d_tot, sizeof(double)*B));
+    CUDA_OK(cudaMemcpy(d_q, h_q, sizeof(double)*(size_t)B*N, cudaMemcpyHostToDevice));
+    if (M > 0) {
+        CUDA_OK(cudaMemcpy(d_j, h_upd_j, sizeof(int)*Mn, cudaMemcpyHostToDevice));
+        CUDA_OK(cudaMemcpy(d_v, h_upd_v, sizeof(double)*Mn, cudaMemcpyHostToDevice));
+        CUDA_OK(cudaMemcpy(d_ac, h_accept, sizeof(unsigned char)*Mn, cudaMemcpyHostToDevice));
+    }
+    CUDA_OK(cudaMemcpy(d_tp, h_tgt_p, sizeof(double)*(size_t)B*K*3, cudaMemcpyHostToDevice));
+    CUDA_OK(cudaMemcpy(d_tq, h_tgt_q, sizeof(double)*(size_t)B*K*4, cudaMemcpyHostToDevice));
+    CUDA_OK(cudaMemcpy(d_act, h_active, sizeof(unsigned int)*B, cudaMemcpyHostToDevice));
+    CUDA_OK(cudaMemcpy(d_wp, h_wp, sizeof(double)*(size_t)B*K, cudaMemcpyHostToDevice));
+    CUDA_OK(cudaMemcpy(d_wo, h_wo, sizeof(double)*(size_t)B*K, cudaMemcpyHostToDevice));
+
+    incremental_probe_kernel<double><<<B, 32>>>(
+        d_q, d_j, d_v, d_ac, M, d_tp, d_tq, d_act, d_wp, d_wo,
+        d_oq, d_jx, d_tx, d_ep, d_eo, d_pn, d_on, d_ck, d_tot, d_robotModel, B);
+    CUDA_OK(cudaPeekAtLastError());
+    CUDA_OK(cudaDeviceSynchronize());
+
+    auto D2H = [](void* h, const void* d, size_t n){ CUDA_OK(cudaMemcpy(h,d,n,cudaMemcpyDeviceToHost)); };
+    D2H(R.q.data(), d_oq, sizeof(double)*R.q.size());
+    D2H(R.joint_xform.data(), d_jx, sizeof(double)*R.joint_xform.size());
+    D2H(R.target_xform.data(), d_tx, sizeof(double)*R.target_xform.size());
+    D2H(R.e_pos.data(), d_ep, sizeof(double)*R.e_pos.size());
+    D2H(R.e_ori.data(), d_eo, sizeof(double)*R.e_ori.size());
+    D2H(R.pos_norm.data(), d_pn, sizeof(double)*R.pos_norm.size());
+    D2H(R.ori_norm.data(), d_on, sizeof(double)*R.ori_norm.size());
+    D2H(R.cost.data(), d_ck, sizeof(double)*R.cost.size());
+    D2H(R.total_cost.data(), d_tot, sizeof(double)*B);
+    for (void* p : {(void*)d_q,(void*)d_j,(void*)d_v,(void*)d_ac,(void*)d_tp,(void*)d_tq,(void*)d_act,
+                    (void*)d_wp,(void*)d_wo,(void*)d_oq,(void*)d_jx,(void*)d_tx,(void*)d_ep,
+                    (void*)d_eo,(void*)d_pn,(void*)d_on,(void*)d_ck,(void*)d_tot}) cudaFree(p);
+    return R;
+}
+
+double bench_fk_mode(const double* h_q, int j, int iters, int mode,
+                     const double* h_tgt_p, const double* h_tgt_q, const unsigned int* h_active,
+                     const double* h_wp, const double* h_wo, int B,
+                     const grid::robotModel<double>* d_robotModel)
+{
+    const int K = hjcd::NT;
+    double *d_q,*d_tp,*d_tq,*d_wp,*d_wo,*d_sink; unsigned int* d_act;
+    CUDA_OK(cudaMalloc(&d_q, sizeof(double)*(size_t)B*N));
+    CUDA_OK(cudaMalloc(&d_tp, sizeof(double)*(size_t)B*K*3));
+    CUDA_OK(cudaMalloc(&d_tq, sizeof(double)*(size_t)B*K*4));
+    CUDA_OK(cudaMalloc(&d_act, sizeof(unsigned int)*B));
+    CUDA_OK(cudaMalloc(&d_wp, sizeof(double)*(size_t)B*K));
+    CUDA_OK(cudaMalloc(&d_wo, sizeof(double)*(size_t)B*K));
+    CUDA_OK(cudaMalloc(&d_sink, sizeof(double)*B));
+    CUDA_OK(cudaMemcpy(d_q, h_q, sizeof(double)*(size_t)B*N, cudaMemcpyHostToDevice));
+    CUDA_OK(cudaMemcpy(d_tp, h_tgt_p, sizeof(double)*(size_t)B*K*3, cudaMemcpyHostToDevice));
+    CUDA_OK(cudaMemcpy(d_tq, h_tgt_q, sizeof(double)*(size_t)B*K*4, cudaMemcpyHostToDevice));
+    CUDA_OK(cudaMemcpy(d_act, h_active, sizeof(unsigned int)*B, cudaMemcpyHostToDevice));
+    CUDA_OK(cudaMemcpy(d_wp, h_wp, sizeof(double)*(size_t)B*K, cudaMemcpyHostToDevice));
+    CUDA_OK(cudaMemcpy(d_wo, h_wo, sizeof(double)*(size_t)B*K, cudaMemcpyHostToDevice));
+
+    for (int w = 0; w < 3; ++w) {          // warmup
+        fk_bench_kernel<double><<<B, 32>>>(d_q, j, 32, mode, d_tp, d_tq, d_act, d_wp, d_wo,
+                                           d_sink, d_robotModel, B);
+    }
+    CUDA_OK(cudaDeviceSynchronize());
+
+    cudaEvent_t e0, e1;
+    cudaEventCreate(&e0); cudaEventCreate(&e1);
+    cudaEventRecord(e0);
+    fk_bench_kernel<double><<<B, 32>>>(d_q, j, iters, mode, d_tp, d_tq, d_act, d_wp, d_wo,
+                                       d_sink, d_robotModel, B);
+    cudaEventRecord(e1);
+    CUDA_OK(cudaEventSynchronize(e1));
+    float ms = 0.f;
+    cudaEventElapsedTime(&ms, e0, e1);
+    cudaEventDestroy(e0); cudaEventDestroy(e1);
+    CUDA_OK(cudaPeekAtLastError());
+    for (void* p : {(void*)d_q,(void*)d_tp,(void*)d_tq,(void*)d_act,(void*)d_wp,(void*)d_wo,
+                    (void*)d_sink}) cudaFree(p);
+    return (double)ms;
+}
+
+NormalEquations compute_normal_equations(
+    const double* h_q, const double* h_tgt_p, const double* h_tgt_q,
+    const unsigned int* h_active, const double* h_wp, const double* h_wo, int B,
+    const grid::robotModel<double>* d_robotModel)
+{
+    const int K = hjcd::NT;
+    NormalEquations R;
+    R.n = N;
+    R.A.assign((size_t)B * N * N, 0.0);
+    R.b.assign((size_t)B * N, 0.0);
+    if (!h_q || B <= 0 || !d_robotModel) return R;
+
+    double *d_q, *d_tp, *d_tq, *d_wp, *d_wo, *d_A, *d_b;
+    unsigned int* d_act;
+    CUDA_OK(cudaMalloc(&d_q,  sizeof(double)*(size_t)B*N));
+    CUDA_OK(cudaMalloc(&d_tp, sizeof(double)*(size_t)B*K*3));
+    CUDA_OK(cudaMalloc(&d_tq, sizeof(double)*(size_t)B*K*4));
+    CUDA_OK(cudaMalloc(&d_act, sizeof(unsigned int)*B));
+    CUDA_OK(cudaMalloc(&d_wp, sizeof(double)*(size_t)B*K));
+    CUDA_OK(cudaMalloc(&d_wo, sizeof(double)*(size_t)B*K));
+    CUDA_OK(cudaMalloc(&d_A,  sizeof(double)*R.A.size()));
+    CUDA_OK(cudaMalloc(&d_b,  sizeof(double)*R.b.size()));
+    CUDA_OK(cudaMemcpy(d_q,  h_q,  sizeof(double)*(size_t)B*N, cudaMemcpyHostToDevice));
+    CUDA_OK(cudaMemcpy(d_tp, h_tgt_p, sizeof(double)*(size_t)B*K*3, cudaMemcpyHostToDevice));
+    CUDA_OK(cudaMemcpy(d_tq, h_tgt_q, sizeof(double)*(size_t)B*K*4, cudaMemcpyHostToDevice));
+    CUDA_OK(cudaMemcpy(d_act, h_active, sizeof(unsigned int)*B, cudaMemcpyHostToDevice));
+    CUDA_OK(cudaMemcpy(d_wp, h_wp, sizeof(double)*(size_t)B*K, cudaMemcpyHostToDevice));
+    CUDA_OK(cudaMemcpy(d_wo, h_wo, sizeof(double)*(size_t)B*K, cudaMemcpyHostToDevice));
+
+    normal_equations_kernel<double><<<B, 32>>>(d_q, d_tp, d_tq, d_act, d_wp, d_wo, d_A, d_b,
+                                               d_robotModel, B);
+    CUDA_OK(cudaPeekAtLastError());
+    CUDA_OK(cudaDeviceSynchronize());
+    CUDA_OK(cudaMemcpy(R.A.data(), d_A, sizeof(double)*R.A.size(), cudaMemcpyDeviceToHost));
+    CUDA_OK(cudaMemcpy(R.b.data(), d_b, sizeof(double)*R.b.size(), cudaMemcpyDeviceToHost));
+    for (void* p : {(void*)d_q,(void*)d_tp,(void*)d_tq,(void*)d_act,(void*)d_wp,(void*)d_wo,
+                    (void*)d_A,(void*)d_b}) cudaFree(p);
+    return R;
+}
+
+ResidualOutputs compute_target_residuals(
+    const double* h_q, const double* h_tgt_p, const double* h_tgt_q,
+    const unsigned int* h_active, const double* h_wp, const double* h_wo,
+    const double* h_eps_p, const double* h_eps_o, int B,
+    const grid::robotModel<double>* d_robotModel)
+{
+    const int K = hjcd::NT;
+    ResidualOutputs R;
+    R.num_targets = K;
+    R.e_pos.assign((size_t)B * K * 3, 0.0);
+    R.e_ori.assign((size_t)B * K * 3, 0.0);
+    R.pos_norm.assign((size_t)B * K, 0.0);
+    R.ori_norm.assign((size_t)B * K, 0.0);
+    R.cost.assign((size_t)B * K, 0.0);
+    R.cost_raw.assign(B, 0.0);
+    R.cost_norm.assign(B, 0.0);
+    R.success.assign((size_t)B * K, 0);
+    R.success_all.assign(B, 0);
+    if (!h_q || B <= 0 || !d_robotModel) return R;
+
+    double *d_q, *d_tp, *d_tq, *d_wp, *d_wo, *d_ep, *d_eo;
+    unsigned int* d_act;
+    double *d_epos, *d_eori, *d_pn, *d_on, *d_c, *d_craw, *d_cnorm;
+    unsigned char *d_succ, *d_sall;
+    auto M = [](void** p, size_t n) { CUDA_OK(cudaMalloc(p, n)); };
+    M((void**)&d_q,   sizeof(double) * (size_t)B * N);
+    M((void**)&d_tp,  sizeof(double) * (size_t)B * K * 3);
+    M((void**)&d_tq,  sizeof(double) * (size_t)B * K * 4);
+    M((void**)&d_act, sizeof(unsigned int) * B);
+    M((void**)&d_wp,  sizeof(double) * (size_t)B * K);
+    M((void**)&d_wo,  sizeof(double) * (size_t)B * K);
+    M((void**)&d_ep,  sizeof(double) * K);
+    M((void**)&d_eo,  sizeof(double) * K);
+    M((void**)&d_epos, sizeof(double) * (size_t)B * K * 3);
+    M((void**)&d_eori, sizeof(double) * (size_t)B * K * 3);
+    M((void**)&d_pn,  sizeof(double) * (size_t)B * K);
+    M((void**)&d_on,  sizeof(double) * (size_t)B * K);
+    M((void**)&d_c,   sizeof(double) * (size_t)B * K);
+    M((void**)&d_craw, sizeof(double) * B);
+    M((void**)&d_cnorm, sizeof(double) * B);
+    M((void**)&d_succ, sizeof(unsigned char) * (size_t)B * K);
+    M((void**)&d_sall, sizeof(unsigned char) * B);
+
+    auto H2D = [](void* d, const void* h, size_t n) {
+        CUDA_OK(cudaMemcpy(d, h, n, cudaMemcpyHostToDevice));
+    };
+    H2D(d_q,   h_q,     sizeof(double) * (size_t)B * N);
+    H2D(d_tp,  h_tgt_p, sizeof(double) * (size_t)B * K * 3);
+    H2D(d_tq,  h_tgt_q, sizeof(double) * (size_t)B * K * 4);
+    H2D(d_act, h_active, sizeof(unsigned int) * B);
+    H2D(d_wp,  h_wp,    sizeof(double) * (size_t)B * K);
+    H2D(d_wo,  h_wo,    sizeof(double) * (size_t)B * K);
+    H2D(d_ep,  h_eps_p, sizeof(double) * K);
+    H2D(d_eo,  h_eps_o, sizeof(double) * K);
+
+    target_residual_kernel<double><<<B, 32>>>(
+        d_q, d_tp, d_tq, d_act, d_wp, d_wo, d_ep, d_eo,
+        d_epos, d_eori, d_pn, d_on, d_c, d_craw, d_cnorm, d_succ, d_sall, d_robotModel, B);
+    CUDA_OK(cudaPeekAtLastError());
+    CUDA_OK(cudaDeviceSynchronize());
+
+    auto D2H = [](void* h, const void* d, size_t n) {
+        CUDA_OK(cudaMemcpy(h, d, n, cudaMemcpyDeviceToHost));
+    };
+    D2H(R.e_pos.data(), d_epos, sizeof(double) * (size_t)B * K * 3);
+    D2H(R.e_ori.data(), d_eori, sizeof(double) * (size_t)B * K * 3);
+    D2H(R.pos_norm.data(), d_pn, sizeof(double) * (size_t)B * K);
+    D2H(R.ori_norm.data(), d_on, sizeof(double) * (size_t)B * K);
+    D2H(R.cost.data(), d_c, sizeof(double) * (size_t)B * K);
+    D2H(R.cost_raw.data(), d_craw, sizeof(double) * B);
+    D2H(R.cost_norm.data(), d_cnorm, sizeof(double) * B);
+    D2H(R.success.data(), d_succ, sizeof(unsigned char) * (size_t)B * K);
+    D2H(R.success_all.data(), d_sall, sizeof(unsigned char) * B);
+
+    for (void* p : {(void*)d_q,(void*)d_tp,(void*)d_tq,(void*)d_act,(void*)d_wp,(void*)d_wo,
+                    (void*)d_ep,(void*)d_eo,(void*)d_epos,(void*)d_eori,(void*)d_pn,(void*)d_on,
+                    (void*)d_c,(void*)d_craw,(void*)d_cnorm,(void*)d_succ,(void*)d_sall})
+        cudaFree(p);
+    return R;
 }
 
 // SAMPLE CONFIG
@@ -1608,6 +3499,45 @@ __global__ void cast_array(const Src* __restrict__ in,
     if (i < n) out[i] = (Dst)in[i];
 }
 
+// Uniform random seeds inside the joint limits -- the restart set every mode starts from. The
+// legacy coarse kernel generated these internally; the new pipeline makes them explicit so the
+// LM-only and multi-target-coarse modes start from exactly the same seeds.
+// Position (mm) and orientation (rad) error of a batch of EE poses against one 7-vector target.
+template <typename T>
+__global__ void pose_errors_kernel(const T* __restrict__ pose7, const T* __restrict__ target7,
+                                   T* __restrict__ pos_mm, T* __restrict__ ori_rad, int B) {
+    const int b = blockIdx.x * blockDim.x + threadIdx.x;
+    if (b >= B) return;
+    const T* P = &pose7[(size_t)b * 7];
+    const T dx = P[0]-target7[0], dy = P[1]-target7[1], dz = P[2]-target7[2];
+    pos_mm[b] = sqrt(dx*dx + dy*dy + dz*dz) * (T)1000;
+    T qc[4] = {P[3], P[4], P[5], P[6]};
+    const T* qt = &target7[3];
+    if (qc[0]*qt[0]+qc[1]*qt[1]+qc[2]*qt[2]+qc[3]*qt[3] < (T)0)
+        { qc[0]=-qc[0]; qc[1]=-qc[1]; qc[2]=-qc[2]; qc[3]=-qc[3]; }
+    T wv[3];
+    quat_err_rotvec(qc, qt, wv);
+    ori_rad[b] = sqrt(wv[0]*wv[0] + wv[1]*wv[1] + wv[2]*wv[2]);
+}
+
+template <typename T>
+__global__ void random_seed_kernel(T* __restrict__ x, int B, uint64_t seed) {
+    const int b = blockIdx.x * blockDim.x + threadIdx.x;
+    if (b >= B) return;
+    for (int j = 0; j < N; ++j) {
+        const uint32_t h = wanghash((uint32_t)(seed ^ (uint64_t)(b * 2654435761u + j * 40503u)));
+        const T u = (T)((h & 0xFFFFFFu) / (T)0x1000000u);
+        const double2 L = c_joint_limits[j];
+        x[(size_t)b * N + j] = (T)L.x + u * (T)(L.y - L.x);
+    }
+}
+
+template <typename T>
+__global__ void scale_array(T* __restrict__ v, T s, int n) {
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) v[i] *= s;
+}
+
 // Threads per block for the collision-scoring kernel (power of two for the reduction).
 static constexpr int CC_TPB = 128;
 
@@ -1694,6 +3624,35 @@ __global__ void mark_collisions(
 }
 #endif  // HJCD_HAS_COLLISION
 
+// Exact collision check for a batch of configs, using the SAME evaluator the solver gates on
+// (grid_collision::config_free -- SELF + environment). Test/introspection entry point.
+std::vector<unsigned char> check_collision_free(
+    const double* h_q, int B, const char* json, const char* set_name, int idx)
+{
+    std::vector<unsigned char> out((size_t)B, 1);
+#if defined(HJCD_HAS_COLLISION)
+    if (!bind_collision_env(json, set_name, idx)) return out;
+    double* d_q = nullptr; unsigned char* d_v = nullptr;
+    CUDA_OK(cudaMalloc(&d_q, sizeof(double)*(size_t)B*N));
+    CUDA_OK(cudaMalloc(&d_v, sizeof(unsigned char)*(size_t)B));
+    CUDA_OK(cudaMemcpy(d_q, h_q, sizeof(double)*(size_t)B*N, cudaMemcpyHostToDevice));
+    const size_t cc_smem = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<float>();
+    CUDA_OK(cudaFuncSetAttribute((const void*)mark_collisions,
+                                 cudaFuncAttributeMaxDynamicSharedMemorySize, (int)cc_smem));
+    mark_collisions<<<B, CC_TPB, cc_smem>>>(
+        d_q, B, d_v,
+        reinterpret_cast<const grid::robotModel<float>*>(collision_model_ptr()),
+        *reinterpret_cast<const grid_collision::Environment<float>*>(collision_env_ptr()));
+    CUDA_OK(cudaPeekAtLastError());
+    CUDA_OK(cudaDeviceSynchronize());
+    CUDA_OK(cudaMemcpy(out.data(), d_v, sizeof(unsigned char)*(size_t)B, cudaMemcpyDeviceToHost));
+    cudaFree(d_q); cudaFree(d_v);
+#else
+    (void)h_q; (void)json; (void)set_name; (void)idx;
+#endif
+    return out;
+}
+
 const double ENV_COLLISION_COST_W = 1.5;
 const double CC_HARD_PENALTY      = 1e12;  // added to a colliding candidate's score in hard mode
 const double ORI_TARGET_RAD = 1.1e-4;
@@ -1714,7 +3673,10 @@ Result<T> generate_ik_solutions(
     const char* problems_json_text,
     const char* problem_set_name,
     int problem_idx,
-    bool write_stats
+    bool write_stats,
+    int coarse_mode,          // 0 auto | 1 none (LM-only) | 2 multi_target | 3 legacy
+    int coarse_iters,
+    int coarse_incremental
 )
 {
     init_joint_limits_from_grid();
@@ -1846,67 +3808,124 @@ Result<T> generate_ik_solutions(
         cudaGetLastError();
     }
 
-    // COARSE SEARCH
+    // ---------------------------------------------------------------------------------------
+    // SEEDS + COARSE STAGE (auto-dispatched)
+    //
+    // coarse_mode:  0 auto | 1 none (LM-only) | 2 multi_target (new) | 3 legacy (old Panda coarse)
+    //
+    // AUTO dispatches on the number of ACTIVE TARGET BITS, __popc(active_target_mask) -- never on
+    // the generated MAX_TARGETS/NUM_TARGETS:
+    //     popcount == 1  -> LM only        (measured: the coarse search WORSENS K=1 accuracy)
+    //     popcount >= 2  -> new coarse -> LM (measured: LM alone converges 0% on G1 K=4)
+    //
+    // The public single-target API enters here as K=1, active_target_mask = 0b1, coarse_mode = auto,
+    // so it takes the LM-only branch. The legacy Panda coarse search is reachable ONLY by asking for
+    // it explicitly (coarse_mode = legacy); it is never an implicit default.
+    // ---------------------------------------------------------------------------------------
+    const unsigned int single_mask = 1u;                       // K = 1 for this public entry point
+    const int popc = __builtin_popcount(single_mask);
+    int mode = coarse_mode;
+    if (mode == 0) mode = (popc >= 2) ? 2 : 1;                 // auto
+    const bool run_coarse = (mode == 2 || mode == 3);
+
+    // Explicit random restarts, shared by every mode.
     {
-        // threads-per-block request ~ 2N warps
+        const int tpb = 256, gpb = (B + tpb - 1) / tpb;
+        random_seed_kernel<TC><<<gpb, tpb>>>(d_x_c, B, 0x5EEDull ^ (uint64_t)B);
+        cudaGetLastError();
+        CUDA_OK(cudaDeviceSynchronize());
+    }
+
+    if (mode == 3) {
+        // ---- LEGACY: the old single-target coarse search (compatibility / ablation only) -------
         int TPB_req = std::min((int)(2 * N * WARP_SIZE), 256);
         int maxThreadsPerBlock = 0;
-        CUDA_OK(cudaDeviceGetAttribute(&maxThreadsPerBlock,
-                                       cudaDevAttrMaxThreadsPerBlock, 0));
+        CUDA_OK(cudaDeviceGetAttribute(&maxThreadsPerBlock, cudaDevAttrMaxThreadsPerBlock, 0));
         TPB_req = std::min(TPB_req, maxThreadsPerBlock);
         TPB_req = (TPB_req + WARP_SIZE - 1) / WARP_SIZE * WARP_SIZE;
         TPB_req = std::max(TPB_req, WARP_SIZE);
-
         const size_t perWarpBytes = (size_t)(2 * NX * 16) * sizeof(TC);
-
         cudaFuncAttributes attr{};
         CUDA_OK(cudaFuncGetAttributes(&attr, (const void*)coarse_search<TC>));
         const size_t staticShmem = (size_t)attr.sharedSizeBytes;
-
         int maxOptIn=0, maxDefault=0;
-        CUDA_OK(cudaDeviceGetAttribute(&maxOptIn,
-                                       cudaDevAttrMaxSharedMemoryPerBlockOptin, 0));
-        CUDA_OK(cudaDeviceGetAttribute(&maxDefault,
-                                       cudaDevAttrMaxSharedMemoryPerBlock, 0));
+        CUDA_OK(cudaDeviceGetAttribute(&maxOptIn, cudaDevAttrMaxSharedMemoryPerBlockOptin, 0));
+        CUDA_OK(cudaDeviceGetAttribute(&maxDefault, cudaDevAttrMaxSharedMemoryPerBlock, 0));
         size_t maxSharedAvail = (size_t)std::max(maxOptIn, maxDefault);
-
-        size_t roomForDyn = (maxSharedAvail > staticShmem)
-                            ? (maxSharedAvail - staticShmem) : 0;
-        int maxWarpsBySmem = (perWarpBytes > 0)
-                             ? (int)(roomForDyn / perWarpBytes) : 1;
+        size_t roomForDyn = (maxSharedAvail > staticShmem) ? (maxSharedAvail - staticShmem) : 0;
+        int maxWarpsBySmem = (perWarpBytes > 0) ? (int)(roomForDyn / perWarpBytes) : 1;
         maxWarpsBySmem = std::max(1, maxWarpsBySmem);
-
-        int reqWarps = TPB_req / WARP_SIZE;
-        int warpsPerBlock = std::min(reqWarps, maxWarpsBySmem);
-        warpsPerBlock = std::min(warpsPerBlock, 4);
+        int warpsPerBlock = std::min(std::min(TPB_req / WARP_SIZE, maxWarpsBySmem), 4);
         warpsPerBlock = std::max(1, warpsPerBlock);
-
         int TPB = warpsPerBlock * WARP_SIZE;
         size_t scratchBytes = (size_t)warpsPerBlock * perWarpBytes;
-
         int ask = (int)std::min(maxSharedAvail, staticShmem + scratchBytes);
         CUDA_OK(cudaFuncSetAttribute((const void*)coarse_search<TC>,
-                                     cudaFuncAttributeMaxDynamicSharedMemorySize,
-                                     ask));
-
+                                     cudaFuncAttributeMaxDynamicSharedMemorySize, ask));
         for (;;) {
             coarse_search<TC><<<B, TPB, scratchBytes>>>(
-                d_x_c, d_pose_c, d_targets_coarse_c,
-                d_pos_mm_c, d_ori_r_c, d_robotModel_f,
-                stop_on_first
-            );
+                d_x_c, d_pose_c, d_targets_coarse_c, d_pos_mm_c, d_ori_r_c, d_robotModel_f,
+                stop_on_first);
             cudaError_t e = cudaPeekAtLastError();
             if (e == cudaSuccess) break;
             if (e != cudaErrorLaunchOutOfResources) CUDA_OK(e);
             if (warpsPerBlock > 1) {
-                warpsPerBlock >>= 1;
-                TPB = warpsPerBlock * WARP_SIZE;
+                warpsPerBlock >>= 1; TPB = warpsPerBlock * WARP_SIZE;
                 scratchBytes = (size_t)warpsPerBlock * perWarpBytes;
                 continue;
             }
             CUDA_OK(e);
             break;
         }
+        CUDA_OK(cudaDeviceSynchronize());
+    } else if (mode == 2) {
+        // ---- NEW multi-target coarse search (with the exact collision gate when bound) ---------
+        std::vector<double> hq((size_t)B * N), hp((size_t)B * hjcd::NT * 3),
+                            hqt((size_t)B * hjcd::NT * 4),
+                            hwp((size_t)B * hjcd::NT, 1.0), hwo((size_t)B * hjcd::NT, 1.0);
+        std::vector<unsigned int> hact((size_t)B, single_mask);
+        {
+            std::vector<TC> tmp((size_t)B * N);
+            CUDA_OK(cudaMemcpy(tmp.data(), d_x_c, sizeof(TC)*tmp.size(), cudaMemcpyDeviceToHost));
+            for (size_t i = 0; i < tmp.size(); ++i) hq[i] = (double)tmp[i];
+        }
+        for (int b = 0; b < B; ++b) {
+            for (int c = 0; c < 3; ++c) hp[(size_t)b*hjcd::NT*3 + c] = (double)target_pose[c];
+            for (int c = 0; c < 4; ++c) hqt[(size_t)b*hjcd::NT*4 + c] = (double)target_pose[3 + c];
+        }
+        const void* ccm = do_cc ? collision_model_ptr() : nullptr;
+        const void* cce = do_cc ? collision_env_ptr()   : nullptr;
+        static const grid::robotModel<double>* d_rm_d = grid::init_robotModel<double>();
+        // Legacy single-target path: its own workspace, fp64 in/out, single-threaded by construction.
+        static HjcdWorkspace* legacy_ws = hjcd_workspace_new();
+        std::vector<double> co_q((size_t)B * N);
+        SolveInputs si{hq.data(), hp.data(), hqt.data(), hwp.data(), hwo.data(), hact.data(),
+                       /*f32=*/false};
+        CoarseOutputs co = compute_coarse_search(
+            si, B,
+            /*eps_pos=*/1e-8, /*eps_ori=*/1e-8, /*lambda_coord=*/1e-6, /*h_min=*/1e-9,
+            /*max_step=*/0.35, /*max_iters=*/coarse_iters, /*stall_lim=*/5,
+            /*use_incremental=*/coarse_incremental, /*seed=*/0xC0A45Eull, d_rm_d,
+            /*diagnostics=*/false, ccm, cce, /*max_pert_attempts=*/4, /*precision=*/0,
+            legacy_ws, co_q.data());
+        (void)co;
+        {
+            std::vector<TC> tmp((size_t)B * N);
+            for (size_t i = 0; i < tmp.size(); ++i) tmp[i] = (TC)co_q[i];
+            CUDA_OK(cudaMemcpy(d_x_c, tmp.data(), sizeof(TC)*tmp.size(), cudaMemcpyHostToDevice));
+        }
+    }
+    // mode == 1 (LM only): the seeds go straight to LM, untouched.
+
+    // Score whatever the coarse stage produced (or the raw seeds, for LM-only) so the downstream
+    // top-K selection has errors to sort on.
+    if (!run_coarse) {
+        forward_kinematics_kernel<TC><<<B, 32>>>(d_x_c, d_pose_c, nullptr, d_robotModel_f, B);
+        cudaGetLastError();
+        CUDA_OK(cudaDeviceSynchronize());
+        pose_errors_kernel<TC><<<(B + 255)/256, 256>>>(d_pose_c, d_target7_c, d_pos_mm_c,
+                                                       d_ori_r_c, B);
+        cudaGetLastError();
         CUDA_OK(cudaDeviceSynchronize());
     }
 
@@ -2033,32 +4052,23 @@ Result<T> generate_ik_solutions(
         CUDA_OK(cudaMemcpyToSymbol(g_winner, &neg1, sizeof(int)));
     }
 
+    // The single-target public path runs the SAME multi-target LM with K=1 and mask bit 0 active --
+    // there is no second LM implementation. On a build whose generated target set has K > 1 the
+    // 7-vector target is ambiguous, so the caller must use the multi-target refine() entry instead.
+    static_assert(hjcd::NT >= 1, "no generated targets");
+    if (hjcd::NT != 1) {
+        printf("[hjcd] generate_solutions takes ONE target pose, but this build generated %d target "
+               "frames. Use the multi-target API (hjcdik.refine).\n", hjcd::NT);
+        result.pos_errors   = new T[1]{ std::numeric_limits<T>::infinity() };
+        result.ori_errors   = new T[1]{ std::numeric_limits<T>::infinity() };
+        result.pose         = new T[7]{};
+        result.joint_config = new T[N]{};
+        result.count = 1;
+        return result;
+    }
+
     {
         const int max_iters = 40;
-        int stop_on_first_lm  = (num_solutions > 1) ? 0 : 1;
-
-        // Multi-warp LM: W independent candidates per block (one per warp). grid=ceil(Krep/W),
-        // block=32*W, dynamic shared = W * sizeof(LMWarpScratch<RT>) (opt-in >48KB).
-        // DEFAULT W=1 (fastest). MEASURED on the RTX 5090 (correct binary, 2026-06-18): W>1 is strictly
-        // SLOWER here — up to 41% (ns=1) / 63% (ns=4) at W=8 — because bigger blocks (32*W threads,
-        // W*~4KB smem) cut resident blocks/SM and the workload is far below GPU saturation, so there's no
-        // occupancy gain to offset it. W>1 is retained ONLY as an opt-in (env HJCD_LM_WARPS) for low-SM
-        // devices (e.g. Jetson) where few SMs saturate at low Krep — UNTESTED there. Clamp by Krep and by
-        // device max opt-in shared memory.
-        int W = 1;
-        if (const char* e = std::getenv("HJCD_LM_WARPS")) { int v = std::atoi(e); if (v >= 1 && v <= 32) W = v; }
-        if (Krep > 0 && W > Krep) W = Krep;
-        int lm_dev = 0; cudaGetDevice(&lm_dev);
-        int smem_optin = 48 * 1024;
-        cudaDeviceGetAttribute(&smem_optin, cudaDevAttrMaxSharedMemoryPerBlockOptin, lm_dev);
-        while (W > 1 && (size_t)W * sizeof(LMWarpScratch<RT>) > (size_t)smem_optin) W >>= 1;
-        const int TPB_lm  = 32 * W;
-        const int grid_lm = (Krep + W - 1) / W;
-        const size_t lm_smem = (size_t)W * sizeof(LMWarpScratch<RT>);
-        if (lm_smem > (size_t)48 * 1024) {
-            CUDA_OK(cudaFuncSetAttribute(lm_tuner<RT>,
-                cudaFuncAttributeMaxDynamicSharedMemorySize, (int)lm_smem));
-        }
 
         // Convergence / early-stop tolerance (pos in m, ori in rad). Default 1e-8 m is far below the
         // fp32 representable floor at ~0.5 m coords, so fp32 can't early-stop and grinds all iters at
@@ -2067,12 +4077,52 @@ Result<T> generate_ik_solutions(
         if (const char* e = std::getenv("HJCD_LM_EPS_POS")) { double v = std::atof(e); if (v > 0) eps_pos = (RT)v; }
         if (const char* e = std::getenv("HJCD_LM_EPS_ORI")) { double v = std::atof(e); if (v > 0) eps_ori = (RT)v; }
 
-        lm_tuner<RT><<<grid_lm, TPB_lm, lm_smem>>>(
-            dx64, dpose64, dtgt64, dposmm64, dori64, d_robotModel_rt,
-            eps_pos, eps_ori, (RT)5e-3, max_iters, Krep, stop_on_first_lm
-        );
+        // K=1 problem arrays: position + quaternion split out of the 7-vector, mask = bit 0, unit
+        // weights. dtgt64 already holds the replicated 7-vectors, so split on the host once.
+        std::vector<RT> h_p((size_t)Krep * 3), h_qt((size_t)Krep * 4), h_w((size_t)Krep, (RT)1);
+        std::vector<unsigned int> h_act((size_t)Krep, 1u);
+        for (int i = 0; i < Krep; ++i) {
+            for (int c = 0; c < 3; ++c) h_p[(size_t)i*3 + c] = (RT)target_pose[c];
+            for (int c = 0; c < 4; ++c) h_qt[(size_t)i*4 + c] = (RT)target_pose[3 + c];
+        }
+        RT *d_p=nullptr, *d_qt=nullptr, *d_wp=nullptr, *d_wo=nullptr, *d_cost=nullptr;
+        unsigned int* d_act=nullptr; unsigned char* d_su=nullptr;
+        CUDA_OK(cudaMalloc(&d_p,  sizeof(RT)*h_p.size()));
+        CUDA_OK(cudaMalloc(&d_qt, sizeof(RT)*h_qt.size()));
+        CUDA_OK(cudaMalloc(&d_wp, sizeof(RT)*h_w.size()));
+        CUDA_OK(cudaMalloc(&d_wo, sizeof(RT)*h_w.size()));
+        CUDA_OK(cudaMalloc(&d_act, sizeof(unsigned int)*h_act.size()));
+        CUDA_OK(cudaMalloc(&d_cost, sizeof(RT)*Krep));
+        CUDA_OK(cudaMalloc(&d_su, sizeof(unsigned char)*Krep));
+        CUDA_OK(cudaMemcpy(d_p,  h_p.data(),  sizeof(RT)*h_p.size(),  cudaMemcpyHostToDevice));
+        CUDA_OK(cudaMemcpy(d_qt, h_qt.data(), sizeof(RT)*h_qt.size(), cudaMemcpyHostToDevice));
+        CUDA_OK(cudaMemcpy(d_wp, h_w.data(),  sizeof(RT)*h_w.size(),  cudaMemcpyHostToDevice));
+        CUDA_OK(cudaMemcpy(d_wo, h_w.data(),  sizeof(RT)*h_w.size(),  cudaMemcpyHostToDevice));
+        CUDA_OK(cudaMemcpy(d_act, h_act.data(), sizeof(unsigned int)*h_act.size(), cudaMemcpyHostToDevice));
+
+        const size_t lm_smem = sizeof(LMScratch<RT>);
+        if (lm_smem > (size_t)48 * 1024)
+            CUDA_OK(cudaFuncSetAttribute(lm_multi_target_kernel<RT>,
+                cudaFuncAttributeMaxDynamicSharedMemorySize, (int)lm_smem));
+
+        lm_multi_target_kernel<RT><<<Krep, 32, lm_smem>>>(
+            dx64, d_p, d_qt, d_act, d_wp, d_wo, dposmm64, dori64, d_cost, d_su, dpose64,
+            /*out_trace=*/nullptr, /*trace_cap=*/0,
+            d_robotModel_rt, eps_pos, eps_ori, (RT)5e-3, max_iters, Krep,
+            /*stop_on_first=*/(num_solutions > 1) ? 0 : 1,
+            /*stag_patience=*/0, /*stag_rel=*/(RT)1e-4);   // legacy single-target path: Policy B off
         cudaGetLastError();
         CUDA_OK(cudaDeviceSynchronize());
+
+        // The LM reports pos_err in METRES per target; downstream expects millimetres.
+        {
+            const int tpb = 256, gpb = (Krep + tpb - 1) / tpb;
+            scale_array<RT><<<gpb, tpb>>>(dposmm64, (RT)1000.0, Krep);
+            cudaGetLastError();
+            CUDA_OK(cudaDeviceSynchronize());
+        }
+        for (void* p : {(void*)d_p,(void*)d_qt,(void*)d_wp,(void*)d_wo,(void*)d_act,
+                        (void*)d_cost,(void*)d_su}) cudaFree(p);
     }
 
     // Collision scoring mode (comparison knob, env HJCD_CC_MODE): "soft" (default) = penetration cost
@@ -2399,7 +4449,10 @@ template Result<double> generate_ik_solutions<double>(   // RT=double (full fp64
     const char* problems_json_text,
     const char* problem_set_name,
     int problem_idx,
-    bool write_stats
+    bool write_stats,
+    int coarse_mode,
+    int coarse_iters,
+    int coarse_incremental
 );
 
 template Result<double> generate_ik_solutions<double, float>(   // RT=float (fp32 refine knob)
@@ -2411,7 +4464,10 @@ template Result<double> generate_ik_solutions<double, float>(   // RT=float (fp3
     const char* problems_json_text,
     const char* problem_set_name,
     int problem_idx,
-    bool write_stats
+    bool write_stats,
+    int coarse_mode,
+    int coarse_iters,
+    int coarse_incremental
 );
 
 template Result<float> generate_ik_solutions<float>(
@@ -2423,8 +4479,17 @@ template Result<float> generate_ik_solutions<float>(
     const char* problems_json_text,
     const char* problem_set_name,
     int problem_idx,
-    bool write_stats
+    bool write_stats,
+    int coarse_mode,
+    int coarse_iters,
+    int coarse_incremental
 );
+
+template std::vector<double> compute_link_transforms<double>(
+    const double* h_q, int B, const grid::robotModel<double>* d_robotModel);
+
+template std::vector<double> compute_target_transforms<double>(
+    const double* h_q, int B, const grid::robotModel<double>* d_robotModel);
 
 template std::vector<std::array<double, 7>> sample_random_target_poses(
     const grid::robotModel<double>* d_robotModel,

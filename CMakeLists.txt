@@ -81,6 +81,7 @@ set(HJCDIK_HEADERS
   csrc/kernel/hjcd_settings.h
   csrc/kernel/device_utils.cuh
   csrc/kernel/grid_env.cuh
+  csrc/generated/hjcd_targets.cuh   # generated alongside grid.cuh by scripts/codegen/generate_grid.py
 )
 
 set(HJCDIK_COMMON_SOURCES
