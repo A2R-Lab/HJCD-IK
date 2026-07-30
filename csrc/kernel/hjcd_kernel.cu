@@ -115,51 +115,14 @@ __device__ void perturb_joint_config(T* s_x, int global_problem, T sigma_frac = 
 }
 
 // MATH HELPERS
+// 4x4 col-major homogeneous transform -> unit wxyz quaternion. Thin alias over GLASS's
+// Shepperd rot_to_quat with LDA=4 (reads the 3x3 rotation block of C in place — R3 of the
+// 2026-07-30 GLASS request wave). GLASS canonicalizes the double cover to w >= 0 (benign:
+// downstream comparisons either cover-fold against a reference or use fabs(w)).
 template<typename T>
 __device__ __forceinline__
 void mat_to_quat(const T* __restrict__ C, T* __restrict__ q) {
-    const T m00 = C[0], m01 = C[4], m02 = C[8];
-    const T m10 = C[1], m11 = C[5], m12 = C[9];
-    const T m20 = C[2], m21 = C[6], m22 = C[10];
-
-    const T trace = m00 + m11 + m22;
-    const T eps = (T)1e-20;
-
-    if (trace > (T)0) {
-        T r = sqrt(fmax((T)1 + trace, eps));
-        T s = (T)0.5 / r;
-        q[0] = (T)0.5 * r;
-        q[1] = (m21 - m12) * s;
-        q[2] = (m02 - m20) * s;
-        q[3] = (m10 - m01) * s;
-    }
-    else if (m00 >= m11 && m00 >= m22) {
-        T r = sqrt(fmax((T)1 + m00 - m11 - m22, eps));
-        T s = (T)0.5 / r;
-        q[1] = (T)0.5 * r;
-        q[0] = (m21 - m12) * s;
-        q[2] = (m01 + m10) * s;
-        q[3] = (m02 + m20) * s;
-    }
-    else if (m11 >= m22) {
-        T r = sqrt(fmax((T)1 - m00 + m11 - m22, eps));
-        T s = (T)0.5 / r;
-        q[2] = (T)0.5 * r;
-        q[0] = (m02 - m20) * s;
-        q[1] = (m01 + m10) * s;
-        q[3] = (m12 + m21) * s;
-    }
-    else {
-        T r = sqrt(fmax((T)1 - m00 - m11 + m22, eps));
-        T s = (T)0.5 / r;
-        q[3] = (T)0.5 * r;
-        q[0] = (m10 - m01) * s;
-        q[1] = (m02 + m20) * s;
-        q[2] = (m12 + m21) * s;
-    }
-
-    T n = rsqrt(fmax(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3], eps));
-    q[0] *= n; q[1] *= n; q[2] *= n; q[3] *= n;
+    glass::thread::rot_to_quat<T, glass::QuatLayout::wxyz, /*LDA=*/4>(C, q);
 }
 
 template<typename T>
@@ -181,31 +144,16 @@ __device__ void normalize_quat(T* quat) {
     }
 }
 
-template<typename T>
-__device__ __forceinline__ void quat_conj(const T* q, T* qc) {
-    qc[0] = q[0]; qc[1] = -q[1]; qc[2] = -q[2]; qc[3] = -q[3];
-}
-template<typename T>
-__device__ __forceinline__ void quat_mul(const T* a, const T* b, T* o) {
-    o[0] = a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3];
-    o[1] = a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2];
-    o[2] = a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1];
-    o[3] = a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0];
-}
-
+// World-frame orientation residual w = log(q_goal ⊗ q_cur⁻¹), the rotation vector paired
+// with the world-frame geometric Jacobian. Thin alias over GLASS's frame-tagged quat_error
+// (R2 of the 2026-07-30 request wave). ⚠ OPERAND ORDER: GLASS pins WORLD as
+// e = log(q ⊗ q_des⁻¹), so the drop-in is (q, q_des) = (q_goal, q_cur) — arguments SWAPPED
+// relative to this helper's (q_cur, q_goal) order. Inputs must be unit (ours are: qee comes
+// from rot_to_quat, q_goal from the normalized target).
 template<typename T>
 __device__ __forceinline__ void quat_err_rotvec(const T* q_cur, const T* q_goal, T* w_err3) {
-    T qc[4], qe[4];
-    quat_conj(q_cur, qc);
-    quat_mul(q_goal, qc, qe);
-    T n = rsqrt(qe[0] * qe[0] + qe[1] * qe[1] + qe[2] * qe[2] + qe[3] * qe[3]);
-    qe[0] *= n; qe[1] *= n; qe[2] *= n; qe[3] *= n;
-    T vnorm = sqrt(qe[1] * qe[1] + qe[2] * qe[2] + qe[3] * qe[3]);
-    T cw = fabs(qe[0]);
-    T theta = (vnorm > (T)1e-12) ? (T)2 * atan2(vnorm, cw) : (T)0;
-    if (theta < (T)1e-12) { w_err3[0] = w_err3[1] = w_err3[2] = (T)0; return; }
-    T s = theta / vnorm;
-    w_err3[0] = s * qe[1]; w_err3[1] = s * qe[2]; w_err3[2] = s * qe[3];
+    glass::thread::quat_error<T, glass::QuatLayout::wxyz, glass::ErrorFrame::WORLD>(
+        q_goal, q_cur, w_err3);
 }
 
 template<typename T>
@@ -218,15 +166,13 @@ __device__ void normalize_vec3(T* vec) {
     }
 }
 
+// Scalar orientation error = geodesic angle. glass::quat_angle is frame-invariant and folds
+// the double cover internally (no manual dot-sign flip needed).
 template<typename T>
 __device__ T compute_ori_err(const T* CjX, const T* q_goal) {
     T qee[4];
     mat_to_quat(&CjX[EE_IDX*16], qee);
-    if (qee[0]*q_goal[0]+qee[1]*q_goal[1]+qee[2]*q_goal[2]+qee[3]*q_goal[3] < (T)0) {
-        qee[0]=-qee[0]; qee[1]=-qee[1]; qee[2]=-qee[2]; qee[3]=-qee[3];
-    }
-    T wv[3]; quat_err_rotvec(qee, q_goal, wv);
-    return sqrt(wv[0]*wv[0] + wv[1]*wv[1] + wv[2]*wv[2]);
+    return glass::quat_angle<T, glass::QuatLayout::wxyz>(qee, q_goal);
 }
 
 template<typename T>
@@ -252,11 +198,7 @@ template<typename T>
 __device__ __forceinline__ T compute_ori_err_at(const T* ee16, const T* q_goal) {
     T qee[4];
     mat_to_quat(ee16, qee);
-    if (qee[0]*q_goal[0]+qee[1]*q_goal[1]+qee[2]*q_goal[2]+qee[3]*q_goal[3] < (T)0) {
-        qee[0]=-qee[0]; qee[1]=-qee[1]; qee[2]=-qee[2]; qee[3]=-qee[3];
-    }
-    T wv[3]; quat_err_rotvec(qee, q_goal, wv);
-    return sqrt(wv[0]*wv[0] + wv[1]*wv[1] + wv[2]*wv[2]);
+    return glass::quat_angle<T, glass::QuatLayout::wxyz>(qee, q_goal);
 }
 
 // SOLVE
@@ -392,9 +334,7 @@ void recompute_cost_scaled(T* xcur,
     const T dy = tp[1] - Cn[13];
     const T dz = tp[2] - Cn[14];
     T qee[4]; mat_to_quat(Cn, qee);
-    if (qee[0] * q_goal[0] + qee[1] * q_goal[1] + qee[2] * q_goal[2] + qee[3] * q_goal[3] < (T)0) {
-        qee[0] = -qee[0]; qee[1] = -qee[1]; qee[2] = -qee[2]; qee[3] = -qee[3];
-    }
+    // (no cover fold needed: glass::quat_error returns the shortest path for either sign)
     T wv[3]; quat_err_rotvec(qee, q_goal, wv);
     const T rt0 = row_s[0] * dx, rt1 = row_s[1] * dy, rt2 = row_s[2] * dz;
     const T rt3 = row_s[3] * wv[0], rt4 = row_s[4] * wv[1], rt5 = row_s[5] * wv[2];
@@ -534,24 +474,19 @@ __device__ inline void build_ne_and_solve_warp(
     const unsigned mask = FULL_WARP_MASK;
     const int lane = threadIdx.x & 31;
 
-    // Build A = J^T J  (solve precision = T: fp64 by default, fp32 when the refine knob is on,
-    // with no fp32<->fp64 casts in the hot path).
-    if (lane < DIM) {
-        const int r = lane;
-        #pragma unroll
-        for (int c = 0; c < DIM; ++c) {
-            T acc = (T)0;
-            #pragma unroll
-            for (int k = 0; k < 6; ++k) acc += J[k*DIM + r] * J[k*DIM + c];
-            A_sh[r*DIM + c] = acc;
-        }
-        // b = J^T r
-        T accb = (T)0;
-        #pragma unroll
-        for (int k = 0; k < 6; ++k) accb += J[k*DIM + r] * r_scaled[k];
-        b_sh[r] = accb;
-    }
-    __syncwarp(mask);
+    // Build A = J^T J and b = J^T r via GLASS (R4 adoption, composed rather than fused
+    // gn_step so the un-shifted diag(A)/g taps below survive for the trust-region tuner;
+    // same pieces, same order, zero duplicate work). Solve precision = T: fp64 by default,
+    // fp32 when the refine knob is on, with no fp32<->fp64 casts in the hot path.
+    // LAYOUT: our J buffer is stored J[k*DIM + r] (row k of 6, col r of DIM) — i.e. a
+    // column-major DIM x 6 matrix B = J^T — so J^T J = B B^T is the TRANSPOSE=false syrk
+    // and J^T r = B r the TRANSPOSE=false gemv, with ALL 32 lanes spreading the
+    // accumulations (vs the former DIM-lane hand-rolled build). gemv's trailing
+    // __syncwarp fences the syrk A-writes (same ordering contract as glass::warp::gn_step).
+    glass::warp::syrk<T, DIM, 6, glass::FillMode::Full, /*TRANSPOSE=*/false>(
+        (T)1, J, A_sh);
+    glass::warp::gemv<T, DIM, 6, /*TRANSPOSE=*/false>(
+        (T)1, J, r_scaled, (T)0, b_sh);
 
     // Save diag(A) and g = b for the downstream LM trust-region tuner (still consumed there).
     // The REG_DIAG posv applies the Levenberg lambda*diag(A) shift internally at factor time,
@@ -720,9 +655,6 @@ __device__ void solve_lm_batched(
         if (tid == 0) {
             const T* Cn = &s_jointX[EE_IDX * 16];
             T qee[4]; mat_to_quat(Cn, qee);
-            if (qee[0]*q_goal[0] + qee[1]*q_goal[1] + qee[2]*q_goal[2] + qee[3]*q_goal[3] < (T)0) {
-                qee[0]=-qee[0]; qee[1]=-qee[1]; qee[2]=-qee[2]; qee[3]=-qee[3];
-            }
             T wv[3]; quat_err_rotvec(qee, q_goal, wv);
             const T dx = tp[0]-Cn[12], dy = tp[1]-Cn[13], dz = tp[2]-Cn[14];
             r_scaled[0]=dx; r_scaled[1]=dy; r_scaled[2]=dz;
@@ -884,9 +816,6 @@ __device__ void solve_lm_batched(
 
                 const T* Cn=&s_jointX[EE_IDX * 16];
                 T qee[4]; mat_to_quat(Cn, qee);
-                if (qee[0]*q_goal[0] + qee[1]*q_goal[1] + qee[2]*q_goal[2] + qee[3]*q_goal[3] < (T)0) {
-                    qee[0]=-qee[0]; qee[1]=-qee[1]; qee[2]=-qee[2]; qee[3]=-qee[3];
-                }
                 T wv[3]; quat_err_rotvec(qee, q_goal, wv);
                 T dx = tp[0]-Cn[12], dy = tp[1]-Cn[13], dz = tp[2]-Cn[14];
 
@@ -1200,19 +1129,18 @@ __global__ void coarse_search(
                 if (err < best_err_lane) { best_err_lane = err; best_j_lane = j; }
             }
 
-            // warp min-reduce over candidates; tie-break to the LOWEST j to match the serial
-            // "first strict-improvement wins" selection exactly.
-            #pragma unroll
-            for (int off = WARP_SIZE >> 1; off > 0; off >>= 1) {
-                const T   o_err = __shfl_down_sync(FULL_WARP_MASK, best_err_lane, off);
-                const int o_j   = __shfl_down_sync(FULL_WARP_MASK, best_j_lane,   off);
-                if (o_err < best_err_lane ||
-                    (o_err == best_err_lane && o_j >= 0 && (best_j_lane < 0 || o_j < best_j_lane))) {
-                    best_err_lane = o_err; best_j_lane = o_j;
-                }
+            // warp min-reduce over candidates via GLASS's keyed register-pair argmin
+            // (lower-index tie-break == the serial "first strict-improvement wins" selection;
+            // no-candidate lanes pass the UINT32_MAX empty sentinel == the old -1). Winner
+            // (index + key) is broadcast to all lanes.
+            {
+                const uint32_t idx_in = (best_j_lane < 0) ? UINT32_MAX : (uint32_t)best_j_lane;
+                T win_err;
+                const uint32_t win_j = glass::warp::argmin_pair(best_err_lane, idx_in, win_err);
+                best_j_lane   = (win_j == UINT32_MAX) ? -1 : (int)win_j;
+                best_err_lane = (win_j == UINT32_MAX)
+                                    ? (pos_phase ? s_glob_pos_err : s_glob_ori_err) : win_err;
             }
-            best_err_lane = __shfl_sync(FULL_WARP_MASK, best_err_lane, 0);
-            best_j_lane   = __shfl_sync(FULL_WARP_MASK, best_j_lane,   0);
 
             if (lane == 0) {
                 if (pos_phase) s_pos_err[p] = best_err_lane;
