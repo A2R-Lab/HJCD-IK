@@ -2,9 +2,10 @@
 """Fail if the committed grid.cuh is stale w.r.t. current GRiD codegen.
 
 Regenerates the Panda header (via scripts/codegen/generate_grid.py, which uses the GRiD
-submodule's URDFParser + GRiDCodeGenerator) into a temp file and diffs it against
-the committed csrc/generated/grid.cuh. Run in CI and locally after touching the
-URDF or bumping the GRiD submodule.
+submodule's grid_codegen package + nested URDFParser) with the SAME flags the build
+uses (collision ON from the foam spherized URDF — see CMakeLists.txt) into a temp
+file and diffs it against the committed csrc/generated/grid.cuh. Run in CI and
+locally after touching the URDF or bumping the GRiD submodule.
 
 Exit codes: 0 = fresh, 1 = stale (prints a unified diff summary), 2 = codegen could not run.
 """
@@ -18,7 +19,8 @@ URDF = REPO / "csrc" / "urdf" / "panda.urdf"
 TARGET = "panda_grasptarget_hand"
 COMMITTED = REPO / "csrc" / "generated" / "grid.cuh"
 GEN = REPO / "scripts" / "codegen" / "generate_grid.py"
-GRID_CODEGEN = REPO / "external" / "GRiD" / "GRiDCodeGenerator"
+GRID_CODEGEN = REPO / "external" / "GRiD" / "grid_codegen"
+SPHERIZED = REPO / "external" / "foam" / "assets" / "panda" / "smaller_panda_spherized.urdf"
 
 
 def main() -> int:
@@ -33,7 +35,8 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         regenerated = Path(tmp) / "grid.cuh"
         rc = subprocess.run(
-            [sys.executable, str(GEN), str(URDF), "-t", TARGET, "-o", str(regenerated)],
+            [sys.executable, str(GEN), str(URDF), "-t", TARGET, "-o", str(regenerated),
+             "--collision", "--spherized-urdf", str(SPHERIZED)],
         ).returncode
         if rc != 0 or not regenerated.exists():
             print("[stale-check] codegen failed", file=sys.stderr)

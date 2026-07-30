@@ -90,8 +90,7 @@ set(HJCDIK_COMMON_SOURCES
 
 set(HJCDIK_INCLUDE_DIRS
   ${CMAKE_SOURCE_DIR}/external/GRiD
-  ${CMAKE_SOURCE_DIR}/external/GRiD/include
-  ${CMAKE_SOURCE_DIR}/external/GRiD/collision   # grid_collision_geometry.cuh (SDF primitives, bare-included by grid.cuh)
+  ${CMAKE_SOURCE_DIR}/external/GRiD/grid_codegen/collision   # grid_collision_geometry.cuh (SDF primitives, bare-included by grid.cuh)
   ${CMAKE_SOURCE_DIR}/external/GLASS
   ${CMAKE_BINARY_DIR}
   ${CMAKE_SOURCE_DIR}/csrc

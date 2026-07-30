@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Generate the GRiD CUDA header (grid.cuh) for HJCD-IK from a URDF.
 
-Uses the modern GRiD codegen API (URDFParser + GRiDCodeGenerator.gen_all_code);
-the legacy top-level generateGRiD.py was removed upstream. The GRiD submodule
-(external/GRiD) and its nested GRiDCodeGenerator / URDFParser must be initialized
-(run scripts/setup/setup_dev.sh, or git submodule update --init --recursive).
+Uses the modern GRiD codegen API (URDFParser + grid_codegen.GRiDCodeGenerator.gen_all_code);
+post packaging-fold layout: the grid_codegen package sits at the GRiD root and
+URDFParser is a nested submodule under external/GRiD/external/. Both must be
+initialized (run scripts/setup/setup_dev.sh, or git submodule update --init --recursive).
 
 By default writes to csrc/generated/grid.cuh (the committed, build-default header).
 """
@@ -46,14 +46,16 @@ def main():
     if not urdf.exists():
         print(f"[error] URDF not found: {urdf}", file=sys.stderr)
         sys.exit(1)
-    if not (GRID_DIR / "GRiDCodeGenerator").exists():
+    if not (GRID_DIR / "grid_codegen").exists():
         print(f"[error] GRiD codegen not initialized at {GRID_DIR}. Run scripts/setup/setup_dev.sh", file=sys.stderr)
         sys.exit(1)
 
-    # Import from the GRiD submodule.
+    # Import from the GRiD submodule (post packaging-fold layout: grid_codegen package at the
+    # GRiD root, URDFParser a nested submodule under external/).
     sys.path.insert(0, str(GRID_DIR))
+    sys.path.insert(0, str(GRID_DIR / "external"))
     from URDFParser import URDFParser            # noqa: E402
-    from GRiDCodeGenerator import GRiDCodeGenerator  # noqa: E402
+    from grid_codegen import GRiDCodeGenerator   # noqa: E402
 
     robot = URDFParser().parse(str(urdf), floating_base=args.floating_base)
     print(f"[generate_grid] robot={robot.name} dof={robot.get_num_joints()} target={args.fixed_target_name}")
@@ -61,7 +63,7 @@ def main():
     # --- optional collision spec (URDF -> covering spheres -> grid_collision namespace) ---
     collision_spec = None
     if args.collision:
-        from GRiDCodeGenerator.algorithms._collision import (  # noqa: E402
+        from grid_codegen.algorithms._collision import (  # noqa: E402
             collision_spec_from_urdf, multi_tier_collision_spec_from_urdf, build_sphere_tiers)
         if args.spherized_urdf:
             # Read spheres directly from pre-spherized (foam) URDF(s); bind to the robot's GRiD frames.

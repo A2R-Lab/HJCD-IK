@@ -299,7 +299,7 @@ __device__ T solve_pos(const T* s_jointXforms, const T* pos, const T* target_pos
     normalize_vec3(vproj);
 
     T dotp = uproj[0] * vproj[0] + uproj[1] * vproj[1] + uproj[2] * vproj[2];
-    dotp = clamp_dot(dotp);
+    dotp = glass::clamp_unit(dotp);
     T theta = acos(dotp);
 
     T cx = uproj[1] * vproj[2] - uproj[2] * vproj[1];
@@ -335,7 +335,7 @@ __device__ T solve_ori(const T* s_jointXforms, const T* q_t, int joint, int k, i
     multiply_quat(q_t, q_ee_inv, q_err);
     normalize_quat(q_err);
 
-    T theta = 2.0f * acos(clamp_dot(fabs(q_err[0])));
+    T theta = 2.0f * acos(glass::clamp_unit(fabs(q_err[0])));
     T sin_h = sin(theta / 2.0f);
     T a[3] = { 1, 0, 0 };
 

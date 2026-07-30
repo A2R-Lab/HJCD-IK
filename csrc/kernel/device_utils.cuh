@@ -44,17 +44,8 @@ __device__ __forceinline__ uint32_t make_seed(
 }
 
 // MATH HELPER FUNCTIONS
-template<typename T>
-__device__ __forceinline__ T clamp_dot(T dot) {
-    if (dot > T(1.0)) return T(1.0);
-    if (dot < T(-1.0)) return T(-1.0);
-    return dot;
-}
-
-template<typename T>
-__device__ __forceinline__ T clamp_unit(T v) { 
-    return v > (T)1 ? (T)1 : (v < (T)-1 ? (T)-1 : v); 
-}
+// clamp-to-[-1,1] (acos/asin guards) now comes from GLASS: glass::clamp_unit
+// (robotics-ops wave, lie/angle.cuh; tier-free host+device).
 
 template<typename T>
 __device__ __forceinline__ T clamp_val(T v, T lo, T hi) {
