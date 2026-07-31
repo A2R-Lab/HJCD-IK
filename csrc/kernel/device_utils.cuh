@@ -44,7 +44,7 @@ __device__ __forceinline__ uint32_t make_seed(
 }
 
 // MATH HELPER FUNCTIONS
-// clamp-to-[-1,1] (acos/asin guards) now comes from GLASS: glass::clamp_unit
+// clamp-to-[-1,1] (acos/asin guards) now comes from GLASS: glass::block::clamp_unit
 // (robotics-ops wave, lie/angle.cuh; tier-free host+device).
 
 template<typename T>

@@ -122,7 +122,7 @@ __device__ void perturb_joint_config(T* s_x, int global_problem, T sigma_frac = 
 template<typename T>
 __device__ __forceinline__
 void mat_to_quat(const T* __restrict__ C, T* __restrict__ q) {
-    glass::thread::rot_to_quat<T, glass::QuatLayout::wxyz, /*LDA=*/4>(C, q);
+    glass::thread::rot_to_quat<T, glass::block::QuatLayout::wxyz, /*LDA=*/4>(C, q);
 }
 
 template<typename T>
@@ -152,7 +152,7 @@ __device__ void normalize_quat(T* quat) {
 // from rot_to_quat, q_goal from the normalized target).
 template<typename T>
 __device__ __forceinline__ void quat_err_rotvec(const T* q_cur, const T* q_goal, T* w_err3) {
-    glass::thread::quat_error<T, glass::QuatLayout::wxyz, glass::ErrorFrame::WORLD>(
+    glass::thread::quat_error<T, glass::block::QuatLayout::wxyz, glass::block::ErrorFrame::WORLD>(
         q_goal, q_cur, w_err3);
 }
 
@@ -166,13 +166,13 @@ __device__ void normalize_vec3(T* vec) {
     }
 }
 
-// Scalar orientation error = geodesic angle. glass::quat_angle is frame-invariant and folds
+// Scalar orientation error = geodesic angle. glass::block::quat_angle is frame-invariant and folds
 // the double cover internally (no manual dot-sign flip needed).
 template<typename T>
 __device__ T compute_ori_err(const T* CjX, const T* q_goal) {
     T qee[4];
     mat_to_quat(&CjX[EE_IDX*16], qee);
-    return glass::quat_angle<T, glass::QuatLayout::wxyz>(qee, q_goal);
+    return glass::block::quat_angle<T, glass::block::QuatLayout::wxyz>(qee, q_goal);
 }
 
 template<typename T>
@@ -198,7 +198,7 @@ template<typename T>
 __device__ __forceinline__ T compute_ori_err_at(const T* ee16, const T* q_goal) {
     T qee[4];
     mat_to_quat(ee16, qee);
-    return glass::quat_angle<T, glass::QuatLayout::wxyz>(qee, q_goal);
+    return glass::block::quat_angle<T, glass::block::QuatLayout::wxyz>(qee, q_goal);
 }
 
 // SOLVE
@@ -241,7 +241,7 @@ __device__ T solve_pos(const T* s_jointXforms, const T* pos, const T* target_pos
     normalize_vec3(vproj);
 
     T dotp = uproj[0] * vproj[0] + uproj[1] * vproj[1] + uproj[2] * vproj[2];
-    dotp = glass::clamp_unit(dotp);
+    dotp = glass::block::clamp_unit(dotp);
     T theta = acos(dotp);
 
     T cx = uproj[1] * vproj[2] - uproj[2] * vproj[1];
@@ -277,7 +277,7 @@ __device__ T solve_ori(const T* s_jointXforms, const T* q_t, int joint, int k, i
     multiply_quat(q_t, q_ee_inv, q_err);
     normalize_quat(q_err);
 
-    T theta = 2.0f * acos(glass::clamp_unit(fabs(q_err[0])));
+    T theta = 2.0f * acos(glass::block::clamp_unit(fabs(q_err[0])));
     T sin_h = sin(theta / 2.0f);
     T a[3] = { 1, 0, 0 };
 
@@ -483,7 +483,7 @@ __device__ inline void build_ne_and_solve_warp(
     // and J^T r = B r the TRANSPOSE=false gemv, with ALL 32 lanes spreading the
     // accumulations (vs the former DIM-lane hand-rolled build). gemv's trailing
     // __syncwarp fences the syrk A-writes (same ordering contract as glass::warp::gn_step).
-    glass::warp::syrk<T, DIM, 6, glass::FillMode::Full, /*TRANSPOSE=*/false>(
+    glass::warp::syrk<T, DIM, 6, glass::block::FillMode::Full, /*TRANSPOSE=*/false>(
         (T)1, J, A_sh);
     glass::warp::gemv<T, DIM, 6, /*TRANSPOSE=*/false>(
         (T)1, J, r_scaled, (T)0, b_sh);
