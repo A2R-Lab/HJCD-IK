@@ -17,6 +17,7 @@ import threading as _threading
 
 import numpy as _np
 
+from . import _hjcdik            # module handle for the Checkpoint 3 sidecar entry points
 from ._hjcdik import (
     Workspace as _Workspace,
     generate_solutions,
@@ -43,6 +44,7 @@ __all__ = [
     "link_transforms", "target_transforms", "target_metadata", "target_residuals",
     "normal_equations", "refine", "coarse_search", "incremental_probe", "bench_fk",
     "pack_active_mask", "collision_free", "solve", "solve_problems", "HJCDSolver",
+    "self_collision_info",
 ]
 
 # The generated target order is FIXED and is the order of every [.., K, ..] axis in this API,
@@ -503,7 +505,11 @@ def coarse_search(q, target_positions, target_quaternions, active_target_mask=No
                   diagnostics=False, return_trace=False,
                   problems_json_text="", problem_set_name="", problem_idx=0,
                   max_pert_attempts=4, precision="float32", _solver=None, _canonical=False,
-                  _seeds_per_problem=1):
+                  _seeds_per_problem=1,
+                  hard_self_collision=0, hard_top_k=3, hard_margin=0.0, hard_max_reseed=8,
+                  hard_diagnostics=False, hard_oracle_every=0,
+                  hard_reseed_mode=1, hard_reseed_candidates=16, hard_reseed_rounds=2,
+                  hard_reseed_scales=(0.10, 0.20, 0.35, 0.50)):
     """Multi-target coarse search: aggregate weighted coordinate Gauss-Newton.
 
     Per outer iteration, every joint lane forms ONE aggregate scalar proposal
@@ -568,9 +574,88 @@ def coarse_search(q, target_positions, target_quaternions, active_target_mask=No
                                   int(max_iters), int(stall_lim), int(bool(use_incremental)),
                                   int(seed), bool(diagnostics), bool(return_trace),
                                   str(problems_json_text), str(problem_set_name), int(problem_idx),
-                                  int(max_pert_attempts), pc, sv._ws, int(_seeds_per_problem))
+                                  int(max_pert_attempts), pc, sv._ws, int(_seeds_per_problem),
+                                  int(hard_self_collision), int(hard_top_k), float(hard_margin),
+                                  int(hard_max_reseed), bool(hard_diagnostics),
+                                  int(hard_oracle_every), int(hard_reseed_mode),
+                                  int(hard_reseed_candidates), int(hard_reseed_rounds),
+                                  [float(x) for x in hard_reseed_scales])
     finally:
         sv._exit()
+
+
+# =================================================================================================
+# SELF-COLLISION SIDECAR (Checkpoint 3). The validated GPU self-collision sidecar is compiled into
+# the _hjcdik extension (Stage 3A). These helpers upload its model data lazily -- ONLY when a caller
+# requests self_collision_mode != "off", so off mode allocates nothing and launches no sidecar work.
+# =================================================================================================
+_SELF_COLLISION_READY = False
+
+
+def _sidecar_gen_dir():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "generated")
+
+
+def _ensure_self_collision_sidecar():
+    """Upload torso/pelvis SDF grids + convex vertices into the extension's sidecar (once)."""
+    global _SELF_COLLISION_READY
+    if _SELF_COLLISION_READY:
+        return
+    import json as _json
+    gen = _sidecar_gen_dir()
+    for cid, fn in ((0, "g1_torso_sdf.npz"), (1, "g1_pelvis_sdf.npz")):
+        z = _np.load(os.path.join(gen, fn), allow_pickle=True)
+        _hjcdik.sidecar_upload_sdf(cid, _np.ascontiguousarray(
+            z["sdf_i16"].astype(_np.int16).ravel(order="C")))
+    # canonical convex verts (piece order == PIECE_VERT_OFF) written by emit_cuda_header.py
+    verts = _np.ascontiguousarray(_np.load(os.path.join(gen, "g1_convex_verts.npy")).astype(_np.float64))
+    _hjcdik.sidecar_upload_convex(verts)
+    _SELF_COLLISION_READY = True
+
+
+def self_collision_info():
+    """Model information for the compiled self-collision sidecar: compiled flag, supported modes,
+    hard-enabled flag, and all artifact hashes (URDF / joint-order / proxy / SDFs / convex / policy).
+
+    `hard_enabled` reflects what this BUILD can actually do -- the sidecar model is G1-specific, so
+    a build whose grid.cuh is a different robot reports False and solve(self_collision_mode="hard")
+    raises rather than checking one robot's geometry against another's kinematics.
+    """
+    d = dict(_hjcdik.sidecar_model_info())
+    hard = bool(_hjcdik.hard_available())
+    d["hard_enabled"] = hard
+    d["supported_modes"] = ["off", "final"] + (["hard"] if hard else [])
+    d["incremental_checker"] = hard
+    d["top_k_max"] = int(_hjcdik.hard_max_top_k())
+    d["hard_workspace_allocations"] = int(_hjcdik.hard_ws_nalloc())
+    d["hard_workspace_capacity"] = int(_hjcdik.hard_ws_capacity())
+    d["hard_counter_stride"] = int(_hjcdik.hard_ctr_stride())
+    d["geometry_validated"] = _geometry_artifacts_ok()
+    return d
+
+
+def _geometry_artifacts_ok():
+    """Do the on-disk sidecar artifacts still match the hashes compiled into the extension?
+
+    The generated .cuh carries the hashes of the URDF / proxy / SDF / convex / pair-policy it came
+    from. If someone regenerates an artifact without rebuilding, the kernel would be checking STALE
+    geometry and every collision guarantee here would be void -- so this is checked, not assumed.
+    Returns None when the artifact carries no hashes to compare against.
+    """
+    import json as _json
+    try:
+        art = _json.load(open(os.path.join(_sidecar_gen_dir(), "g1_collision_sidecar.json")))
+    except (OSError, ValueError):
+        return None
+    compiled = dict(_hjcdik.sidecar_model_info())["hashes"]
+    # The artifact stores the two hashes it is itself the authority for; the SDF/convex/URDF hashes
+    # are compiled in from their own generators and have no on-disk counterpart here.
+    pairs = [("joint_order", art.get("joint_order_hash")),
+             ("proxy_yaml", art.get("proxy_yaml_hash"))]
+    pairs = [(k, v) for k, v in pairs if v is not None]
+    if not pairs:
+        return None
+    return all(compiled.get(k) == v for k, v in pairs)
 
 
 def solve(q, target_positions, target_quaternions, active_target_mask=None,
@@ -580,7 +665,11 @@ def solve(q, target_positions, target_quaternions, active_target_mask=None,
           lm_iters=60, seed=0, diagnostics=False,
           problems_json_text="", problem_set_name="", problem_idx=0,
           precision="float32", coarse_precision=None, lm_precision=None,
-          stag_patience=2, stag_rel=1e-3, _solver=None):
+          stag_patience=2, stag_rel=1e-3, _solver=None,
+          self_collision_mode="off", collision_top_k=3,
+          collision_reseed_candidates=16, collision_reseed_rounds=2,
+          collision_reseed_scales=(0.10, 0.20, 0.35, 0.50), collision_reseed_mode=1,
+          _hard_oracle_every=0):
     """Multi-target end-to-end solve: auto-dispatched coarse stage -> multi-target LM.
 
     DISPATCH is on the number of ACTIVE TARGET BITS -- popcount(active_target_mask) -- never on the
@@ -608,6 +697,22 @@ def solve(q, target_positions, target_quaternions, active_target_mask=None,
     Collision: pass problems_json_text/problem_set_name/problem_idx to gate the coarse search on
     exact collision-freedom of each winning proposal.
     """
+    # -- self-collision gate (Checkpoint 3). Validate BEFORE any compute; off == exact baseline. --
+    if self_collision_mode not in ("off", "final", "hard"):
+        raise ValueError(f"self_collision_mode must be off|final|hard, got '{self_collision_mode!r}'")
+    if isinstance(collision_top_k, bool) or not isinstance(collision_top_k, int) \
+            or collision_top_k < 1:
+        raise ValueError(f"collision_top_k must be a positive int, got {collision_top_k!r}")
+    if self_collision_mode == "hard":
+        if not _hjcdik.hard_available():
+            raise NotImplementedError(
+                "self_collision_mode='hard' is unavailable in this build: the compiled sidecar "
+                "model is G1-specific and this grid.cuh is a different robot")
+        _kmax = int(_hjcdik.hard_max_top_k())
+        if collision_top_k > _kmax:
+            raise ValueError(f"collision_top_k must be <= {_kmax}, got {collision_top_k}")
+        _ensure_self_collision_sidecar()
+
     qa, p, quat, packed, wp, wo = _canonical_problem(
         q, target_positions, target_quaternions, active_target_mask,
         position_weights, orientation_weights,
@@ -640,7 +745,11 @@ def solve(q, target_positions, target_quaternions, active_target_mask=None,
     # seeded exactly as before (`use_coarse` alone decides that), so LM-only accuracy is unchanged.
     # ...but with collision on, the coarse stage is still needed to manufacture a feasible fallback,
     # so coarse_iters == 0 is only honoured as "no coarse launch" in the open-world case.
-    run_coarse = bool(use_coarse.any()) or cc_enabled
+    #
+    # Hard mode ALWAYS runs the coarse stage for the same reason: it is the only stage that produces
+    # a VERIFIED collision-free configuration, and section 8's LM fallback has nothing to fall back
+    # to without one.
+    run_coarse = bool(use_coarse.any()) or cc_enabled or self_collision_mode == "hard"
 
     seeds = qa
     cdiag = None
@@ -653,7 +762,14 @@ def solve(q, target_positions, target_quaternions, active_target_mask=None,
                           diagnostics=diagnostics, return_trace=False,
                           problems_json_text=problems_json_text,
                           problem_set_name=problem_set_name, problem_idx=problem_idx,
-                          precision=cp, _solver=_solver, _canonical=True)
+                          precision=cp, _solver=_solver, _canonical=True,
+                          hard_self_collision=1 if self_collision_mode == "hard" else 0,
+                          hard_top_k=collision_top_k, hard_diagnostics=diagnostics,
+                          hard_oracle_every=int(_hard_oracle_every),
+                          hard_reseed_mode=int(collision_reseed_mode),
+                          hard_reseed_candidates=int(collision_reseed_candidates),
+                          hard_reseed_rounds=int(collision_reseed_rounds),
+                          hard_reseed_scales=collision_reseed_scales)
         # Same wire dtype throughout: no widen/narrow round trip between the stages.
         cq = _np.ascontiguousarray(c["joint_config"], dtype=qa.dtype)
         seeds = cq if use_coarse.all() else _np.ascontiguousarray(
@@ -749,6 +865,122 @@ def solve(q, target_positions, target_quaternions, active_target_mask=None,
         out["coarse_perturbation_attempts"] = _c("coarse_perturbation_attempts")
         out["coarse_perturbations_rejected"] = _c("coarse_perturbations_rejected")
         out["coarse_perturbations_exhausted"] = _c("coarse_perturbations_exhausted")
+
+    # -------------------------------------------------------------------------------------------
+    # STAGE 3C -- FINAL SELF-COLLISION GATE. Separate from the env-collision fallback above. Runs
+    # ONE batched sidecar full-check on the ALREADY-PRODUCED candidate q; coarse/LM/ranking are
+    # untouched. Colliding candidates are marked unsuccessful; q values are NEVER modified, so every
+    # free candidate is byte-identical to off mode. No persistent per-seed state (Stage 3D+).
+    # -------------------------------------------------------------------------------------------
+    # -------------------------------------------------------------------------------------------
+    # STAGE 3D/3E -- HARD MODE FINAL CHECK AND FALLBACK (spec section 8).
+    #
+    # The coarse stage returned a configuration that is collision-free BY CONSTRUCTION (a verified
+    # seed, then only collision-gated commits). The LM that refines it is NOT gated -- exactly as in
+    # the environment-collision case, it happily refines a feasible state straight back into a
+    # collision -- so its answer is VALIDATED, never trusted:
+    #
+    #   LM free      -> return the LM result unchanged
+    #   LM colliding -> return that seed's last collision-free coarse configuration
+    #   no free coarse state (Stage 3D exhausted its retries) -> the seed is FAILED
+    #
+    # A fallback pose is re-measured against its own targets. Returning the LM's error metadata for
+    # a configuration we are not returning is exactly the bug the environment-collision fallback
+    # above had to fix, and it would silently report a pose that was never evaluated.
+    # -------------------------------------------------------------------------------------------
+    if self_collision_mode == "hard":
+        import time as _time
+        B = qa.shape[0]
+        lm_q32 = _np.ascontiguousarray(_np.asarray(lm["joint_config"], dtype=_np.float32))
+        _t0 = _time.perf_counter()
+        lm_free = ~_np.asarray(_hjcdik.sidecar_full_check(lm_q32, 0.0)).any(axis=1)
+        _t_lm_chk = (_time.perf_counter() - _t0) * 1e3
+
+        # hard_flags is a uint8 bitfield: bit0 = committed state valid (Stage 3D found a free seed),
+        # bit1 = a collision-free coarse configuration exists for this seed.
+        raw_flags = _np.asarray(c["hard_flags"]).astype(_np.uint8)
+        seed_ok = (raw_flags & 0x1) != 0
+        has_free = (raw_flags & 0x2) != 0
+        qfree = _np.asarray(c["hard_qfree"], dtype=_np.float32)          # [B, 29]
+
+        use_fb = (~lm_free) & has_free
+        failed = (~lm_free) & (~has_free)
+
+        dt = lm["joint_config"].dtype
+        out_q = _np.array(lm["joint_config"], dtype=dt, copy=True)
+        out_q[use_fb] = qfree[use_fb].astype(dt)
+        out["joint_config"] = out_q
+
+        # A fallback row reports the COARSE stage's own metrics, because the pose it returns IS the
+        # coarse stage's answer: hard mode's last_collision_free_coarse_q is published from best_x,
+        # and out_pn/out_on/out_cost were computed from that same best_x after a full refresh. So
+        # these are that pose's measured errors, not the LM's -- reusing the LM's numbers here would
+        # describe a configuration we are not returning. (test_fallback_metadata_recomputed pins
+        # the qfree == coarse joint_config identity this depends on.)
+        for k in ("position_errors", "orientation_errors"):
+            out[k] = _np.where(use_fb[:, None], c[k], lm[k])
+        out["cost"] = _np.where(use_fb, c["cost"], lm["cost"])
+        # Final success still requires the existing IK tolerance: a collision-free fallback that
+        # misses it is a FAILED candidate, not a successful collision-free solution.
+        out["success"] = (_np.where(use_fb, _np.asarray(c["success"]).astype(bool),
+                                    _np.asarray(lm["success"]).astype(bool))
+                          & ~failed & seed_ok)
+
+        out["hard_last_free_coarse_q"] = qfree
+        out["self_collision_free"] = lm_free | use_fb
+        out["used_collision_fallback"] = use_fb
+        out["hard_seed_ok"] = seed_ok
+
+        sc = dict(mode="hard",
+                  top_k=int(collision_top_k),
+                  candidates_checked=int(B),
+                  lm_collision_free=int(lm_free.sum()),
+                  lm_colliding=int((~lm_free).sum()),
+                  used_collision_fallback=int(use_fb.sum()),
+                  fallback_success=int(_np.asarray(out["success"])[use_fb].sum())
+                                   if use_fb.any() else 0,
+                  seed_failures=int((~seed_ok).sum()),
+                  unrecoverable=int(failed.sum()),
+                  lm_check_ms=float(_t_lm_chk))
+        sc.update(dict(c["hard"]))
+        if diagnostics and "hard_counters" in c:
+            ctr = _np.asarray(c["hard_counters"])
+            KMAX = int(_hjcdik.hard_max_top_k())
+            R0 = 11                      # == HARD_CTR_ACCEPT_RANK0 in collision_sidecar_hard.cuh
+            for i, name in enumerate(("proposals_checked", "all_k_colliding", "proposals_rejected",
+                                      "gjk_pairs", "gjk_iters", "nongjk_pairs", "sdf_evals",
+                                      "perturbations_skipped", "trials_without_gjk",
+                                      "oracle_checks", "oracle_mismatches")):
+                sc[name] = int(ctr[:, i].sum())
+            sc["accept_by_rank"] = [int(ctr[:, R0 + r].sum()) for r in range(KMAX)]
+            sc["reject_by_joint"] = ctr[:, R0 + KMAX:].sum(axis=0).tolist()
+            sc["counters"] = ctr
+        out["self_collision"] = sc
+
+    if self_collision_mode == "final":
+        import time as _time
+        _ensure_self_collision_sidecar()
+        q32 = _np.ascontiguousarray(_np.asarray(out["joint_config"], dtype=_np.float32))
+        _t0 = _time.perf_counter()
+        verdict = _np.asarray(_hjcdik.sidecar_full_check(q32, 0.0))     # [B, n_pairs] uint8
+        _t_sc = (_time.perf_counter() - _t0) * 1e3
+        colliding = verdict.any(axis=1)
+        prev_success = _np.asarray(out["success"]).astype(bool)
+        out["success"] = prev_success & ~colliding
+        out["self_collision_free"] = ~colliding
+        sc = dict(mode="final",
+                  candidates_checked=int(q32.shape[0]),
+                  n_colliding=int(colliding.sum()),
+                  candidates_rejected=int((prev_success & colliding).sum()),
+                  kernel_ms=float(_t_sc))
+        if diagnostics and colliding.any():
+            gen = _sidecar_gen_dir()
+            import json as _json
+            pairs = _json.load(open(os.path.join(gen, "g1_collision_sidecar.json")))["checked_link_pairs"]
+            bi = int(_np.argmax(colliding))
+            pj = int(_np.argmax(verdict[bi]))
+            sc["first_colliding"] = dict(candidate=bi, pair_index=pj, links=list(pairs[pj]))
+        out["self_collision"] = sc
     return out
 
 
@@ -761,12 +993,103 @@ def solve(q, target_positions, target_quaternions, active_target_mask=None,
 #   its CANDIDATE-level data (seed, all outputs) via gp. Targets/masks are stored ONCE per problem
 #   ([P, K, ...] / [P]) and never broadcast to [P, S, K, ...].
 # =================================================================================================
-def _canonical_problems(target_poses, active_masks, seed_configs, dtype):
+# The public base-update controls. Names deliberately mirror base_update.py's BaseUpdateConfig --
+# it is the host reference for this exact solve, and a reader comparing them should not have to
+# translate. Defaults are conservative and are to be tuned on benchmark evidence (M7), not
+# intuition. `enabled` defaults to False: floating_base alone CARRIES a base without optimizing it
+# (the externally-sampled-base behaviour, moved on-device), and turning the optimizer on is a
+# separate, explicit decision.
+_BASE_UPDATE_DEFAULTS = dict(enabled=False, interval=1, damping=1e-3, scale_p=1.0, scale_R=1.0,
+                             step_scale=1.0, max_translation_step=0.05, max_rotation_step=0.10)
+_UNBOUNDED = 1e30
+
+
+def _canonical_base_update(base_update, base_bounds, floating_base):
+    """Validate the public base-update config + bounds -> the raw binding kwargs.
+
+    Everything is rejected BEFORE any CUDA work, with a message naming the offender: a bad base
+    config that reaches the kernel does not raise, it silently solves a different problem.
+    """
+    if not floating_base:
+        # Accepting these under a fixed base would be a silent no-op, which is how the base_bounds
+        # kwarg spent all of M4 lying to callers.
+        if base_update is not None:
+            raise ValueError("base_update requires floating_base=True: there is no base to move")
+        if base_bounds is not None:
+            raise ValueError("base_bounds requires floating_base=True: there is no base to bound")
+        return {}
+
+    cfg = dict(_BASE_UPDATE_DEFAULTS)
+    if base_update is not None:
+        if not isinstance(base_update, dict):
+            raise TypeError(f"base_update must be a dict of {sorted(_BASE_UPDATE_DEFAULTS)}, "
+                            f"got {type(base_update).__name__}")
+        unknown = sorted(set(base_update) - set(_BASE_UPDATE_DEFAULTS))
+        if unknown:                      # a typo'd key must not be a silently ignored default
+            raise ValueError(f"unknown base_update keys {unknown}; "
+                             f"expected {sorted(_BASE_UPDATE_DEFAULTS)}")
+        cfg.update(base_update)
+
+    def _pos(name, allow_none=False):
+        v = cfg[name]
+        if v is None and allow_none:
+            return 0.0                   # the kernel reads <= 0 as "no clip"
+        v = float(v)
+        if not (v > 0.0) or not _np.isfinite(v):
+            raise ValueError(f"base_update['{name}'] must be > 0 and finite, got {cfg[name]}"
+                             + (" (or None for no clipping)" if allow_none else ""))
+        return v
+
+    interval = int(cfg["interval"])
+    if interval < 1:
+        raise ValueError(f"base_update['interval'] must be >= 1, got {cfg['interval']}")
+    damping = float(cfg["damping"])
+    if not (damping >= 0.0) or not _np.isfinite(damping):
+        raise ValueError(f"base_update['damping'] must be >= 0 and finite, got {cfg['damping']}")
+    # scale_p/scale_R enter the damping metric D = diag(s_p^-2 I3, s_R^-2 I3) as s^-2, and their
+    # positivity is what makes lambda*D positive definite -- which is what lets the kernel factor
+    # H + lambda*D unconditionally. Zero is not "no scaling", it is a division by zero.
+    scale_p, scale_R = _pos("scale_p"), _pos("scale_R")
+    step_scale = _pos("step_scale")
+    max_t = _pos("max_translation_step", allow_none=True)
+    max_r = _pos("max_rotation_step", allow_none=True)
+
+    lo, hi = [-_UNBOUNDED] * 3, [_UNBOUNDED] * 3
+    if base_bounds is not None:
+        try:
+            lower, upper = base_bounds
+        except (TypeError, ValueError):
+            raise ValueError("base_bounds must be a (lower, upper) pair of 3-vectors, "
+                             f"got {base_bounds!r}") from None
+        lower = _np.asarray(lower, dtype=float).reshape(-1)
+        upper = _np.asarray(upper, dtype=float).reshape(-1)
+        if lower.shape != (3,) or upper.shape != (3,):
+            raise ValueError(f"base_bounds must be two 3-vectors, got shapes "
+                             f"{lower.shape} and {upper.shape}")
+        if not (_np.all(_np.isfinite(lower)) and _np.all(_np.isfinite(upper))):
+            raise ValueError("base_bounds must be finite; omit base_bounds for an unbounded base")
+        bad = _np.nonzero(lower > upper)[0]
+        if bad.size:
+            raise ValueError(f"base_bounds lower must be <= upper on every axis; "
+                             f"violated on axis {bad.tolist()} "
+                             f"(lower={lower.tolist()}, upper={upper.tolist()})")
+        lo, hi = lower.tolist(), upper.tolist()
+
+    return dict(base_update_enabled=bool(cfg["enabled"]), base_update_interval=interval,
+                base_damping=damping, base_step_scale=step_scale,
+                base_damping_scale_p=scale_p, base_damping_scale_R=scale_R,
+                base_max_translation_step=max_t, base_max_rotation_step=max_r,
+                base_position_lower=lo, base_position_upper=hi)
+
+
+def _canonical_problems(target_poses, active_masks, seed_configs, dtype, floating_base=False):
     """Validate + canonicalize the batched-problem inputs. Returns
         seeds_flat [B, N] (wire dtype, C-contig),
         tgt_p [P, K, 3], tgt_q [P, K, 4]  (split from the [P,K,7] poses; quats WXYZ, normalized),
         packed [P] uint32 masks,
-        P, S.
+        P, S,
+        base_p [B, 3], base_q [B, 4] (wxyz, unit) when floating_base -- else EMPTY arrays,
+        which the binding reads as "fixed base" and leaves null all the way down.
     Raises a clear ValueError/TypeError BEFORE any CUDA work on malformed input.
     """
     N, K = num_joints(), num_targets()
@@ -777,8 +1100,14 @@ def _canonical_problems(target_poses, active_masks, seed_configs, dtype):
     P = int(tp.shape[0])
 
     sc = _np.asarray(seed_configs)
-    if sc.ndim != 3 or sc.shape[2] != N:
-        raise ValueError(f"seed_configs must be [P, S, N={N}], got {sc.shape}")
+    # Floating base: the seed carries the FULL state [x,y,z, qw,qx,qy,qz, N joints], not an
+    # ambiguous 35-vector -- the optimization is over a 6D tangent, but the STATE is 7+N.
+    want = (N + 7) if floating_base else N
+    if sc.ndim != 3 or sc.shape[2] != want:
+        raise ValueError(
+            f"seed_configs must be [P, S, {want}], got {sc.shape}" + (
+                f" -- floating_base=True expects [x,y,z, qw,qx,qy,qz, {N} joints]"
+                if floating_base else ""))
     if sc.shape[0] != P:
         raise ValueError(f"seed_configs P={sc.shape[0]} != target_poses P={P}")
     S = int(sc.shape[1])
@@ -815,8 +1144,36 @@ def _canonical_problems(target_poses, active_masks, seed_configs, dtype):
         raise ValueError("target_poses has a (near-)zero quaternion for an active target")
     quat = _np.where(nrm > 0, quat / _np.where(nrm > 0, nrm, 1.0), quat).astype(dtype, copy=False)
 
-    seeds_flat = _np.ascontiguousarray(sc.reshape(P * S, N), dtype=dtype)
-    return seeds_flat, _np.ascontiguousarray(pos), _np.ascontiguousarray(quat), packed, P, S
+    if floating_base:
+        flat = sc.reshape(P * S, N + 7)
+        # copy=True is REQUIRED, not defensive: the binding takes base_p as IN/OUT
+        # (in.base_p = base_p.mutable_data(), then returns it as "base_position"), so this array
+        # must be one we own. ascontiguousarray would alias the caller's seed_configs at B == 1 --
+        # a [1,3] column slice counts as C-contiguous because a leading dim of 1 makes its stride
+        # irrelevant -- and the refined base would land back in the caller's seeds.
+        base_p = _np.array(flat[:, 0:3], dtype=dtype, order="C", copy=True)   # [B,3]
+        bq = _np.asarray(flat[:, 3:7], dtype=_np.float64)                 # [B,4] wxyz
+        nrm = _np.linalg.norm(bq, axis=1)
+        if _np.any(nrm < 1e-8):
+            raise ValueError("seed_configs has a (near-)zero base quaternion; "
+                             "expected [x,y,z, qw,qx,qy,qz, joints] with a unit quaternion")
+        # Normalize here so the kernel can assume unit -- it does, and never renormalizes
+        # (the same contract tgt_q already has). q and -q are the same rotation; both are fine.
+        base_q = _np.ascontiguousarray(bq / nrm[:, None], dtype=dtype)
+        joints = flat[:, 7:]
+    else:
+        base_p = _np.zeros((0,), dtype=dtype)      # empty => the binding leaves in.base_* null
+        base_q = _np.zeros((0,), dtype=dtype)
+        joints = sc.reshape(P * S, N)
+
+    # copy=True for the same reason base_p above copies: seed_configs is the CALLER's array and
+    # solve_problems must never write to it. The joints happen to be safe today (the binding
+    # uploads them via a const q.data() and downloads into its own output), but that is the
+    # binding's private choice, not a promise to this layer -- and ascontiguousarray would hand
+    # over a live view of the caller's array at B == 1 the moment it changed its mind.
+    seeds_flat = _np.array(joints, dtype=dtype, order="C", copy=True)
+    return (seeds_flat, _np.ascontiguousarray(pos), _np.ascontiguousarray(quat), packed, P, S,
+            base_p, base_q)
 
 
 def solve_problems(target_poses, active_masks, seed_configs,
@@ -826,13 +1183,43 @@ def solve_problems(target_poses, active_masks, seed_configs,
                    position_tol=1e-4, orientation_tol=1e-3,
                    position_weights=1.0, orientation_weights=1.0,
                    problems_json_text="", problem_set_name="", problem_idx=0,
-                   return_all_candidates=False, _solver=None):
+                   return_all_candidates=False, floating_base=False, base_bounds=None,
+                   base_update=None, self_collision_mode="off",
+                   self_collision_margin=0.0, self_collision_eligible_tol=None,
+                   _solver=None):
     """Solve P distinct multi-target IK problems in parallel, returning the top-1 per problem.
 
     Args:
         target_poses  [P, K, 7]  per problem: K target poses [x,y,z, qw,qx,qy,qz] (WXYZ).
         active_masks  [P]        per problem: uint bitmask, bit k = target k active.
         seed_configs  [P, S, N]  per problem: S candidate seed configurations.
+                                 floating_base=True instead expects [P, S, 7+N]:
+                                 [x,y,z, qw,qx,qy,qz, N joints]. The optimization is over a 6-D
+                                 tangent but the STATE is 7+N, so the seed carries all of it.
+
+    Floating base (all optional; a fixed-base call is unaffected by every one of them):
+        floating_base  False  each candidate carries its own world base pose. The targets stay in
+                              the WORLD frame; each candidate's copy is expressed in its own base.
+        base_update    None   dict of controls; keys mirror base_update.py's BaseUpdateConfig:
+                                enabled              False  optimize the base, not just carry it
+                                interval             1      take a base step every N LM iterations
+                                damping              1e-3   lambda in H_lambda = H + lambda*D
+                                scale_p, scale_R     1.0    D = diag(s_p^-2 I3, s_R^-2 I3), > 0
+                                step_scale           1.0    alpha on the accepted step
+                                max_translation_step 0.05   m,   None => unclipped
+                                max_rotation_step    0.10   rad, None => unclipped
+        base_bounds    None   (lower3, upper3) world box the base position is clamped into.
+
+    THE BASE IS NOT UNIQUELY IDENTIFIABLE from position targets. With N joints free there are many
+    (base, joints) pairs that put the K contacts in the same place, and this returns one of them --
+    measured on G1: a task solved to 2.9e-05 m with a base 0.044 m from the one it was built from.
+    So judge a returned base by the error it produces, never by comparing it to a base you expected.
+    A base is only meaningful WITH the joints it was scored against; the two are returned as a pair
+    and must be used as one.
+
+    Base updates run in LM REFINEMENT ONLY -- never in the coarse sweep, whose greedy per-joint
+    accept/rollback a base move (which perturbs every target at once) would fight. coarse_iters
+    therefore does no base optimization, and a coarse-only run leaves the base at its seed.
 
     Selection (on the GPU, one block per problem) ranks candidates by the deterministic three-class
     key R = (class, E_phys, seed): class 0 solved < class 1 valid-unsolved < class 2 invalid, then
@@ -848,6 +1235,9 @@ def solve_problems(target_poses, active_masks, seed_configs,
         position_errors     [P, 1, K]     of the selected candidate
         orientation_errors  [P, 1, K]
         selected_seed_ids   [P, 1]        seed index within the problem, or -1 if none valid
+      and when floating_base=True, gathered to the SAME [P, M, ...] selection as joint_config:
+        base_position       [P, 1, 3]     the selected candidate's world base position
+        base_quaternion     [P, 1, 4]     its world base orientation (WXYZ, unit)
         problem_success     [P]           at least one solved candidate existed
         num_solved          [P]  num_valid [P]
         active_masks        [P]
@@ -856,7 +1246,10 @@ def solve_problems(target_poses, active_masks, seed_configs,
 
     ALL-INVALID FILL: if every candidate of a problem is invalid, the returned config is that
     problem's FIRST input seed (if finite) else zeros, with selected_seed_id=-1, cost=+inf,
-    success=valid=False, and (collision) collision_free=False -- never marked feasible.
+    success=valid=False, and (collision) collision_free=False -- never marked feasible. The base
+    follows the same rule: base_position/base_quaternion are that problem's FIRST INPUT seed base,
+    so the returned (base, joints) stay the pair the fill describes rather than a live base bolted
+    to a fallback config.
 
     return_all_candidates=True additionally returns the full [P, S, ...] post-fallback candidate
     arrays under all_* keys, for debugging. The SELECTED outputs are identical either way.
@@ -866,10 +1259,22 @@ def solve_problems(target_poses, active_masks, seed_configs,
     pc = _precision_code(precision)
     wire = _np.float32 if pc == 1 else _np.float64
     N, K = num_joints(), num_targets()
+    floating_base = bool(floating_base)
+    _bu = _canonical_base_update(base_update, base_bounds, floating_base)
 
-    seeds_flat, pos, quat, packed, P, S = _canonical_problems(
-        target_poses, active_masks, seed_configs, wire)
+    seeds_flat, pos, quat, packed, P, S, base_p, base_q = _canonical_problems(
+        target_poses, active_masks, seed_configs, wire, floating_base=floating_base)
+    # base_p/base_q are IN/OUT at the binding (in.base_p = base_p.mutable_data(), returned as
+    # "base_position"), so the seed base is GONE after the call. Keep it: the all-invalid fill
+    # below owes the caller its first input seed's base, not whatever the kernel left there.
+    base_p_in = base_p.copy() if floating_base else None
+    base_q_in = base_q.copy() if floating_base else None
     B = P * S
+    # Always collected when floating: the kernel writes them once in the epilogue from values it
+    # already holds (measured: 0 extra registers on sm_89, where there are only 3 to spare), and
+    # without them an acceptance RATE is unobservable -- a base update that proposes every sweep
+    # and is rejected every time looks exactly like one that never ran.
+    base_diag = _np.zeros((B, 3), dtype=_np.int32) if floating_base else _np.zeros((0,), _np.int32)
     if not (1 <= num_solutions <= S):
         raise ValueError(f"num_solutions must be in [1, S={S}], got {num_solutions}")
 
@@ -901,12 +1306,58 @@ def solve_problems(target_poses, active_masks, seed_configs,
             1e-6, 1e-9, 0.35, int(coarse_iters), 5, 1, int(seed), 4,
             5e-3, int(lm_iters), int(stag_patience), float(stag_rel),
             int(num_solutions), pc, bool(return_all_candidates),
-            str(problems_json_text), str(problem_set_name), int(problem_idx), sv._ws)
+            str(problems_json_text), str(problem_set_name), int(problem_idx), sv._ws,
+            base_p, base_q, base_diag, **_bu)
     finally:
         sv._exit()
 
     out["num_problems"] = P
     out["seeds_per_problem"] = S
+    if floating_base:
+        # The kernel is candidate-major: it returns the base per CANDIDATE [B,...] while
+        # joint_config is the SELECTED [P,M,...]. They are paired ONLY through
+        # b = p*S + selected_seed_ids[p,m]; that rule lives here, once, and nowhere else -- a
+        # caller open-coding it is a caller who will one day drop the p*S stride and read a
+        # neighbouring problem's base, which is a real base and so looks entirely plausible.
+        # The raw candidate-major arrays stay available under private keys for tests and
+        # debugging that genuinely reason per candidate.
+        bp = _np.asarray(out["base_position"])          # [B,3] candidate-major
+        bq = _np.asarray(out["base_quaternion"])        # [B,4]
+        out["_base_position_candidates"] = bp
+        out["_base_quaternion_candidates"] = bq
+        sid = _np.asarray(out["selected_seed_ids"])     # [P,M], -1 == nothing valid
+        pofs = (_np.arange(P, dtype=_np.int64) * S)[:, None]
+        idx = pofs + _np.where(sid >= 0, sid, 0)        # [P,M]; the -1 slots are overwritten below
+        gp, gq = bp[idx], bq[idx]                       # [P,M,3], [P,M,4]
+        bad = sid < 0
+        if bad.any():                                   # ALL-INVALID FILL: the first INPUT seed
+            fill = _np.broadcast_to(pofs, sid.shape)
+            gp = _np.where(bad[..., None], base_p_in[fill], gp)
+            gq = _np.where(bad[..., None], base_q_in[fill], gq)
+        out["base_position"] = _np.ascontiguousarray(gp)
+        out["base_quaternion"] = _np.ascontiguousarray(gq)
+
+        # Diagnostics, gathered to the same [P,M] selection. Counts are per CANDIDATE (they are
+        # what that candidate's own LM did), so they gather by the same rule as the base itself.
+        d = _np.asarray(out.pop("base_diag", base_diag)).reshape(B, 3)
+        out["_base_diag_candidates"] = d
+        dsel = d[idx]                                          # [P,M,3]
+        out["base_updates_attempted"] = _np.ascontiguousarray(dsel[..., 0])
+        out["base_updates_accepted"] = _np.ascontiguousarray(dsel[..., 1])
+        out["base_numerical_failures"] = _np.ascontiguousarray(dsel[..., 2])
+
+        # How far the selected base actually travelled from ITS OWN seed. Host-side: the seed is
+        # base_p_in[b], the answer is gp -- no kernel state needed. Reported because "the base
+        # moved" and "the base update helped" are different claims and only the second matters.
+        seed_p, seed_q = base_p_in[idx], base_q_in[idx]        # [P,M,3], [P,M,4]
+        out["base_translation_moved"] = _np.linalg.norm(gp - seed_p, axis=-1)
+        # Angle of the relative rotation q_out * q_seed^-1, via |<q_out, q_seed>|: the abs folds
+        # q and -q together (the same rotation), so a hemisphere flip is not read as a 180 deg move.
+        dot = _np.abs(_np.sum(gq * seed_q, axis=-1)).clip(0.0, 1.0)
+        out["base_rotation_moved"] = 2.0 * _np.arccos(dot)
+        if bad.any():                                          # unfilled slots did not move
+            out["base_translation_moved"] = _np.where(bad, 0.0, out["base_translation_moved"])
+            out["base_rotation_moved"] = _np.where(bad, 0.0, out["base_rotation_moved"])
     if return_all_candidates:
         # E_phys per candidate for the debug arrays (matches the device selection metric).
         act = ((packed[:, None] >> _np.arange(K, dtype=_np.uint32)) & 1).astype(bool)   # [P,K]
@@ -914,4 +1365,100 @@ def solve_problems(target_poses, active_masks, seed_configs,
         pe = out["all_position_errors"]; oe = out["all_orientation_errors"]
         out["all_cost_physical"] = (((pe / position_tol) ** 2 + (oe / orientation_tol) ** 2)
                                     * act_b).sum(axis=2)
+
+    # -------------------------------------------------------------------------------------------
+    # FINAL SELF-COLLISION GATE for the batched-problem API (Checkpoint 3C.3 / parent integration).
+    #
+    # Identical semantics to solve()'s `final` mode: ONE batched sidecar full-check over the
+    # ALREADY-PRODUCED candidates. Selection, ranking and q are untouched -- a colliding candidate
+    # is marked unsuccessful, never rewritten -- so every free candidate is byte-identical to off
+    # mode. The check is on the 29 ACTUATED joints only: self-collision is invariant to the
+    # floating base, so `base_position`/`base_quaternion` play no part in it.
+    # -------------------------------------------------------------------------------------------
+    if self_collision_mode not in ("off", "final"):
+        raise ValueError(
+            f"solve_problems supports self_collision_mode off|final, got {self_collision_mode!r}"
+            " (hard mode is a single-problem solve() feature)")
+    if self_collision_mode == "final":
+        import time as _time
+        _ensure_self_collision_sidecar()
+        qc = _np.asarray(out["joint_config"])                  # [P, M, N]
+        flat = qc.reshape(-1, qc.shape[-1])
+        nslots = flat.shape[0]
+
+        # ---- ELIGIBILITY PREDICATE (documented, and deliberately not tuned for timing) --------
+        # A candidate reaches the native checker iff it could actually be RETURNED:
+        #
+        #   valid            the selection slot holds a real solution
+        #   finite q         no NaN/Inf configuration ever reaches a collision kernel
+        #   finite errors    a candidate whose error is not a number cannot be judged against a
+        #                    tolerance, so it is not eligible
+        #   max target error <= self_collision_eligible_tol   (only when the caller states one)
+        #
+        # The tolerance is the CALLER'S acceptance threshold, not HJCD's internal `position_tol`:
+        # a consumer that accepts at 3 cm would otherwise have its accepted candidates go
+        # unchecked. Passing None checks everything valid and finite -- conservative, and the
+        # behaviour of the pre-compaction implementation.
+        #
+        # Not checking an ineligible candidate is safe in both directions: it was already being
+        # discarded on error, and its success/valid flags are left exactly as they were.
+        _t_e = _time.perf_counter()
+        elig = _np.isfinite(flat).all(axis=1)
+        v = out.get("valid")
+        if v is not None:
+            elig &= _np.asarray(v).astype(bool).reshape(-1)
+        pe = _np.asarray(out["position_errors"]).reshape(nslots, -1)
+        elig &= _np.isfinite(pe).all(axis=1)
+        if self_collision_eligible_tol is not None:
+            elig &= pe.max(axis=1) <= float(self_collision_eligible_tol)
+        idx = _np.flatnonzero(elig)
+        compact = _np.ascontiguousarray(flat[idx].astype(_np.float32))
+        _t_compact = (_time.perf_counter() - _t_e) * 1e3
+
+        # ---- one batched full-check over the COMPACTED set -----------------------------------
+        # `self_collision_margin` shifts the verdict threshold: a pair is colliding when its
+        # signed gap < margin. margin = 0 means "any proxy overlap at all", which is STRICTER than
+        # a MuJoCo gate that only counts penetrations deeper than its `self_clearance`. A consumer
+        # whose authority uses a depth threshold should pass the matching NEGATIVE margin.
+        _t0 = _time.perf_counter()
+        if len(idx):
+            hit = _np.asarray(
+                _hjcdik.sidecar_full_check(compact, float(self_collision_margin))).any(axis=1)
+        else:
+            hit = _np.zeros(0, bool)            # nothing eligible -> no kernel launched at all
+        _t_sc = (_time.perf_counter() - _t0) * 1e3
+
+        # ---- scatter verdicts back to the ORIGINAL candidate indices -------------------------
+        _t1 = _time.perf_counter()
+        colliding = _np.zeros(nslots, bool)
+        checked = _np.zeros(nslots, bool)
+        colliding[idx] = hit
+        checked[idx] = True
+        colliding = colliding.reshape(qc.shape[:-1])
+        checked = checked.reshape(qc.shape[:-1])
+        prev = _np.asarray(out["success"]).astype(bool)
+        out["success"] = prev & ~colliding
+        # NOT "collision free": an unchecked candidate is unknown, not free. Callers that need the
+        # distinction read `self_collision_checked`.
+        out["self_collision_free"] = ~colliding
+        out["self_collision_checked"] = checked
+        if "valid" in out:
+            out["valid"] = _np.asarray(out["valid"]).astype(bool) & ~colliding
+        _t_scatter = (_time.perf_counter() - _t1) * 1e3
+
+        out["self_collision"] = dict(
+            mode="final",
+            candidate_slots=int(nslots),
+            eligible=int(len(idx)),
+            candidates_checked=int(len(idx)),
+            n_colliding=int(colliding.sum()),
+            candidates_rejected=int((prev & colliding).sum()),
+            margin=float(self_collision_margin),
+            eligible_tol=(None if self_collision_eligible_tol is None
+                          else float(self_collision_eligible_tol)),
+            native_collision_tolerance_m=abs(float(self_collision_margin)),
+            semantics="native self-collision prefilter passed; MuJoCo remains authoritative",
+            compaction_ms=float(_t_compact),
+            kernel_ms=float(_t_sc),
+            scatter_ms=float(_t_scatter))
     return out

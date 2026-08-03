@@ -30,10 +30,32 @@
 #include <nlohmann/json.hpp>
 #include "kernel/grid_env.cuh"   // requires grid.cuh (via hjcd_settings.h) already included above
 
+// Self-collision sidecar, HARD mode (Checkpoint 3D/3E). Pulled into the SOLVER TU only for the two
+// __noinline__ hot-path entry points (sidecar_hard_trial / sidecar_hard_restore). The 177-register
+// batched full checker stays where it was, in src/collision_sidecar.cu, and is never inlined here.
+#include "collision_sidecar_hard.cuh"
+
 enum : int {
     N = grid::NUM_JOINTS
 };
 extern "C" int grid_num_joints() { return N; }
+
+// The sidecar collision model is G1-specific (29 joints, 40 links, hashed URDF). A build whose
+// grid.cuh is a DIFFERENT robot keeps hard mode compiled but permanently unavailable -- silently
+// checking one robot's geometry against another's kinematics is the failure mode this guards.
+static constexpr bool HJCD_HARD_AVAILABLE = (N == g1sc::N_JOINTS);
+extern "C" int hjcd_hard_available() { return HJCD_HARD_AVAILABLE ? 1 : 0; }
+
+// SEPARABLE_COMPILATION is OFF, so this TU has its OWN copies of the sidecar's `g_sdf` / `g_cverts`
+// device pointer symbols, distinct from the ones src/collision_sidecar.cu writes at upload time.
+// Both must point at the SAME device allocations or the hot path would dereference null. The host
+// binds them here once, from the pointers the sidecar TU already owns.
+extern "C" void hjcd_hard_bind_model(const void* const* sdf_ptrs, int n_sdf, const void* cverts) {
+    for (int i = 0; i < n_sdf; ++i)
+        CUDA_OK(cudaMemcpyToSymbol(g1sc::g_sdf, &sdf_ptrs[i], sizeof(void*),
+                                   (size_t)i * sizeof(void*)));
+    CUDA_OK(cudaMemcpyToSymbol(g1sc::g_cverts, &cverts, sizeof(void*)));
+}
 
 constexpr int FLANGE_IDX = N + 1;
 constexpr int EE_IDX     = N;
@@ -1472,13 +1494,51 @@ __device__ __forceinline__ T e_phys(const T* s_pn, const T* s_on, unsigned int a
     return e;
 }
 
+// Controls for the alternating base update (Architecture B). Passed BY VALUE to the kernel: it is
+// 14 scalars, and a pointer would cost a global read per candidate for data every candidate shares.
+// enabled == 0 makes the whole feature a branch that is never taken, which is how the fixed-base
+// path stays bit-identical.
+template<typename T>
+struct BaseUpdateCfg {
+    int enabled = 0;
+    int interval = 1;             // take a base step every `interval` LM iterations
+    T damping = (T)1e-3;          // lambda in H + lambda*D   (see base_update_warp)
+    // D = diag(s_p^-2 I3, s_R^-2 I3): the metric lambda is measured in. MUST match
+    // hjcdik/base_update.py's damping_matrix() -- the host reference is the oracle for this
+    // solve, and it is only an oracle while both solve the same system.
+    T damping_scale_p = (T)1;     // s_p, metres  (> 0)
+    T damping_scale_R = (T)1;     // s_R, radians (> 0)
+    T step_scale = (T)1;          // alpha
+    T max_translation = (T)0.05;  // m,  clipped independently of rotation
+    T max_rotation = (T)0.10;     // rad
+    T lo[3] = {(T)-1e30, (T)-1e30, (T)-1e30};   // base position bounds; +-1e30 == unbounded
+    T hi[3] = {(T)1e30, (T)1e30, (T)1e30};
+};
+
 template<typename T>
 struct LMScratch {
     T s_x[N], x_old[N], best_x[N];
     T s_XmatsHom[grid::XHOM_T_COUNT];
     T s_jointX[N * 16];
     T s_target_X[hjcd::NT * 16];
-    T s_tgt_p[hjcd::NT * 3], s_tgt_q[hjcd::NT * 4];
+    T s_tgt_p[hjcd::NT * 3], s_tgt_q[hjcd::NT * 4];   // in the CANDIDATE'S BASE FRAME
+    // Floating base, per candidate (hjcd::FLOATING_BASE_DOF). s_tgt_p/s_tgt_q above are stored
+    // in THIS base's frame -- the only way the base enters the solver. The FK, the coordinate
+    // machinery and the cost never see it. Identity for a fixed-base solve, which then reduces
+    // to exactly the previous bytes.
+    T s_base_p[3], s_base_q[4];
+    // best_x tracks the best JOINTS seen; with a moving base the best BASE must travel with them
+    // or the returned joints would be paired with whatever base happened to be current at the end.
+    T best_base_p[3], best_base_q[4];
+    T bak_base_p[3], bak_base_q[4];    // exact rollback of a rejected base step
+    T s_Hb[hjcd::FLOATING_BASE_DOF * hjcd::FLOATING_BASE_DOF];   // 6x6 normal matrix, col-major
+    T s_bb[hjcd::FLOATING_BASE_DOF];                             // 6 rhs
+    // eval_targets_full_warp writes s_ck[k] and *out_total UNCONDITIONALLY -- it has no null
+    // guards -- so the base re-score must hand it real storage. Passing nullptr was a device-side
+    // null write and surfaced as "unspecified launch failure" at the next sync.
+    T s_ck_base[hjcd::NT], s_total_base;
+    int s_base_fail;                   // posv non-PD flag for the 6x6 solve
+    int base_att, base_acc, base_numfail;   // diagnostics (attempted / accepted / gave up)
     T s_wp[hjcd::NT], s_wo[hjcd::NT];
     T s_e_pos[hjcd::NT * 3], s_e_ori[hjcd::NT * 3];
     T s_pn[hjcd::NT], s_on[hjcd::NT];
@@ -1519,14 +1579,238 @@ void lm_refresh(LMScratch<T>* st, T* out_cost) {
                           st->active, out_cost);
 }
 
+// exp of a rotation vector, as a WXYZ quaternion: q = (cos(th/2), sin(th/2) * w/th).
+// The quaternion form of the SO(3) exp, so no rotation matrix is ever built.
+template<typename T>
+__device__ __forceinline__
+void quat_from_rotvec(const T* __restrict__ w, T* __restrict__ q) {
+    const T th2 = w[0]*w[0] + w[1]*w[1] + w[2]*w[2];
+    const T th = sqrt(th2);
+    if (th < (T)1e-12) {          // first order: exp(w) ~ (1, w/2), then normalized below
+        q[0] = (T)1; q[1] = (T)0.5*w[0]; q[2] = (T)0.5*w[1]; q[3] = (T)0.5*w[2];
+    } else {
+        const T s = sin((T)0.5*th) / th;
+        q[0] = cos((T)0.5*th); q[1] = w[0]*s; q[2] = w[1]*s; q[3] = w[2]*s;
+    }
+    const T n = sqrt(q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3]);
+    #pragma unroll
+    for (int i = 0; i < 4; ++i) q[i] /= n;
+}
+
+// Refresh this candidate's base-frame target copy from the immutable WORLD targets, then re-score.
+// NOTE: no FK. The joints did not move, and the FK is expressed in the base frame, so s_jointX and
+// s_target_X are still exactly valid -- only the TARGETS moved. That is what makes a base step
+// cheap next to a joint step.
+template<typename T>
+__device__ __forceinline__
+void base_retarget_and_eval_warp(LMScratch<T>* st, const T* __restrict__ tgt_p,
+                                 const T* __restrict__ tgt_q, size_t pid, int K,
+                                 T eps_pos, T eps_ori) {
+    const int lane = threadIdx.x & 31;
+    if (lane < K) {
+        world_target_to_base<T>(&tgt_p[(pid*K + lane)*3], &tgt_q[(pid*K + lane)*4],
+                                st->s_base_p, st->s_base_q,
+                                &st->s_tgt_p[3*lane], &st->s_tgt_q[4*lane]);
+    }
+    __syncwarp(FULL_WARP_MASK);
+    eval_targets_full_warp<T>(st->s_target_X, st->s_tgt_p, st->s_tgt_q, st->s_wp, st->s_wo,
+                              /*s_scale=*/nullptr, st->active, st->s_e_pos, st->s_e_ori,
+                              st->s_pn, st->s_on, st->s_ck_base, &st->s_total_base);
+    __syncwarp(FULL_WARP_MASK);
+}
+
+// ONE alternating base step: damped Gauss-Newton on the 6 base DOF, joints held.
+//
+//   x_k     = R_b fk_k(q) + p_b                      world contact
+//   r_k     = x*_k - x_k = R_b e_base,k              (e_base is what the sweep already computed)
+//   J_b,k   = [ I3 , -[x_k - p_b]x ] = [ I3, -[R_b fk_k]x ]      3x6, world frame
+//   H dxi   = b ,  H_lambda = H + lambda*D ,  D = diag(s_p^-2 I3, s_R^-2 I3) ,  b = J^T W r
+//   p_b+    = p_b + a*dp ,  q_b+ = exp(a*dphi) (x) q_b            world-frame LEFT perturbation
+//
+// POSITION-DRIVEN by design (M2): orientation residuals do not enter. Documented, not dropped.
+//
+// Damping is dimensionally scaled Tikhonov, and this kernel and hjcdik/base_update.py implement
+// the SAME system -- that is what lets the host reference stand as an oracle for this solve.
+// H mixes units (translation columns dimensionless, rotation columns carrying metres), so the
+// scales are what make lambda meaningful: the penalty is lambda*(||dp||^2/s_p^2 +
+// ||dphi||^2/s_R^2), each block measured against its own characteristic size and the sum
+// dimensionless. s_p = s_R = 1 gives D = I (plain Tikhonov) and is the default.
+//
+// An earlier version damped by lambda*diag(H) here while the reference used lambda*I. Both are
+// defensible; they are not the same algorithm, and the divergence silently cost the oracle its
+// only job. If you change the shift, change it in both places or say so loudly.
+template<typename T>
+__device__ __forceinline__
+void base_update_warp(LMScratch<T>* st, const T* __restrict__ tgt_p, const T* __restrict__ tgt_q,
+                      size_t pid, int K, const BaseUpdateCfg<T> cfg, T eps_pos, T eps_ori) {
+    constexpr int D = hjcd::FLOATING_BASE_DOF;
+    const int lane = threadIdx.x & 31;
+    const T ephys_before = st->ephys;
+
+    if (lane == 0) {
+        ++st->base_att;
+        #pragma unroll
+        for (int i = 0; i < 3; ++i) st->bak_base_p[i] = st->s_base_p[i];
+        #pragma unroll
+        for (int i = 0; i < 4; ++i) st->bak_base_q[i] = st->s_base_q[i];
+
+        T Rb[9];  quat_to_mat3<T>(st->s_base_q, Rb);          // column-major 3x3
+        #pragma unroll
+        for (int i = 0; i < D*D; ++i) st->s_Hb[i] = (T)0;
+        #pragma unroll
+        for (int i = 0; i < D; ++i) st->s_bb[i] = (T)0;
+
+        for (int k = 0; k < hjcd::NT; ++k) {
+            if (!((st->active >> k) & 1u)) continue;           // inactive: same mask as the cost
+            const T w = st->s_wp[k];
+            if (!(w > (T)0)) continue;                         // zero weight == don't care
+            // fk_k in base frame -> lever arm in world:  x_k - p_b = R_b fk_k
+            const T* fk = &st->s_target_X[16*k + 12];          // col-major 4x4: translation
+            T arm[3], r[3];
+            #pragma unroll
+            for (int i = 0; i < 3; ++i)
+                arm[i] = Rb[i]*fk[0] + Rb[3+i]*fk[1] + Rb[6+i]*fk[2];
+            #pragma unroll
+            for (int i = 0; i < 3; ++i)                        // r_world = R_b e_base
+                r[i] = Rb[i]*st->s_e_pos[3*k+0] + Rb[3+i]*st->s_e_pos[3*k+1]
+                     + Rb[6+i]*st->s_e_pos[3*k+2];
+            // J = [I, -[arm]x]; build rows explicitly (3x6) and accumulate H += w J^T J, b += w J^T r
+            T J[3*D];
+            #pragma unroll
+            for (int i = 0; i < 3*D; ++i) J[i] = (T)0;
+            J[0*D+0] = J[1*D+1] = J[2*D+2] = (T)1;             // dI
+            J[0*D+4] =  arm[2]; J[0*D+5] = -arm[1];            // -[arm]x, row 0
+            J[1*D+3] = -arm[2]; J[1*D+5] =  arm[0];            // row 1
+            J[2*D+3] =  arm[1]; J[2*D+4] = -arm[0];            // row 2
+            #pragma unroll
+            for (int a = 0; a < D; ++a) {
+                T ba = (T)0;
+                #pragma unroll
+                for (int i = 0; i < 3; ++i) ba += J[i*D+a] * r[i];
+                st->s_bb[a] += w * ba;
+                #pragma unroll
+                for (int c = 0; c < D; ++c) {
+                    T h = (T)0;
+                    #pragma unroll
+                    for (int i = 0; i < 3; ++i) h += J[i*D+a] * J[i*D+c];
+                    st->s_Hb[a*D + c] += w * h;                // col-major; H symmetric
+                }
+            }
+        }
+        // H_lambda = H + lambda*D, D = diag(s_p^-2 I3, s_R^-2 I3). Added HERE rather than by
+        // posv because posv can only shift by rho*I or rho*diag(A), and D is neither.
+        //
+        // This also retires the zero-diagonal pin that lambda*diag(H) needed. That pin existed
+        // because a relative shift adds NOTHING to a zero diagonal, so the Cholesky tripped and
+        // the whole step collapsed (measured: with every contact at the base origin the entire
+        // rotation block of H vanishes). A fixed positive D cannot have that failure mode: H is
+        // PSD and lambda*D is PD, so H_lambda is PD for any lambda > 0 and the factorization is
+        // safe by construction. The degenerate case now answers itself -- a DOF that moves no
+        // active target has b_i = 0, so its step is lambda*D_ii scaled into exactly zero, which
+        // is what the pin was hand-forcing.
+        const T inv_sp2 = (T)1 / (cfg.damping_scale_p * cfg.damping_scale_p);
+        const T inv_sR2 = (T)1 / (cfg.damping_scale_R * cfg.damping_scale_R);
+        #pragma unroll
+        for (int i = 0; i < D; ++i)
+            st->s_Hb[i*D + i] += cfg.damping * (i < 3 ? inv_sp2 : inv_sR2);
+        st->s_base_fail = 0;
+    }
+    __syncwarp(FULL_WARP_MASK);
+
+    // Same trusted utility the joint LM uses, at D=6. REGULARIZE=false: the shift is already in
+    // H_lambda above, and letting posv add a second one would solve a system the host oracle does
+    // not. CHECK stays on -- lambda == 0 is permitted, and then H_lambda can legitimately be
+    // singular (K < 3 leaves the rotation block rank-deficient; see "Rank structure of J_b").
+    glass::warp::posv<T, D, /*NRHS=*/1, /*REGULARIZE=*/false, /*CHECK=*/true, /*REG_DIAG=*/false>(
+        st->s_Hb, st->s_bb, (T)0, &st->s_base_fail);
+    __syncwarp(FULL_WARP_MASK);
+
+    if (lane == 0) {
+        if (st->s_base_fail) {
+            ++st->base_numfail;                 // non-PD even after the shift: skip, never NaN
+        } else {
+            T dp[3] = { st->s_bb[0], st->s_bb[1], st->s_bb[2] };
+            T dr[3] = { st->s_bb[3], st->s_bb[4], st->s_bb[5] };
+            if (!(isfinite(dp[0]) && isfinite(dp[1]) && isfinite(dp[2]) &&
+                  isfinite(dr[0]) && isfinite(dr[1]) && isfinite(dr[2]))) {
+                ++st->base_numfail;
+                st->s_base_fail = 1;
+            } else {
+                // Clip translation and rotation INDEPENDENTLY, each by its own norm: they carry
+                // different units, so one joint norm would depend on an arbitrary length scale.
+                // Scale the block (preserves direction); clipping components would rotate the step.
+                const T nt = sqrt(dp[0]*dp[0] + dp[1]*dp[1] + dp[2]*dp[2]);
+                if (cfg.max_translation > (T)0 && nt > cfg.max_translation) {
+                    const T s = cfg.max_translation / nt;
+                    #pragma unroll
+                    for (int i = 0; i < 3; ++i) dp[i] *= s;
+                }
+                const T nr = sqrt(dr[0]*dr[0] + dr[1]*dr[1] + dr[2]*dr[2]);
+                if (cfg.max_rotation > (T)0 && nr > cfg.max_rotation) {
+                    const T s = cfg.max_rotation / nr;
+                    #pragma unroll
+                    for (int i = 0; i < 3; ++i) dr[i] *= s;
+                }
+                const T a = cfg.step_scale;
+                #pragma unroll
+                for (int i = 0; i < 3; ++i) {
+                    T v = st->s_base_p[i] + a * dp[i];
+                    v = fmin(fmax(v, cfg.lo[i]), cfg.hi[i]);     // bounds
+                    st->s_base_p[i] = v;
+                }
+                T w[3] = { a*dr[0], a*dr[1], a*dr[2] }, dq[4], qn[4];
+                quat_from_rotvec<T>(w, dq);
+                quat_mul_wxyz<T>(dq, st->s_base_q, qn);          // LEFT: world-frame perturbation
+                const T n = sqrt(qn[0]*qn[0] + qn[1]*qn[1] + qn[2]*qn[2] + qn[3]*qn[3]);
+                #pragma unroll
+                for (int i = 0; i < 4; ++i) st->s_base_q[i] = qn[i] / n;   // stays on the manifold
+            }
+        }
+    }
+    __syncwarp(FULL_WARP_MASK);
+    if (st->s_base_fail) return;                                  // base untouched
+
+    base_retarget_and_eval_warp<T>(st, tgt_p, tgt_q, pid, K, eps_pos, eps_ori);
+
+    if (lane == 0) {
+        // Accept on the PHYSICAL merit, never on cost_lm: the row scales are re-frozen every
+        // iteration, so consecutive scaled costs are in different units and are not comparable
+        // (hjcd_kernel.cu:1457-1461). E_phys is the metric best_x already tracks.
+        const T after = e_phys<T>(st->s_pn, st->s_on, st->active, eps_pos, eps_ori);
+        st->take_best = 0;
+        if (after < ephys_before) {
+            st->ephys = after;
+            ++st->base_acc;
+        } else {
+            #pragma unroll
+            for (int i = 0; i < 3; ++i) st->s_base_p[i] = st->bak_base_p[i];
+            #pragma unroll
+            for (int i = 0; i < 4; ++i) st->s_base_q[i] = st->bak_base_q[i];
+            st->take_best = 1;                                   // marker: re-evaluate below
+        }
+    }
+    __syncwarp(FULL_WARP_MASK);
+    if (st->take_best) {
+        // Exact rollback: the base-frame targets are a deterministic function of (world targets,
+        // base), so recomputing them from the restored base reproduces the pre-step state bit for
+        // bit -- no saved copy of s_tgt_*/s_e_* needed.
+        base_retarget_and_eval_warp<T>(st, tgt_p, tgt_q, pid, K, eps_pos, eps_ori);
+    }
+    __syncwarp(FULL_WARP_MASK);
+    if (lane == 0) st->take_best = 0;
+}
+
 template<typename T>
 __global__ void lm_multi_target_kernel(
     T* __restrict__ x,                        // B x N, in-place (seed -> refined)
-    const T* __restrict__ tgt_p,              // B x NT x 3
-    const T* __restrict__ tgt_q,              // B x NT x 4 (wxyz, unit)
+    const T* __restrict__ tgt_p,              // B x NT x 3   (WORLD frame)
+    const T* __restrict__ tgt_q,              // B x NT x 4 (wxyz, unit), WORLD frame
     const unsigned int* __restrict__ active,  // B
     const T* __restrict__ w_pos,              // B x NT
     const T* __restrict__ w_ori,              // B x NT
+    T* __restrict__ base_p,                   // B x 3, candidate-level, IN/OUT; NULL => fixed base
+    T* __restrict__ base_q,                   // B x 4 (wxyz, unit), IN/OUT; NULL => fixed base
+    int* __restrict__ out_base_diag,          // B x 3 (attempted, accepted, numfail), may be null
     T* __restrict__ out_pn,                   // B x NT
     T* __restrict__ out_on,                   // B x NT
     T* __restrict__ out_cost,                 // B
@@ -1539,7 +1823,8 @@ __global__ void lm_multi_target_kernel(
     const int stop_on_first,
     const int stag_patience,                  // Policy B: 0 DISABLES stagnation stopping (default)
     const T stag_rel,                         //           relative E_phys improvement threshold
-    const int seeds_per_problem)              // S: candidates that share one problem's targets/mask
+    const int seeds_per_problem,              // S: candidates that share one problem's targets/mask
+    const BaseUpdateCfg<T> bcfg)              // alternating base step; .enabled=0 => never taken
 {
     constexpr int K = hjcd::NT;
     const int lane = threadIdx.x & 31;
@@ -1586,18 +1871,35 @@ __global__ void lm_multi_target_kernel(
     int c_trials = 0, c_lsearch = 0, c_accept = 0;
 
     if (lane < N) st->s_x[lane] = x[(size_t)gp * N + lane];      // seed: candidate-level
+    // Base pose: CANDIDATE-level (gp), unlike the targets, which are problem-level (pid). Every
+    // seed of a problem may sit at a different base -- that is the whole point of the feature.
+    if (lane == 0) {
+        if (base_p != nullptr) {
+            #pragma unroll
+            for (int c = 0; c < 3; ++c) st->s_base_p[c] = base_p[(size_t)gp * 3 + c];
+            #pragma unroll
+            for (int c = 0; c < 4; ++c) st->s_base_q[c] = base_q[(size_t)gp * 4 + c];
+        } else {                                                 // fixed base: identity
+            st->s_base_p[0] = st->s_base_p[1] = st->s_base_p[2] = (T)0;
+            st->s_base_q[0] = (T)1;
+            st->s_base_q[1] = st->s_base_q[2] = st->s_base_q[3] = (T)0;
+        }
+    }
+    __syncwarp(FULL_WARP_MASK);        // lanes 1..K-1 read s_base_* just below
     if (lane < K) {
         st->s_wp[lane] = w_pos[(size_t)pid * K + lane];          // weights: problem-level
         st->s_wo[lane] = w_ori[(size_t)pid * K + lane];
-        #pragma unroll
-        for (int c = 0; c < 3; ++c) st->s_tgt_p[3*lane + c] = tgt_p[((size_t)pid*K + lane)*3 + c];
-        #pragma unroll
-        for (int c = 0; c < 4; ++c) st->s_tgt_q[4*lane + c] = tgt_q[((size_t)pid*K + lane)*4 + c];
+        // Store this candidate's targets in ITS OWN base frame (hjcd_settings.h, eq. 2). A null
+        // base_p takes the verbatim-copy branch, so fixed base stays bit-identical to before.
+        world_target_to_base<T>(&tgt_p[((size_t)pid*K + lane)*3], &tgt_q[((size_t)pid*K + lane)*4],
+                                base_p == nullptr ? nullptr : st->s_base_p, st->s_base_q,
+                                &st->s_tgt_p[3*lane], &st->s_tgt_q[4*lane]);
     }
     if (lane == 0) {
         st->active = active[pid];                                // mask: problem-level
         st->s_break = 0; st->stall = 0; st->prev_cost = (T)-1;
         st->stag_n = 0;  st->prev_ephys = (T)-1;
+        st->base_att = 0; st->base_acc = 0; st->base_numfail = 0; st->s_base_fail = 0;
     }
     __syncwarp(FULL_WARP_MASK);
 
@@ -1624,6 +1926,18 @@ __global__ void lm_multi_target_kernel(
                                     eps_pos, eps_ori)) st->s_break = 1;
     }
     if (lane < N) st->best_x[lane] = st->s_x[lane];
+    // The base is seeded WITH best_x, for the same reason the epilogue restores the two together:
+    // best_base_* is otherwise written only when take_best/improved fires, and neither is
+    // guaranteed to happen even once -- the block above sets s_break when the seed already
+    // converged, so the loop is skipped entirely. The epilogue restores s_base_* from
+    // best_base_* unconditionally, so leaving it unwritten hands a candidate that arrived
+    // already solved a base of uninitialized shared memory.
+    if (base_p != nullptr && lane == 0) {
+        #pragma unroll
+        for (int i = 0; i < 3; ++i) st->best_base_p[i] = st->s_base_p[i];
+        #pragma unroll
+        for (int i = 0; i < 4; ++i) st->best_base_q[i] = st->s_base_q[i];
+    }
     __syncwarp(FULL_WARP_MASK);
 
     for (int it = 0; it < k_max && !st->s_break; ++it) {
@@ -1795,6 +2109,40 @@ __global__ void lm_multi_target_kernel(
         }
         __syncwarp(FULL_WARP_MASK);
         if (lane < N && st->take_best) st->best_x[lane] = st->s_x[lane];
+        // The base travels WITH best_x: best_x is the best JOINTS seen, and with a moving base
+        // those joints only mean anything against the base they were scored at.
+        if (lane == 0 && st->take_best) {
+            #pragma unroll
+            for (int i = 0; i < 3; ++i) st->best_base_p[i] = st->s_base_p[i];
+            #pragma unroll
+            for (int i = 0; i < 4; ++i) st->best_base_q[i] = st->s_base_q[i];
+        }
+        __syncwarp(FULL_WARP_MASK);
+
+        // ---- alternating base step. REFINEMENT ONLY by design: the coarse sweep's greedy
+        // per-joint accept/rollback is delicate, and a base move perturbs every target at once.
+        // Placed AFTER the joint step and its E_phys, so st->ephys is the incumbent it must beat.
+        if (bcfg.enabled && !st->s_break && bcfg.interval > 0 && (it % bcfg.interval) == 0) {
+            base_update_warp<T>(st, tgt_p, tgt_q, (size_t)pid, K, bcfg, eps_pos, eps_ori);
+            // `improved` MUST be warp-uniform. Reading st->best_ephys on every lane while lane 0
+            // wrote it (with no __syncwarp between) is a real race -- lanes progress independently
+            // since Volta, so some lanes saw the pre-write value and some the post-write one. The
+            // flag then went non-uniform and the `lane < N` best_x store below wrote a MIXTURE of
+            // the incumbent and current joints, paired with whichever base lane 0 chose. Decide on
+            // ONE lane and broadcast, so every lane acts on the same decision by construction.
+            int improved = 0;
+            if (lane == 0) improved = (st->ephys < st->best_ephys) ? 1 : 0;
+            improved = __shfl_sync(FULL_WARP_MASK, improved, 0);
+            if (lane == 0 && improved) st->best_ephys = st->ephys;
+            if (lane == 0 && improved) {
+                #pragma unroll
+                for (int i = 0; i < 3; ++i) st->best_base_p[i] = st->s_base_p[i];
+                #pragma unroll
+                for (int i = 0; i < 4; ++i) st->best_base_q[i] = st->s_base_q[i];
+            }
+            if (lane < N && improved) st->best_x[lane] = st->s_x[lane];
+            __syncwarp(FULL_WARP_MASK);
+        }
 
         if (lane == 0) st->kicked = 0;
         __syncwarp(FULL_WARP_MASK);
@@ -1846,6 +2194,22 @@ __global__ void lm_multi_target_kernel(
 
     // Report the BEST config seen, not the last one.
     if (lane < N) st->s_x[lane] = st->best_x[lane];
+    // ... and the base it was SCORED AGAINST. Restoring the joints alone would have lm_refresh
+    // below re-score them against whatever base happened to be current, which is a different pose.
+    if (base_p != nullptr) {
+        if (lane == 0) {
+            #pragma unroll
+            for (int i = 0; i < 3; ++i) st->s_base_p[i] = st->best_base_p[i];
+            #pragma unroll
+            for (int i = 0; i < 4; ++i) st->s_base_q[i] = st->best_base_q[i];
+        }
+        __syncwarp(FULL_WARP_MASK);
+        if (lane < K)
+            world_target_to_base<T>(&tgt_p[((size_t)pid*K + lane)*3],
+                                    &tgt_q[((size_t)pid*K + lane)*4],
+                                    st->s_base_p, st->s_base_q,
+                                    &st->s_tgt_p[3*lane], &st->s_tgt_q[4*lane]);
+    }
     __syncwarp(FULL_WARP_MASK);
     lm_refresh<T>(st, &st->cost);
 
@@ -1862,6 +2226,24 @@ __global__ void lm_multi_target_kernel(
         }
     }
     if (lane < N) x[(size_t)gp * N + lane] = st->s_x[lane];
+    // The optimized base is an OUTPUT too, written in place exactly as x is. Fixed-base solves
+    // pass null and never reach here.
+    if (lane == 0 && base_p != nullptr) {
+        #pragma unroll
+        for (int i = 0; i < 3; ++i) base_p[(size_t)gp * 3 + i] = st->s_base_p[i];
+        #pragma unroll
+        for (int i = 0; i < 4; ++i) base_q[(size_t)gp * 4 + i] = st->s_base_q[i];
+        // Diagnostics, [B,3] = (attempted, accepted, numerical failures). Nullable: a caller that
+        // does not ask pays one predicated store. Without these the acceptance RATE is
+        // unobservable from outside -- a base update that proposes constantly and is rejected
+        // every time is indistinguishable from one that never runs, and both look like "the base
+        // barely moved".
+        if (out_base_diag) {
+            out_base_diag[(size_t)gp * 3 + 0] = st->base_att;
+            out_base_diag[(size_t)gp * 3 + 1] = st->base_acc;
+            out_base_diag[(size_t)gp * 3 + 2] = st->base_numfail;
+        }
+    }
     if (lane == 0) {
         out_cost[gp] = st->cost;
         out_succ[gp] = all_active_converged<T>(st->s_pn, st->s_on, st->s_wp, st->s_wo,
@@ -1905,7 +2287,12 @@ struct CoarseScratch {
     T s_XmatsHom[grid::XHOM_T_COUNT];
     T s_jointX[N * 16];
     T s_target_X[hjcd::NT * 16];
-    T s_tgt_p[hjcd::NT * 3], s_tgt_q[hjcd::NT * 4];
+    T s_tgt_p[hjcd::NT * 3], s_tgt_q[hjcd::NT * 4];   // in the CANDIDATE'S BASE FRAME
+    // Floating base, per candidate (hjcd::FLOATING_BASE_DOF). s_tgt_p/s_tgt_q above are stored
+    // in THIS base's frame -- the only way the base enters the solver. The FK, the coordinate
+    // machinery and the cost never see it. Identity for a fixed-base solve, which then reduces
+    // to exactly the previous bytes.
+    T s_base_p[3], s_base_q[4];
     T s_wp[hjcd::NT], s_wo[hjcd::NT];
     T s_e_pos[hjcd::NT * 3], s_e_ori[hjcd::NT * 3];
     T s_pn[hjcd::NT], s_on[hjcd::NT], s_ck[hjcd::NT];
@@ -2002,13 +2389,26 @@ void coarse_full_refresh(CoarseScratch<T>* st) {
                               st->s_pn, st->s_on, st->s_ck, &st->total);
 }
 
-template<typename T>
+// HARD is a COMPILE-TIME flag, not a runtime one, and that is load-bearing. Pulling the sidecar
+// geometry into this TU costs +153 registers and a 2096-byte stack frame -- ptxas inlines the
+// __noinline__ entry points regardless -- and paying that in `off`/`final` would silently halve
+// their occupancy. Templating means the <T,false> instantiation never references the sidecar at
+// all, so dead-code elimination gives back the exact pre-hard-mode kernel, and only hard mode pays
+// hard mode's cost. Verified in the ptxas report, not assumed.
+// ORACLE is likewise compile-time. Folding the debug oracle's full 351-pair sweep into the hot
+// instantiation cost 29 more registers -- pushing it to the 255 ceiling -- and introduced the first
+// register spills in this kernel. The spec requires the oracle to be OFF in performance runs; a
+// third template parameter is what makes "off" mean "not compiled in" rather than "branch not
+// taken". <T,true,false> is the fast hard path; <T,true,true> is validation only.
+template<typename T, bool HARD, bool ORACLE>
 __global__ void coarse_search_mt_kernel(
     T* __restrict__ x,                        // B x N   seeds in, refined out (best seen)
-    const T* __restrict__ tgt_p,              // B x NT x 3
-    const T* __restrict__ tgt_q,              // B x NT x 4
+    const T* __restrict__ tgt_p,              // B x NT x 3   (WORLD frame)
+    const T* __restrict__ tgt_q,              // B x NT x 4   (WORLD frame)
     const unsigned int* __restrict__ active,  // B
     const T* __restrict__ w_pos, const T* __restrict__ w_ori,
+    const T* __restrict__ base_p,             // B x 3, candidate-level; NULL => fixed base
+    const T* __restrict__ base_q,             // B x 4 (wxyz, unit); NULL => fixed base
     T* __restrict__ out_pn, T* __restrict__ out_on,   // B x NT
     T* __restrict__ out_cost,                 // B
     unsigned char* __restrict__ out_succ,     // B
@@ -2022,6 +2422,14 @@ __global__ void coarse_search_mt_kernel(
     const int use_incremental,                // 1 = Phase-4 subtree FK, 0 = full FK (ablation)
     const uint64_t seed,
     const int max_pert_attempts,              // bounded retries for a collision-free kick
+    // --- Stage 3D/3E self-collision HARD mode. hard_enabled == 0 restores the exact prior path:
+    // every branch below is guarded on it, so `off` and `final` execute the same instructions they
+    // did before, with the same operands, in the same order.
+    const int hard_enabled,
+    const int hard_top_k,                     // ranked proposals collision-checked per iteration
+    const int hard_oracle_every,              // debug oracle period (0 = off; validation only)
+    const float hard_margin,
+    g1sc::HardWorkspace hard_ws,              // per-seed persistent state (global memory)
 #if defined(HJCD_HAS_COLLISION)
     const int cc_enabled,                     // 1 = exact collision gate (proposals AND kicks)
     const grid::robotModel<float>* __restrict__ RM_cc,
@@ -2031,6 +2439,9 @@ __global__ void coarse_search_mt_kernel(
 #endif
 {
     constexpr int K = hjcd::NT;
+    // Compile-time false in the <T,false> instantiation -> every hard-mode block below is
+    // eliminated, restoring the byte-identical baseline kernel and its register frame.
+    const bool hard_on = HARD && HJCD_HARD_AVAILABLE && (hard_enabled != 0);
     const int lane = threadIdx.x & 31;
     const int gp = blockIdx.x;
     if (gp >= B) return;
@@ -2056,13 +2467,29 @@ __global__ void coarse_search_mt_kernel(
 #endif
 
     if (lane < N) st->s_x[lane] = x[(size_t)gp * N + lane];      // seed: candidate-level
+    // Base pose: CANDIDATE-level (gp), unlike the targets, which are problem-level (pid). Every
+    // seed of a problem may sit at a different base -- that is the whole point of the feature.
+    if (lane == 0) {
+        if (base_p != nullptr) {
+            #pragma unroll
+            for (int c = 0; c < 3; ++c) st->s_base_p[c] = base_p[(size_t)gp * 3 + c];
+            #pragma unroll
+            for (int c = 0; c < 4; ++c) st->s_base_q[c] = base_q[(size_t)gp * 4 + c];
+        } else {                                                 // fixed base: identity
+            st->s_base_p[0] = st->s_base_p[1] = st->s_base_p[2] = (T)0;
+            st->s_base_q[0] = (T)1;
+            st->s_base_q[1] = st->s_base_q[2] = st->s_base_q[3] = (T)0;
+        }
+    }
+    __syncwarp(FULL_WARP_MASK);        // lanes 1..K-1 read s_base_* just below
     if (lane < K) {
         st->s_wp[lane] = w_pos[(size_t)pid * K + lane];          // weights: problem-level
         st->s_wo[lane] = w_ori[(size_t)pid * K + lane];
-        #pragma unroll
-        for (int c = 0; c < 3; ++c) st->s_tgt_p[3*lane + c] = tgt_p[((size_t)pid*K + lane)*3 + c];
-        #pragma unroll
-        for (int c = 0; c < 4; ++c) st->s_tgt_q[4*lane + c] = tgt_q[((size_t)pid*K + lane)*4 + c];
+        // Store this candidate's targets in ITS OWN base frame (hjcd_settings.h, eq. 2). A null
+        // base_p takes the verbatim-copy branch, so fixed base stays bit-identical to before.
+        world_target_to_base<T>(&tgt_p[((size_t)pid*K + lane)*3], &tgt_q[((size_t)pid*K + lane)*4],
+                                base_p == nullptr ? nullptr : st->s_base_p, st->s_base_q,
+                                &st->s_tgt_p[3*lane], &st->s_tgt_q[4*lane]);
     }
     if (lane == 0) { st->active = active[pid]; st->stall = 0; }  // mask: problem-level
     __syncwarp(FULL_WARP_MASK);
@@ -2104,7 +2531,13 @@ __global__ void coarse_search_mt_kernel(
 
     int c_iters = 0, c_accept = 0, c_reject = 0, c_stalls = 0, c_perturb = 0;
 
-    for (int it = 0; it < k_max; ++it) {
+    // Stage 3D contract: a seed for which no collision-free configuration could be found does NOT
+    // enter coordinate search. Zero iterations leaves best_x == the seed, so the caller still gets
+    // a well-formed row (errors, cost) -- it is just marked failed host-side, never returned as a
+    // collision-free answer.
+    const int iters_max = (hard_on && !(hard_ws.flags[gp] & g1sc::HARD_FLAG_STATE_VALID)) ? 0 : k_max;
+
+    for (int it = 0; it < iters_max; ++it) {
         ++c_iters;
 
         // --- 1. freeze the row scaling and re-express the cost under it -------------------------
@@ -2117,9 +2550,39 @@ __global__ void coarse_search_mt_kernel(
         T v = (T)0, delta = (T)0, pred = (T)-1;
         if (lane < N) coord_proposal<T>(st, lane, lambda_coord, h_min, max_step, &v, &delta, &pred);
 
+        const T cost_before = st->total;
+        int accepted = 0, perturbed = 0;
+        int best_j = -1; T best_p = (T)-1, best_v = (T)0, best_d = (T)0;
+
+        // ------------------------------------------------------------------------------------
+        // STAGE 3E -- TOP-K RANKED, COLLISION-GATED COMMIT.
+        //
+        // `off`/`final` run this loop exactly once (n_ranks == 1) over the same reduction, the same
+        // trial and the same accept test as before -- byte-identity is by construction, not by
+        // re-derivation. Hard mode retains the top `hard_top_k` DISTINCT proposals (distinct by
+        // joint: `tried` masks a joint out once it has been offered, so a duplicate proposal can
+        // never occupy two ranks) and commits the first one that is collision-free.
+        //
+        // A rank is consumed ONLY by a collision rejection. A proposal that fails the ordinary
+        // exact-cost test ends the iteration exactly as it does in off mode and falls through to
+        // the existing stagnation behaviour -- hard mode adds a collision filter, it does not
+        // change what counts as progress.
+        // ------------------------------------------------------------------------------------
+        const int n_ranks = hard_on
+                          ? (hard_top_k < 1 ? 1 : (hard_top_k > g1sc::HARD_MAX_K
+                                                   ? g1sc::HARD_MAX_K : hard_top_k))
+                          : 1;
+        unsigned int tried = 0u;
+        int hard_rank = -1, hard_coll_rejects = 0;
+
+        for (int rank = 0; rank < n_ranks; ++rank) {
         // --- 4. warp-wide best-proposal reduction (ties -> lowest joint index) -------------------
-        int best_j = (pred > (T)0) ? lane : -1;
-        T best_p = pred, best_v = v, best_d = delta;
+        // Restricted to joints not yet offered this iteration. An INVALID proposal (pred <= 0 --
+        // no affected target, curvature below the floor, or a joint-limit projection that left the
+        // value unmoved) is excluded by the same `pred > 0` test as before, so it is never
+        // collision-checked and never occupies a rank.
+        best_j = ((pred > (T)0) && !((tried >> lane) & 1u)) ? lane : -1;
+        best_p = pred; best_v = v; best_d = delta;
         #pragma unroll
         for (int off = 16; off > 0; off >>= 1) {
             const T   op = __shfl_down_sync(FULL_WARP_MASK, best_p, off);
@@ -2134,11 +2597,11 @@ __global__ void coarse_search_mt_kernel(
         best_p = __shfl_sync(FULL_WARP_MASK, best_p, 0);
         best_v = __shfl_sync(FULL_WARP_MASK, best_v, 0);
         best_d = __shfl_sync(FULL_WARP_MASK, best_d, 0);
+        if (best_j < 0) break;                  // no untried valid proposal left
+        tried |= (1u << best_j);
 
-        const T cost_before = st->total;
-        int accepted = 0, perturbed = 0;
-
-        if (best_j >= 0) {
+        int hard_collided = 0;
+        {
             const unsigned int desc = hjcd_gen::JOINT_DESCENDANT_MASK[best_j];
             const unsigned int tm   = hjcd_gen::JOINT_TARGET_MASK[best_j] & st->active;
 
@@ -2193,10 +2656,38 @@ __global__ void coarse_search_mt_kernel(
                 if (!free_ok) accepted = 0;      // colliding: reject, roll back below
             }
 #endif
+            // --- 6b. SELF-collision gate (Stage 3E). Ordered exactly as the spec requires:
+            //         HJCD trial prepared above -> sidecar descendant trial -> incremental verdict
+            //         -> commit BOTH or discard BOTH. ws.qc[best_j] is written only on the commit
+            //         path, so a partially-updated committed state is unreachable.
+            if (hard_on && accepted) {
+                hard_collided = g1sc::sidecar_hard_trial(hard_ws, gp, best_j, (float)best_v,
+                                                         hard_margin, lane, nullptr);
+                // Debug oracle (spec section 11): deterministically sampled, never on in a
+                // performance run. The workspace still holds the TRIAL transforms here, which is
+                // exactly what the full sweep must see.
+                if (ORACLE && hard_oracle_every > 0 && (c_iters % hard_oracle_every) == 0) {
+                    const int bad = g1sc::sidecar_hard_oracle(hard_ws, gp, hard_margin, lane,
+                                                              hard_collided);
+                    if (lane == 0) {
+                        g1sc::hard_ctr_add(hard_ws, gp, g1sc::HARD_CTR_ORACLE_CHECKS, 1);
+                        if (bad) g1sc::hard_ctr_add(hard_ws, gp, g1sc::HARD_CTR_ORACLE_MISMATCH, 1);
+                    }
+                }
+                if (hard_collided) {
+                    g1sc::sidecar_hard_restore(hard_ws, gp, best_j, lane);  // byte-identical undo
+                    accepted = 0;
+                    ++hard_coll_rejects;
+                } else {
+                    g1sc::sidecar_hard_commit(hard_ws, gp, best_j, (float)best_v, lane);
+                    g1sc::sidecar_hard_mark_free(hard_ws, gp, lane);
+                }
+            }
 
             if (accepted) {
                 // It cleared the gate above (or there is no gate), so the new state is feasible.
                 cur_free = 1;
+                hard_rank = rank;
                 if (lane == 0) { st->total = st->trial_total; st->stall = 0; }
             } else {
                 // --- 5c/6. validated rollback -------------------------------------------------
@@ -2212,11 +2703,25 @@ __global__ void coarse_search_mt_kernel(
                                                   st->s_e_ori[3*k+c] = st->v_e_ori[3*k+c]; }
                     st->s_pn[k] = st->v_pn[k]; st->s_on[k] = st->v_on[k]; st->s_ck[k] = st->v_ck[k];
                 }
-                if (lane == 0) { st->total = st->v_total; ++st->stall; }
+                if (lane == 0) st->total = st->v_total;
                 __syncwarp(FULL_WARP_MASK);
             }
-        } else {
-            if (lane == 0) ++st->stall;                // no valid proposal at all
+        }
+        if (accepted) break;              // committed -- this iteration is done
+        if (!hard_collided) break;        // ordinary cost rejection: off-mode semantics, stop here
+        }   // ---- end top-K rank loop ----
+
+        // A rejected iteration bumps `stall` EXACTLY ONCE, whatever the reason and however many
+        // ranks hard mode burned on it: the counter measures iterations without progress, and a
+        // top-K sweep is still one iteration. (In off mode n_ranks == 1, so this is the same
+        // single increment the rollback used to make inline.)
+        if (!accepted && lane == 0) ++st->stall;
+        __syncwarp(FULL_WARP_MASK);
+        if (hard_on && hard_ws.ctr && lane == 0) {
+            if (accepted && hard_rank >= 0)
+                g1sc::hard_ctr_add(hard_ws, gp, g1sc::HARD_CTR_ACCEPT_RANK0 + hard_rank, 1);
+            else if (hard_coll_rejects > 0)
+                g1sc::hard_ctr_add(hard_ws, gp, g1sc::HARD_CTR_ALLK, 1);
         }
         __syncwarp(FULL_WARP_MASK);
 
@@ -2253,7 +2758,21 @@ __global__ void coarse_search_mt_kernel(
         // the kick on every subsequent iteration and spin. The event is counted as `exhausted` so a
         // pathologically boxed-in problem is visible rather than silent.
         int p_att = 0, p_rej = 0, p_exh = 0;
-        if (st->stall >= stall_lim) {
+        if (hard_on && st->stall >= stall_lim) {
+            // ---- Stage 3F boundary (deliberately NOT crossed in this checkpoint) ----------------
+            // A kick rewrites EVERY joint at once, which invalidates the committed sidecar state
+            // wholesale -- there is no single-joint descendant subtree to refresh, so validating one
+            // needs a full re-check and a full re-init of the committed transforms. That is exactly
+            // the random-perturbation collision integration this checkpoint is scoped to exclude.
+            // Retain the collision-free state untouched, count the skip so it is visible rather than
+            // silent, and clear `stall` so the search does not respin on the same trigger forever.
+            ++c_stalls;
+            if (lane == 0) {
+                st->stall = 0;
+                g1sc::hard_ctr_add(hard_ws, gp, g1sc::HARD_CTR_PERT_SKIPPED, 1);
+            }
+            __syncwarp(FULL_WARP_MASK);
+        } else if (st->stall >= stall_lim) {
             ++c_stalls;
 
             // save the pre-perturbation state (bitwise; a kick touches every joint)
@@ -2339,6 +2858,29 @@ __global__ void coarse_search_mt_kernel(
     if (lane < N) st->s_x[lane] = st->best_x[lane];
     __syncwarp(FULL_WARP_MASK);
     coarse_full_refresh<T>(st);
+
+    // ---- Stage 3D/3E: publish the collision-free coarse state the LM fallback will use ----------
+    // best_x is only ever copied from a state that passed the collision gate (the seed, verified
+    // free before the search started, or a committed proposal), so the CONFIGURATION the coarse
+    // stage returns is itself collision-free. Recording it here -- rather than whichever accepted
+    // state happened to be last -- gives the fallback the best free coarse pose instead of an
+    // arbitrary one. The committed q is re-synced to it so the sidecar's q and the solver's q still
+    // describe the same configuration on exit. The committed TRANSFORMS are left describing the
+    // last trial; nothing reads them after this point, and the next call re-inits them.
+    // ONLY for a seed that actually has a valid committed state. best_x for a Stage-3D failure is
+    // the colliding seed itself -- publishing that as last_collision_free_coarse_q would hand the
+    // section-8 fallback a colliding pose and call it free. (Measured before this guard existed:
+    // 13/256 seeds failed Stage 3D and all 13 produced a colliding "collision-free" fallback.)
+    //
+    // `qc` is deliberately NOT rewritten here: it must keep describing the same configuration as
+    // the committed transforms (spec section 5), and those describe the last committed trial, not
+    // best_x. qfree is the published answer; qc stays the coherent committed state.
+    if (hard_on && (hard_ws.flags[gp] & g1sc::HARD_FLAG_STATE_VALID)) {
+        for (int i = lane; i < N && i < g1sc::N_JOINTS; i += WARP_SIZE)
+            hard_ws.qfree[(size_t)gp * g1sc::N_JOINTS + i] = (float)st->best_x[i];
+        if (lane == 0) hard_ws.flags[gp] |= g1sc::HARD_FLAG_HAS_FREE_Q;
+        __syncwarp(FULL_WARP_MASK);
+    }
 
     if (lane < K) {
         out_pn[(size_t)gp * K + lane] = st->s_pn[lane];
@@ -2763,6 +3305,21 @@ private:
 // Upload one input array. When the caller's dtype already IS the compute type, this is a plain H2D
 // from the numpy buffer -- no host loop, no staging vector. Otherwise it narrows once, into a
 // reusable per-launch staging buffer.
+// D2H mirror of upload_in. Used for the base, which is an IN/OUT buffer: the caller supplies the
+// seed base and reads the optimized base back from the same array.
+template <typename CT>
+static void download_out(void* dst, const CT* src, bool dst_f32, size_t n, std::vector<CT>& stage) {
+    const bool ct_is_f32 = std::is_same<CT, float>::value;
+    if (dst_f32 == ct_is_f32) {                       // dtypes match -> straight D2H
+        CUDA_OK(cudaMemcpy(dst, src, sizeof(CT) * n, cudaMemcpyDeviceToHost));
+        return;
+    }
+    stage.resize(n);
+    CUDA_OK(cudaMemcpy(stage.data(), src, sizeof(CT) * n, cudaMemcpyDeviceToHost));
+    if (dst_f32) { float*  q = (float*)dst;  for (size_t i=0;i<n;++i) q[i]=(float)stage[i]; }
+    else         { double* q = (double*)dst; for (size_t i=0;i<n;++i) q[i]=(double)stage[i]; }
+}
+
 template <typename CT>
 static void upload_in(CT* dst, const void* src, bool src_f32, size_t n, std::vector<CT>& stage) {
     const bool ct_is_f32 = std::is_same<CT, float>::value;
@@ -2797,6 +3354,567 @@ template<> const grid::robotModel<float>* robot_model_for<float>(
         const grid::robotModel<double>*) {
     static const grid::robotModel<float>* m = grid::init_robotModel<float>();
     return m;
+}
+
+
+// =================================================================================================
+// STAGE 3D -- INITIAL COLLISION-FREE STATE + the persistent hard-mode workspace.
+//
+// Hard mode may not begin coordinate search from a colliding configuration: every later guarantee
+// ("every accepted update is collision-free", "the committed verdict for an unaffected pair is
+// zero") is inductive, and this is the base case. Each active seed gets ONE batched full check
+// through the separate 351-pair checker; a colliding seed is re-drawn with the solver's OWN
+// existing kick policy (the same wanghash / 0.1*span formula the stall perturbation uses -- this
+// checkpoint introduces no new seed distribution) and re-checked, up to a bounded retry count.
+// A seed that never comes back free is marked failed and never enters coordinate search.
+// =================================================================================================
+namespace g1s = g1_sidecar;
+
+extern "C" const void* sidecar_device_sdf_ptr(int cid);
+extern "C" const void* sidecar_device_convex_ptr();
+
+namespace hjcd_hard {
+
+// Persistent, grow-on-demand per-seed state. Allocated ONLY on the first hard-mode call: `off` and
+// `final` never reach ensure(), so they allocate nothing and launch nothing (asserted by test).
+class Owner {
+public:
+    int cap_B = 0, n_alloc = 0;
+    float*  Tf = nullptr; double* Td = nullptr;
+    float*  qc = nullptr; float*  qfree = nullptr; float* q0 = nullptr;
+    unsigned char* flags = nullptr; unsigned char* verdict = nullptr; unsigned char* todo = nullptr;
+    int* ctr = nullptr;
+
+    // ---- Checkpoint 3D.1 reseed arenas. Sized by (failed seeds x candidates); grown separately
+    // from the per-seed state because R is a caller knob and F varies per call.
+    int cap_FR = 0, n_alloc_rs = 0;
+    float* cand_q = nullptr;            // [F*R, 29] candidate configurations
+    float* cand_dist = nullptr;         // [F*R]     normalized joint-space distance to the seed
+    unsigned char* cand_free = nullptr; // [F*R]     1 = collision-free
+    unsigned char* cand_comp = nullptr; // [F*R]     which distribution component produced it
+    int* fail_idx = nullptr;            // [B]       physical row of each still-colliding seed
+    unsigned int* fail_fp = nullptr;    // [B]       that seed's CONTENT fingerprint (RNG identity)
+    int* sel = nullptr;                 // [B]       chosen candidate ordinal, -1 = none found
+
+    bool ensure_reseed(int FR, int B) {
+        if (FR <= cap_FR && fail_idx) return false;
+        release_reseed();
+        CUDA_OK(cudaMalloc(&cand_q,    (size_t)FR * g1s::N_JOINTS * sizeof(float)));
+        CUDA_OK(cudaMalloc(&cand_dist, (size_t)FR * sizeof(float)));
+        CUDA_OK(cudaMalloc(&cand_free, (size_t)FR));
+        CUDA_OK(cudaMalloc(&cand_comp, (size_t)FR));
+        CUDA_OK(cudaMalloc(&fail_idx,  (size_t)B * sizeof(int)));
+        CUDA_OK(cudaMalloc(&fail_fp,   (size_t)B * sizeof(unsigned int)));
+        CUDA_OK(cudaMalloc(&sel,       (size_t)B * sizeof(int)));
+        cap_FR = FR; ++n_alloc_rs;
+        return true;
+    }
+    void release_reseed() {
+        for (void* p : {(void*)cand_q,(void*)cand_dist,(void*)cand_free,(void*)cand_comp,
+                        (void*)fail_idx,(void*)fail_fp,(void*)sel}) if (p) cudaFree(p);
+        cand_q=nullptr; cand_dist=nullptr; cand_free=nullptr; cand_comp=nullptr;
+        fail_idx=nullptr; fail_fp=nullptr; sel=nullptr; cap_FR=0;
+    }
+
+    bool ensure(int B) {
+        if (B <= cap_B) return false;
+        release();
+        const size_t L = (size_t)g1s::N_LINKS * 16, J = (size_t)g1s::N_JOINTS, b = (size_t)B;
+        CUDA_OK(cudaMalloc(&Tf,      b * L * sizeof(float)));
+        CUDA_OK(cudaMalloc(&Td,      b * L * sizeof(double)));
+        CUDA_OK(cudaMalloc(&qc,      b * J * sizeof(float)));
+        CUDA_OK(cudaMalloc(&qfree,   b * J * sizeof(float)));
+        CUDA_OK(cudaMalloc(&q0,      b * J * sizeof(float)));
+        CUDA_OK(cudaMalloc(&flags,   b));
+        CUDA_OK(cudaMalloc(&verdict, b));
+        CUDA_OK(cudaMalloc(&todo,    b));
+        CUDA_OK(cudaMalloc(&ctr,     b * (size_t)g1sc::HARD_CTR_STRIDE * sizeof(int)));
+        cap_B = B; ++n_alloc;
+        return true;
+    }
+    // `diagnostics` decides whether the kernel sees the counter array at all: in the fast path
+    // ws.ctr is null and every counter site compiles down to a null test that never stores.
+    g1sc::HardWorkspace view(bool diagnostics) const {
+        g1sc::HardWorkspace w{};
+        w.Tf = Tf; w.Td = Td; w.qc = qc; w.qfree = qfree; w.flags = flags;
+        w.ctr = diagnostics ? ctr : nullptr;
+        return w;
+    }
+    void release() {
+        for (void* p : {(void*)Tf,(void*)Td,(void*)qc,(void*)qfree,(void*)q0,
+                        (void*)flags,(void*)verdict,(void*)todo,(void*)ctr})
+            if (p) cudaFree(p);
+        Tf=nullptr; Td=nullptr; qc=nullptr; qfree=nullptr; q0=nullptr;
+        flags=nullptr; verdict=nullptr; todo=nullptr; ctr=nullptr; cap_B=0;
+        release_reseed();
+    }
+};
+static Owner g_ws;
+
+// One warp per seed: full FK (f32 + f64) into the committed transforms, then the FULL 351-pair
+// check. This is the SAME geometry the batched full checker runs, reached through the same device
+// functions -- Stage 3D does not get its own collision model.
+template<typename CT>
+__global__ void hard_init_kernel(const CT* __restrict__ x, g1sc::HardWorkspace ws,
+                                 float* __restrict__ q0, unsigned char* __restrict__ verdict,
+                                 const unsigned char* __restrict__ todo,
+                                 int B, float margin, int store_q0)
+{
+    const int b = blockIdx.x;
+    if (b >= B) return;
+    if (todo && !todo[b]) return;          // uniform across the block: safe before any __syncwarp
+    const int lane = threadIdx.x & 31;
+
+    float*  T  = &ws.Tf[(size_t)b * g1s::N_LINKS * 16];
+    double* Td = &ws.Td[(size_t)b * g1s::N_LINKS * 16];
+    float*  q  = &ws.qc[(size_t)b * g1s::N_JOINTS];
+    for (int i = lane; i < g1s::N_JOINTS && i < N; i += 32) q[i] = (float)x[(size_t)b * N + i];
+    __syncwarp();
+    if (store_q0)
+        for (int i = lane; i < g1s::N_JOINTS; i += 32) q0[(size_t)b * g1s::N_JOINTS + i] = q[i];
+    if (lane == 0) { g1sc::sidecar_fk(q, T); g1sc::sidecar_fk_d(q, Td); }
+    __syncwarp();
+
+    int hit = 0;
+    for (int g = lane; g < g1s::N_CHECKED_PAIRS; g += 32) {
+        if (g1s::PAIR_TYPE[g] == g1s::PAIR_CONVEX_GJK) continue;
+        if (g1sc::linkpair_colliding_nongjk(g, T, margin)) hit = 1;
+    }
+    hit = __ballot_sync(0xffffffffu, hit) ? 1 : 0;      // warp-uniform before the cooperative GJK
+    if (!hit) {
+        for (int g = 0; g < g1s::N_CHECKED_PAIRS; ++g) {
+            if (g1s::PAIR_TYPE[g] != g1s::PAIR_CONVEX_GJK) continue;
+            if (g1sc::linkpair_colliding_gjk(g, Td, margin, lane)) { hit = 1; break; }
+        }
+    }
+    if (lane == 0) verdict[b] = (unsigned char)hit;
+    if (!hit) {                            // free: this q IS a collision-free coarse state already
+        for (int i = lane; i < g1s::N_JOINTS; i += 32)
+            ws.qfree[(size_t)b * g1s::N_JOINTS + i] = q[i];
+        if (lane == 0) ws.flags[b] = g1sc::HARD_FLAG_STATE_VALID | g1sc::HARD_FLAG_HAS_FREE_Q;
+    } else if (lane == 0) {
+        ws.flags[b] = 0;                   // no valid committed state -> excluded from the search
+    }
+}
+
+// Re-draw a colliding seed with the EXISTING kick policy (coarse_search_mt_kernel's stall
+// perturbation, formula for formula), always measured from the ORIGINAL seed so retries do not
+// compound into an ever-larger jump.
+template<typename CT>
+__global__ void hard_reseed_kernel(CT* __restrict__ x, const float* __restrict__ q0,
+                                   const unsigned char* __restrict__ todo,
+                                   int B, uint64_t seed, int attempt)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    const int b = idx / N, j = idx % N;
+    if (b >= B || !todo[b]) return;
+    CT Llo, Lhi; joint_limit<CT>(j, &Llo, &Lhi);
+    // CONTENT-addressed, not index-addressed. Keying the draw on the batch index would make a
+    // seed's recovery depend on where it happens to sit in the batch, and a permuted batch would
+    // return different answers for the same seeds (measured: 2/128 rows diverged before this
+    // change). The seed's own bits are its stable identity. The perturbation formula, magnitude
+    // and distribution are the existing stall-kick policy, unchanged -- only the stream key moved.
+    uint32_t sh = 0x9E3779B9u;
+    for (int i = 0; i < g1s::N_JOINTS; ++i)
+        sh = wanghash(sh ^ __float_as_uint(q0[(size_t)b * g1s::N_JOINTS + i]));
+    const uint32_t h = wanghash((uint32_t)(seed ^ (uint64_t)(
+        sh + (uint32_t)j * 131u + (uint32_t)attempt * 0x9E3779B9u)));
+    const CT u = (CT)((h & 0xFFFFFFu) / (CT)0x1000000u) - (CT)0.5;
+    const CT span = Lhi - Llo;
+    const CT base = (j < g1s::N_JOINTS) ? (CT)q0[(size_t)b * g1s::N_JOINTS + j] : (CT)0;
+    x[(size_t)b * N + j] = fmin(fmax(base + (CT)0.1 * span * u, Llo), Lhi);
+}
+
+// =================================================================================================
+// CHECKPOINT 3D.1 -- DEDICATED COLLISION-FREE SEED GENERATOR.
+//
+// WHY THE OLD RESEED FAILED. Stage 3D originally re-drew a colliding seed with the coarse search's
+// own stall kick: a +-5%-of-joint-span jitter around the original seed. Measured at B=2000 that
+// recovered 0 of 132 colliding seeds, and 147-253 of 256 on the harder problems. A seed that is
+// deep inside a self-collision is not 5% of a span away from a free one; the kick was never a
+// recovery mechanism, only an escape-from-a-local-minimum mechanism, and reusing it as one was the
+// mistake. This stage replaces it with a broad, explicitly-parameterised candidate MIXTURE that is
+// generated, checked and selected entirely on device.
+//
+// The full checker stays where it belongs -- its own batched kernel over the candidate array. It is
+// never inlined into the coarse-search kernel, so the hard coarse kernel's 226/233-register frame
+// is untouched by anything here.
+// =================================================================================================
+namespace reseed {
+
+// Distribution components. Recorded per candidate so the benchmark can report WHICH kind of
+// candidate actually rescued each seed, rather than just that something did.
+enum : unsigned char { COMP_PERTURB = 0, COMP_NOMINAL = 1, COMP_BROAD = 2 };
+
+static constexpr int MAX_SCALES = 8;
+struct Config {
+    int   candidates = 16;                       // R per failed seed per round
+    int   rounds = 2;                            // bounded retry rounds
+    int   n_scales = 4;
+    float scales[MAX_SCALES] = {0.10f, 0.20f, 0.35f, 0.50f};   // fractions of joint span
+    float nominal_jitter = 0.15f;                // component B jitter, fraction of span
+    float round_broaden = 2.0f;                  // scales multiplier per extra round
+};
+
+// Split R into the three components. Every component gets at least one candidate at any R >= 3,
+// so a small pool still samples all three rather than degenerating to perturbations only.
+__host__ __device__ __forceinline__ void split_counts(int R, int* nA, int* nB, int* nC) {
+    int a = R * 6 / 10, b = R * 2 / 10;
+    if (a < 1) a = 1;
+    if (b < 1) b = 1;
+    int c = R - a - b;
+    if (c < 1) { c = 1; if (a + b + c > R) { a = R - b - c; if (a < 1) { a = 1; b = R - a - c; } } }
+    *nA = a; *nB = b; *nC = (R - a - b) > 0 ? (R - a - b) : 0;
+}
+
+// The G1's nominal crouch, joint-for-joint the configuration the sidecar corpus calls "crouch"
+// (hip_pitch -0.6, knee +1.2, ankle_pitch -0.6, both legs; everything else zero). Together with
+// the all-zero neutral pose these are the two configurations independently verified collision-free,
+// which is exactly what makes them useful anchors for a recovery draw.
+__device__ __forceinline__ float nominal_value(int j, int which) {
+    if (which == 0) return 0.0f;                                   // neutral
+    if (j == 0  || j == 6)  return -0.6f;                          // {l,r}_hip_pitch
+    if (j == 3  || j == 9)  return  1.2f;                          // {l,r}_knee
+    if (j == 4  || j == 10) return -0.6f;                          // {l,r}_ankle_pitch
+    return 0.0f;
+}
+
+// A seed's CONTENT fingerprint. This -- not its row -- is its logical identity for RNG purposes.
+// Keying on the batch position is what made a permuted batch return different answers for the same
+// seeds; a content key makes permutation a pure relabelling of outputs.
+__global__ void fingerprint_kernel(const float* __restrict__ q0, const int* __restrict__ fail_idx,
+                                   unsigned int* __restrict__ fp, int F) {
+    const int f = blockIdx.x * blockDim.x + threadIdx.x;
+    if (f >= F) return;
+    const int b = fail_idx[f];
+    unsigned int h = 0x9E3779B9u;
+    for (int i = 0; i < g1s::N_JOINTS; ++i)
+        h = wanghash(h ^ __float_as_uint(q0[(size_t)b * g1s::N_JOINTS + i]));
+    fp[f] = h;
+}
+
+// One thread per (failed seed, candidate, joint). Every value is projected exactly into the joint
+// limits, and the per-candidate normalised distance to the original seed is reduced by joint 0.
+__global__ void generate_kernel(const float* __restrict__ q0, const int* __restrict__ fail_idx,
+                                const unsigned int* __restrict__ fp,
+                                float* __restrict__ cand_q, float* __restrict__ cand_dist,
+                                unsigned char* __restrict__ cand_comp,
+                                int F, int R, int round, Config cfg, unsigned long long seed) {
+    const long long tid = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    const long long total = (long long)F * R * g1s::N_JOINTS;
+    if (tid >= total) return;
+    const int j = (int)(tid % g1s::N_JOINTS);
+    const int r = (int)((tid / g1s::N_JOINTS) % R);
+    const int f = (int)(tid / ((long long)R * g1s::N_JOINTS));
+    const int b = fail_idx[f];
+
+    float lo, hi; joint_limit<float>(j, &lo, &hi);
+    const float span = hi - lo;
+    const float base_q = q0[(size_t)b * g1s::N_JOINTS + j];
+
+    int nA, nB, nC; split_counts(R, &nA, &nB, &nC); (void)nC;
+    // RNG key: logical seed identity (content fingerprint) x round x candidate x joint. No term
+    // depends on where the seed sits in the batch.
+    const unsigned int h = wanghash((unsigned int)(seed) ^ wanghash(
+        fp[f] ^ ((unsigned int)round * 0x85EBCA6Bu)
+              ^ ((unsigned int)r * 0xC2B2AE35u)
+              ^ ((unsigned int)j * 0x27D4EB2Du)));
+    const float u = (float)(h & 0xFFFFFFu) / (float)0x1000000u;    // [0,1)
+    const float u2 = u - 0.5f;                                     // [-0.5,0.5)
+
+    // Broaden with the round: a second round is only worth running if it searches somewhere the
+    // first did not.
+    float broaden = 1.0f;
+    for (int i = 0; i < round; ++i) broaden *= cfg.round_broaden;
+
+    float v;
+    unsigned char comp;
+    if (r < nA) {                                   // A: perturb the original seed at several scales
+        const float sc = cfg.scales[(r % (cfg.n_scales < 1 ? 1 : cfg.n_scales))] * broaden;
+        v = base_q + sc * span * u2;
+        comp = COMP_PERTURB;
+    } else if (r < nA + nB) {                       // B: neutral / crouch anchored, moderate jitter
+        const int which = (r - nA) & 1;
+        v = nominal_value(j, which) + cfg.nominal_jitter * broaden * span * u2;
+        comp = COMP_NOMINAL;
+    } else {                                        // C: broad, uniform across the whole limit range
+        v = lo + u * span;
+        comp = COMP_BROAD;
+    }
+    v = fminf(fmaxf(v, lo), hi);                    // exact projection into the joint limits
+    const long long ci = (long long)f * R + r;
+    cand_q[ci * g1s::N_JOINTS + j] = v;
+    if (j == 0) cand_comp[ci] = comp;
+
+    // Normalised distance to the original seed, reduced across the 29 joints by joint 0. The
+    // per-joint terms are written first and read back after a grid-wide ordering guarantee we do
+    // NOT have, so the reduction is done in the selection kernel instead -- see select_kernel.
+    (void)cand_dist;
+}
+
+// One warp per candidate: full FK + the complete 351-pair check, in the SAME device functions the
+// batched full checker uses. Shared-memory transforms, so no per-candidate global scratch (which
+// would be 7.7 KB/candidate, ~1 GB at F=2000, R=64).
+__global__ void check_kernel(const float* __restrict__ cand_q, unsigned char* __restrict__ cand_free,
+                             long long FR, float margin) {
+    __shared__ float  shT[g1s::N_LINKS * 16];
+    __shared__ double shTd[g1s::N_LINKS * 16];
+    const long long ci = blockIdx.x;
+    if (ci >= FR) return;
+    const int lane = threadIdx.x & 31;
+    const float* q = &cand_q[ci * g1s::N_JOINTS];
+    if (lane == 0) { g1sc::sidecar_fk(q, shT); g1sc::sidecar_fk_d(q, shTd); }
+    __syncwarp();
+    int hit = 0;
+    for (int g = lane; g < g1s::N_CHECKED_PAIRS; g += 32) {
+        if (g1s::PAIR_TYPE[g] == g1s::PAIR_CONVEX_GJK) continue;
+        if (g1sc::linkpair_colliding_nongjk(g, shT, margin)) hit = 1;
+    }
+    hit = __ballot_sync(0xffffffffu, hit) ? 1 : 0;
+    if (!hit) {
+        for (int g = 0; g < g1s::N_CHECKED_PAIRS; ++g) {
+            if (g1s::PAIR_TYPE[g] != g1s::PAIR_CONVEX_GJK) continue;
+            if (g1sc::linkpair_colliding_gjk(g, shTd, margin, lane)) { hit = 1; break; }
+        }
+    }
+    if (lane == 0) cand_free[ci] = (unsigned char)(hit ? 0 : 1);
+}
+
+// One thread per failed seed. Among the COLLISION-FREE candidates pick the one closest to the
+// original seed in normalised joint space, ties broken by candidate ordinal -- a total order, so
+// the choice is deterministic and independent of scheduling.
+template<typename CT>
+__global__ void select_kernel(CT* __restrict__ x, const float* __restrict__ q0,
+                              const int* __restrict__ fail_idx,
+                              const float* __restrict__ cand_q,
+                              const unsigned char* __restrict__ cand_free,
+                              float* __restrict__ cand_dist, int* __restrict__ sel,
+                              int F, int R) {
+    const int f = blockIdx.x * blockDim.x + threadIdx.x;
+    if (f >= F) return;
+    const int b = fail_idx[f];
+    int best = -1;
+    float best_d = 3.4e38f;
+    for (int r = 0; r < R; ++r) {
+        const long long ci = (long long)f * R + r;
+        if (!cand_free[ci]) continue;
+        float d2 = 0.0f;
+        for (int j = 0; j < g1s::N_JOINTS; ++j) {
+            float lo, hi; joint_limit<float>(j, &lo, &hi);
+            const float t = (cand_q[ci * g1s::N_JOINTS + j] - q0[(size_t)b * g1s::N_JOINTS + j])
+                          / (hi - lo);
+            d2 += t * t;
+        }
+        cand_dist[ci] = sqrtf(d2);
+        if (d2 < best_d) { best_d = d2; best = r; }    // strict <: earliest ordinal wins a tie
+    }
+    sel[f] = best;
+    if (best >= 0) {
+        const long long ci = (long long)f * R + best;
+        for (int j = 0; j < g1s::N_JOINTS && j < N; ++j)
+            x[(size_t)b * N + j] = (CT)cand_q[ci * g1s::N_JOINTS + j];
+    }
+}
+
+}  // namespace reseed
+
+struct InitReport {
+    int initially_free = 0, initially_colliding = 0, reseed_attempts = 0;
+    int recovered = 0, failures = 0;
+    double ms = 0.0;
+    // Checkpoint 3D.1 breakdown
+    int rounds_run = 0, candidates_checked = 0;
+    int sel_perturb = 0, sel_nominal = 0, sel_broad = 0;
+    double gen_ms = 0.0, check_ms = 0.0, select_ms = 0.0, verify_ms = 0.0;
+};
+
+// Bind the solver TU's copies of the sidecar model pointers to the sidecar TU's allocations. Once
+// per process; the allocations are themselves uploaded once (hjcdik._ensure_self_collision_sidecar).
+static bool bind_model_once() {
+    static int state = 0;                  // 0 unbound, 1 bound, -1 model not uploaded
+    if (state) return state == 1;
+    const void* sdf[8] = {nullptr};
+    for (int c = 0; c < g1s::N_CLUSTERS && c < 8; ++c) sdf[c] = sidecar_device_sdf_ptr(c);
+    const void* cv = sidecar_device_convex_ptr();
+    if (!cv || !sdf[0]) { state = -1; return false; }
+    hjcd_hard_bind_model(sdf, g1s::N_CLUSTERS, cv);
+    state = 1;
+    return true;
+}
+
+// Full Stage-3D pass: check every seed, reseed the colliding ones (bounded), report.
+template<typename CT>
+static InitReport prepare(CT* d_x, int B, float margin, int max_reseed, uint64_t seed,
+                          bool diagnostics, int rs_mode, reseed::Config rs_cfg)
+{
+    InitReport rep;
+    cudaEvent_t t0, t1; CUDA_OK(cudaEventCreate(&t0)); CUDA_OK(cudaEventCreate(&t1));
+    CUDA_OK(cudaEventRecord(t0));
+
+    g_ws.ensure(B);
+    g1sc::HardWorkspace w = g_ws.view(diagnostics);
+    CUDA_OK(cudaMemset(g_ws.ctr, 0, (size_t)B * g1sc::HARD_CTR_STRIDE * sizeof(int)));
+    CUDA_OK(cudaMemset(g_ws.todo, 1, (size_t)B));
+    CUDA_OK(cudaMemset(g_ws.flags, 0, (size_t)B));
+
+    hard_init_kernel<CT><<<B, 32>>>(d_x, w, g_ws.q0, g_ws.verdict, nullptr, B, margin, 1);
+    CUDA_OK(cudaPeekAtLastError());
+
+    std::vector<unsigned char> v(B);
+    CUDA_OK(cudaMemcpy(v.data(), g_ws.verdict, B, cudaMemcpyDeviceToHost));
+    for (int b = 0; b < B; ++b) if (v[b]) ++rep.initially_colliding;
+    rep.initially_free = B - rep.initially_colliding;
+
+    int remaining = rep.initially_colliding;
+
+    if (rs_mode == 0) {
+        // ---- LEGACY (Checkpoint 3D) reseed: the coarse search's own +-5%-of-span stall kick.
+        // Retained ONLY so the 3D.1 benchmark can measure the old policy against the new one in
+        // the same binary. Measured recovery: 0/132 at B=2000. Not the default.
+        for (int att = 1; att <= max_reseed && remaining > 0; ++att) {
+            CUDA_OK(cudaMemcpy(g_ws.todo, v.data(), B, cudaMemcpyHostToDevice));
+            rep.reseed_attempts += remaining;
+            const int TPB = 256, nthr = B * N;
+            hard_reseed_kernel<CT><<<(nthr + TPB - 1) / TPB, TPB>>>(d_x, g_ws.q0, g_ws.todo, B,
+                                                                    seed + (uint64_t)att, att);
+            hard_init_kernel<CT><<<B, 32>>>(d_x, w, g_ws.q0, g_ws.verdict, g_ws.todo, B, margin, 0);
+            CUDA_OK(cudaPeekAtLastError());
+            CUDA_OK(cudaMemcpy(v.data(), g_ws.verdict, B, cudaMemcpyDeviceToHost));
+            int still = 0;
+            for (int b = 0; b < B; ++b) if (v[b]) ++still;
+            remaining = still;
+        }
+    } else {
+        // ---- CHECKPOINT 3D.1: dedicated batched collision-free seed generator.
+        // Per round: compact the still-colliding rows -> one generation kernel -> ONE batched
+        // full-check over all F*R candidates -> one deterministic selection kernel -> re-verify
+        // the selected replacements through the same Stage-3D init the free seeds went through.
+        const int R = rs_cfg.candidates < 1 ? 1 : rs_cfg.candidates;
+        std::vector<int> fail_h(B);
+        std::vector<unsigned char> comp_h;
+        cudaEvent_t a0, a1; CUDA_OK(cudaEventCreate(&a0)); CUDA_OK(cudaEventCreate(&a1));
+        auto tick = [&](double* acc) {
+            CUDA_OK(cudaEventRecord(a1)); CUDA_OK(cudaEventSynchronize(a1));
+            float ms = 0.f; CUDA_OK(cudaEventElapsedTime(&ms, a0, a1)); *acc += ms;
+            CUDA_OK(cudaEventRecord(a0));
+        };
+
+        for (int round = 0; round < rs_cfg.rounds && remaining > 0; ++round) {
+            int F = 0;
+            for (int b = 0; b < B; ++b) if (v[b]) fail_h[F++] = b;
+            if (F == 0) break;
+            ++rep.rounds_run;
+            rep.reseed_attempts += F;
+            rep.candidates_checked += F * R;
+
+            g_ws.ensure_reseed(B * R, B);
+            CUDA_OK(cudaMemcpy(g_ws.fail_idx, fail_h.data(), sizeof(int) * F, cudaMemcpyHostToDevice));
+            CUDA_OK(cudaEventRecord(a0));
+
+            reseed::fingerprint_kernel<<<(F + 127) / 128, 128>>>(g_ws.q0, g_ws.fail_idx,
+                                                                 g_ws.fail_fp, F);
+            const long long nthr = (long long)F * R * g1s::N_JOINTS;
+            reseed::generate_kernel<<<(int)((nthr + 255) / 256), 256>>>(
+                g_ws.q0, g_ws.fail_idx, g_ws.fail_fp, g_ws.cand_q, g_ws.cand_dist,
+                g_ws.cand_comp, F, R, round, rs_cfg, seed);
+            CUDA_OK(cudaPeekAtLastError());
+            tick(&rep.gen_ms);
+
+            reseed::check_kernel<<<(int)((long long)F * R), 32>>>(
+                g_ws.cand_q, g_ws.cand_free, (long long)F * R, margin);
+            CUDA_OK(cudaPeekAtLastError());
+            tick(&rep.check_ms);
+
+            reseed::select_kernel<CT><<<(F + 127) / 128, 128>>>(
+                d_x, g_ws.q0, g_ws.fail_idx, g_ws.cand_q, g_ws.cand_free, g_ws.cand_dist,
+                g_ws.sel, F, R);
+            CUDA_OK(cudaPeekAtLastError());
+            tick(&rep.select_ms);
+
+            // Re-verify: a replacement enters coordinate search only after passing the SAME full
+            // Stage-3D check every other seed passed. The candidate check above is not taken on
+            // trust -- it also has to leave a consistent committed sidecar state behind.
+            CUDA_OK(cudaMemcpy(g_ws.todo, v.data(), B, cudaMemcpyHostToDevice));
+            hard_init_kernel<CT><<<B, 32>>>(d_x, w, g_ws.q0, g_ws.verdict, g_ws.todo, B, margin, 0);
+            CUDA_OK(cudaPeekAtLastError());
+            tick(&rep.verify_ms);
+
+            // Which distribution component rescued each seed (diagnostics only).
+            std::vector<int> sel_h(F);
+            comp_h.assign((size_t)F * R, 0);
+            CUDA_OK(cudaMemcpy(sel_h.data(), g_ws.sel, sizeof(int) * F, cudaMemcpyDeviceToHost));
+            CUDA_OK(cudaMemcpy(comp_h.data(), g_ws.cand_comp, (size_t)F * R, cudaMemcpyDeviceToHost));
+            for (int f = 0; f < F; ++f) {
+                if (sel_h[f] < 0) continue;
+                switch (comp_h[(size_t)f * R + sel_h[f]]) {
+                    case reseed::COMP_PERTURB: ++rep.sel_perturb; break;
+                    case reseed::COMP_NOMINAL: ++rep.sel_nominal; break;
+                    default:                   ++rep.sel_broad;   break;
+                }
+            }
+            CUDA_OK(cudaMemcpy(v.data(), g_ws.verdict, B, cudaMemcpyDeviceToHost));
+            int still = 0;
+            for (int b = 0; b < B; ++b) if (v[b]) ++still;
+            remaining = still;
+        }
+        CUDA_OK(cudaEventDestroy(a0)); CUDA_OK(cudaEventDestroy(a1));
+    }
+    rep.failures  = remaining;
+    rep.recovered = rep.initially_colliding - remaining;
+
+    CUDA_OK(cudaEventRecord(t1)); CUDA_OK(cudaEventSynchronize(t1));
+    { float ms = 0.f; CUDA_OK(cudaEventElapsedTime(&ms, t0, t1)); rep.ms = (double)ms; }
+    CUDA_OK(cudaEventDestroy(t0)); CUDA_OK(cudaEventDestroy(t1));
+    return rep;
+}
+
+}  // namespace hjcd_hard
+
+// Test/inspection hooks for the persistent hard workspace (spec section 3: expose allocation
+// counters and workspace dimensions).
+extern "C" int hjcd_hard_ws_nalloc()  { return hjcd_hard::g_ws.n_alloc; }
+extern "C" int hjcd_hard_ws_capacity(){ return hjcd_hard::g_ws.cap_B; }
+extern "C" int hjcd_hard_reseed_ws_capacity(){ return hjcd_hard::g_ws.cap_FR; }
+extern "C" int hjcd_hard_reseed_ws_nalloc(){ return hjcd_hard::g_ws.n_alloc_rs; }
+
+// Copy the LAST reseed round's candidate arena out for tests: the joint-limit projection, the
+// distribution mixture and the selection rule are only checkable if the candidates are observable.
+extern "C" int hjcd_hard_reseed_dump(float* cand_q, unsigned char* cand_free,
+                                     unsigned char* cand_comp, float* cand_dist,
+                                     int* fail_idx, int* sel, int FR, int F) {
+    auto& w = hjcd_hard::g_ws;
+    if (w.cap_FR <= 0 || FR <= 0) return 0;
+    const int n = FR < w.cap_FR ? FR : w.cap_FR;
+    if (cand_q)    CUDA_OK(cudaMemcpy(cand_q, w.cand_q,
+                                      sizeof(float)*(size_t)n*g1s::N_JOINTS, cudaMemcpyDeviceToHost));
+    if (cand_free) CUDA_OK(cudaMemcpy(cand_free, w.cand_free, (size_t)n, cudaMemcpyDeviceToHost));
+    if (cand_comp) CUDA_OK(cudaMemcpy(cand_comp, w.cand_comp, (size_t)n, cudaMemcpyDeviceToHost));
+    if (cand_dist) CUDA_OK(cudaMemcpy(cand_dist, w.cand_dist,
+                                      sizeof(float)*(size_t)n, cudaMemcpyDeviceToHost));
+    if (fail_idx && F > 0) CUDA_OK(cudaMemcpy(fail_idx, w.fail_idx,
+                                              sizeof(int)*(size_t)F, cudaMemcpyDeviceToHost));
+    if (sel && F > 0) CUDA_OK(cudaMemcpy(sel, w.sel, sizeof(int)*(size_t)F, cudaMemcpyDeviceToHost));
+    return n;
+}
+extern "C" int hjcd_hard_ctr_stride() { return g1sc::HARD_CTR_STRIDE; }
+extern "C" int hjcd_hard_max_top_k()  { return g1sc::HARD_MAX_K; }
+extern "C" void hjcd_hard_ws_release(){ hjcd_hard::g_ws.release(); }
+
+// Copy the persistent committed state out for tests (spec section 10: the committed-state
+// invariant is only testable if the committed state is observable). Returns the number of seeds
+// copied; 0 when hard mode has never run. Any out-pointer may be null.
+extern "C" int hjcd_hard_dump(float* qc, float* qfree, unsigned char* flags,
+                              float* Tf, double* Td, int B) {
+    auto& w = hjcd_hard::g_ws;
+    if (w.cap_B <= 0 || B <= 0) return 0;
+    const int n = B < w.cap_B ? B : w.cap_B;
+    const size_t J = (size_t)g1s::N_JOINTS, L = (size_t)g1s::N_LINKS * 16;
+    if (qc)    CUDA_OK(cudaMemcpy(qc,    w.qc,    sizeof(float)*(size_t)n*J, cudaMemcpyDeviceToHost));
+    if (qfree) CUDA_OK(cudaMemcpy(qfree, w.qfree, sizeof(float)*(size_t)n*J, cudaMemcpyDeviceToHost));
+    if (flags) CUDA_OK(cudaMemcpy(flags, w.flags, (size_t)n,                 cudaMemcpyDeviceToHost));
+    if (Tf)    CUDA_OK(cudaMemcpy(Tf,    w.Tf,    sizeof(float)*(size_t)n*L, cudaMemcpyDeviceToHost));
+    if (Td)    CUDA_OK(cudaMemcpy(Td,    w.Td,    sizeof(double)*(size_t)n*L,cudaMemcpyDeviceToHost));
+    return n;
 }
 
 template<typename CT>
@@ -2858,19 +3976,98 @@ static CoarseOutputs launch_coarse_mt(
     // coarse scratch is static shared. Zero when the collision gate is off.
     const int cc_enabled = (cc_model && cc_env_ptr) ? 1 : 0;
     size_t cc_smem = 0;
+    // ---- Stage 3D/3E: hard self-collision mode -------------------------------------------------
+    // The <CT,true> instantiation is launched ONLY here. Everything else keeps running <CT,false>,
+    // which contains no sidecar code at all.
+    const bool hard = (in.hard_self_collision != 0) && hjcd_hard_available();
+    if (hard) {
+        if (!hjcd_hard::bind_model_once())
+            throw std::runtime_error("self_collision_mode='hard': sidecar model not uploaded "
+                                     "(call hjcdik._ensure_self_collision_sidecar() first)");
+        hjcd_hard::reseed::Config rs_cfg;
+        rs_cfg.candidates = in.hard_reseed_candidates;
+        rs_cfg.rounds = in.hard_reseed_rounds;
+        rs_cfg.n_scales = in.hard_reseed_n_scales;
+        for (int i = 0; i < hjcd_hard::reseed::MAX_SCALES; ++i)
+            rs_cfg.scales[i] = in.hard_reseed_scales[i];
+        const auto rep = hjcd_hard::prepare<CT>(d_q, B, in.hard_margin, in.hard_max_reseed,
+                                                seed, in.hard_diagnostics != 0,
+                                                in.hard_reseed_mode, rs_cfg);
+        R.hard_ran = true;
+        R.hard_initial_free = rep.initially_free;
+        R.hard_initial_colliding = rep.initially_colliding;
+        R.hard_reseed_attempts = rep.reseed_attempts;
+        R.hard_recovered = rep.recovered;
+        R.hard_seed_failures = rep.failures;
+        R.hard_init_ms = rep.ms;
+        R.hard_reseed_rounds_run = rep.rounds_run;
+        R.hard_candidates_checked = rep.candidates_checked;
+        R.hard_sel_perturb = rep.sel_perturb;
+        R.hard_sel_nominal = rep.sel_nominal;
+        R.hard_sel_broad = rep.sel_broad;
+        R.hard_gen_ms = rep.gen_ms;
+        R.hard_check_ms = rep.check_ms;
+        R.hard_select_ms = rep.select_ms;
+        R.hard_verify_ms = rep.verify_ms;
+
+        g1sc::HardWorkspace hw = hjcd_hard::g_ws.view(in.hard_diagnostics != 0);
+        cudaEvent_t h0, h1; CUDA_OK(cudaEventCreate(&h0)); CUDA_OK(cudaEventCreate(&h1));
+        CUDA_OK(cudaEventRecord(h0));
+        // Two distinct instantiations, selected once, per the resource contract above.
+        auto* hard_kernel = (in.hard_oracle_every > 0)
+                          ? coarse_search_mt_kernel<CT, true, true>
+                          : coarse_search_mt_kernel<CT, true, false>;
+        hard_kernel<<<B, 32, 0>>>(
+            d_q, d_tp, d_tq, d_act, d_wp, d_wo, /*base_p=*/nullptr, /*base_q=*/nullptr,
+            d_pn, d_on, d_c, d_s, d_tr, R.trace_cap,
+            d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_coord, (CT)h_min, (CT)max_step,
+            max_iters, stall_lim, B, S, use_incremental, seed, max_pert_attempts,
+            1, in.hard_top_k, in.hard_oracle_every, in.hard_margin, hw,
+            /*cc_enabled=*/0
+#if defined(HJCD_HAS_COLLISION)
+            , reinterpret_cast<const grid::robotModel<float>*>(nullptr),
+            grid_collision::Environment<float>{}
+#endif
+            );
+        CUDA_OK(cudaEventRecord(h1));
+        CUDA_OK(cudaPeekAtLastError());
+        CUDA_OK(cudaDeviceSynchronize());
+        { float ms = 0.f; CUDA_OK(cudaEventElapsedTime(&ms, h0, h1)); R.kernel_ms = (double)ms; }
+        CUDA_OK(cudaEventDestroy(h0)); CUDA_OK(cudaEventDestroy(h1));
+
+        // Per-seed hard-mode outputs the caller needs: the collision-free coarse fallback pose,
+        // the seed-validity mask, and (when asked for) the diagnostic counters.
+        R.hard_qfree.assign((size_t)B * g1s::N_JOINTS, 0.f);
+        CUDA_OK(cudaMemcpy(R.hard_qfree.data(), hjcd_hard::g_ws.qfree,
+                           sizeof(float) * (size_t)B * g1s::N_JOINTS, cudaMemcpyDeviceToHost));
+        R.hard_flags.assign(B, 0);
+        CUDA_OK(cudaMemcpy(R.hard_flags.data(), hjcd_hard::g_ws.flags, B, cudaMemcpyDeviceToHost));
+        if (in.hard_diagnostics) {
+            R.hard_ctr_stride = g1sc::HARD_CTR_STRIDE;
+            R.hard_counters.assign((size_t)B * R.hard_ctr_stride, 0);
+            CUDA_OK(cudaMemcpy(R.hard_counters.data(), hjcd_hard::g_ws.ctr,
+                               sizeof(int) * R.hard_counters.size(), cudaMemcpyDeviceToHost));
+        }
+    }
+
+    if (!hard) {
 #if defined(HJCD_HAS_COLLISION)
     if (cc_enabled) {
         cc_smem = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<float>();
-        CUDA_OK(cudaFuncSetAttribute(coarse_search_mt_kernel<CT>,
+        CUDA_OK(cudaFuncSetAttribute(coarse_search_mt_kernel<CT, false, false>,
                                      cudaFuncAttributeMaxDynamicSharedMemorySize, (int)cc_smem));
     }
+
     cudaEvent_t ev0, ev1;
     CUDA_OK(cudaEventCreate(&ev0)); CUDA_OK(cudaEventCreate(&ev1));
     CUDA_OK(cudaEventRecord(ev0));
-    coarse_search_mt_kernel<CT><<<B, 32, cc_smem>>>(
-        d_q, d_tp, d_tq, d_act, d_wp, d_wo, d_pn, d_on, d_c, d_s, d_tr, R.trace_cap,
+    coarse_search_mt_kernel<CT, false, false><<<B, 32, cc_smem>>>(
+        d_q, d_tp, d_tq, d_act, d_wp, d_wo, /*base_p=*/nullptr, /*base_q=*/nullptr,
+        d_pn, d_on, d_c, d_s, d_tr, R.trace_cap,
         d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_coord, (CT)h_min, (CT)max_step,
         max_iters, stall_lim, B, S, use_incremental, seed, max_pert_attempts,
+        0 /*hard_enabled*/, 1 /*hard_top_k*/, 0 /*oracle*/, 0.0f /*hard_margin*/,
+        g1sc::HardWorkspace{},
         cc_enabled,
         reinterpret_cast<const grid::robotModel<float>*>(cc_model),
         cc_env_ptr ? *reinterpret_cast<const grid_collision::Environment<float>*>(cc_env_ptr)
@@ -2880,16 +4077,21 @@ static CoarseOutputs launch_coarse_mt(
     cudaEvent_t ev0, ev1;
     CUDA_OK(cudaEventCreate(&ev0)); CUDA_OK(cudaEventCreate(&ev1));
     CUDA_OK(cudaEventRecord(ev0));
-    coarse_search_mt_kernel<CT><<<B, 32, 0>>>(
-        d_q, d_tp, d_tq, d_act, d_wp, d_wo, d_pn, d_on, d_c, d_s, d_tr, R.trace_cap,
+    coarse_search_mt_kernel<CT, false, false><<<B, 32, 0>>>(
+        d_q, d_tp, d_tq, d_act, d_wp, d_wo, /*base_p=*/nullptr, /*base_q=*/nullptr,
+        d_pn, d_on, d_c, d_s, d_tr, R.trace_cap,
         d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_coord, (CT)h_min, (CT)max_step,
-        max_iters, stall_lim, B, S, use_incremental, seed, max_pert_attempts, cc_enabled);
+        max_iters, stall_lim, B, S, use_incremental, seed, max_pert_attempts,
+        0 /*hard_enabled*/, 1 /*hard_top_k*/, 0 /*oracle*/, 0.0f /*hard_margin*/,
+        g1sc::HardWorkspace{},
+        cc_enabled);
 #endif
     CUDA_OK(cudaEventRecord(ev1));
     CUDA_OK(cudaPeekAtLastError());
     CUDA_OK(cudaDeviceSynchronize());
     { float ms = 0.f; CUDA_OK(cudaEventElapsedTime(&ms, ev0, ev1)); R.kernel_ms = (double)ms; }
     CUDA_OK(cudaEventDestroy(ev0)); CUDA_OK(cudaEventDestroy(ev1));
+    }   // end !hard legacy launch
 
     // The B x N configuration goes STRAIGHT from the device into the caller's numpy buffer -- one
     // pass. It used to make four (D2H -> widen to double -> narrow back to float -> pybind copy).
@@ -3018,10 +4220,12 @@ static LMRefineOutputs launch_lm_mt(
     CUDA_OK(cudaEventCreate(&ev0)); CUDA_OK(cudaEventCreate(&ev1));
     CUDA_OK(cudaEventRecord(ev0));
     lm_multi_target_kernel<CT><<<(B + W - 1) / W, 32 * W, smem>>>(
-        d_q, d_tp, d_tq, d_act, d_wp, d_wo, d_pn, d_on, d_c, d_s, /*out_pose=*/nullptr,
+        d_q, d_tp, d_tq, d_act, d_wp, d_wo, /*base_p=*/nullptr, /*base_q=*/nullptr,
+        /*out_base_diag=*/nullptr,
+        d_pn, d_on, d_c, d_s, /*out_pose=*/nullptr,
         d_tr, R.trace_cap,
         d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_init, max_iters, B, /*stop_on_first=*/0,
-        stag_patience, (CT)stag_rel, S);
+        stag_patience, (CT)stag_rel, S, BaseUpdateCfg<CT>{});   // fixed base: update disabled
     CUDA_OK(cudaEventRecord(ev1));
     CUDA_OK(cudaPeekAtLastError());
     CUDA_OK(cudaDeviceSynchronize());
@@ -3454,6 +4658,13 @@ static SolveProblemsOutputs launch_solve_problems(
                      al(pm)*4,                                             // sel succ/valid/cfree/fb
                      al((size_t)P*4)*6, al((size_t)P)})                    // summaries [P]
         need += s;
+    // Floating base [B,3] + [B,4]. MUST be accounted here: take<>() returns nullptr on an
+    // exhausted arena rather than throwing, so an unbudgeted take silently becomes a
+    // cudaMemcpy(nullptr) -> "invalid argument" deep in the launch. Unconditional (a few KB)
+    // so the arena size does not depend on the base flag, which would defeat its reuse across
+    // calls -- ensure_raw only grows, and a fixed-base call after a floating-base one would
+    // otherwise keep the larger arena anyway.
+    need += al((size_t)B*3*ct) + al((size_t)B*4*ct) + al((size_t)B*3*sizeof(int));  // + base diag
     ws->ensure_raw(need, R.fp32 ? 1 : 0);
     ws->rewind();
 
@@ -3479,11 +4690,40 @@ static SolveProblemsOutputs launch_solve_problems(
     int* d_nfb = ws->take<int>(P); int* d_ninfeas = ws->take<int>(P);
     unsigned char* d_psucc = ws->take<unsigned char>(P);
 
+    // Alternating base update (refinement only). Disabled unless the caller asked AND a base was
+    // supplied: an update with no base to move is meaningless.
+    BaseUpdateCfg<CT> bcfg;
+    bcfg.enabled         = (in.base_update_enabled && in.base_p != nullptr) ? 1 : 0;
+    bcfg.interval        = in.base_update_interval > 0 ? in.base_update_interval : 1;
+    bcfg.damping         = (CT)in.base_damping;
+    bcfg.damping_scale_p = (CT)in.base_damping_scale_p;
+    bcfg.damping_scale_R = (CT)in.base_damping_scale_R;
+    bcfg.step_scale      = (CT)in.base_step_scale;
+    bcfg.max_translation = (CT)in.base_max_translation_step;
+    bcfg.max_rotation    = (CT)in.base_max_rotation_step;
+    for (int i = 0; i < 3; ++i) {
+        bcfg.lo[i] = (CT)in.base_position_lower[i];
+        bcfg.hi[i] = (CT)in.base_position_upper[i];
+        if (!(bcfg.lo[i] <= bcfg.hi[i]))
+            throw std::invalid_argument("base_position_lower must be <= base_position_upper");
+    }
+
+    // Floating base: candidate-level [B,3] / [B,4]. Both stay NULL for a fixed-base solve, and
+    // the kernels then take their verbatim-copy branch -- no allocation, no upload, no cost.
+    const bool floating_base = (in.base_p != nullptr && in.base_q != nullptr);
+    CT* d_bp = floating_base ? ws->take<CT>((size_t)B * 3) : nullptr;
+    CT* d_bq = floating_base ? ws->take<CT>((size_t)B * 4) : nullptr;
+    int* d_bdiag = (floating_base && in.base_diag) ? ws->take<int>((size_t)B * 3) : nullptr;
+
     upload_in<CT>(d_seeds, in.q,     in.f32, bn, stage);
     upload_in<CT>(d_tp,    in.tgt_p, in.f32, pk*3, stage);
     upload_in<CT>(d_tq,    in.tgt_q, in.f32, pk*4, stage);
     upload_in<CT>(d_wp,    in.wp,    in.f32, pk, stage);
     upload_in<CT>(d_wo,    in.wo,    in.f32, pk, stage);
+    if (floating_base) {
+        upload_in<CT>(d_bp, in.base_p, in.f32, (size_t)B * 3, stage);
+        upload_in<CT>(d_bq, in.base_q, in.f32, (size_t)B * 4, stage);
+    }
     CUDA_OK(cudaMemcpy(d_act, in.active, sizeof(unsigned int)*P, cudaMemcpyHostToDevice));
     CUDA_OK(cudaMemcpy(d_usec, use_coarse_host, B, cudaMemcpyHostToDevice));
 
@@ -3498,22 +4738,27 @@ static SolveProblemsOutputs launch_solve_problems(
 #if defined(HJCD_HAS_COLLISION)
         if (cc_enabled) {
             cc_smem = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<float>();
-            CUDA_OK(cudaFuncSetAttribute(coarse_search_mt_kernel<CT>,
+            CUDA_OK(cudaFuncSetAttribute(coarse_search_mt_kernel<CT, false, false>,
                     cudaFuncAttributeMaxDynamicSharedMemorySize, (int)cc_smem));
         }
-        coarse_search_mt_kernel<CT><<<B,32,cc_smem>>>(
-            d_cq, d_tp, d_tq, d_act, d_wp, d_wo, d_cpe, d_coe, d_cc, d_cs, nullptr, 0,
+        coarse_search_mt_kernel<CT, false, false><<<B,32,cc_smem>>>(
+            d_cq, d_tp, d_tq, d_act, d_wp, d_wo, d_bp, d_bq, d_cpe, d_coe, d_cc, d_cs, nullptr, 0,
             d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_coord, (CT)h_min, (CT)max_step,
             coarse_iters, coarse_stall_lim, B, S, use_incremental, seed, max_pert_attempts,
-            cc_enabled, reinterpret_cast<const grid::robotModel<float>*>(cc_model),
+            0 /*hard_enabled*/, 1 /*hard_top_k*/, 0 /*oracle*/, 0.0f /*hard_margin*/,
+        g1sc::HardWorkspace{},
+        cc_enabled, reinterpret_cast<const grid::robotModel<float>*>(cc_model),
             cc_env_ptr ? *reinterpret_cast<const grid_collision::Environment<float>*>(cc_env_ptr)
                        : grid_collision::Environment<float>{});
 #else
         (void)cc_smem;
-        coarse_search_mt_kernel<CT><<<B,32,0>>>(
-            d_cq, d_tp, d_tq, d_act, d_wp, d_wo, d_cpe, d_coe, d_cc, d_cs, nullptr, 0,
+        coarse_search_mt_kernel<CT, false, false><<<B,32,0>>>(
+            d_cq, d_tp, d_tq, d_act, d_wp, d_wo, d_bp, d_bq, d_cpe, d_coe, d_cc, d_cs, nullptr, 0,
             d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_coord, (CT)h_min, (CT)max_step,
-            coarse_iters, coarse_stall_lim, B, S, use_incremental, seed, max_pert_attempts, cc_enabled);
+            coarse_iters, coarse_stall_lim, B, S, use_incremental, seed, max_pert_attempts,
+            0 /*hard_enabled*/, 1 /*hard_top_k*/, 0 /*oracle*/, 0.0f /*hard_margin*/,
+        g1sc::HardWorkspace{},
+        cc_enabled);
 #endif
         CUDA_OK(cudaPeekAtLastError());
         const int NB = (int)((bn + 255) / 256);
@@ -3529,10 +4774,23 @@ static SolveProblemsOutputs launch_solve_problems(
         CUDA_OK(cudaFuncSetAttribute(lm_multi_target_kernel<CT>,
                 cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smem));
     lm_multi_target_kernel<CT><<<B,32,smem>>>(
-        d_lq, d_tp, d_tq, d_act, d_wp, d_wo, d_lpe, d_loe, d_lc, d_ls, nullptr, nullptr, 0,
-        d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_init, lm_iters, B, 0, stag_patience, (CT)stag_rel, S);
+        d_lq, d_tp, d_tq, d_act, d_wp, d_wo, d_bp, d_bq, d_bdiag,
+        d_lpe, d_loe, d_lc, d_ls, nullptr, nullptr, 0,
+        d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_init, lm_iters, B, 0, stag_patience, (CT)stag_rel, S,
+        bcfg);
     CUDA_OK(cudaPeekAtLastError());
     CUDA_OK(cudaEventRecord(e2));
+    // The base is IN/OUT: the LM wrote each candidate's OPTIMIZED base back into d_bp/d_bq, so
+    // copy it home over the caller's seed base. Without this the base update is unobservable --
+    // the kernel would optimize a base nobody can read.
+    if (floating_base) {
+        CUDA_OK(cudaDeviceSynchronize());
+        download_out<CT>(const_cast<void*>(in.base_p), d_bp, in.f32, (size_t)B * 3, stage);
+        download_out<CT>(const_cast<void*>(in.base_q), d_bq, in.f32, (size_t)B * 4, stage);
+        if (d_bdiag)                       // ints, not CT: a plain copy, no precision conversion
+            CUDA_OK(cudaMemcpy(const_cast<void*>(in.base_diag), d_bdiag,
+                               (size_t)B * 3 * sizeof(int), cudaMemcpyDeviceToHost));
+    }
 
     // ---- collision + candidate-local fallback ----
 #if defined(HJCD_HAS_COLLISION)
@@ -4684,12 +5942,15 @@ Result<T> generate_ik_solutions(
                 cudaFuncAttributeMaxDynamicSharedMemorySize, (int)lm_smem));
 
         lm_multi_target_kernel<RT><<<Krep, 32, lm_smem>>>(
-            dx64, d_p, d_qt, d_act, d_wp, d_wo, dposmm64, dori64, d_cost, d_su, dpose64,
+            dx64, d_p, d_qt, d_act, d_wp, d_wo, /*base_p=*/nullptr, /*base_q=*/nullptr,
+            /*out_base_diag=*/nullptr,
+            dposmm64, dori64, d_cost, d_su, dpose64,
             /*out_trace=*/nullptr, /*trace_cap=*/0,
             d_robotModel_rt, eps_pos, eps_ori, (RT)5e-3, max_iters, Krep,
             /*stop_on_first=*/(num_solutions > 1) ? 0 : 1,
             /*stag_patience=*/0, /*stag_rel=*/(RT)1e-4,     // legacy single-target path: Policy B off
-            /*seeds_per_problem=*/1);                        // one problem per candidate (P = B)
+            /*seeds_per_problem=*/1,                         // one problem per candidate (P = B)
+            BaseUpdateCfg<RT>{});                            // legacy path: fixed base
         cudaGetLastError();
         CUDA_OK(cudaDeviceSynchronize());
 

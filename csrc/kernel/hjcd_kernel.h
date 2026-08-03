@@ -103,6 +103,22 @@ std::vector<unsigned char> check_collision_free(
     const double* h_q, int B, const char* json, const char* set_name, int idx);
 
 // Persistent device workspace (Phase 0E). Owned by exactly one solver instance; NOT thread-safe.
+// Stage 3D/3E hard-mode introspection (implemented in hjcd_kernel.cu; see the persistent
+// hard-mode workspace there). Safe to call regardless of mode.
+extern "C" int  hjcd_hard_available();      // 1 = this build's robot matches the sidecar model
+extern "C" int  hjcd_hard_ws_nalloc();      // persistent-workspace (re)allocation count
+extern "C" int  hjcd_hard_ws_capacity();    // current per-seed capacity, 0 = never allocated
+extern "C" int  hjcd_hard_reseed_ws_capacity();  // F*R candidate arena, 0 = never allocated
+extern "C" int  hjcd_hard_reseed_ws_nalloc();
+extern "C" int  hjcd_hard_reseed_dump(float* cand_q, unsigned char* cand_free,
+                                      unsigned char* cand_comp, float* cand_dist,
+                                      int* fail_idx, int* sel, int FR, int F);
+extern "C" int  hjcd_hard_ctr_stride();     // ints per seed in the diagnostic counter block
+extern "C" int  hjcd_hard_max_top_k();      // supported maximum for collision_top_k
+extern "C" void hjcd_hard_ws_release();
+extern "C" int  hjcd_hard_dump(float* qc, float* qfree, unsigned char* flags,
+                               float* Tf, double* Td, int B);
+
 class HjcdWorkspace;
 HjcdWorkspace* hjcd_workspace_new();
 void hjcd_workspace_free(HjcdWorkspace* w);
@@ -121,6 +137,53 @@ struct SolveInputs {
     // and seeds_per_problem = 1, i.e. every candidate is its own problem with its own target copy.
     int num_problems = 0;         // P; 0 means "legacy: P = B, S = 1" (filled in by the launcher)
     int seeds_per_problem = 1;    // S
+    // Floating base (optional). Both null => FIXED base, and every downstream path is
+    // bit-identical to the pre-floating-base solver. Non-null => [B, 3] and [B, 4] (wxyz, unit),
+    // CANDIDATE-level like q, NOT problem-level like tgt_p: each seed carries its own base.
+    // tgt_p/tgt_q stay in WORLD frame either way; the kernel pulls them into each candidate's
+    // base frame at load (hjcd_settings.h: world_target_to_base).
+    //
+    // Declared LAST on purpose: every existing aggregate initializer
+    // (`SolveInputs in{q, tp, tq, wp, wo, active, f32, P, S}`) stays valid and defaults these
+    // to nullptr. Inserting them mid-struct would have re-bound P to base_p.
+    const void* base_p = nullptr;
+    const void* base_q = nullptr;
+    // [B,3] int32 (attempted, accepted, numerical failures) per candidate; null => not collected.
+    // Always int regardless of precision -- these are counts, not geometry.
+    const void* base_diag = nullptr;
+    // Alternating base-update controls (refinement only). All defaulted and declared LAST, so
+    // every existing aggregate initializer stays valid. enabled=0 => the base is CARRIED but not
+    // optimized, which is exactly the externally-sampled-base behaviour moved on-device.
+    int base_update_enabled = 0;
+    int base_update_interval = 1;          // take a base step every N LM iterations
+    double base_damping = 1e-3;            // lambda in H_lambda = H + lambda*D
+    // D = diag(s_p^-2 I3, s_R^-2 I3). Both must be > 0. s_p=s_R=1 => D = I (plain Tikhonov).
+    // Must agree with hjcdik/base_update.py's damping_matrix(): same system on host and device.
+    double base_damping_scale_p = 1.0;     // s_p, metres
+    double base_damping_scale_R = 1.0;     // s_R, radians
+    double base_step_scale = 1.0;
+    double base_max_translation_step = 0.05;   // m
+    double base_max_rotation_step = 0.10;      // rad
+    double base_position_lower[3] = {-1e30, -1e30, -1e30};   // +-1e30 == unbounded
+    double base_position_upper[3] = { 1e30,  1e30,  1e30};
+
+    // Self-collision HARD mode (Checkpoint 3D/3E). 0 => the coarse kernel's <T,false> instantiation
+    // runs and no sidecar code exists in it at all, so `off` and `final` are byte-identical AND
+    // pay nothing. Declared LAST and defaulted, so every existing aggregate initializer stays valid.
+    int   hard_self_collision = 0;    // 1 = collision-free seeds + top-K collision-gated commits
+    int   hard_top_k = 3;             // ranked proposals collision-checked per coarse iteration
+    float hard_margin = 0.0f;         // same convention as the batched full checker
+    int   hard_max_reseed = 8;        // bounded Stage-3D retries for a colliding seed
+    int   hard_diagnostics = 0;       // 1 = collect per-seed counters (OFF in the fast path)
+    int   hard_oracle_every = 0;      // >0 = debug oracle period; VALIDATION ONLY, never benchmarks
+    // Checkpoint 3D.1 collision-free seed generator. mode 0 = the legacy +-5%-of-span stall kick
+    // (kept only so the benchmark can measure the old policy); mode 1 = the dedicated batched
+    // candidate mixture. Hard mode only -- off/final never read these and allocate no reseed state.
+    int   hard_reseed_mode = 1;
+    int   hard_reseed_candidates = 16;   // R candidates per failed seed per round
+    int   hard_reseed_rounds = 2;
+    int   hard_reseed_n_scales = 4;
+    float hard_reseed_scales[8] = {0.10f, 0.20f, 0.35f, 0.50f, 0.f, 0.f, 0.f, 0.f};
 };
 
 // Multi-target coarse search (Phase 5): aggregate weighted coordinate Gauss-Newton, one warp per
@@ -148,6 +211,23 @@ struct CoarseOutputs {
     //                                    pert_collision_rejects, pert_exhausted
     std::vector<double> trace;
     int trace_cap = 0, trace_cols = 0;
+
+    // ---- Stage 3D/3E hard-mode report (populated only when hard mode actually ran) ----
+    bool hard_ran = false;
+    int hard_initial_free = 0;        // seeds whose ORIGINAL configuration was collision-free
+    int hard_initial_colliding = 0;
+    int hard_reseed_attempts = 0;     // total (seed, attempt) re-draws issued
+    int hard_recovered = 0;           // colliding seeds that a re-draw made free
+    int hard_seed_failures = 0;       // seeds still colliding after the bounded retries
+    double hard_init_ms = 0.0;        // device time for the Stage-3D check + reseed loop
+    std::vector<float> hard_qfree;        // B x 29  last collision-free coarse configuration
+    std::vector<unsigned char> hard_flags;// B       bit0 state-valid, bit1 has-free-coarse-state
+    std::vector<int> hard_counters;       // B x hard_ctr_stride (empty unless hard_diagnostics)
+    int hard_ctr_stride = 0;
+    // ---- Checkpoint 3D.1 reseed breakdown ----
+    int hard_reseed_rounds_run = 0, hard_candidates_checked = 0;
+    int hard_sel_perturb = 0, hard_sel_nominal = 0, hard_sel_broad = 0;
+    double hard_gen_ms = 0.0, hard_check_ms = 0.0, hard_select_ms = 0.0, hard_verify_ms = 0.0;
 };
 CoarseOutputs compute_coarse_search(
     const SolveInputs& in,

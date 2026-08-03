@@ -1,0 +1,60 @@
+{
+  "state": {
+    "branch": "feature/g1-collision-sidecar",
+    "head": "439c68f",
+    "extension_path": "/home/kale/dev/research/robot_bouldering/external/HJCD-IK/hjcdik/__init__.py",
+    "num_joints": 29,
+    "num_targets": 4,
+    "num_frames": 31,
+    "hashes": {
+      "csrc/generated/grid.cuh": "1995aeaf14874f06",
+      "csrc/kernel/hjcd_kernel.cu": "10414cc4f7a32911",
+      "csrc/kernel/hjcd_settings.h": "2374f2ee6a4c03de",
+      "csrc/bindings/pybind_module.cpp": "9c268e0fa3894a6c"
+    },
+    "grid_collision_baked": false
+  },
+  "runs": {
+    "B256": {
+      "batch_size": 256,
+      "reproducible": true,
+      "n_success": [
+        36,
+        222,
+        233,
+        241
+      ],
+      "q_hashes": [
+        "06b8658ec6d64b5d",
+        "117506c104206f1c",
+        "7fe9197d06edddee",
+        "43161014f54ad250"
+      ],
+      "wall_s": [
+        0.010567942998022772,
+        0.009274919997551478
+      ]
+    },
+    "B1024": {
+      "batch_size": 1024,
+      "reproducible": true,
+      "n_success": [
+        147,
+        875,
+        973,
+        932
+      ],
+      "q_hashes": [
+        "eb6440225e192785",
+        "66e0cd3ece1ddc03",
+        "0b000b583e246132",
+        "6c00a86ce5d326b0"
+      ],
+      "wall_s": [
+        0.023701578997133765,
+        0.022492939002404455
+      ]
+    }
+  },
+  "n_problems": 4
+}

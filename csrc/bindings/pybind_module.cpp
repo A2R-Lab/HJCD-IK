@@ -1,11 +1,37 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
+#include <cmath>
 #include <cstring>
 #include <vector>
+#include <cstdint>
 #include "kernel/hjcd_kernel.h"
 
 namespace py = pybind11;
+
+// ---------------------------------------------------------------------------------------------
+// Collision sidecar (Checkpoint 3): the validated GPU self-collision sidecar is compiled into this
+// module as a separate CUDA TU (src/collision_sidecar.cu). Reach it ONLY through these host
+// extern "C" entry points -- no CUDA headers leak into this host-only .cpp. DORMANT unless the
+// Python solve wrapper calls them (self_collision_mode="final").
+namespace g1sc {
+extern "C" void sidecar_upload_sdf(int cid, const short* grid, int n);
+extern "C" void sidecar_upload_convex(const double* verts, int n_verts);
+extern "C" void sidecar_full_check(const float* q, unsigned char* out, int B, float margin);
+extern "C" void sidecar_prim_gaps(const float* q, float* gap, int B);
+extern "C" void sidecar_cluster_gaps(const float* q, float* gap, int* ev, int B);
+extern "C" void sidecar_gjk_gaps(const float* q, float* gap, int* iters, int B);
+extern "C" void sidecar_fk_batch(const float* q, float* T, int B);
+}  // namespace g1sc
+namespace g1sc { extern "C" int sidecar_model_uploaded(); }
+static void require_sidecar_model(const char* who) {
+  if (!g1sc::sidecar_model_uploaded())
+    throw std::runtime_error(std::string(who) + ": self-collision model not uploaded; call "
+                             "hjcdik._ensure_self_collision_sidecar() first");
+}
+extern "C" const char* sidecar_hash_str(int which);
+extern "C" int sidecar_model_int(int which);
+namespace g1sc { extern "C" int sidecar_ws_nalloc(); }
 
 // ---------------------------------------------------------------------------------------------
 // Array construction. EVERY array returned to Python is built here.
@@ -419,7 +445,11 @@ py::dict py_coarse_search(py::array q, py::array tgt_p, py::array tgt_q, arru ac
                           std::uint64_t seed, bool diagnostics, bool return_trace,
                           const std::string& problems_json_text, const std::string& problem_set_name,
                           int problem_idx, int max_pert_attempts, int precision, PyWorkspace* ws,
-                          int seeds_per_problem) {
+                          int seeds_per_problem,
+                          int hard_self_collision, int hard_top_k, double hard_margin,
+                          int hard_max_reseed, bool hard_diagnostics, int hard_oracle_every,
+                          int hard_reseed_mode, int hard_reseed_candidates,
+                          int hard_reseed_rounds, std::vector<double> hard_reseed_scales) {
   auto* model = ensure_robot();
   const int N = grid_num_joints();
   const int K = grid_num_targets();
@@ -441,6 +471,43 @@ py::dict py_coarse_search(py::array q, py::array tgt_p, py::array tgt_q, arru ac
   const bool in_f32 = q.dtype().is(py::dtype::of<float>());
   SolveInputs in{q.data(), tgt_p.data(), tgt_q.data(), w_pos.data(), w_ori.data(),
                  (const unsigned int*)active.data(), in_f32, P, S};
+  // Stage 3D/3E. Validated HERE, before any CUDA work: an out-of-range top-K that reached the
+  // kernel would silently clamp instead of telling the caller their request was not honoured.
+  if (hard_self_collision) {
+    if (!hjcd_hard_available())
+      throw std::invalid_argument("self_collision_mode='hard': this build's robot does not match "
+                                  "the G1 self-collision sidecar model");
+    if (hard_top_k < 1 || hard_top_k > hjcd_hard_max_top_k())
+      throw std::invalid_argument("collision_top_k out of range 1.." +
+                                  std::to_string(hjcd_hard_max_top_k()));
+  }
+  in.hard_self_collision = hard_self_collision;
+  in.hard_top_k = hard_top_k;
+  in.hard_margin = (float)hard_margin;
+  in.hard_max_reseed = hard_max_reseed;
+  in.hard_diagnostics = hard_diagnostics ? 1 : 0;
+  // The oracle only records into the counter block, so asking for it implies collecting counters.
+  in.hard_oracle_every = hard_oracle_every;
+  if (hard_oracle_every > 0) in.hard_diagnostics = 1;
+  if (hard_self_collision) {
+    if (hard_reseed_mode != 0 && hard_reseed_mode != 1)
+      throw std::invalid_argument("collision_reseed_mode must be 0 (legacy kick) or 1 (generator)");
+    if (hard_reseed_candidates < 1 || hard_reseed_candidates > 256)
+      throw std::invalid_argument("collision_reseed_candidates out of range 1..256");
+    if (hard_reseed_rounds < 1 || hard_reseed_rounds > 16)
+      throw std::invalid_argument("collision_reseed_rounds out of range 1..16");
+    if (hard_reseed_scales.empty() || hard_reseed_scales.size() > 8)
+      throw std::invalid_argument("collision_reseed_scales must have 1..8 entries");
+    for (double v : hard_reseed_scales)
+      if (!(v > 0.0) || v > 4.0)
+        throw std::invalid_argument("collision_reseed_scales entries must be in (0, 4]");
+  }
+  in.hard_reseed_mode = hard_reseed_mode;
+  in.hard_reseed_candidates = hard_reseed_candidates;
+  in.hard_reseed_rounds = hard_reseed_rounds;
+  in.hard_reseed_n_scales = (int)hard_reseed_scales.size();
+  for (size_t i = 0; i < hard_reseed_scales.size() && i < 8; ++i)
+    in.hard_reseed_scales[i] = (float)hard_reseed_scales[i];
 
   const bool out_f32 = (precision == 1);
   py::array qa = out_f32 ? py::array(make_arr<float>({B, N})) : py::array(make_arr<double>({B, N}));
@@ -472,6 +539,37 @@ py::dict py_coarse_search(py::array q, py::array tgt_p, py::array tgt_q, arru ac
     if (return_trace)
       o["trace"] = arr_from(r.trace, {B, r.trace_cap, r.trace_cols});
   }
+  // Stage 3D/3E report. Present ONLY when hard mode actually ran, so off/final dicts are unchanged
+  // key-for-key (asserted by test_off_returns_no_hard_keys).
+  if (r.hard_ran) {
+    py::dict h;
+    h["initially_free"] = r.hard_initial_free;
+    h["initially_colliding"] = r.hard_initial_colliding;
+    h["reseed_attempts"] = r.hard_reseed_attempts;
+    h["recovered"] = r.hard_recovered;
+    h["seed_failures"] = r.hard_seed_failures;
+    h["init_ms"] = r.hard_init_ms;
+    h["ws_nalloc"] = hjcd_hard_ws_nalloc();
+    h["ws_capacity"] = hjcd_hard_ws_capacity();
+    h["reseed_ws_capacity"] = hjcd_hard_reseed_ws_capacity();
+    h["reseed_ws_nalloc"] = hjcd_hard_reseed_ws_nalloc();
+    h["reseed_rounds_run"] = r.hard_reseed_rounds_run;
+    // NOT "candidates_checked": that key already means "IK candidates the LM check looked at".
+    // Two different quantities under one name silently overwrote each other.
+    h["reseed_candidates_checked"] = r.hard_candidates_checked;
+    h["selected_perturb"] = r.hard_sel_perturb;
+    h["selected_nominal"] = r.hard_sel_nominal;
+    h["selected_broad"] = r.hard_sel_broad;
+    h["reseed_gen_ms"] = r.hard_gen_ms;
+    h["reseed_check_ms"] = r.hard_check_ms;
+    h["reseed_select_ms"] = r.hard_select_ms;
+    h["reseed_verify_ms"] = r.hard_verify_ms;
+    o["hard_qfree"] = arr_from(r.hard_qfree, {B, (int)(r.hard_qfree.size() / (size_t)B)});
+    o["hard_flags"] = arr_from(r.hard_flags, {B});   // BITFIELD -- never barr_from(), see below
+    if (!r.hard_counters.empty())
+      o["hard_counters"] = arr_from(r.hard_counters, {B, r.hard_ctr_stride});
+    o["hard"] = std::move(h);
+  }
   return o;
 }
 
@@ -497,7 +595,14 @@ py::dict py_solve_problems(py::array q, py::array tgt_p, py::array tgt_q, arru a
                            double lambda_init, int lm_iters, int stag_patience, double stag_rel,
                            int num_solutions, int precision, bool return_all,
                            const std::string& problems_json_text, const std::string& problem_set_name,
-                           int problem_idx, PyWorkspace* ws) {
+                           int problem_idx, PyWorkspace* ws,
+                           py::array base_p, py::array base_q, py::array base_diag,
+                           bool base_update_enabled, int base_update_interval,
+                           double base_damping, double base_step_scale,
+                           double base_damping_scale_p, double base_damping_scale_R,
+                           double base_max_translation_step, double base_max_rotation_step,
+                           std::array<double,3> base_position_lower,
+                           std::array<double,3> base_position_upper) {
   auto* model = ensure_robot();
   const int N = grid_num_joints();
   const int K = grid_num_targets();
@@ -515,6 +620,51 @@ py::dict py_solve_problems(py::array q, py::array tgt_p, py::array tgt_q, arru a
   const bool in_f32 = q.dtype().is(py::dtype::of<float>());
   SolveInputs in{q.data(), tgt_p.data(), tgt_q.data(), w_pos.data(), w_ori.data(),
                  (const unsigned int*)active.data(), in_f32, P, S};
+  // Floating base: candidate-level [B,3]/[B,4], or BOTH empty for a fixed-base solve (which
+  // leaves in.base_* null and every downstream path bit-identical). Shapes, dtype and
+  // quaternion norms are validated in hjcdik/__init__.py, like every other input.
+  if (base_p.size() && base_q.size()) {
+    // IN/OUT: the seed base goes down, the optimized base comes back in the SAME buffers, which
+    // is why these must be mutable and why the caller gets them returned below.
+    in.base_p = base_p.mutable_data();
+    in.base_q = base_q.mutable_data();
+    if (base_diag.size()) {
+      if ((size_t)base_diag.size() != (size_t)B * 3)
+        throw std::invalid_argument("base_diag must be [B,3] int32");
+      in.base_diag = base_diag.mutable_data();
+    }
+    in.base_update_enabled = base_update_enabled ? 1 : 0;
+    if (base_update_interval < 1)
+      throw std::invalid_argument("base_update_interval must be >= 1");
+    if (!(base_damping >= 0.0))
+      throw std::invalid_argument("base_damping must be >= 0");
+    if (!(base_step_scale > 0.0))
+      throw std::invalid_argument("base_step_scale must be > 0");
+    // Strictly positive: they are divided by (as s^-2) and they are what makes lambda*D positive
+    // definite, which is what lets the kernel drop the zero-diagonal pin. Zero would reintroduce
+    // a singular H_lambda through the back door.
+    if (!(base_damping_scale_p > 0.0) || !std::isfinite(base_damping_scale_p))
+      throw std::invalid_argument("base_damping_scale_p must be a positive finite length (metres)");
+    if (!(base_damping_scale_R > 0.0) || !std::isfinite(base_damping_scale_R))
+      throw std::invalid_argument("base_damping_scale_R must be a positive finite angle (radians)");
+    for (int i = 0; i < 3; ++i)
+      if (!(base_position_lower[i] <= base_position_upper[i]))
+        throw std::invalid_argument("base_position_lower must be <= base_position_upper");
+    in.base_update_interval = base_update_interval;
+    in.base_damping = base_damping;
+    in.base_damping_scale_p = base_damping_scale_p;
+    in.base_damping_scale_R = base_damping_scale_R;
+    in.base_step_scale = base_step_scale;
+    in.base_max_translation_step = base_max_translation_step;
+    in.base_max_rotation_step = base_max_rotation_step;
+    for (int i = 0; i < 3; ++i) {
+      in.base_position_lower[i] = base_position_lower[i];
+      in.base_position_upper[i] = base_position_upper[i];
+    }
+  } else if (base_update_enabled) {
+    throw std::invalid_argument(
+        "base_update_enabled=True needs base_positions/base_quaternions: there is no base to move");
+  }
 
   const bool out_f32 = (precision == 1);
   const int M = (num_solutions >= 1) ? num_solutions : 1;
@@ -535,7 +685,14 @@ py::dict py_solve_problems(py::array q, py::array tgt_p, py::array tgt_q, arru a
       cc_model, cc_env, return_all, ws->get(), sel_q.mutable_data(), all_ptr);
 
   py::dict o;
-  o["joint_config"] = std::move(sel_q);                    // [P,M,N]
+  o["joint_config"] = std::move(sel_q);
+  // Raw M4 surface: per-CANDIDATE [B,3]/[B,4], not gathered to [P,M,...]. Pair a solution with
+  // its base via selected_seed_ids: base[p*S + selected_seed_ids[p,m]]. M5 does the gather.
+  if (base_p.size() && base_q.size()) {
+    o["base_position"] = base_p;
+    o["base_quaternion"] = base_q;
+    if (base_diag.size()) o["base_diag"] = base_diag;
+  }                    // [P,M,N]
   o["position_errors"] = arr_from(r.sel_pe, {P, M, K});
   o["orientation_errors"] = arr_from(r.sel_oe, {P, M, K});
   o["cost_lm"] = arr_from(r.sel_cost, {P, M});
@@ -574,8 +731,122 @@ py::dict py_solve_problems(py::array q, py::array tgt_p, py::array tgt_q, arru a
   return o;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Collision-sidecar pybind wrappers (Checkpoint 3B). Thin: marshal numpy <-> the extern "C" API.
+static void py_sidecar_upload_sdf(int cid,
+    py::array_t<int16_t, py::array::c_style | py::array::forcecast> g) {
+  g1sc::sidecar_upload_sdf(cid, g.data(), (int)g.size());
+}
+static void py_sidecar_upload_convex(
+    py::array_t<double, py::array::c_style | py::array::forcecast> v) {
+  if (v.ndim() != 2 || v.shape(1) != 3) throw std::invalid_argument("convex verts must be [N,3]");
+  g1sc::sidecar_upload_convex(v.data(), (int)v.shape(0));
+}
+static py::array_t<uint8_t> py_sidecar_full_check(
+    py::array_t<float, py::array::c_style | py::array::forcecast> q, float margin) {
+  require_sidecar_model("sidecar_full_check");
+  if (q.ndim() != 2 || q.shape(1) != sidecar_model_int(0))
+    throw std::invalid_argument("q must be [B,29]");
+  const int B = (int)q.shape(0), NP = sidecar_model_int(2);
+  auto out = py::array_t<uint8_t>({(py::ssize_t)B, (py::ssize_t)NP});
+  g1sc::sidecar_full_check(q.data(), out.mutable_data(), B, margin);
+  return out;
+}
+static py::array_t<float> py_sidecar_prim_gaps(
+    py::array_t<float, py::array::c_style | py::array::forcecast> q) {
+  const int B = (int)q.shape(0), NP = sidecar_model_int(2);
+  auto g = py::array_t<float>({(py::ssize_t)B, (py::ssize_t)NP});
+  g1sc::sidecar_prim_gaps(q.data(), g.mutable_data(), B); return g;
+}
+static py::tuple py_sidecar_cluster_gaps(
+    py::array_t<float, py::array::c_style | py::array::forcecast> q) {
+  require_sidecar_model("sidecar_cluster_gaps");
+  const int B = (int)q.shape(0), NP = sidecar_model_int(2);
+  auto g = py::array_t<float>({(py::ssize_t)B, (py::ssize_t)NP});
+  auto e = py::array_t<int32_t>({(py::ssize_t)B, (py::ssize_t)NP});
+  g1sc::sidecar_cluster_gaps(q.data(), g.mutable_data(), e.mutable_data(), B);
+  return py::make_tuple(g, e);
+}
+static py::tuple py_sidecar_gjk_gaps(
+    py::array_t<float, py::array::c_style | py::array::forcecast> q) {
+  require_sidecar_model("sidecar_gjk_gaps");
+  const int B = (int)q.shape(0), NG = sidecar_model_int(5);
+  auto g = py::array_t<float>({(py::ssize_t)B, (py::ssize_t)NG});
+  auto it = py::array_t<int32_t>({(py::ssize_t)B, (py::ssize_t)NG});
+  g1sc::sidecar_gjk_gaps(q.data(), g.mutable_data(), it.mutable_data(), B);
+  return py::make_tuple(g, it);
+}
+static py::array_t<float> py_sidecar_fk(
+    py::array_t<float, py::array::c_style | py::array::forcecast> q) {
+  const int B = (int)q.shape(0), NL = sidecar_model_int(1);
+  auto T = py::array_t<float>({(py::ssize_t)B, (py::ssize_t)NL, (py::ssize_t)16});
+  g1sc::sidecar_fk_batch(q.data(), T.mutable_data(), B); return T;
+}
+static py::dict py_sidecar_model_info() {
+  py::dict d, h;
+  const char* names[8] = {"urdf", "joint_order", "proxy_yaml", "torso_sdf", "pelvis_sdf",
+                          "convex", "pair_policy", "typed_piece"};
+  for (int i = 0; i < 8; ++i) h[names[i]] = std::string(sidecar_hash_str(i));
+  d["hashes"] = h;
+  d["sidecar_compiled"] = true;
+  d["supported_modes"] = py::make_tuple("off", "final");
+  d["hard_enabled"] = false;
+  d["shoulder_torso_gjk"] = true;      // Checkpoint 3C.1: exact convex/GJK for shoulder_yaw<->torso
+  d["fused_final_path"] = true;        // persistent-buffer full-check (no per-call malloc/free)
+  d["n_joints"] = sidecar_model_int(0); d["n_links"] = sidecar_model_int(1);
+  d["n_checked_pairs"] = sidecar_model_int(2); d["n_gjk_pairs"] = sidecar_model_int(5);
+  d["n_clusters"] = sidecar_model_int(6); d["n_convex_verts"] = sidecar_model_int(7);
+  return d;
+}
+
 PYBIND11_MODULE(_hjcdik, m) {
   m.doc() = "Minimal pybind11 bindings for hjcdik";
+  // collision sidecar (Checkpoint 3): self-collision full-check + diagnostics + model info
+  m.def("sidecar_upload_sdf", &py_sidecar_upload_sdf, py::arg("cid"), py::arg("grid_i16"));
+  m.def("sidecar_upload_convex", &py_sidecar_upload_convex, py::arg("verts"));
+  m.def("sidecar_full_check", &py_sidecar_full_check, py::arg("q"), py::arg("margin") = 0.0f);
+  m.def("sidecar_prim_gaps", &py_sidecar_prim_gaps, py::arg("q"));
+  m.def("sidecar_cluster_gaps", &py_sidecar_cluster_gaps, py::arg("q"));
+  m.def("sidecar_gjk_gaps", &py_sidecar_gjk_gaps, py::arg("q"));
+  m.def("sidecar_fk", &py_sidecar_fk, py::arg("q"));
+  m.def("sidecar_model_info", &py_sidecar_model_info);
+  m.def("hard_available", []() { return hjcd_hard_available() != 0; });
+  m.def("hard_max_top_k", []() { return hjcd_hard_max_top_k(); });
+  m.def("hard_ws_nalloc", []() { return hjcd_hard_ws_nalloc(); });
+  m.def("hard_ws_capacity", []() { return hjcd_hard_ws_capacity(); });
+  m.def("hard_ctr_stride", []() { return hjcd_hard_ctr_stride(); });
+  m.def("hard_ws_release", []() { hjcd_hard_ws_release(); });
+  m.def("hard_reseed_ws_capacity", []() { return hjcd_hard_reseed_ws_capacity(); });
+  m.def("hard_reseed_ws_nalloc", []() { return hjcd_hard_reseed_ws_nalloc(); });
+  // Last reseed round's candidate arena -> (cand_q, cand_free, cand_comp, cand_dist, fail_idx, sel)
+  m.def("hard_reseed_dump", [](int F, int R) {
+    const int FR = F * R, J = sidecar_model_int(0);
+    if (FR <= 0 || hjcd_hard_reseed_ws_capacity() <= 0) return py::tuple(py::make_tuple());
+    auto cq = make_arr<float>({FR, J});
+    auto cf = make_arr<uint8_t>({FR});
+    auto cc = make_arr<uint8_t>({FR});
+    auto cd = make_arr<float>({FR});
+    auto fi = make_arr<int32_t>({F});
+    auto se = make_arr<int32_t>({F});
+    hjcd_hard_reseed_dump(cq.mutable_data(), cf.mutable_data(), cc.mutable_data(),
+                          cd.mutable_data(), fi.mutable_data(), se.mutable_data(), FR, F);
+    return py::tuple(py::make_tuple(cq, cf, cc, cd, fi, se));
+  }, py::arg("F"), py::arg("R"));
+  // Committed hard-mode state, for the invariant tests. Returns (qc, qfree, flags, Tf, Td).
+  m.def("hard_dump", []() {
+    const int B = hjcd_hard_ws_capacity();
+    if (B <= 0) return py::tuple(py::make_tuple());
+    const int J = sidecar_model_int(0), L = sidecar_model_int(1) * 16;
+    auto qc = make_arr<float>({B, J}), qf = make_arr<float>({B, J});
+    auto fl = make_arr<uint8_t>({B});
+    auto Tf = make_arr<float>({B, L});
+    auto Td = make_arr<double>({B, L});
+    hjcd_hard_dump(qc.mutable_data(), qf.mutable_data(), fl.mutable_data(),
+                   Tf.mutable_data(), Td.mutable_data(), B);
+    return py::tuple(py::make_tuple(qc, qf, fl, Tf, Td));
+  });
+  m.def("sidecar_ws_nalloc", []() { return g1sc::sidecar_ws_nalloc(); },
+        "full-check workspace (re)allocation count -- 0 growth after warm-up (fused path proof)");
   py::class_<PyWorkspace>(m, "Workspace")
       .def(py::init<>())
       .def("stats", &PyWorkspace::stats,
@@ -637,7 +908,15 @@ PYBIND11_MODULE(_hjcdik, m) {
         py::arg("max_step"), py::arg("max_iters"), py::arg("stall_lim"), py::arg("use_incremental"),
         py::arg("seed"), py::arg("diagnostics"), py::arg("return_trace"),
         py::arg("problems_json_text"), py::arg("problem_set_name"), py::arg("problem_idx"),
-        py::arg("max_pert_attempts"), py::arg("precision"), py::arg("workspace"), py::arg("seeds_per_problem") = 1);
+        py::arg("max_pert_attempts"), py::arg("precision"), py::arg("workspace"),
+        py::arg("seeds_per_problem") = 1,
+        // Stage 3D/3E. Defaulted so every existing _coarse_search_raw call is unchanged.
+        py::arg("hard_self_collision") = 0, py::arg("hard_top_k") = 3,
+        py::arg("hard_margin") = 0.0, py::arg("hard_max_reseed") = 8,
+        py::arg("hard_diagnostics") = false, py::arg("hard_oracle_every") = 0,
+        py::arg("hard_reseed_mode") = 1, py::arg("hard_reseed_candidates") = 16,
+        py::arg("hard_reseed_rounds") = 2,
+        py::arg("hard_reseed_scales") = std::vector<double>{0.10, 0.20, 0.35, 0.50});
   m.def("_lm_refine_raw", &py_lm_refine,
         py::arg("q"), py::arg("target_positions"), py::arg("target_quaternions"),
         py::arg("active_target_mask"), py::arg("position_weights"), py::arg("orientation_weights"),
@@ -654,5 +933,14 @@ PYBIND11_MODULE(_hjcdik, m) {
         py::arg("lambda_init"), py::arg("lm_iters"), py::arg("stag_patience"), py::arg("stag_rel"),
         py::arg("num_solutions"), py::arg("precision"), py::arg("return_all"),
         py::arg("problems_json_text"), py::arg("problem_set_name"), py::arg("problem_idx"),
-        py::arg("workspace"));
+        py::arg("workspace"),
+        // Defaulted: every existing _solve_problems_raw call keeps working unchanged.
+        py::arg("base_positions") = py::array(), py::arg("base_quaternions") = py::array(),
+        py::arg("base_diag") = py::array(),
+        py::arg("base_update_enabled") = false, py::arg("base_update_interval") = 1,
+        py::arg("base_damping") = 1e-3, py::arg("base_step_scale") = 1.0,
+        py::arg("base_damping_scale_p") = 1.0, py::arg("base_damping_scale_R") = 1.0,
+        py::arg("base_max_translation_step") = 0.05, py::arg("base_max_rotation_step") = 0.10,
+        py::arg("base_position_lower") = std::array<double,3>{-1e30,-1e30,-1e30},
+        py::arg("base_position_upper") = std::array<double,3>{ 1e30, 1e30, 1e30});
 }

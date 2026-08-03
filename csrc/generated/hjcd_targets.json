@@ -1,53 +1,177 @@
 {
-  "robot": "panda",
-  "num_joints": 7,
+  "robot": "g1_29dof_rev_1_0",
+  "num_joints": 29,
   "max_targets": 4,
   "targets": [
     {
-      "name": "panda_grasptarget_hand",
-      "anchor_jid": 6,
-      "anchor_name": "panda_joint7",
+      "name": "left_hand",
+      "anchor_jid": 21,
+      "anchor_name": "left_wrist_yaw_joint",
       "tool_row_major": [
         [
-          0.7071067811873449,
-          0.7071067811857501,
+          1.0,
           0.0,
-          0.0
+          0.0,
+          0.02
         ],
         [
-          -0.7071067811857501,
-          0.7071067811873449,
-          0.0,
-          0.0
-        ],
-        [
-          0.0,
           0.0,
           1.0,
-          0.212
+          0.0,
+          0.0
+        ],
+        [
+          -0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0,
+          0,
+          0,
+          1
+        ]
+      ],
+      "source": "explicit xyz=[0.02, 0.0, 0.0] rpy=[0.0, 0.0, 0.0]",
+      "fixed_joint": null
+    },
+    {
+      "name": "right_hand",
+      "anchor_jid": 28,
+      "anchor_name": "right_wrist_yaw_joint",
+      "tool_row_major": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.02
         ],
         [
           0.0,
+          1.0,
           0.0,
+          0.0
+        ],
+        [
+          -0.0,
           0.0,
-          1.0
+          1.0,
+          0.0
+        ],
+        [
+          0,
+          0,
+          0,
+          1
         ]
       ],
-      "source": "fixed joint 'panda_grasptarget_hand'",
-      "fixed_joint": "panda_grasptarget_hand"
+      "source": "explicit xyz=[0.02, 0.0, 0.0] rpy=[0.0, 0.0, 0.0]",
+      "fixed_joint": null
+    },
+    {
+      "name": "left_foot",
+      "anchor_jid": 5,
+      "anchor_name": "left_ankle_roll_joint",
+      "tool_row_major": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.035
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          -0.0,
+          0.0,
+          1.0,
+          -0.03
+        ],
+        [
+          0,
+          0,
+          0,
+          1
+        ]
+      ],
+      "source": "explicit xyz=[0.035, 0.0, -0.03] rpy=[0.0, 0.0, 0.0]",
+      "fixed_joint": null
+    },
+    {
+      "name": "right_foot",
+      "anchor_jid": 11,
+      "anchor_name": "right_ankle_roll_joint",
+      "tool_row_major": [
+        [
+          1.0,
+          0.0,
+          0.0,
+          0.035
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          -0.0,
+          0.0,
+          1.0,
+          -0.03
+        ],
+        [
+          0,
+          0,
+          0,
+          1
+        ]
+      ],
+      "source": "explicit xyz=[0.035, 0.0, -0.03] rpy=[0.0, 0.0, 0.0]",
+      "fixed_joint": null
     }
   ],
   "target_ancestor_mask": [
-    127
+    4190208,
+    532705280,
+    63,
+    4032
   ],
   "joint_target_mask": [
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    3,
+    3,
+    3,
     1,
     1,
     1,
     1,
     1,
     1,
-    1
+    1,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2
   ],
   "joint_parent_jid": [
     -1,
@@ -56,15 +180,59 @@
     2,
     3,
     4,
-    5
+    -1,
+    6,
+    7,
+    8,
+    9,
+    10,
+    -1,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    14,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27
   ],
   "joint_descendant_mask": [
-    127,
-    126,
-    124,
-    120,
-    112,
-    96,
-    64
+    63,
+    62,
+    60,
+    56,
+    48,
+    32,
+    4032,
+    3968,
+    3840,
+    3584,
+    3072,
+    2048,
+    536866816,
+    536862720,
+    536854528,
+    4161536,
+    4128768,
+    4063232,
+    3932160,
+    3670016,
+    3145728,
+    2097152,
+    532676608,
+    528482304,
+    520093696,
+    503316480,
+    469762048,
+    402653184,
+    268435456
   ]
 }

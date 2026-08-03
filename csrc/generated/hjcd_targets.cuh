@@ -10,14 +10,17 @@
 namespace hjcd_gen {
 
 constexpr int MAX_TARGETS = 4;
-constexpr int NUM_TARGETS = 1;
+constexpr int NUM_TARGETS = 4;
 static_assert(NUM_TARGETS <= MAX_TARGETS, "too many targets");
 static_assert(grid::NUM_JOINTS <= 32, "ancestor masks are uint32_t: one bit per joint");
 
 // Ordered target set (index == device-side target id):
-//   [0] panda_grasptarget_hand anchor=panda_joint7 (jid 6), tool from fixed joint 'panda_grasptarget_hand'
+//   [0] left_hand    anchor=left_wrist_yaw_joint (jid 21), tool from explicit xyz=[0.02, 0.0, 0.0] rpy=[0.0, 0.0, 0.0]
+//   [1] right_hand   anchor=right_wrist_yaw_joint (jid 28), tool from explicit xyz=[0.02, 0.0, 0.0] rpy=[0.0, 0.0, 0.0]
+//   [2] left_foot    anchor=left_ankle_roll_joint (jid 5), tool from explicit xyz=[0.035, 0.0, -0.03] rpy=[0.0, 0.0, 0.0]
+//   [3] right_foot   anchor=right_ankle_roll_joint (jid 11), tool from explicit xyz=[0.035, 0.0, -0.03] rpy=[0.0, 0.0, 0.0]
 
-__device__ constexpr int TARGET_ANCHOR_JID[NUM_TARGETS] = {6};
+__device__ constexpr int TARGET_ANCHOR_JID[NUM_TARGETS] = {21, 28, 5, 11};
 
 // Tool offset anchor->target, COLUMN-MAJOR 4x4 (cell = 16*k + 4*col + row), matching the
 // layout of grid's s_XmatsHom / s_jointXforms so it composes with them directly.
@@ -27,11 +30,17 @@ __device__ constexpr int TARGET_ANCHOR_JID[NUM_TARGETS] = {6};
 // target composition -- FP64-pipe work in the hot loop on a GPU that runs FP64 at 1/64 rate.
 // tool_xform<T>() below picks the matching table, so an fp32 solve never touches the double one.
 __device__ constexpr double TARGET_TOOL_XFORM[NUM_TARGETS * 16] = {
-    0.70710678118734493, -0.7071067811857501, 0, 0, 0.7071067811857501, 0.70710678118734493, 0, 0, 0, 0, 1, 0, 0, 0, 0.21199999999999999, 1,   // panda_grasptarget_hand
+    1, 0, -0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.02, 0, 0, 1,   // left_hand
+    1, 0, -0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.02, 0, 0, 1,   // right_hand
+    1, 0, -0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.035000000000000003, 0, -0.029999999999999999, 1,   // left_foot
+    1, 0, -0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.035000000000000003, 0, -0.029999999999999999, 1,   // right_foot
 };
 
 __device__ constexpr float TARGET_TOOL_XFORM_F[NUM_TARGETS * 16] = {
-    0.707106781f, -0.707106781f, 0.0f, 0.0f, 0.707106781f, 0.707106781f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.212f, 1.0f,   // panda_grasptarget_hand
+    1.0f, 0.0f, -0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.02f, 0.0f, 0.0f, 1.0f,   // left_hand
+    1.0f, 0.0f, -0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.02f, 0.0f, 0.0f, 1.0f,   // right_hand
+    1.0f, 0.0f, -0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.035f, 0.0f, -0.03f, 1.0f,   // left_foot
+    1.0f, 0.0f, -0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.035f, 0.0f, -0.03f, 1.0f,   // right_foot
 };
 
 // The tool transform in the kernel's own compute type. Specialised, never converted.
@@ -42,11 +51,11 @@ template<> __device__ __forceinline__ float  tool_xform<float>(int i) { return T
 // TARGET_ANCESTOR_MASK[k]: bit j set iff joint j can move target k (j is an ancestor-or-self
 // of target k's anchor). A joint outside this mask contributes a ZERO Jacobian column for k --
 // on a branched robot that is a correctness requirement, not an optimization.
-__device__ constexpr unsigned int TARGET_ANCESTOR_MASK[NUM_TARGETS] = {0x0000007fu};
+__device__ constexpr unsigned int TARGET_ANCESTOR_MASK[NUM_TARGETS] = {0x003ff000u, 0x1fc07000u, 0x0000003fu, 0x00000fc0u};
 
 // JOINT_TARGET_MASK[j]: bit k set iff joint j affects target k. The transpose of the above;
 // lets the hot path do  affected = JOINT_TARGET_MASK[j] & active_target_mask  in one AND.
-__device__ constexpr unsigned int JOINT_TARGET_MASK[grid::NUM_JOINTS] = {0x00000001u, 0x00000001u, 0x00000001u, 0x00000001u, 0x00000001u, 0x00000001u, 0x00000001u};
+__device__ constexpr unsigned int JOINT_TARGET_MASK[grid::NUM_JOINTS] = {0x00000004u, 0x00000004u, 0x00000004u, 0x00000004u, 0x00000004u, 0x00000004u, 0x00000008u, 0x00000008u, 0x00000008u, 0x00000008u, 0x00000008u, 0x00000008u, 0x00000003u, 0x00000003u, 0x00000003u, 0x00000001u, 0x00000001u, 0x00000001u, 0x00000001u, 0x00000001u, 0x00000001u, 0x00000001u, 0x00000002u, 0x00000002u, 0x00000002u, 0x00000002u, 0x00000002u, 0x00000002u, 0x00000002u};
 
 constexpr unsigned int ALL_TARGETS_MASK = (NUM_TARGETS >= 32) ? 0xffffffffu
                                                               : ((1u << NUM_TARGETS) - 1u);
@@ -58,11 +67,11 @@ constexpr unsigned int ALL_TARGETS_MASK = (NUM_TARGETS >= 32) ? 0xffffffffu
 //     for (u = 0; u < NUM_JOINTS; ++u)
 //         if (JOINT_DESCENDANT_MASK[j] & (1u << u))
 //             X_world[u] = X_world[JOINT_PARENT_JID[u]] * X_local[u];
-__device__ constexpr int JOINT_PARENT_JID[grid::NUM_JOINTS] = {-1, 0, 1, 2, 3, 4, 5};
+__device__ constexpr int JOINT_PARENT_JID[grid::NUM_JOINTS] = {-1, 0, 1, 2, 3, 4, -1, 6, 7, 8, 9, 10, -1, 12, 13, 14, 15, 16, 17, 18, 19, 20, 14, 22, 23, 24, 25, 26, 27};
 
 // JOINT_DESCENDANT_MASK[j]: bit u set iff u is in j's subtree. INCLUDES j ITSELF -- the scan
 // must recompute X_world[j] too, since j's LOCAL transform changed even though its parent's
 // world transform did not.
-__device__ constexpr unsigned int JOINT_DESCENDANT_MASK[grid::NUM_JOINTS] = {0x0000007fu, 0x0000007eu, 0x0000007cu, 0x00000078u, 0x00000070u, 0x00000060u, 0x00000040u};
+__device__ constexpr unsigned int JOINT_DESCENDANT_MASK[grid::NUM_JOINTS] = {0x0000003fu, 0x0000003eu, 0x0000003cu, 0x00000038u, 0x00000030u, 0x00000020u, 0x00000fc0u, 0x00000f80u, 0x00000f00u, 0x00000e00u, 0x00000c00u, 0x00000800u, 0x1ffff000u, 0x1fffe000u, 0x1fffc000u, 0x003f8000u, 0x003f0000u, 0x003e0000u, 0x003c0000u, 0x00380000u, 0x00300000u, 0x00200000u, 0x1fc00000u, 0x1f800000u, 0x1f000000u, 0x1e000000u, 0x1c000000u, 0x18000000u, 0x10000000u};
 
 }  // namespace hjcd_gen

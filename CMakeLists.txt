@@ -97,6 +97,16 @@ set(HJCDIK_INCLUDE_DIRS
   ${CMAKE_BINARY_DIR}
   ${CMAKE_SOURCE_DIR}/csrc
   ${CMAKE_SOURCE_DIR}/csrc/generated
+  ${CMAKE_SOURCE_DIR}/src          # Checkpoint 2/3 standalone collision sidecar (collision_sidecar.cuh)
+  ${CMAKE_SOURCE_DIR}/generated    # generated sidecar SoA header (g1_collision_sidecar.cuh)
+)
+
+
+# Standalone GPU self-collision sidecar (Checkpoint 2, validated). Compiled into the _hjcdik
+# module as a SEPARATE translation unit -- self-contained device code (SEPARABLE_COMPILATION OFF),
+# reached only through its extern "C" host entry points. DORMANT until wired by the solve API.
+set(HJCDIK_SIDECAR_SOURCES
+  ${CMAKE_SOURCE_DIR}/src/collision_sidecar.cu
 )
 
 if(MSVC)
@@ -108,13 +118,18 @@ endif()
 set(HJCDIK_CUDA_FLAGS
   $<$<COMPILE_LANGUAGE:CUDA>:-use_fast_math>
   $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-O3>
+  $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-v>
   $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-fcommon>
 )
 
 # Native Executable
+# The sidecar TU is linked here too: hjcd_kernel.cu now calls its device-pointer accessors from the
+# Stage 3D/3E hard-mode path (both TUs hold private copies of the g_sdf/g_cverts pointer symbols and
+# must be bound to the same allocations), so the solver no longer links without it.
 add_executable(hjcdik
   csrc/kernel/main.cpp
   ${HJCDIK_COMMON_SOURCES}
+  ${HJCDIK_SIDECAR_SOURCES}
 )
 target_sources(hjcdik PRIVATE ${GRID_HEADER})
 target_include_directories(hjcdik PRIVATE ${HJCDIK_INCLUDE_DIRS})
@@ -132,6 +147,7 @@ if(BUILD_PYTHON)
   pybind11_add_module(_hjcdik MODULE
     csrc/bindings/pybind_module.cpp
     ${HJCDIK_COMMON_SOURCES}
+    ${HJCDIK_SIDECAR_SOURCES}
   )
   target_sources(_hjcdik PRIVATE ${GRID_HEADER})
   target_include_directories(_hjcdik PRIVATE ${HJCDIK_INCLUDE_DIRS})
