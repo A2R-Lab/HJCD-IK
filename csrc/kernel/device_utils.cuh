@@ -30,6 +30,54 @@ __device__ __forceinline__ float gauss01(uint32_t& s) {
     return r * cosf(phi);
 }
 
+// ---------------------------------------------------------------------------
+// SEMANTIC RNG (rng_policy_version = semantic_problem_rng_v2).
+//
+// Checkpoint 5D.14c. The legacy `make_seed` below mixes blockIdx/threadIdx and the caller's
+// OUTER BATCH SLOT into random identity, so a problem's stochastic stream changed when it moved
+// to a different slot or when the batch size P changed. Measured: reversing an 8-problem batch
+// altered 6/8 results. That made execution scheduling semantically load-bearing.
+//
+// The contract now is: same semantic problem + same per-problem seed + same policy => same
+// stream, independent of P, slot, ordering, partitioning and CUDA grid geometry. Physical
+// indices may still LOCATE data; they may not IDENTIFY a random stream.
+enum : uint32_t {
+    RNG_SUB_INITIAL_JOINT_SAMPLE      = 0x1u,
+    RNG_SUB_PO_CCD_STALL_PERTURBATION = 0x2u,
+    RNG_SUB_PER_THREAD_INITIAL_CONFIG = 0x3u,
+    RNG_SUB_HARD_MODE_RESEED          = 0x4u,
+    RNG_SUB_HARD_MODE_PERTURBATION    = 0x5u,
+    RNG_SUB_PJ_IK_RANDOM_FALLBACK     = 0x6u,
+};
+
+// Every argument is a SEMANTIC index. `sample` MUST be the index local to the problem (s), never
+// the flattened p*S+s. Odd 32-bit multipliers keep neighbouring indices from colliding, and the
+// final wanghash avalanches the mix.
+__device__ __forceinline__ uint32_t semantic_rng(
+    uint32_t problem_seed,
+    uint32_t substream,
+    uint32_t sample,
+    uint32_t iteration,
+    uint32_t joint_or_dim,
+    uint32_t draw
+) {
+    uint32_t h = problem_seed;
+    h = wanghash(h ^ (substream    * 0x9E3779B9u));
+    h = wanghash(h ^ (sample       * 0x85EBCA6Bu));
+    h = wanghash(h ^ (iteration    * 0xC2B2AE35u));
+    h = wanghash(h ^ (joint_or_dim * 0x27D4EB2Du));
+    h = wanghash(h ^ (draw         * 0x165667B1u));
+    return h;
+}
+
+// Stable 64 -> 32 reduction for callers whose semantic seed is 64-bit. Explicit, never an
+// implicit narrowing cast.
+__device__ __host__ __forceinline__ uint32_t seed64_to_32(unsigned long long s) {
+    return (uint32_t)(s ^ (s >> 32));
+}
+
+// LEGACY (rng_policy_version = legacy_slot_rng_v1). Slot- and launch-geometry-dependent.
+// Retained only for paths not yet converted; must not be used by the multi-problem solver.
 __device__ __forceinline__ uint32_t make_seed(
     uint32_t base,
     int global_problem,

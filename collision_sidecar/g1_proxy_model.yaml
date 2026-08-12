@@ -1,0 +1,206 @@
+# G1 compact collision proxy model (spheres + capsules), link-local frames.
+# Source of truth for the sidecar; build_collision_sidecar.py (no --seed) reads THIS.
+# primitive_count: 34
+# TUNED (apply_tuning.py) -- documented edits:
+#   * logo_link:*  REMOVED -- logo_link is the decorative chest logo; MuJoCo never collides it (per-pair both=0). It only produced false positives against the arms.
+#   * left/right_shoulder_yaw  proximal (shoulder-MOUNT) end pulled back to 60% -- the mount nests against the torso at neutral (false positive); the retained distal end is the UPPER-ARM segment, which still catches real arm-torso collisions when the arm swings in (both stays >0). Torso proxy is left at full size so arm-torso collisions are NOT under-covered.
+#   * left/right_elbow  distal end pulled back to 55% length -- the elbow proxy covers the upper forearm near the elbow; the wrist cluster covers the distal forearm. Removes the neutral overlap with wrist_pitch (both=0 -- never a real collision).
+#   * left/right_wrist_pitch  shortened to 55% length, r x0.8 -- small link near the hand; the shrink separates it from the elbow proxy at neutral without missing wrist/hand collisions (those show up as wrist_yaw/hand vs body, still covered).
+#   * base_link:broad  ADDED -- conservative pelvis broad-phase capsule; the pelvis SDF (g1_pelvis_sdf.npz) is the narrow phase for base_link<->limb pairs (1C).
+primitives:
+  - name: torso_link:broad
+    link: torso_link
+    type: capsule
+    p0: [0.00500, 0.00000, 0.00000]
+    p1: [0.00500, 0.00000, 0.49000]
+    radius: 0.14000
+  - name: left_hip_pitch_link:fit
+    link: left_hip_pitch_link
+    type: capsule
+    p0: [-0.02894, -0.01037, 0.00783]
+    p1: [0.01036, 0.09238, -0.06586]
+    radius: 0.02933
+  - name: left_hip_roll_link:fit
+    link: left_hip_roll_link
+    type: capsule
+    p0: [0.00844, 0.00130, -0.13529]
+    p1: [0.05488, -0.00196, 0.00557]
+    radius: 0.02800
+  - name: left_hip_yaw_link:fit
+    link: left_hip_yaw_link
+    type: capsule
+    p0: [0.01755, -0.00000, 0.01422]
+    p1: [-0.08438, -0.00409, -0.22807]
+    radius: 0.02987
+  - name: left_knee_link:fit
+    link: left_knee_link
+    type: capsule
+    p0: [0.00885, 0.01281, 0.04059]
+    p1: [0.00580, -0.00615, -0.31548]
+    radius: 0.02603
+  - name: left_ankle_pitch_link:fit
+    link: left_ankle_pitch_link
+    type: capsule
+    p0: [-0.02353, -0.00014, -0.02452]
+    p1: [0.00975, 0.00058, 0.00877]
+    radius: 0.01200
+  - name: left_ankle_roll_link:sphere0
+    link: left_ankle_roll_link
+    type: sphere
+    center: [-0.05000, 0.02500, -0.03000]
+    radius: 0.00500
+  - name: left_ankle_roll_link:sphere1
+    link: left_ankle_roll_link
+    type: sphere
+    center: [-0.05000, -0.02500, -0.03000]
+    radius: 0.00500
+  - name: left_ankle_roll_link:sphere2
+    link: left_ankle_roll_link
+    type: sphere
+    center: [0.12000, 0.03000, -0.03000]
+    radius: 0.00500
+  - name: left_ankle_roll_link:sphere3
+    link: left_ankle_roll_link
+    type: sphere
+    center: [0.12000, -0.03000, -0.03000]
+    radius: 0.00500
+  - name: right_hip_pitch_link:fit
+    link: right_hip_pitch_link
+    type: capsule
+    p0: [0.01032, -0.09247, -0.06578]
+    p1: [-0.02894, 0.01055, 0.00741]
+    radius: 0.02926
+  - name: right_hip_roll_link:fit
+    link: right_hip_roll_link
+    type: capsule
+    p0: [0.00834, -0.00094, -0.13527]
+    p1: [0.05495, 0.00164, 0.00553]
+    radius: 0.02800
+  - name: right_hip_yaw_link:fit
+    link: right_hip_yaw_link
+    type: capsule
+    p0: [0.01743, 0.00036, 0.01424]
+    p1: [-0.08433, 0.00415, -0.22806]
+    radius: 0.02984
+  - name: right_knee_link:fit
+    link: right_knee_link
+    type: capsule
+    p0: [0.00905, -0.01266, 0.04059]
+    p1: [0.00567, 0.00616, -0.31545]
+    radius: 0.02603
+  - name: right_ankle_pitch_link:fit
+    link: right_ankle_pitch_link
+    type: capsule
+    p0: [-0.02353, 0.00014, -0.02452]
+    p1: [0.00975, -0.00058, 0.00877]
+    radius: 0.01200
+  - name: right_ankle_roll_link:sphere0
+    link: right_ankle_roll_link
+    type: sphere
+    center: [-0.05000, 0.02500, -0.03000]
+    radius: 0.00500
+  - name: right_ankle_roll_link:sphere1
+    link: right_ankle_roll_link
+    type: sphere
+    center: [-0.05000, -0.02500, -0.03000]
+    radius: 0.00500
+  - name: right_ankle_roll_link:sphere2
+    link: right_ankle_roll_link
+    type: sphere
+    center: [0.12000, 0.03000, -0.03000]
+    radius: 0.00500
+  - name: right_ankle_roll_link:sphere3
+    link: right_ankle_roll_link
+    type: sphere
+    center: [0.12000, -0.03000, -0.03000]
+    radius: 0.00500
+  - name: left_shoulder_pitch_link:capsule0
+    link: left_shoulder_pitch_link
+    type: capsule
+    p0: [-0.02500, 0.04000, -0.01000]
+    p1: [0.02500, 0.04000, -0.01000]
+    radius: 0.03000
+  - name: left_shoulder_roll_link:capsule0
+    link: left_shoulder_roll_link
+    type: capsule
+    p0: [-0.00400, 0.00600, -0.06800]
+    p1: [-0.00400, 0.00600, -0.03800]
+    radius: 0.03000
+  - name: left_shoulder_yaw_link:fit
+    link: left_shoulder_yaw_link
+    type: capsule
+    p0: [0.01534, -0.03212, -0.11204]
+    p1: [-0.00309, 0.01513, 0.03760]
+    radius: 0.02081
+  - name: left_elbow_link:fit
+    link: left_elbow_link
+    type: capsule
+    p0: [-0.02585, 0.03659, 0.00425]
+    p1: [0.06838, 0.00481, -0.01163]
+    radius: 0.02123
+  - name: left_wrist_roll_link:fit
+    link: left_wrist_roll_link
+    type: capsule
+    p0: [0.00833, 0.03219, -0.00033]
+    p1: [0.02904, -0.03461, 0.00026]
+    radius: 0.01957
+  - name: left_wrist_pitch_link:fit
+    link: left_wrist_pitch_link
+    type: capsule
+    p0: [0.01059, -0.00048, -0.00157]
+    p1: [0.07487, -0.00187, -0.00000]
+    radius: 0.01751
+  - name: left_wrist_yaw_link:fit
+    link: left_wrist_yaw_link
+    type: capsule
+    p0: [0.01851, 0.00073, 0.03209]
+    p1: [0.02517, 0.00162, -0.03156]
+    radius: 0.02600
+  - name: right_shoulder_pitch_link:capsule0
+    link: right_shoulder_pitch_link
+    type: capsule
+    p0: [-0.02500, -0.04000, -0.01000]
+    p1: [0.02500, -0.04000, -0.01000]
+    radius: 0.03000
+  - name: right_shoulder_roll_link:capsule0
+    link: right_shoulder_roll_link
+    type: capsule
+    p0: [-0.00400, -0.00600, -0.06800]
+    p1: [-0.00400, -0.00600, -0.03800]
+    radius: 0.03000
+  - name: right_shoulder_yaw_link:fit
+    link: right_shoulder_yaw_link
+    type: capsule
+    p0: [-0.00306, -0.01529, 0.03759]
+    p1: [0.01542, 0.03221, -0.11200]
+    radius: 0.02078
+  - name: right_elbow_link:fit
+    link: right_elbow_link
+    type: capsule
+    p0: [-0.02584, -0.03664, 0.00452]
+    p1: [0.06847, -0.00529, -0.01168]
+    radius: 0.02104
+  - name: right_wrist_roll_link:fit
+    link: right_wrist_roll_link
+    type: capsule
+    p0: [0.00941, -0.03224, 0.00015]
+    p1: [0.02774, 0.03438, -0.00006]
+    radius: 0.01956
+  - name: right_wrist_pitch_link:fit
+    link: right_wrist_pitch_link
+    type: capsule
+    p0: [0.03528, 0.00089, -0.00114]
+    p1: [-0.02888, 0.00235, -0.00081]
+    radius: 0.01760
+  - name: right_wrist_yaw_link:fit
+    link: right_wrist_yaw_link
+    type: capsule
+    p0: [0.02958, -0.00277, -0.03190]
+    p1: [0.01314, 0.00067, 0.03418]
+    radius: 0.02600
+  - name: base_link:broad
+    link: base_link
+    type: capsule
+    p0: [0.00000, 0.00000, -0.18500]
+    p1: [0.00000, 0.00000, 0.01000]
+    radius: 0.12000

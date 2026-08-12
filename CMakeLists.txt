@@ -81,6 +81,7 @@ set(HJCDIK_HEADERS
   csrc/kernel/hjcd_settings.h
   csrc/kernel/device_utils.cuh
   csrc/kernel/grid_env.cuh
+  csrc/generated/hjcd_targets.cuh   # generated alongside grid.cuh by scripts/codegen/generate_grid.py
 )
 
 set(HJCDIK_COMMON_SOURCES
@@ -95,6 +96,17 @@ set(HJCDIK_INCLUDE_DIRS
   ${CMAKE_BINARY_DIR}
   ${CMAKE_SOURCE_DIR}/csrc
   ${CMAKE_SOURCE_DIR}/csrc/generated
+  ${CMAKE_SOURCE_DIR}/src          # standalone G1 self-collision sidecar (collision_sidecar.cuh)
+  ${CMAKE_SOURCE_DIR}/generated    # generated sidecar SoA header (g1_collision_sidecar.cuh)
+)
+
+# Standalone GPU self-collision sidecar (G1 proxy model, validated). Compiled into the targets as a
+# SEPARATE translation unit -- self-contained device code (SEPARABLE_COMPILATION OFF), reached only
+# through its extern "C" host entry points. hjcd_kernel.cu's hard-mode path calls its device-pointer
+# accessors, so the solver no longer links without it. Robot-agnostic at build time: the kernel gates
+# hard mode on N == g1sc::N_JOINTS, so a non-G1 grid.cuh compiles and simply reports it unavailable.
+set(HJCDIK_SIDECAR_SOURCES
+  ${CMAKE_SOURCE_DIR}/src/collision_sidecar.cu
 )
 
 if(MSVC)
@@ -106,6 +118,7 @@ endif()
 set(HJCDIK_CUDA_FLAGS
   $<$<COMPILE_LANGUAGE:CUDA>:-use_fast_math>
   $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-O3>
+  $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-v>
   $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-fcommon>
 )
 
@@ -113,6 +126,7 @@ set(HJCDIK_CUDA_FLAGS
 add_executable(hjcdik
   csrc/kernel/main.cpp
   ${HJCDIK_COMMON_SOURCES}
+  ${HJCDIK_SIDECAR_SOURCES}
 )
 target_sources(hjcdik PRIVATE ${GRID_HEADER})
 target_include_directories(hjcdik PRIVATE ${HJCDIK_INCLUDE_DIRS})
@@ -130,6 +144,7 @@ if(BUILD_PYTHON)
   pybind11_add_module(_hjcdik MODULE
     csrc/bindings/pybind_module.cpp
     ${HJCDIK_COMMON_SOURCES}
+    ${HJCDIK_SIDECAR_SOURCES}
   )
   target_sources(_hjcdik PRIVATE ${GRID_HEADER})
   target_include_directories(_hjcdik PRIVATE ${HJCDIK_INCLUDE_DIRS})

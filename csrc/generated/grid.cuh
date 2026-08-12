@@ -292,6 +292,18 @@ namespace grid {
     
     template <typename T> __host__ __device__ constexpr size_t GRID_LINALG_NVIDIA_MAX_HELPER_BYTES();
     const int NUM_JOINTS = 7;
+    // Per-joint motion axis (codegen-resolved from the URDF <axis> via GRiD's motion
+    // subspace S). axis_world[j] = JOINT_AXIS_SIGN[j] * column(JOINT_AXIS_COL[j]) of the
+    // world transform of joint j. NOT always z: Panda is all-z, G1 is 13y/9x/7z.
+    // JOINT_IS_PRISMATIC[j] selects the prismatic Jacobian column (Jv = axis, Jw = 0);
+    // HAS_PRISMATIC lets an all-revolute robot compile that branch out entirely (the
+    // per-lane index is a runtime value, so without it the compiler must keep both arms
+    // of the ternary live — measured at +26 registers on lm_tuner<double>).
+    __device__ constexpr int JOINT_AXIS_COL[7] = {2, 2, 2, 2, 2, 2, 2};
+    __device__ constexpr int JOINT_AXIS_SIGN[7] = {1, 1, 1, 1, 1, 1, 1};
+    __device__ constexpr int JOINT_IS_PRISMATIC[7] = {0, 0, 0, 0, 0, 0, 0};
+    constexpr bool HAS_PRISMATIC = false;
+    constexpr bool ALL_AXIS_Z = true;
     // codegen-resolved EE fixed-frame index for target 'panda_grasptarget_hand' (shifts with DoF; consumed by hjcd_settings.h)
     constexpr int EE_FIXED_FRAME_IDX = 10;
     const int NUM_POS = 7;
