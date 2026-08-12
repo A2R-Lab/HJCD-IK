@@ -1177,6 +1177,7 @@ def _canonical_problems(target_poses, active_masks, seed_configs, dtype, floatin
 
 
 def solve_problems(target_poses, active_masks, seed_configs,
+                   problem_seeds=None,
                    num_solutions=1, precision="float32", coarse_mode="auto",
                    coarse_iters=120, lm_iters=60, seed=0, diagnostics=False,
                    stag_patience=2, stag_rel=1e-3,
@@ -1300,6 +1301,15 @@ def solve_problems(target_poses, active_masks, seed_configs,
     sv = _solver or _default_solver()
     sv._enter()
     try:
+        # Checkpoint 5D.14c: [P] uint32 SEMANTIC per-problem RNG roots. None => legacy
+        # slot-derived fallback inside the kernel, which is NOT reproducible across batch
+        # size/order; callers that care about determinism must supply them.
+        if problem_seeds is None:
+            _pseeds = _np.empty(0, dtype=_np.uint32)
+        else:
+            _pseeds = _np.ascontiguousarray(problem_seeds, dtype=_np.uint32).reshape(-1)
+            if _pseeds.size != P:
+                raise ValueError(f"problem_seeds must have length P={P}, got {_pseeds.size}")
         out = _solve_problems_raw(
             seeds_flat, pos, quat, packed, wp, wo, use_coarse, bool(run_coarse),
             float(position_tol), float(orientation_tol),
@@ -1307,7 +1317,7 @@ def solve_problems(target_poses, active_masks, seed_configs,
             5e-3, int(lm_iters), int(stag_patience), float(stag_rel),
             int(num_solutions), pc, bool(return_all_candidates),
             str(problems_json_text), str(problem_set_name), int(problem_idx), sv._ws,
-            base_p, base_q, base_diag, **_bu)
+            base_p, base_q, base_diag, problem_seeds=_pseeds, **_bu)
     finally:
         sv._exit()
 

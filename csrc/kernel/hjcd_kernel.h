@@ -148,6 +148,12 @@ struct SolveInputs {
     // to nullptr. Inserting them mid-struct would have re-bound P to base_p.
     const void* base_p = nullptr;
     const void* base_q = nullptr;
+    // Checkpoint 5D.14c: [P] uint32 SEMANTIC per-problem RNG seeds, one per problem (NOT per
+    // candidate). Supplied by the planner from its ContactAssignmentID; HJCD stays domain-neutral
+    // and never derives semantics itself. null => the solver falls back to deriving a per-problem
+    // root from the scalar `seed` and the problem INDEX, which is slot-dependent and therefore
+    // NOT authoritative -- the production planner must pass this array.
+    const unsigned int* problem_seeds = nullptr;
     // [B,3] int32 (attempted, accepted, numerical failures) per candidate; null => not collected.
     // Always int regardless of precision -- these are counts, not geometry.
     const void* base_diag = nullptr;

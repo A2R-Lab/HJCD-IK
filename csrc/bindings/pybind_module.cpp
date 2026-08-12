@@ -602,7 +602,8 @@ py::dict py_solve_problems(py::array q, py::array tgt_p, py::array tgt_q, arru a
                            double base_damping_scale_p, double base_damping_scale_R,
                            double base_max_translation_step, double base_max_rotation_step,
                            std::array<double,3> base_position_lower,
-                           std::array<double,3> base_position_upper) {
+                           std::array<double,3> base_position_upper,
+                           py::array_t<unsigned int, py::array::c_style | py::array::forcecast> problem_seeds) {
   auto* model = ensure_robot();
   const int N = grid_num_joints();
   const int K = grid_num_targets();
@@ -620,6 +621,13 @@ py::dict py_solve_problems(py::array q, py::array tgt_p, py::array tgt_q, arru a
   const bool in_f32 = q.dtype().is(py::dtype::of<float>());
   SolveInputs in{q.data(), tgt_p.data(), tgt_q.data(), w_pos.data(), w_ori.data(),
                  (const unsigned int*)active.data(), in_f32, P, S};
+  // 5D.14c: semantic per-problem RNG roots (rng_policy_version = semantic_problem_rng_v2).
+  // Empty array => nullptr => the kernel's slot-derived fallback, which is NOT authoritative.
+  if (problem_seeds.size() > 0) {
+    if ((int)problem_seeds.size() != in.num_problems)
+      throw std::invalid_argument("problem_seeds must have length num_problems (P)");
+    in.problem_seeds = problem_seeds.data();
+  }
   // Floating base: candidate-level [B,3]/[B,4], or BOTH empty for a fixed-base solve (which
   // leaves in.base_* null and every downstream path bit-identical). Shapes, dtype and
   // quaternion norms are validated in hjcdik/__init__.py, like every other input.
@@ -942,5 +950,8 @@ PYBIND11_MODULE(_hjcdik, m) {
         py::arg("base_damping_scale_p") = 1.0, py::arg("base_damping_scale_R") = 1.0,
         py::arg("base_max_translation_step") = 0.05, py::arg("base_max_rotation_step") = 0.10,
         py::arg("base_position_lower") = std::array<double,3>{-1e30,-1e30,-1e30},
-        py::arg("base_position_upper") = std::array<double,3>{ 1e30, 1e30, 1e30});
+        py::arg("base_position_upper") = std::array<double,3>{ 1e30, 1e30, 1e30},
+        // 5D.14c: [P] uint32 semantic per-problem RNG seeds. Empty => legacy slot-derived
+        // fallback; the production planner MUST pass these.
+        py::arg("problem_seeds") = py::array_t<unsigned int>());
 }

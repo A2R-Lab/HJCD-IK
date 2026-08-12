@@ -120,13 +120,15 @@ void init_joint_limits_from_grid()
 
 template<typename T>
 __device__ void sample_joint_config(T* s_x, int local_problem, int global_problem) {
+    // 5D.14c (semantic_problem_rng_v2). This helper has ZERO callers today; normalized anyway so
+    // no compiled stochastic path is left on the legacy contract. `global_problem` is the semantic
+    // candidate index of the enclosing 1-D launch (one block per candidate), NOT launch geometry.
     const int offset = local_problem * N;
-    const uint32_t base = 1337u;
-    uint32_t s = make_seed(base, global_problem, local_problem, threadIdx.x);
 
 #pragma unroll
     for (int j = 0; j < N; ++j) {
-        uint32_t sj = wanghash(s ^ (uint32_t)j * 0x27d4eb2du);
+        uint32_t sj = semantic_rng((uint32_t)global_problem, RNG_SUB_INITIAL_JOINT_SAMPLE,
+                                   (uint32_t)local_problem, 0u, (uint32_t)j, 0u);
 
         float r = u01(sj);
         float low = (float)c_joint_limits[j].x;
@@ -139,12 +141,13 @@ __device__ void sample_joint_config(T* s_x, int local_problem, int global_proble
 
 template<typename T>
 __device__ void perturb_joint_config(T* s_x, int global_problem, T sigma_frac = (T)0.05) {
-    const uint32_t base = 911u;
-    uint32_t s = make_seed(base, global_problem, 0, threadIdx.x);
-
+    // 5D.14c: identity is (semantic candidate, joint). `global_problem` == blockIdx.x by the
+    // enclosing kernel's one-block-per-candidate construction, which is a SEMANTIC id, not grid
+    // geometry; there is no outer P dimension on this legacy path, so no slot dependence exists.
 #pragma unroll
     for (int j = 0; j < N; ++j) {
-        uint32_t sj = wanghash(s ^ (uint32_t)j * 0x9E3779B9u);
+        uint32_t sj = semantic_rng((uint32_t)global_problem, RNG_SUB_PO_CCD_STALL_PERTURBATION,
+                                   0u, 0u, (uint32_t)j, 0u);
 
         float low = (float)c_joint_limits[j].x;
         float hi = (float)c_joint_limits[j].y;
@@ -472,7 +475,9 @@ __global__ void coarse_search(
 
     // Random initial config in limits
     if (tid < N) {
-        uint32_t st = make_seed(1337u, gp, 0, tid);
+        // 5D.14c: (semantic candidate gp, joint tid). One block per candidate => gp is semantic.
+        uint32_t st = semantic_rng((uint32_t)gp, RNG_SUB_PER_THREAD_INITIAL_CONFIG,
+                                   0u, 0u, (uint32_t)tid, 0u);
         float r = u01(st);
         const double2 L = c_joint_limits[tid];
         s_x[tid] = (T)(L.x + r * (L.y - L.x));
@@ -2421,6 +2426,8 @@ __global__ void coarse_search_mt_kernel(
     const int seeds_per_problem,              // S: candidates that share one problem's targets/mask
     const int use_incremental,                // 1 = Phase-4 subtree FK, 0 = full FK (ablation)
     const uint64_t seed,
+    // 5D.14c: [P] semantic per-problem RNG roots; null => slot-derived fallback.
+    const unsigned int* __restrict__ problem_seeds,
     const int max_pert_attempts,              // bounded retries for a collision-free kick
     // --- Stage 3D/3E self-collision HARD mode. hard_enabled == 0 restores the exact prior path:
     // every branch below is guarded on it, so `off` and `final` execute the same instructions they
@@ -2448,6 +2455,13 @@ __global__ void coarse_search_mt_kernel(
     // pid selects problem-level data; gp stays for candidate-level. S == 1 -> pid == gp (identical
     // to the pre-multi-problem path).
     const int pid = gp / seeds_per_problem;
+    // 5D.14c: RNG identity must be SEMANTIC. `gp` is the FLATTENED (p,s) block index, so using it
+    // made a problem's random stream depend on its slot and on P. `s_local` is the sample index
+    // WITHIN the problem; `rng_root` is the planner's per-problem seed.
+    const uint32_t s_local  = (uint32_t)(gp - pid * seeds_per_problem);
+    const uint32_t rng_root = (problem_seeds != nullptr)
+        ? problem_seeds[pid]
+        : seed64_to_32(seed ^ ((unsigned long long)pid * 0x9E3779B97F4A7C15ull));
 
     // STATIC shared, deliberately: grid_collision::config_free uses the DYNAMIC shared arena for its
     // own sphere-FK extractor (an extern __shared__ inside GRiD), so the coarse scratch cannot live
@@ -2787,8 +2801,9 @@ __global__ void coarse_search_mt_kernel(
                 // compound into an ever-larger jump.
                 if (lane < N) {
                     T Llo, Lhi; joint_limit<T>(lane, &Llo, &Lhi);
-                    const uint32_t h = wanghash((uint32_t)(seed ^ (uint64_t)(
-                        gp * 131u + it * 17u + lane + att * 0x9E3779B9u)));
+                    const uint32_t h = semantic_rng(
+                        rng_root, RNG_SUB_PO_CCD_STALL_PERTURBATION,
+                        s_local, (uint32_t)it, (uint32_t)lane, (uint32_t)att);
                     const T u = (T)((h & 0xFFFFFFu) / (T)0x1000000u) - (T)0.5;
                     const T span = Lhi - Llo;             // in T: no FP64 subtraction on the fp32 path
                     st->s_x[lane] = fmin(fmax(st->p_x[lane] + (T)0.1 * span * u, Llo), Lhi);
@@ -4021,7 +4036,9 @@ static CoarseOutputs launch_coarse_mt(
             d_q, d_tp, d_tq, d_act, d_wp, d_wo, /*base_p=*/nullptr, /*base_q=*/nullptr,
             d_pn, d_on, d_c, d_s, d_tr, R.trace_cap,
             d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_coord, (CT)h_min, (CT)max_step,
-            max_iters, stall_lim, B, S, use_incremental, seed, max_pert_attempts,
+            max_iters, stall_lim, B, S, use_incremental, seed,
+            /*problem_seeds=*/nullptr,   // 5D.14c: standalone probe path; not the planner path
+            max_pert_attempts,
             1, in.hard_top_k, in.hard_oracle_every, in.hard_margin, hw,
             /*cc_enabled=*/0
 #if defined(HJCD_HAS_COLLISION)
@@ -4065,7 +4082,9 @@ static CoarseOutputs launch_coarse_mt(
         d_q, d_tp, d_tq, d_act, d_wp, d_wo, /*base_p=*/nullptr, /*base_q=*/nullptr,
         d_pn, d_on, d_c, d_s, d_tr, R.trace_cap,
         d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_coord, (CT)h_min, (CT)max_step,
-        max_iters, stall_lim, B, S, use_incremental, seed, max_pert_attempts,
+        max_iters, stall_lim, B, S, use_incremental, seed,
+        /*problem_seeds=*/nullptr,   // 5D.14c: standalone probe path; not the planner path
+        max_pert_attempts,
         0 /*hard_enabled*/, 1 /*hard_top_k*/, 0 /*oracle*/, 0.0f /*hard_margin*/,
         g1sc::HardWorkspace{},
         cc_enabled,
@@ -4081,7 +4100,9 @@ static CoarseOutputs launch_coarse_mt(
         d_q, d_tp, d_tq, d_act, d_wp, d_wo, /*base_p=*/nullptr, /*base_q=*/nullptr,
         d_pn, d_on, d_c, d_s, d_tr, R.trace_cap,
         d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_coord, (CT)h_min, (CT)max_step,
-        max_iters, stall_lim, B, S, use_incremental, seed, max_pert_attempts,
+        max_iters, stall_lim, B, S, use_incremental, seed,
+        /*problem_seeds=*/nullptr,   // 5D.14c: standalone probe path; not the planner path
+        max_pert_attempts,
         0 /*hard_enabled*/, 1 /*hard_top_k*/, 0 /*oracle*/, 0.0f /*hard_margin*/,
         g1sc::HardWorkspace{},
         cc_enabled);
@@ -4669,6 +4690,10 @@ static SolveProblemsOutputs launch_solve_problems(
     ws->rewind();
 
     CT* d_seeds  = ws->take<CT>(bn);
+    // 5D.14c: [P] semantic per-problem RNG roots. Reserved HERE with every other arena block --
+    // `take` past the sizing phase overruns the pre-planned workspace (observed: CUDA
+    // "invalid argument" on the H2D copy). Uploaded below, once the arena exists.
+    unsigned int* d_pseeds = (in.problem_seeds != nullptr) ? ws->take<unsigned int>(P) : nullptr;
     CT* d_tp = ws->take<CT>(pk*3);  CT* d_tq = ws->take<CT>(pk*4);
     CT* d_wp = ws->take<CT>(pk);    CT* d_wo = ws->take<CT>(pk);
     unsigned int* d_act = ws->take<unsigned int>(P);
@@ -4730,6 +4755,11 @@ static SolveProblemsOutputs launch_solve_problems(
     cudaEvent_t e0,e1,e2,e3; for (auto e:{&e0,&e1,&e2,&e3}) CUDA_OK(cudaEventCreate(e));
     const int cc_enabled = R.cc_enabled ? 1 : 0;
 
+    if (d_pseeds != nullptr) {
+        CUDA_OK(cudaMemcpy(d_pseeds, in.problem_seeds, sizeof(unsigned int) * (size_t)P,
+                           cudaMemcpyHostToDevice));
+    }
+
     // ---- coarse ----
     CUDA_OK(cudaEventRecord(e0));
     if (run_coarse) {
@@ -4744,7 +4774,7 @@ static SolveProblemsOutputs launch_solve_problems(
         coarse_search_mt_kernel<CT, false, false><<<B,32,cc_smem>>>(
             d_cq, d_tp, d_tq, d_act, d_wp, d_wo, d_bp, d_bq, d_cpe, d_coe, d_cc, d_cs, nullptr, 0,
             d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_coord, (CT)h_min, (CT)max_step,
-            coarse_iters, coarse_stall_lim, B, S, use_incremental, seed, max_pert_attempts,
+            coarse_iters, coarse_stall_lim, B, S, use_incremental, seed, d_pseeds, max_pert_attempts,
             0 /*hard_enabled*/, 1 /*hard_top_k*/, 0 /*oracle*/, 0.0f /*hard_margin*/,
         g1sc::HardWorkspace{},
         cc_enabled, reinterpret_cast<const grid::robotModel<float>*>(cc_model),
@@ -4755,7 +4785,7 @@ static SolveProblemsOutputs launch_solve_problems(
         coarse_search_mt_kernel<CT, false, false><<<B,32,0>>>(
             d_cq, d_tp, d_tq, d_act, d_wp, d_wo, d_bp, d_bq, d_cpe, d_coe, d_cc, d_cs, nullptr, 0,
             d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_coord, (CT)h_min, (CT)max_step,
-            coarse_iters, coarse_stall_lim, B, S, use_incremental, seed, max_pert_attempts,
+            coarse_iters, coarse_stall_lim, B, S, use_incremental, seed, d_pseeds, max_pert_attempts,
             0 /*hard_enabled*/, 1 /*hard_top_k*/, 0 /*oracle*/, 0.0f /*hard_margin*/,
         g1sc::HardWorkspace{},
         cc_enabled);
