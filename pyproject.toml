@@ -60,6 +60,12 @@ build-dir = "build"
 # The committed csrc/generated/grid.cuh is the build default; regenerate it explicitly
 # with scripts/codegen/generate_grid.py (or build with -DHJCDIK_AUTO_CODEGEN=ON to regenerate here).
 cmake.define.HJCDIK_AUTO_CODEGEN = "OFF"
+# Copy the package directory wholesale, so the generated metadata sidecar
+# (hjcdik/hjcd_targets.json) ships as package data alongside the .py files. hjcdik.joint_names() /
+# target_names() read it via importlib.resources and fail loudly if it is absent, so a wheel built
+# without it is broken at import-adjacent call time rather than silently name-less.
+wheel.packages = ["hjcdik"]
+sdist.include = ["hjcdik/hjcd_targets.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

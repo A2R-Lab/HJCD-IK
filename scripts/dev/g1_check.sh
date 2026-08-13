@@ -25,18 +25,28 @@ restore_panda() {
 trap restore_panda EXIT
 
 echo ">> generating grid.cuh + hjcd_targets.cuh for G1 (4 targets, no collision)"
-# The four-target set, in order. Hands take their tool transform from the URDF's own fixed joints;
-# the feet have no such frame, so they anchor at the ankle-roll joint with a sole-center offset:
-#   x = 0.035  (longitudinal centroid of the 4 foot collision spheres)
-#   y = 0      (lateral centroid)
-#   z = -0.035 (= min_i(z_i - r_i): sphere centers at z=-0.030, all radii 0.005 -> contact plane)
+# The four-target set, in order. Every offset is explicit and anchored on a movable joint, because
+# these frames must match the CRAG bouldering MJCF's contact sites exactly (scripts/build_g1_mjcf.py
+# CONTACT_SITES) -- CRAG's tests/test_hjcd_integration.py asserts HJCD/MuJoCo FK equivalence.
+#
+# Hands: mid-palm. NOT `fixed=left_hand_palm_joint`, which resolves to the rubber-hand LINK ORIGIN
+# (i.e. the wrist) and lands the target ~86 mm short of where the hand grips. The offset is that
+# fixed joint's own origin (0.0415, +/-0.003, 0) composed with the mid-palm offset (0.085, -/+0.015,
+# 0.005) that the MJCF site uses.
+#
+# Feet: no fixed frame exists, so anchor at the ankle-roll joint with a sole offset:
+#   x = 0.035   (longitudinal centroid of the 4 foot collision spheres)
+#   y = 0       (lateral centroid)
+#   z = -0.030  (sphere centers; matches the MJCF site. Note this is the centroid, not the contact
+#                plane -- the spheres have radius 0.005, so the sole surface is 5 mm lower at -0.035.)
+#
 # -t still names the single-EE frame consumed by the not-yet-migrated solver path; it is unused by
-# the target metadata and is a placeholder until Phase 3.
+# the target metadata and is a placeholder until Phase 3. It must name a FIXED joint.
 $PY scripts/codegen/generate_grid.py "$G1_URDF" -t left_hand_palm_joint \
-    --target "name=left_hand;fixed=left_hand_palm_joint" \
-    --target "name=right_hand;fixed=right_hand_palm_joint" \
-    --target "name=left_foot;anchor=left_ankle_roll_joint;xyz=0.035,0,-0.035;rpy=0,0,0" \
-    --target "name=right_foot;anchor=right_ankle_roll_joint;xyz=0.035,0,-0.035;rpy=0,0,0"
+    --target "name=left_hand;anchor=left_wrist_yaw_joint;xyz=0.1265,-0.012,0.005;rpy=0,0,0" \
+    --target "name=right_hand;anchor=right_wrist_yaw_joint;xyz=0.1265,0.012,0.005;rpy=0,0,0" \
+    --target "name=left_foot;anchor=left_ankle_roll_joint;xyz=0.035,0,-0.030;rpy=0,0,0" \
+    --target "name=right_foot;anchor=right_ankle_roll_joint;xyz=0.035,0,-0.030;rpy=0,0,0"
 
 echo ">> rebuilding"
 scripts/setup/rebuild.sh >/dev/null

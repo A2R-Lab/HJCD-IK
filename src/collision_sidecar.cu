@@ -230,6 +230,25 @@ extern "C" void sidecar_full_check(const float* q_host, unsigned char* out_host,
 // how many times the persistent full-check workspace has (re)allocated -- 0 growth after warm-up.
 extern "C" int sidecar_ws_nalloc() { return g_ws_nalloc; }
 
+// DEVICE-RESIDENT full check (Checkpoint 7). Same kernel, same verdict semantics, but both
+// buffers are already on the device, so neither the q H2D nor the verdict D2H above is performed.
+//
+// This is the hook the comment on sidecar_full_check called for: once the batched solve wants
+// self-collision to participate in candidate SELECTION, the candidate configs never need to reach
+// the host at all -- solve_problems_batched holds them in d_lq and consumes the verdict in the
+// same stream. The host-pointer wrapper stays exactly as it was for every existing caller.
+//
+// q_dev   [B, N_JOINTS] float32, device
+// out_dev [B, N_CHECKED_PAIRS] uint8, device: per-pair colliding flags (NOT yet reduced)
+extern "C" void sidecar_full_check_device(const float* q_dev, unsigned char* out_dev,
+                                          int B, float margin) {
+    if (B <= 0) return;
+    full_check_kernel<<<(B + WPB - 1) / WPB, WPB * 32>>>(q_dev, out_dev, B, margin);
+}
+
+// Pairs per candidate, so callers sizing the verdict buffer do not hardcode the pair count.
+extern "C" int sidecar_num_checked_pairs() { return N_CHECKED_PAIRS; }
+
 // INCREMENTAL check: trial verdict = committed base overlaid by the joint's affected pairs at q_new.
 // The committed `base` buffer is never mutated; only affected verdict bytes are recomputed (no full-state clone).
 __global__ void incr_check_kernel(const float* __restrict__ qbase, const unsigned char* __restrict__ base,

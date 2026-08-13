@@ -1,0 +1,60 @@
+{
+ "problems": {
+  "problem": [
+   {
+    "collision_buffer_ik": 0.0,
+    "goal_ik": [],
+    "goal_pose": {
+     "frame": "left_rubber_hand",
+     "position_xyz": [
+      -0.1,
+      0.4,
+      1.35
+     ],
+     "quaternion_wxyz": [
+      1.0,
+      0.0,
+      0.0,
+      0.0
+     ]
+    },
+    "obstacles": {
+     "cuboid": {
+      "ground": {
+       "dims": [
+        10.0,
+        10.0,
+        0.2
+       ],
+       "pose": [
+        0.0,
+        0.0,
+        -0.1,
+        1,
+        0,
+        0,
+        0
+       ]
+      },
+      "wall": {
+       "dims": [
+        0.1,
+        2.4,
+        3.0
+       ],
+       "pose": [
+        0.05,
+        0.0,
+        1.5,
+        1,
+        0,
+        0,
+        0
+       ]
+      }
+     }
+    }
+   }
+  ]
+ }
+}

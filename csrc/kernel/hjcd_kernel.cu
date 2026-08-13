@@ -882,15 +882,96 @@ std::vector<double> get_joint_limits()
 // Both residuals are UNWEIGHTED physical quantities; weights enter only in the cost below.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// PER-TARGET ORIENTATION MODES.
+//
+//   ORI_NONE  orientation contributes nothing: zero residual, zero Jacobian rows, and the
+//             orientation tolerance is not tested. Position may still be constrained.
+//   ORI_AXIS  constrain ONE target-local axis a to a desired world direction; twist about that
+//             direction is free. 5-DoF contact constraint.
+//   ORI_FULL  the pre-existing full-quaternion behaviour, bit-for-bit.
+//
+// FULL is the default everywhere: a caller that never mentions a mode gets exactly the code path
+// (and the exact floating-point operations) it got before modes existed.
+// ---------------------------------------------------------------------------
+namespace hjcd {
+enum : int { ORI_NONE = 0, ORI_AXIS = 1, ORI_FULL = 2 };
+}
+
+// n = R(X) a, for a column-major 4x4 whose rotation sits in columns 0,1,2.
+template<typename T>
+__device__ __forceinline__
+void rotate_by_X(const T* __restrict__ X, const T* __restrict__ a, T* __restrict__ n) {
+    n[0] = X[0]*a[0] + X[4]*a[1] + X[8] *a[2];
+    n[1] = X[1]*a[0] + X[5]*a[1] + X[9] *a[2];
+    n[2] = X[2]*a[0] + X[6]*a[1] + X[10]*a[2];
+}
+
+// n = R(q) a for a WXYZ unit quaternion:  n = a + 2w(v x a) + 2v x (v x a).
+template<typename T>
+__device__ __forceinline__
+void rotate_by_quat(const T* __restrict__ q, const T* __restrict__ a, T* __restrict__ n) {
+    const T w = q[0], vx = q[1], vy = q[2], vz = q[3];
+    const T tx = (T)2 * (vy*a[2] - vz*a[1]);
+    const T ty = (T)2 * (vz*a[0] - vx*a[2]);
+    const T tz = (T)2 * (vx*a[1] - vy*a[0]);
+    n[0] = a[0] + w*tx + (vy*tz - vz*ty);
+    n[1] = a[1] + w*ty + (vz*tx - vx*tz);
+    n[2] = a[2] + w*tz + (vx*ty - vy*tx);
+}
+
+// The CURRENT axis direction of target k, n = R_current a_local. Recomputed at each Jacobian site
+// rather than cached in shared memory: it is three FMAs from data already resident, and the row
+// preconditioner runs BEFORE the residual evaluation in the coarse refresh, so a cached value
+// would be a stale-read hazard rather than a saving.
+template<typename T>
+__device__ __forceinline__
+void target_axis_world(const T* __restrict__ X, const T* __restrict__ a_local, T* __restrict__ n) {
+    rotate_by_X<T>(X, a_local, n);
+}
+
 // Unweighted residual of one target frame. X is its world 4x4 (column-major).
+//
+// e_R and *ang play DIFFERENT roles and are not interchangeable:
+//   e_R   the residual VECTOR the optimizer minimizes. Its Jacobian is what accumulate_normal_
+//         equations_warp / coord_proposal / compute_row_scales_warp differentiate, and every cost
+//         is |e_R|^2. Chord-valued in AXIS mode.
+//   *ang  the reported/accepted ANGLE in radians. This is what lands in orientation_errors, what
+//         the tolerance is tested against, and what E_phys (and therefore selection) reads.
+// For FULL they coincide exactly (|Log(R* R^T)| IS the angle), so nothing about the legacy path
+// changes. For AXIS they differ by chord-vs-arc, |e_R| = 2 sin(ang/2), and reporting the chord as
+// an "angle" would understate the error by up to 4% at 1 rad.
 template<typename T>
 __device__ __forceinline__
 void target_residual(const T* __restrict__ X, const T* __restrict__ tgt_p,
-                     const T* __restrict__ tgt_q, T* __restrict__ e_p, T* __restrict__ e_R)
+                     const T* __restrict__ tgt_q, T* __restrict__ e_p, T* __restrict__ e_R,
+                     int mode, const T* __restrict__ a_local, T* __restrict__ ang)
 {
     e_p[0] = tgt_p[0] - X[12];
     e_p[1] = tgt_p[1] - X[13];
     e_p[2] = tgt_p[2] - X[14];
+
+    if (mode == hjcd::ORI_NONE) {
+        e_R[0] = e_R[1] = e_R[2] = (T)0;
+        *ang = (T)0;
+        return;
+    }
+
+    if (mode == hjcd::ORI_AXIS) {
+        // n_cur = R_current a,  n_tgt = R_target a.  Twist about n never enters either one, which
+        // is exactly why it cannot influence the residual: replacing R_target by R_target*Rot(a,psi)
+        // leaves R_target a unchanged for any psi.
+        T n_cur[3], n_tgt[3];
+        rotate_by_X<T>(X, a_local, n_cur);
+        rotate_by_quat<T>(tgt_q, a_local, n_tgt);
+        // TARGET - CURRENT, matching e_p's convention, so the same b = J^T W e assembly applies.
+        e_R[0] = n_tgt[0] - n_cur[0];
+        e_R[1] = n_tgt[1] - n_cur[1];
+        e_R[2] = n_tgt[2] - n_cur[2];
+        const T d = n_cur[0]*n_tgt[0] + n_cur[1]*n_tgt[1] + n_cur[2]*n_tgt[2];
+        *ang = acos(d < (T)-1 ? (T)-1 : (d > (T)1 ? (T)1 : d));
+        return;
+    }
 
     T qee[4];
     mat_to_quat(X, qee);
@@ -900,6 +981,47 @@ void target_residual(const T* __restrict__ X, const T* __restrict__ tgt_p,
         qee[0] = -qee[0]; qee[1] = -qee[1]; qee[2] = -qee[2]; qee[3] = -qee[3];
     }
     quat_err_rotvec(qee, tgt_q, e_R);
+    *ang = sqrt(e_R[0]*e_R[0] + e_R[1]*e_R[1] + e_R[2]*e_R[2]);
+}
+
+// Backward-compatible overload: no mode => FULL, exactly the pre-modes signature and behaviour.
+template<typename T>
+__device__ __forceinline__
+void target_residual(const T* __restrict__ X, const T* __restrict__ tgt_p,
+                     const T* __restrict__ tgt_q, T* __restrict__ e_p, T* __restrict__ e_R)
+{
+    T ang;
+    target_residual<T>(X, tgt_p, tgt_q, e_p, e_R, hjcd::ORI_FULL, nullptr, &ang);
+}
+
+// The three ORIENTATION Jacobian components of target k for the joint whose angular axis is jw.
+//
+// SIGN/FRAME CONVENTION -- derived against the EXACT assembly in accumulate_normal_equations_warp,
+// which forms
+//        A += J^T W J,      b += J^T W e,      e = target - current
+// i.e. J is the derivative of the PREDICTION (the current quantity), NOT of the residual. That is
+// visible in the position block, which stores jv = axis x (p_target_frame - p_joint) = d p_cur/dq
+// while e_p = p* - p_cur. The orientation block must therefore also be d(current)/dq.
+//
+//   FULL: current orientation differentiates to the spatial angular axis itself, Jw = jw.
+//   AXIS: current axis is n = R a, and a spatial angular velocity acts as
+//             dn = omega x n
+//         so   d n / d q_j = jw_j x n.
+//         (A prismatic joint has jw = 0 and therefore cannot rotate the axis: the cross product
+//          gives exactly zero, which is the correct physical answer, not an approximation.)
+//   NONE: no orientation rows at all; callers zero the orientation weight instead.
+template<typename T>
+__device__ __forceinline__
+void target_ori_jacobian(int mode, const T* __restrict__ jw, const T* __restrict__ n,
+                         T* __restrict__ out)
+{
+    if (mode == hjcd::ORI_AXIS) {
+        out[0] = jw[1]*n[2] - jw[2]*n[1];
+        out[1] = jw[2]*n[0] - jw[0]*n[2];
+        out[2] = jw[0]*n[1] - jw[1]*n[0];
+    } else {
+        out[0] = jw[0]; out[1] = jw[1]; out[2] = jw[2];
+    }
 }
 
 // Weighted cost of one target from its UNWEIGHTED residual norms:
@@ -925,6 +1047,8 @@ __global__ void target_residual_kernel(
     const unsigned int* __restrict__ active, // B            (bit k = target k active)
     const T* __restrict__ w_pos,             // B x NT
     const T* __restrict__ w_ori,             // B x NT
+    const int* __restrict__ ori_mode,        // B x NT, may be null => FULL everywhere
+    const T* __restrict__ ori_axis,          // B x NT x 3, may be null
     const T* __restrict__ eps_pos,           // NT
     const T* __restrict__ eps_ori,           // NT
     T* __restrict__ out_e_pos,               // B x NT x 3
@@ -977,15 +1101,20 @@ __global__ void target_residual_kernel(
         unsigned char ok = 0;
 
         if (on) {
+            const int md = ori_mode ? ori_mode[o1] : hjcd::ORI_FULL;
+            const T* ax = ori_axis ? &ori_axis[o3] : nullptr;
             target_residual<T>(&s_target_X[16 * k], &tgt_p[o3], &tgt_q[((size_t)b * hjcd::NT + k) * 4],
-                               e_p, e_R);
+                               e_p, e_R, md, ax, &on_);
             pn  = sqrt(e_p[0]*e_p[0] + e_p[1]*e_p[1] + e_p[2]*e_p[2]);
-            on_ = sqrt(e_R[0]*e_R[0] + e_R[1]*e_R[1] + e_R[2]*e_R[2]);
             const T wp = w_pos[o1], wo = w_ori[o1];
-            c = target_cost<T>(pn, on_, wp, wo);
-            // A zero-weight channel is "don't care", not "must be zero".
+            // Cost from the residual VECTOR: in AXIS mode on_ is the arc angle while the minimized
+            // quantity is the chord. Identical arithmetic for FULL, where |e_R| == on_.
+            const T on2 = e_R[0]*e_R[0] + e_R[1]*e_R[1] + e_R[2]*e_R[2];
+            c = wp * pn * pn + wo * on2;
+            // A zero-weight channel is "don't care", not "must be zero"; so is ORI_NONE, whose
+            // residual and angle are exactly zero anyway.
             const bool pos_ok = (wp == (T)0) || (pn  <= eps_pos[k]);
-            const bool ori_ok = (wo == (T)0) || (on_ <= eps_ori[k]);
+            const bool ori_ok = (wo == (T)0) || (md == hjcd::ORI_NONE) || (on_ <= eps_ori[k]);
             ok = (pos_ok && ori_ok) ? 1 : 0;
         }
         // Inactive => exactly zero residual/norm/cost, success 0 (not evaluated).
@@ -1057,7 +1186,8 @@ void compute_row_scales_warp(
     T* __restrict__ s_scale,                 // NT*6 out
     const T* __restrict__ s_jointX,
     const T* __restrict__ s_target_X,
-    unsigned int active)
+    unsigned int active,
+    const int* __restrict__ s_mode, const T* __restrict__ s_axis)
 {
     const unsigned m = FULL_WARP_MASK;
     const int lane = threadIdx.x & 31;
@@ -1071,6 +1201,11 @@ void compute_row_scales_warp(
         const unsigned int amask = hjcd_gen::TARGET_ANCESTOR_MASK[k];
         const T* __restrict__ Xt = &s_target_X[16 * k];
         const T px = Xt[12], py = Xt[13], pz = Xt[14];
+        // Scales must precondition the rows actually assembled, so the orientation rows follow the
+        // mode exactly as accumulate_normal_equations_warp does.
+        const int md = s_mode ? s_mode[k] : hjcd::ORI_FULL;
+        T nk[3] = {(T)0,(T)0,(T)0};
+        if (md == hjcd::ORI_AXIS) target_axis_world<T>(Xt, &s_axis[3*k], nk);
 
         T c[6] = {(T)0,(T)0,(T)0,(T)0,(T)0,(T)0};
         if ((lane < N) && ((amask >> lane) & 1u)) {
@@ -1082,9 +1217,10 @@ void compute_row_scales_warp(
             c[0] = prism ? ax[0] : (ax[1]*rz - ax[2]*ry);
             c[1] = prism ? ax[1] : (ax[2]*rx - ax[0]*rz);
             c[2] = prism ? ax[2] : (ax[0]*ry - ax[1]*rx);
-            c[3] = prism ? (T)0 : ax[0];
-            c[4] = prism ? (T)0 : ax[1];
-            c[5] = prism ? (T)0 : ax[2];
+            T jw[3] = { prism ? (T)0 : ax[0], prism ? (T)0 : ax[1], prism ? (T)0 : ax[2] };
+            T jo[3];
+            target_ori_jacobian<T>(md, jw, nk, jo);
+            c[3] = jo[0]; c[4] = jo[1]; c[5] = jo[2];
         }
         #pragma unroll
         for (int r = 0; r < 6; ++r) {
@@ -1138,7 +1274,8 @@ void accumulate_normal_equations_warp(
     const T* __restrict__ s_wp,              // NT
     const T* __restrict__ s_wo,              // NT
     const T* __restrict__ s_scale,           // NT*6 row preconditioner (nullptr => all ones)
-    unsigned int active)
+    unsigned int active,
+    const int* __restrict__ s_mode, const T* __restrict__ s_axis)
 {
     const unsigned m = FULL_WARP_MASK;
     const int lane = threadIdx.x & 31;
@@ -1150,7 +1287,11 @@ void accumulate_normal_equations_warp(
     #pragma unroll
     for (int k = 0; k < hjcd::NT; ++k) {
         if (!((active >> k) & 1u)) continue;                  // inactive target: contributes nothing
-        const T wp = s_wp[k], wo = s_wo[k];
+        const int md = s_mode ? s_mode[k] : hjcd::ORI_FULL;
+        const T wp = s_wp[k];
+        // ORI_NONE drops the orientation rows by zeroing their weight -- the residual is already
+        // exactly zero, so this only avoids assembling three all-zero rows into A.
+        const T wo = (md == hjcd::ORI_NONE) ? (T)0 : s_wo[k];
         if (wp == (T)0 && wo == (T)0) continue;               // fully unweighted: contributes nothing
 
         // Per-ROW weights: W_{k,r} = w * s_{k,r}^2.  s == nullptr => unit scaling (the raw J^T W J
@@ -1167,6 +1308,8 @@ void accumulate_normal_equations_warp(
         const unsigned int amask = hjcd_gen::TARGET_ANCESTOR_MASK[k];
         const T* __restrict__ Xt = &s_target_X[16 * k];
         const T px = Xt[12], py = Xt[13], pz = Xt[14];
+        T nk[3] = {(T)0,(T)0,(T)0};
+        if (md == hjcd::ORI_AXIS) target_axis_world<T>(Xt, &s_axis[3*k], nk);
 
         // This lane's column of J_k. Non-ancestor => exactly zero (not "small").
         T jv0 = (T)0, jv1 = (T)0, jv2 = (T)0, jw0 = (T)0, jw1 = (T)0, jw2 = (T)0;
@@ -1180,9 +1323,10 @@ void accumulate_normal_equations_warp(
             jv0 = prism ? ax[0] : (ax[1] * rz - ax[2] * ry);
             jv1 = prism ? ax[1] : (ax[2] * rx - ax[0] * rz);
             jv2 = prism ? ax[2] : (ax[0] * ry - ax[1] * rx);
-            jw0 = prism ? (T)0 : ax[0];
-            jw1 = prism ? (T)0 : ax[1];
-            jw2 = prism ? (T)0 : ax[2];
+            T jw[3] = { prism ? (T)0 : ax[0], prism ? (T)0 : ax[1], prism ? (T)0 : ax[2] };
+            T jo[3];
+            target_ori_jacobian<T>(md, jw, nk, jo);
+            jw0 = jo[0]; jw1 = jo[1]; jw2 = jo[2];
 
             b[lane] += Wp[0]*jv0*s_e_pos[3*k+0] + Wp[1]*jv1*s_e_pos[3*k+1] + Wp[2]*jv2*s_e_pos[3*k+2]
                      + Wo[0]*jw0*s_e_ori[3*k+0] + Wo[1]*jw1*s_e_ori[3*k+1] + Wo[2]*jw2*s_e_ori[3*k+2];
@@ -1218,7 +1362,8 @@ void eval_targets_warp(
     unsigned int active,
     T* __restrict__ s_e_pos, T* __restrict__ s_e_ori,
     T* __restrict__ s_pn, T* __restrict__ s_on,
-    T* __restrict__ out_cost)
+    T* __restrict__ out_cost,
+    const int* __restrict__ s_mode, const T* __restrict__ s_axis)
 {
     const unsigned m = FULL_WARP_MASK;
     const int lane = threadIdx.x & 31;
@@ -1228,14 +1373,15 @@ void eval_targets_warp(
         T e_p[3] = {(T)0,(T)0,(T)0}, e_R[3] = {(T)0,(T)0,(T)0};
         T pn = (T)0, on = (T)0;
         if ((active >> k) & 1u) {
-            target_residual<T>(&s_target_X[16*k], &s_tgt_p[3*k], &s_tgt_q[4*k], e_p, e_R);
+            const int md = s_mode ? s_mode[k] : hjcd::ORI_FULL;
+            target_residual<T>(&s_target_X[16*k], &s_tgt_p[3*k], &s_tgt_q[4*k], e_p, e_R,
+                               md, s_axis ? &s_axis[3*k] : nullptr, &on);
             pn = sqrt(e_p[0]*e_p[0] + e_p[1]*e_p[1] + e_p[2]*e_p[2]);
-            on = sqrt(e_R[0]*e_R[0] + e_R[1]*e_R[1] + e_R[2]*e_R[2]);
         }
         s_e_pos[3*k+0]=e_p[0]; s_e_pos[3*k+1]=e_p[1]; s_e_pos[3*k+2]=e_p[2];
         s_e_ori[3*k+0]=e_R[0]; s_e_ori[3*k+1]=e_R[1]; s_e_ori[3*k+2]=e_R[2];
         s_pn[k] = pn;
-        s_on[k] = on;
+        s_on[k] = on;                        // the reported/accepted ANGLE, not |e_R|
     }
     __syncwarp(m);
 
@@ -1243,8 +1389,17 @@ void eval_targets_warp(
         T c = (T)0;
         #pragma unroll
         for (int k = 0; k < hjcd::NT; ++k)
-            if ((active >> k) & 1u)
-                c += target_cost<T>(s_pn[k], s_on[k], s_wp[k], s_wo[k]);
+            if ((active >> k) & 1u) {
+                // From the residual VECTORS, never from s_on: in AXIS mode s_on is an arc angle
+                // while the minimized quantity is the chord, and the cost must agree with the
+                // Jacobian or the LM gain ratio compares two different objectives. For FULL,
+                // |e_R| == s_on identically, so this is the same arithmetic as before.
+                const T pn2 = s_e_pos[3*k+0]*s_e_pos[3*k+0] + s_e_pos[3*k+1]*s_e_pos[3*k+1]
+                            + s_e_pos[3*k+2]*s_e_pos[3*k+2];
+                const T on2 = s_e_ori[3*k+0]*s_e_ori[3*k+0] + s_e_ori[3*k+1]*s_e_ori[3*k+1]
+                            + s_e_ori[3*k+2]*s_e_ori[3*k+2];
+                c += s_wp[k] * pn2 + s_wo[k] * on2;
+            }
         *out_cost = c;                       // RAW weighted cost: what acceptance and rho use.
     }
     __syncwarp(m);
@@ -1290,7 +1445,8 @@ void eval_targets_masked_warp(
     unsigned int tmask,
     T* __restrict__ s_e_pos, T* __restrict__ s_e_ori,
     T* __restrict__ s_pn, T* __restrict__ s_on, T* __restrict__ s_ck,
-    T* __restrict__ io_total)
+    T* __restrict__ io_total,
+    const int* __restrict__ s_mode, const T* __restrict__ s_axis)
 {
     const int lane = threadIdx.x & 31;
 
@@ -1306,9 +1462,11 @@ void eval_targets_masked_warp(
     if (lane < hjcd::NT && ((tmask >> lane) & 1u)) {
         const int k = lane;
         T e_p[3], e_R[3];
-        target_residual<T>(&s_target_X[16*k], &s_tgt_p[3*k], &s_tgt_q[4*k], e_p, e_R);
+        T on;
+        const int md = s_mode ? s_mode[k] : hjcd::ORI_FULL;
+        target_residual<T>(&s_target_X[16*k], &s_tgt_p[3*k], &s_tgt_q[4*k], e_p, e_R,
+                           md, s_axis ? &s_axis[3*k] : nullptr, &on);
         const T pn = sqrt(e_p[0]*e_p[0] + e_p[1]*e_p[1] + e_p[2]*e_p[2]);
-        const T on = sqrt(e_R[0]*e_R[0] + e_R[1]*e_R[1] + e_R[2]*e_R[2]);
         s_e_pos[3*k+0]=e_p[0]; s_e_pos[3*k+1]=e_p[1]; s_e_pos[3*k+2]=e_p[2];
         s_e_ori[3*k+0]=e_R[0]; s_e_ori[3*k+1]=e_R[1]; s_e_ori[3*k+2]=e_R[2];
         s_pn[k] = pn;
@@ -1338,7 +1496,8 @@ void eval_targets_full_warp(
     unsigned int active,
     T* __restrict__ s_e_pos, T* __restrict__ s_e_ori,
     T* __restrict__ s_pn, T* __restrict__ s_on, T* __restrict__ s_ck,
-    T* __restrict__ out_total)
+    T* __restrict__ out_total,
+    const int* __restrict__ s_mode, const T* __restrict__ s_axis)
 {
     const int lane = threadIdx.x & 31;
     if (lane < hjcd::NT) {
@@ -1346,9 +1505,10 @@ void eval_targets_full_warp(
         T e_p[3] = {(T)0,(T)0,(T)0}, e_R[3] = {(T)0,(T)0,(T)0};
         T pn = (T)0, on = (T)0, ck = (T)0;
         if ((active >> k) & 1u) {
-            target_residual<T>(&s_target_X[16*k], &s_tgt_p[3*k], &s_tgt_q[4*k], e_p, e_R);
+            const int md = s_mode ? s_mode[k] : hjcd::ORI_FULL;
+            target_residual<T>(&s_target_X[16*k], &s_tgt_p[3*k], &s_tgt_q[4*k], e_p, e_R,
+                               md, s_axis ? &s_axis[3*k] : nullptr, &on);
             pn = sqrt(e_p[0]*e_p[0] + e_p[1]*e_p[1] + e_p[2]*e_p[2]);
-            on = sqrt(e_R[0]*e_R[0] + e_R[1]*e_R[1] + e_R[2]*e_R[2]);
             ck = scaled_target_cost<T>(e_p, e_R, s_wp[k], s_wo[k], s_scale, k);
         }
         s_e_pos[3*k+0]=e_p[0]; s_e_pos[3*k+1]=e_p[1]; s_e_pos[3*k+2]=e_p[2];
@@ -1486,6 +1646,10 @@ struct LMScratch {
     int s_base_fail;                   // posv non-PD flag for the 6x6 solve
     int base_att, base_acc, base_numfail;   // diagnostics (attempted / accepted / gave up)
     T s_wp[hjcd::NT], s_wo[hjcd::NT];
+    // Per-target orientation mode and its target-LOCAL axis. Local, so they need no base-frame
+    // transform: world_target_to_base rotates s_tgt_q, and n_target = R(s_tgt_q) a follows it.
+    int s_mode[hjcd::NT];
+    T s_axis[hjcd::NT * 3];
     T s_e_pos[hjcd::NT * 3], s_e_ori[hjcd::NT * 3];
     T s_pn[hjcd::NT], s_on[hjcd::NT];
     T s_scale[hjcd::NT * 6];   // frozen row preconditioner for this iteration
@@ -1520,7 +1684,8 @@ void lm_refresh(LMScratch<T>* st, T* out_cost) {
     __syncwarp(FULL_WARP_MASK);
     compose_target_frames_warp<T>(st->s_target_X, st->s_jointX);
     eval_targets_warp<T>(st->s_target_X, st->s_tgt_p, st->s_tgt_q, st->s_wp, st->s_wo,
-                         st->active, st->s_e_pos, st->s_e_ori, st->s_pn, st->s_on, &dummy);
+                         st->active, st->s_e_pos, st->s_e_ori, st->s_pn, st->s_on, &dummy,
+                         st->s_mode, st->s_axis);
     weighted_cost_warp<T>(st->s_e_pos, st->s_e_ori, st->s_wp, st->s_wo, st->s_scale,
                           st->active, out_cost);
 }
@@ -1561,7 +1726,8 @@ void base_retarget_and_eval_warp(LMScratch<T>* st, const T* __restrict__ tgt_p,
     __syncwarp(FULL_WARP_MASK);
     eval_targets_full_warp<T>(st->s_target_X, st->s_tgt_p, st->s_tgt_q, st->s_wp, st->s_wo,
                               /*s_scale=*/nullptr, st->active, st->s_e_pos, st->s_e_ori,
-                              st->s_pn, st->s_on, st->s_ck_base, &st->s_total_base);
+                              st->s_pn, st->s_on, st->s_ck_base, &st->s_total_base,
+                              st->s_mode, st->s_axis);
     __syncwarp(FULL_WARP_MASK);
 }
 
@@ -1754,6 +1920,8 @@ __global__ void lm_multi_target_kernel(
     const unsigned int* __restrict__ active,  // B
     const T* __restrict__ w_pos,              // B x NT
     const T* __restrict__ w_ori,              // B x NT
+    const int* __restrict__ ori_mode,         // P x NT, problem-level; null => FULL everywhere
+    const T* __restrict__ ori_axis,           // P x NT x 3, target-LOCAL unit axes; null => unused
     T* __restrict__ base_p,                   // B x 3, candidate-level, IN/OUT; NULL => fixed base
     T* __restrict__ base_q,                   // B x 4 (wxyz, unit), IN/OUT; NULL => fixed base
     int* __restrict__ out_base_diag,          // B x 3 (attempted, accepted, numfail), may be null
@@ -1835,6 +2003,13 @@ __global__ void lm_multi_target_kernel(
     if (lane < K) {
         st->s_wp[lane] = w_pos[(size_t)pid * K + lane];          // weights: problem-level
         st->s_wo[lane] = w_ori[(size_t)pid * K + lane];
+        // Orientation mode + local axis: problem-level, like the weights. The axis is in the
+        // TARGET'S OWN frame, so the base retarget below (which rotates s_tgt_q) carries the
+        // desired direction n = R(s_tgt_q) a with it automatically -- no axis transform needed.
+        st->s_mode[lane] = ori_mode ? ori_mode[(size_t)pid * K + lane] : hjcd::ORI_FULL;
+        #pragma unroll
+        for (int c = 0; c < 3; ++c)
+            st->s_axis[3*lane + c] = ori_axis ? ori_axis[((size_t)pid * K + lane) * 3 + c] : (T)0;
         // Store this candidate's targets in ITS OWN base frame (hjcd_settings.h, eq. 2). A null
         // base_p takes the verbatim-copy branch, so fixed base stays bit-identical to before.
         world_target_to_base<T>(&tgt_p[((size_t)pid*K + lane)*3], &tgt_q[((size_t)pid*K + lane)*4],
@@ -1852,7 +2027,8 @@ __global__ void lm_multi_target_kernel(
     if (lane < hjcd::NT * 6) st->s_scale[lane] = (T)1;      // provisional; refined below
     __syncwarp(FULL_WARP_MASK);
     lm_refresh<T>(st, &st->cost);
-    compute_row_scales_warp<T>(st->s_scale, st->s_jointX, st->s_target_X, st->active);
+    compute_row_scales_warp<T>(st->s_scale, st->s_jointX, st->s_target_X, st->active,
+                               st->s_mode, st->s_axis);
     weighted_cost_warp<T>(st->s_e_pos, st->s_e_ori, st->s_wp, st->s_wo, st->s_scale,
                           st->active, &st->cost);
     if (lane == 0) {
@@ -1899,13 +2075,14 @@ __global__ void lm_multi_target_kernel(
 
         // Re-derive the row preconditioner from the CURRENT Jacobian, then re-express the current
         // cost under it. Frozen for the rest of this iteration so the trial comparison is like-for-like.
-        compute_row_scales_warp<T>(st->s_scale, st->s_jointX, st->s_target_X, st->active);
+        compute_row_scales_warp<T>(st->s_scale, st->s_jointX, st->s_target_X, st->active,
+                               st->s_mode, st->s_axis);
         weighted_cost_warp<T>(st->s_e_pos, st->s_e_ori, st->s_wp, st->s_wo, st->s_scale,
                               st->active, &st->cost);
 
         accumulate_normal_equations_warp<T>(st->A, st->b, st->s_jointX, st->s_target_X,
                                             st->s_e_pos, st->s_e_ori, st->s_wp, st->s_wo,
-                                            st->s_scale, st->active);
+                                            st->s_scale, st->active, st->s_mode, st->s_axis);
         // Pin joints that cannot move ANY active target.
         //
         // Such a joint has an all-zero row AND column in A (by the ancestor mask) and a zero b --
@@ -2240,6 +2417,8 @@ struct CoarseScratch {
     // to exactly the previous bytes.
     T s_base_p[3], s_base_q[4];
     T s_wp[hjcd::NT], s_wo[hjcd::NT];
+    int s_mode[hjcd::NT];             // per-target orientation mode; see LMScratch
+    T s_axis[hjcd::NT * 3];           // target-LOCAL contact axis (unit) for ORI_AXIS
     T s_e_pos[hjcd::NT * 3], s_e_ori[hjcd::NT * 3];
     T s_pn[hjcd::NT], s_on[hjcd::NT], s_ck[hjcd::NT];
     T s_scale[hjcd::NT * 6];
@@ -2291,14 +2470,21 @@ void coord_proposal(const CoarseScratch<T>* st, int j, T lambda_coord, T h_min, 
         if (!((affected >> k) & 1u)) continue;
         const T* __restrict__ Xt = &st->s_target_X[16 * k];
         const T rx = Xt[12] - Ci[12], ry = Xt[13] - Ci[13], rz = Xt[14] - Ci[14];
+        // Same orientation mode as the LM: the coarse sweep must descend the SAME objective, or a
+        // candidate handed to LM is the optimum of a different problem.
+        const int md = st->s_mode[k];
+        T nk[3] = {(T)0,(T)0,(T)0};
+        if (md == hjcd::ORI_AXIS) target_axis_world<T>(Xt, &st->s_axis[3*k], nk);
         T Jv[3], Jw[3];
         Jv[0] = prism ? ax[0] : (ax[1]*rz - ax[2]*ry);
         Jv[1] = prism ? ax[1] : (ax[2]*rx - ax[0]*rz);
         Jv[2] = prism ? ax[2] : (ax[0]*ry - ax[1]*rx);
-        Jw[0] = prism ? (T)0 : ax[0];
-        Jw[1] = prism ? (T)0 : ax[1];
-        Jw[2] = prism ? (T)0 : ax[2];
-        const T wp = st->s_wp[k], wo = st->s_wo[k];
+        {
+            T jw_raw[3] = { prism ? (T)0 : ax[0], prism ? (T)0 : ax[1], prism ? (T)0 : ax[2] };
+            target_ori_jacobian<T>(md, jw_raw, nk, Jw);
+        }
+        const T wp = st->s_wp[k];
+        const T wo = (md == hjcd::ORI_NONE) ? (T)0 : st->s_wo[k];
         #pragma unroll
         for (int r = 0; r < 3; ++r) {
             const T sp = st->s_scale[6*k + r], so = st->s_scale[6*k + 3 + r];
@@ -2329,10 +2515,12 @@ void coarse_full_refresh(CoarseScratch<T>* st) {
     grid::ee_pose_inner_warp<T>(st->s_jointX, st->s_XmatsHom, st->s_x, N - 1);
     __syncwarp(FULL_WARP_MASK);
     compose_target_frames_warp<T>(st->s_target_X, st->s_jointX);
-    compute_row_scales_warp<T>(st->s_scale, st->s_jointX, st->s_target_X, st->active);
+    compute_row_scales_warp<T>(st->s_scale, st->s_jointX, st->s_target_X, st->active,
+                               st->s_mode, st->s_axis);
     eval_targets_full_warp<T>(st->s_target_X, st->s_tgt_p, st->s_tgt_q, st->s_wp, st->s_wo,
                               st->s_scale, st->active, st->s_e_pos, st->s_e_ori,
-                              st->s_pn, st->s_on, st->s_ck, &st->total);
+                              st->s_pn, st->s_on, st->s_ck, &st->total,
+                              st->s_mode, st->s_axis);
 }
 
 // HARD is a COMPILE-TIME flag, not a runtime one, and that is load-bearing. Pulling the sidecar
@@ -2353,6 +2541,8 @@ __global__ void coarse_search_mt_kernel(
     const T* __restrict__ tgt_q,              // B x NT x 4   (WORLD frame)
     const unsigned int* __restrict__ active,  // B
     const T* __restrict__ w_pos, const T* __restrict__ w_ori,
+    const int* __restrict__ ori_mode,         // P x NT, problem-level; null => FULL everywhere
+    const T* __restrict__ ori_axis,           // P x NT x 3, target-LOCAL unit axes; null => unused
     const T* __restrict__ base_p,             // B x 3, candidate-level; NULL => fixed base
     const T* __restrict__ base_q,             // B x 4 (wxyz, unit); NULL => fixed base
     T* __restrict__ out_pn, T* __restrict__ out_on,   // B x NT
@@ -2440,6 +2630,13 @@ __global__ void coarse_search_mt_kernel(
     if (lane < K) {
         st->s_wp[lane] = w_pos[(size_t)pid * K + lane];          // weights: problem-level
         st->s_wo[lane] = w_ori[(size_t)pid * K + lane];
+        // Orientation mode + local axis: problem-level, like the weights. The axis is in the
+        // TARGET'S OWN frame, so the base retarget below (which rotates s_tgt_q) carries the
+        // desired direction n = R(s_tgt_q) a with it automatically -- no axis transform needed.
+        st->s_mode[lane] = ori_mode ? ori_mode[(size_t)pid * K + lane] : hjcd::ORI_FULL;
+        #pragma unroll
+        for (int c = 0; c < 3; ++c)
+            st->s_axis[3*lane + c] = ori_axis ? ori_axis[((size_t)pid * K + lane) * 3 + c] : (T)0;
         // Store this candidate's targets in ITS OWN base frame (hjcd_settings.h, eq. 2). A null
         // base_p takes the verbatim-copy branch, so fixed base stays bit-identical to before.
         world_target_to_base<T>(&tgt_p[((size_t)pid*K + lane)*3], &tgt_q[((size_t)pid*K + lane)*4],
@@ -2496,10 +2693,12 @@ __global__ void coarse_search_mt_kernel(
         ++c_iters;
 
         // --- 1. freeze the row scaling and re-express the cost under it -------------------------
-        compute_row_scales_warp<T>(st->s_scale, st->s_jointX, st->s_target_X, st->active);
+        compute_row_scales_warp<T>(st->s_scale, st->s_jointX, st->s_target_X, st->active,
+                               st->s_mode, st->s_axis);
         eval_targets_full_warp<T>(st->s_target_X, st->s_tgt_p, st->s_tgt_q, st->s_wp, st->s_wo,
                                   st->s_scale, st->active, st->s_e_pos, st->s_e_ori,
-                                  st->s_pn, st->s_on, st->s_ck, &st->total);
+                                  st->s_pn, st->s_on, st->s_ck, &st->total,
+                                  st->s_mode, st->s_axis);
 
         // --- 2/3. one aggregate proposal per joint lane, clipped, with linearized improvement ----
         T v = (T)0, delta = (T)0, pred = (T)-1;
@@ -2583,7 +2782,7 @@ __global__ void coarse_search_mt_kernel(
                 eval_targets_masked_warp<T>(st->s_target_X, st->s_tgt_p, st->s_tgt_q,
                                             st->s_wp, st->s_wo, st->s_scale, tm,
                                             st->s_e_pos, st->s_e_ori, st->s_pn, st->s_on, st->s_ck,
-                                            &st->trial_total);
+                                            &st->trial_total, st->s_mode, st->s_axis);
             } else {                                   // ablation: full FK + full rescore
                 grid::ee_pose_inner_warp<T>(st->s_jointX, st->s_XmatsHom, st->s_x, N - 1);
                 __syncwarp(FULL_WARP_MASK);
@@ -2591,7 +2790,7 @@ __global__ void coarse_search_mt_kernel(
                 eval_targets_full_warp<T>(st->s_target_X, st->s_tgt_p, st->s_tgt_q,
                                           st->s_wp, st->s_wo, st->s_scale, st->active,
                                           st->s_e_pos, st->s_e_ori, st->s_pn, st->s_on, st->s_ck,
-                                          &st->trial_total);
+                                          &st->trial_total, st->s_mode, st->s_axis);
             }
             __syncwarp(FULL_WARP_MASK);
 
@@ -2910,7 +3109,8 @@ __global__ void incremental_probe_kernel(
     compose_target_frames_warp<T>(s_target_X, s_jointX);
     const unsigned int act = active[b];
     eval_targets_full_warp<T>(s_target_X, s_tp, s_tq, s_wp, s_wo, /*s_scale=*/nullptr, act,
-                              s_e_pos, s_e_ori, s_pn, s_on, s_ck, &s_total);
+                              s_e_pos, s_e_ori, s_pn, s_on, s_ck, &s_total,
+                              /*s_mode=*/nullptr, /*s_axis=*/nullptr);
 
     for (int m = 0; m < M; ++m) {
         const int j = upd_j[(size_t)b*M + m];
@@ -2937,7 +3137,8 @@ __global__ void incremental_probe_kernel(
         subtree_fk_warp<T>(s_jointX, s_XmatsHom, desc);
         compose_target_frames_masked_warp<T>(s_target_X, s_jointX, tm);
         eval_targets_masked_warp<T>(s_target_X, s_tp, s_tq, s_wp, s_wo, /*s_scale=*/nullptr, tm,
-                                    s_e_pos, s_e_ori, s_pn, s_on, s_ck, &s_total);
+                                    s_e_pos, s_e_ori, s_pn, s_on, s_ck, &s_total,
+                              /*s_mode=*/nullptr, /*s_axis=*/nullptr);
 
         // 5-6. accept, or restore
         if (!keep) {
@@ -3009,7 +3210,8 @@ __global__ void fk_bench_kernel(
     compose_target_frames_warp<T>(s_target_X, s_jointX);
     const unsigned int act = active[b];
     eval_targets_full_warp<T>(s_target_X, s_tp, s_tq, s_wp, s_wo, /*s_scale=*/nullptr, act,
-                              s_e_pos, s_e_ori, s_pn, s_on, s_ck, &s_total);
+                              s_e_pos, s_e_ori, s_pn, s_on, s_ck, &s_total,
+                              /*s_mode=*/nullptr, /*s_axis=*/nullptr);
 
     const unsigned int desc = hjcd_gen::JOINT_DESCENDANT_MASK[j];
     const unsigned int tm   = hjcd_gen::JOINT_TARGET_MASK[j] & act;
@@ -3024,7 +3226,8 @@ __global__ void fk_bench_kernel(
             else           subtree_fk_ffs_warp<T>(s_jointX, s_XmatsHom, desc);  // comparator: __ffs
             compose_target_frames_masked_warp<T>(s_target_X, s_jointX, tm);
             eval_targets_masked_warp<T>(s_target_X, s_tp, s_tq, s_wp, s_wo, /*s_scale=*/nullptr, tm,
-                                        s_e_pos, s_e_ori, s_pn, s_on, s_ck, &s_total);
+                                        s_e_pos, s_e_ori, s_pn, s_on, s_ck, &s_total,
+                              /*s_mode=*/nullptr, /*s_axis=*/nullptr);
         } else {
             if (lane == 0) s_q[j] = v;
             __syncwarp(FULL_WARP_MASK);
@@ -3032,7 +3235,8 @@ __global__ void fk_bench_kernel(
             __syncwarp(FULL_WARP_MASK);
             compose_target_frames_warp<T>(s_target_X, s_jointX);
             eval_targets_full_warp<T>(s_target_X, s_tp, s_tq, s_wp, s_wo, /*s_scale=*/nullptr, act,
-                                      s_e_pos, s_e_ori, s_pn, s_on, s_ck, &s_total);
+                                      s_e_pos, s_e_ori, s_pn, s_on, s_ck, &s_total,
+                              /*s_mode=*/nullptr, /*s_axis=*/nullptr);
         }
         acc += s_total;
     }
@@ -3046,6 +3250,8 @@ __global__ void normal_equations_kernel(
     const T* __restrict__ q, const T* __restrict__ tgt_p, const T* __restrict__ tgt_q,
     const unsigned int* __restrict__ active,
     const T* __restrict__ w_pos, const T* __restrict__ w_ori,
+    const int* __restrict__ ori_mode,        // B x NT, may be null => FULL everywhere
+    const T* __restrict__ ori_axis,          // B x NT x 3, may be null
     T* __restrict__ out_A, T* __restrict__ out_b,
     const grid::robotModel<T>* __restrict__ RM, const int B)
 {
@@ -3058,6 +3264,8 @@ __global__ void normal_equations_kernel(
     __shared__ int s_topo[hjcd::TOPO];
     __shared__ T s_e_pos[K*3], s_e_ori[K*3], s_pn[K], s_on[K], s_wp[K], s_wo[K];
     __shared__ T s_tp[K*3], s_tq[K*4];
+    __shared__ int s_mode[K];
+    __shared__ T s_axis[K*3];
     __shared__ T s_A[N*N], s_b[N], s_cost;
 
     for (int i = threadIdx.x; i < N; i += blockDim.x) s_q[i] = q[(size_t)b*N + i];
@@ -3066,7 +3274,10 @@ __global__ void normal_equations_kernel(
     for (int i = threadIdx.x; i < K; i += blockDim.x) {
         s_wp[i] = w_pos[(size_t)b*K + i];
         s_wo[i] = w_ori[(size_t)b*K + i];
+        s_mode[i] = ori_mode ? ori_mode[(size_t)b*K + i] : hjcd::ORI_FULL;
     }
+    for (int i = threadIdx.x; i < K*3; i += blockDim.x)
+        s_axis[i] = ori_axis ? ori_axis[(size_t)b*K*3 + i] : (T)0;
     __syncthreads();
 
     grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, s_topo, s_q, RM, s_tmp);
@@ -3077,9 +3288,10 @@ __global__ void normal_equations_kernel(
 
     const unsigned int act = active[b];
     eval_targets_warp<T>(s_target_X, s_tp, s_tq, s_wp, s_wo, act,
-                         s_e_pos, s_e_ori, s_pn, s_on, &s_cost);
+                         s_e_pos, s_e_ori, s_pn, s_on, &s_cost, s_mode, s_axis);
     accumulate_normal_equations_warp<T>(s_A, s_b, s_jointX, s_target_X,
-                                        s_e_pos, s_e_ori, s_wp, s_wo, /*s_scale=*/nullptr, act);
+                                        s_e_pos, s_e_ori, s_wp, s_wo, /*s_scale=*/nullptr, act,
+                                        s_mode, s_axis);
 
     for (int i = threadIdx.x; i < N*N; i += blockDim.x) out_A[(size_t)b*N*N + i] = s_A[i];
     for (int i = threadIdx.x; i < N;   i += blockDim.x) out_b[(size_t)b*N + i]   = s_b[i];
@@ -3101,7 +3313,13 @@ static const grid::robotModel<float>* g_cc_model = nullptr;
 bool bind_collision_env(const char* json, const char* set_name, int idx)
 {
     if (!json || !set_name) return false;
-    const std::string key = std::string(set_name) + "#" + std::to_string(idx);
+    // The key MUST include the document content. Keying on set_name#idx alone meant two different
+    // environments sharing a set name silently reused whichever was bound first -- so moving an
+    // obstacle and re-solving quietly evaluated the OLD scene. Found while testing that a wall at
+    // x=0.05 and the same wall at x=50 give different verdicts: they did not, because the second
+    // bind was a cache hit.
+    const std::string key = std::string(set_name) + "#" + std::to_string(idx) + "#"
+                          + std::to_string(std::hash<std::string>{}(std::string(json)));
     if (g_cc_ready && g_cc_key == key) return true;
     if (g_cc_ready) { hjcd_env::free_env(g_cc_env); g_cc_ready = false; }
 
@@ -3974,7 +4192,8 @@ static CoarseOutputs launch_coarse_mt(
                           ? coarse_search_mt_kernel<CT, true, true>
                           : coarse_search_mt_kernel<CT, true, false>;
         hard_kernel<<<B, 32, 0>>>(
-            d_q, d_tp, d_tq, d_act, d_wp, d_wo, /*base_p=*/nullptr, /*base_q=*/nullptr,
+            d_q, d_tp, d_tq, d_act, d_wp, d_wo, /*ori_mode=*/nullptr, /*ori_axis=*/nullptr,
+            /*base_p=*/nullptr, /*base_q=*/nullptr,
             d_pn, d_on, d_c, d_s, d_tr, R.trace_cap,
             d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_coord, (CT)h_min, (CT)max_step,
             max_iters, stall_lim, B, S, use_incremental, seed,
@@ -4023,7 +4242,8 @@ static CoarseOutputs launch_coarse_mt(
     CUDA_OK(cudaEventCreate(&ev0)); CUDA_OK(cudaEventCreate(&ev1));
     CUDA_OK(cudaEventRecord(ev0));
     coarse_search_mt_kernel<CT, false, false><<<B, 32, cc_smem>>>(
-        d_q, d_tp, d_tq, d_act, d_wp, d_wo, /*base_p=*/nullptr, /*base_q=*/nullptr,
+        d_q, d_tp, d_tq, d_act, d_wp, d_wo, /*ori_mode=*/nullptr, /*ori_axis=*/nullptr,
+        /*base_p=*/nullptr, /*base_q=*/nullptr,
         d_pn, d_on, d_c, d_s, d_tr, R.trace_cap,
         d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_coord, (CT)h_min, (CT)max_step,
         max_iters, stall_lim, B, S, use_incremental, seed,
@@ -4041,7 +4261,8 @@ static CoarseOutputs launch_coarse_mt(
     CUDA_OK(cudaEventCreate(&ev0)); CUDA_OK(cudaEventCreate(&ev1));
     CUDA_OK(cudaEventRecord(ev0));
     coarse_search_mt_kernel<CT, false, false><<<B, 32, 0>>>(
-        d_q, d_tp, d_tq, d_act, d_wp, d_wo, /*base_p=*/nullptr, /*base_q=*/nullptr,
+        d_q, d_tp, d_tq, d_act, d_wp, d_wo, /*ori_mode=*/nullptr, /*ori_axis=*/nullptr,
+        /*base_p=*/nullptr, /*base_q=*/nullptr,
         d_pn, d_on, d_c, d_s, d_tr, R.trace_cap,
         d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_coord, (CT)h_min, (CT)max_step,
         max_iters, stall_lim, B, S, use_incremental, seed,
@@ -4185,7 +4406,8 @@ static LMRefineOutputs launch_lm_mt(
     CUDA_OK(cudaEventCreate(&ev0)); CUDA_OK(cudaEventCreate(&ev1));
     CUDA_OK(cudaEventRecord(ev0));
     lm_multi_target_kernel<CT><<<(B + W - 1) / W, 32 * W, smem>>>(
-        d_q, d_tp, d_tq, d_act, d_wp, d_wo, /*base_p=*/nullptr, /*base_q=*/nullptr,
+        d_q, d_tp, d_tq, d_act, d_wp, d_wo, /*ori_mode=*/nullptr, /*ori_axis=*/nullptr,
+        /*base_p=*/nullptr, /*base_q=*/nullptr,
         /*out_base_diag=*/nullptr,
         d_pn, d_on, d_c, d_s, /*out_pose=*/nullptr,
         d_tr, R.trace_cap,
@@ -4279,12 +4501,36 @@ __global__ void pick_lm_seed_kernel(CT* __restrict__ lm_in, const CT* __restrict
 }
 
 #if defined(HJCD_HAS_COLLISION)
-// Batched exact collision check reading a CT (float/double) config buffer. valid[b] = config_free.
+// FLOATING-BASE ENVIRONMENT COLLISION.
+//
+// grid_collision::config_free() computes the sphere centres with grid::multi_target_position_device
+// and then runs BOTH tests on them. Those centres are in the ROBOT'S OWN base/model frame, which
+// makes the two tests behave very differently under a floating base:
+//
+//   self-collision  sphere-vs-sphere on the same body. Invariant to any rigid transform of the
+//                   whole robot, so the base is correctly irrelevant -- run it as-is.
+//   environment     sphere-vs-WORLD obstacle. The obstacles live at fixed world poses, so the
+//                   robot's world placement is exactly what decides the answer. Testing base-frame
+//                   centres against world obstacles evaluates the robot as if welded at the origin.
+//
+// So config_free is decomposed here rather than called, with
+//
+//     p_world = R(base_q) * p_local + base_p
+//
+// applied to every sphere centre BETWEEN the two tests. This needs no change to the generated
+// header (its pieces are public) and no extra joints: the 29 actuated joints stay the model, and
+// the base stays the [B,3]+[B,4] candidate-level state the solver already carries.
+//
+// base_p == nullptr (or base_q == nullptr) => identity transform, i.e. the exact pre-existing
+// fixed-base behaviour, instruction for instruction.
 template<typename CT>
-__global__ void mark_collisions_ct(const CT* __restrict__ q_in, int Bn,
+__global__ void mark_collisions_ct(const CT* __restrict__ q_in,
+                                   const CT* __restrict__ base_p, const CT* __restrict__ base_q,
+                                   int Bn,
                                    unsigned char* __restrict__ valid,
                                    const grid::robotModel<float>* d_robotModel,
-                                   grid_collision::Environment<float> env) {
+                                   grid_collision::Environment<float> env,
+                                   int include_self) {
     namespace gc = grid_collision;
     constexpr int NS = gc::NUM_COLLISION_SPHERES;
     const int b = (int)blockIdx.x;
@@ -4292,12 +4538,181 @@ __global__ void mark_collisions_ct(const CT* __restrict__ q_in, int Bn,
     __shared__ float s_q[N];
     __shared__ float s_pos[3 * NS];
     __shared__ float s_r[NS];
+    __shared__ float s_R[9];
+    __shared__ float s_t[3];
+    __shared__ int s_hit;
+
     for (int j = threadIdx.x; j < N; j += blockDim.x) s_q[j] = (float)q_in[(size_t)b*N + j];
+    if (threadIdx.x == 0) {
+        s_hit = 0;
+        const bool have_base = (base_p != nullptr && base_q != nullptr);
+        if (have_base) {
+            float bq[4];
+            #pragma unroll
+            for (int c = 0; c < 4; ++c) bq[c] = (float)base_q[(size_t)b*4 + c];
+            quat_to_mat3<float>(bq, s_R);                 // column-major 3x3, same as base_update
+            #pragma unroll
+            for (int c = 0; c < 3; ++c) s_t[c] = (float)base_p[(size_t)b*3 + c];
+        } else {
+            #pragma unroll
+            for (int i = 0; i < 9; ++i) s_R[i] = (i % 4 == 0) ? 1.0f : 0.0f;   // identity
+            s_t[0] = s_t[1] = s_t[2] = 0.0f;
+        }
+    }
     __syncthreads();
-    const bool ok = gc::config_free<float>(s_q, d_robotModel, env, s_pos, s_r, nullptr);
-    if (threadIdx.x == 0) valid[b] = ok ? 1 : 0;
+
+    // 1. sphere centres in the robot's base frame + their radii
+    grid::multi_target_position_device<float>(s_pos, s_q, d_robotModel, nullptr);
+    gc::load_collision_radii<float>(s_r);
+    __syncthreads();
+
+    // 2. OPTIONAL self-collision on base-frame centres (transform-invariant: running it before the
+    //    world transform is not an optimization, it is the frame the test is defined in).
+    //
+    //    include_self == 0 for the batched solve_problems path, and that is deliberate. HJCD now
+    //    has a DEDICATED self-collision channel (the curated g1sc sidecar, self_free), and
+    //    Checkpoint 8's contract is that the two channels stay orthogonal:
+    //        feasible = environment_free && self_collision_free
+    //    Folding a second, coarser self-model into final_free would make that mask mean
+    //    "environment AND grid-self", i.e. exactly the aliasing the contract forbids. It also
+    //    breaks G1 outright: the proxy's broad-phase bounding volumes (torso r=0.14,
+    //    base_link r=0.12) are the right SHAPE for wall avoidance but deliberately swallow the
+    //    arms, so grid-self reports every pose -- including q=0 -- self-colliding.
+    //
+    //    include_self == 1 preserves the legacy single-problem behaviour for robots (Panda) whose
+    //    curated foam model carries self_cc_ranges intended as exact colliders.
+    if (include_self && threadIdx.x == 0) {
+        if (gc::grid_cc_self_collision<float>(s_pos, s_r, gc::g_collision_self_cc_ranges,
+                                              gc::NUM_COLLISION_SELF_CC_RANGES))
+            s_hit = 1;
+    }
+    __syncthreads();
+
+    // 3. base -> world, then ENVIRONMENT collision on world centres.
+    if (!s_hit) {
+        for (int i = threadIdx.x; i < NS; i += blockDim.x) {
+            const float x = s_pos[3*i], y = s_pos[3*i+1], z = s_pos[3*i+2];
+            const float wx = s_R[0]*x + s_R[3]*y + s_R[6]*z + s_t[0];
+            const float wy = s_R[1]*x + s_R[4]*y + s_R[7]*z + s_t[1];
+            const float wz = s_R[2]*x + s_R[5]*y + s_R[8]*z + s_t[2];
+            s_pos[3*i] = wx; s_pos[3*i+1] = wy; s_pos[3*i+2] = wz;
+        }
+        __syncthreads();
+        for (int i = threadIdx.x; i < NS; i += blockDim.x) {
+            if (gc::grid_cc_sphere_in_environment<float>(env, s_pos[3*i], s_pos[3*i+1],
+                                                        s_pos[3*i+2], s_r[i])) {
+                atomicOr(&s_hit, 1);
+                break;
+            }
+        }
+    }
+    __syncthreads();
+    if (threadIdx.x == 0) valid[b] = s_hit ? 0 : 1;
 }
 #endif
+
+// =============================================================================================
+// CHECKPOINT 7: SELF-COLLISION AS A PRE-SELECTION ELIGIBILITY CHANNEL.
+//
+// Distinct from grid_collision. The two answer different questions and are wired separately:
+//
+//   environment_free[b]      grid_collision, compiled in only with --collision, carried by
+//                            `final_free` and gated on cc_enabled. Also drives the coarse
+//                            FALLBACK (apply_fallback_kernel), which self-collision does not.
+//   self_collision_free[b]   the g1sc proxy sidecar, requested by self_collision_mode="final",
+//                            carried by `self_free` and gated on sc_enabled.
+//
+// segmented_topM_kernel ANDs whichever channels are active. Neither may overwrite the other: a
+// build can have both, one, or none, and "collision-free" must keep meaning the specific thing
+// each channel measures.
+// =============================================================================================
+extern "C" void sidecar_full_check_device(const float* q_dev, unsigned char* out_dev,
+                                          int B, float margin);
+extern "C" int sidecar_num_checked_pairs();
+
+// ELIGIBILITY. A candidate is sent to the sidecar iff it could still WIN selection. The predicate
+// uses only conditions segmented_topM already treats as permanently invalid, plus the caller's own
+// acceptance tolerance:
+//
+//   finite q            NaN/Inf must never reach the proxy FK, and segmented_topM classes it 2.
+//   finite errors       same: an error that is not a number cannot be compared to a tolerance.
+//   max pos err <= tol  ONLY when the caller supplies self_collision_eligible_tol (< 0 disables).
+//
+// Deliberately NOT in the predicate: "worse E_phys than the current best", "not in the pre-
+// collision top-M", "a better candidate exists". Every one of those is unsound here, because the
+// better candidates may all collide -- that is the exact bug Checkpoint 7 removed.
+//
+// A skipped candidate gets self_free = 0, never 1. For the finite/error cases that is irrelevant
+// (their class is already 2), but making it conservative means a future predicate change cannot
+// silently promote an unchecked candidate to "collision-free".
+template<typename CT>
+__global__ void sc_prepare_kernel(const CT* __restrict__ q,
+                                  const CT* __restrict__ pe, const CT* __restrict__ oe,
+                                  const unsigned int* __restrict__ active,
+                                  unsigned char* __restrict__ eligible,
+                                  int B, int S, double elig_tol) {
+    const int b = (int)blockIdx.x * blockDim.x + threadIdx.x;
+    if (b >= B) return;
+    constexpr int K = hjcd::NT;
+    bool ok = true;
+    for (int j = 0; j < N && ok; ++j)
+        if (!isfinite((double)q[(size_t)b * N + j])) ok = false;
+    const unsigned int mask = active[b / S];
+    double worst_p = 0.0;
+    for (int k = 0; k < K && ok; ++k) {
+        if (!((mask >> k) & 1u)) continue;
+        const double ep = (double)pe[(size_t)b * K + k], eo = (double)oe[(size_t)b * K + k];
+        if (!isfinite(ep) || !isfinite(eo)) { ok = false; break; }
+        if (ep > worst_p) worst_p = ep;
+    }
+    if (ok && elig_tol >= 0.0 && worst_p > elig_tol) ok = false;
+    eligible[b] = ok ? 1 : 0;
+}
+
+// Exclusive scan of `eligible` -> compaction slot per candidate, plus the total. Single block,
+// sequential in thread 0: B is P*S (hundreds to a few thousand here), so this is microseconds, and
+// a sequential scan is exactly reproducible -- the compacted ORDER is then a pure function of the
+// eligibility mask, which keeps the whole path deterministic run to run.
+__global__ void sc_scan_kernel(const unsigned char* __restrict__ eligible,
+                               int* __restrict__ slot, int* __restrict__ count, int B) {
+    if (threadIdx.x != 0 || blockIdx.x != 0) return;
+    int n = 0;
+    for (int b = 0; b < B; ++b) { slot[b] = n; n += eligible[b] ? 1 : 0; }
+    *count = n;
+}
+
+// Gather the eligible candidates into a dense float32 buffer for the sidecar.
+template<typename CT>
+__global__ void sc_gather_kernel(const CT* __restrict__ q, const unsigned char* __restrict__ eligible,
+                                 const int* __restrict__ slot, float* __restrict__ qf, int B) {
+    const int b = blockIdx.x;
+    if (b >= B || !eligible[b]) return;
+    const int d = slot[b];
+    for (int j = threadIdx.x; j < N; j += blockDim.x)
+        qf[(size_t)d * N + j] = (float)q[(size_t)b * N + j];
+}
+
+// Scatter the sidecar's per-PAIR verdicts back to one per-candidate flag over the FULL B range.
+// free = eligible && no pair hit. Ineligible => 0 (conservative), never left uninitialized.
+__global__ void sc_scatter_kernel(const unsigned char* __restrict__ pairs,
+                                  const unsigned char* __restrict__ eligible,
+                                  const int* __restrict__ slot,
+                                  unsigned char* __restrict__ self_free, int B, int n_pairs) {
+    const int b = blockIdx.x;
+    if (b >= B) return;
+    __shared__ int s_hit;
+    if (threadIdx.x == 0) s_hit = 0;
+    __syncthreads();
+    if (eligible[b]) {
+        const int d = slot[b];
+        int hit = 0;
+        for (int i = threadIdx.x; i < n_pairs; i += blockDim.x)
+            if (pairs[(size_t)d * n_pairs + i]) { hit = 1; break; }
+        if (hit) atomicOr(&s_hit, 1);
+    }
+    __syncthreads();
+    if (threadIdx.x == 0) self_free[b] = (eligible[b] && !s_hit) ? 1 : 0;
+}
 
 // A candidate's ranking key. class_id: 0 solved, 1 valid-unsolved, 2 invalid.
 struct Cand {
@@ -4345,6 +4760,9 @@ __global__ void apply_fallback_kernel(
 // One block per problem. threadIdx scans candidates s in [0,S) with a grid-stride, keeps the best
 // under cand_better, then a shared-memory tree reduction picks the block winner. Counts are summed
 // the same way. Thread 0 gathers the winner's state into the [P,...] selected buffers.
+// SUPERSEDED by segmented_topM_kernel (M == 1 reproduces it exactly) and no longer launched.
+// It does NOT carry the Checkpoint-7 self-collision channel: reviving it would silently drop
+// self-collision from candidate eligibility.
 template<typename CT>
 __global__ void segmented_top1_kernel(
     const CT* __restrict__ q,          // B x N   (post-fallback config)
@@ -4486,6 +4904,9 @@ __global__ void segmented_topM_kernel(
     const unsigned char* __restrict__ final_free, const unsigned char* __restrict__ fallback,
     const unsigned char* __restrict__ lm_free, const CT* __restrict__ seeds,
     const unsigned int* __restrict__ active,
+    // Checkpoint 7: SELF-collision eligibility, a channel of its own. Null / sc_enabled == 0 =>
+    // not requested, and every branch below is exactly the pre-Checkpoint-7 one.
+    const unsigned char* __restrict__ self_free, const int sc_enabled,
     const CT eps_pos, const CT eps_ori, const int S, const int P, const int M, const int cc_enabled,
     CT* __restrict__ sel_q, CT* __restrict__ sel_pe, CT* __restrict__ sel_oe,
     CT* __restrict__ sel_cost, double* __restrict__ sel_ephys, int* __restrict__ sel_seed,
@@ -4526,11 +4947,15 @@ __global__ void segmented_topM_kernel(
                 const double rp=ep/(double)eps_pos, ro=eo/(double)eps_ori; ephys += rp*rp+ro*ro;
                 if (ep>(double)eps_pos || eo>(double)eps_ori) within=false;
             }
-            const bool feas = cc_enabled ? (final_free[b]!=0) : true;
+            // Feasibility is the AND of the ACTIVE channels; an inactive channel contributes
+            // `true` rather than being folded into the other, so neither can mask the other's
+            // verdict and a build may have both, one, or neither.
+            const bool feas = (cc_enabled ? (final_free[b]!=0) : true)
+                           && (sc_enabled ? (self_free[b]!=0) : true);
             int cls; if (!finite||!feas){cls=2;ephys=INFINITY;} else if(within)cls=0; else cls=1;
             if (m == 0) {
                 if (cls==0)++c0; if (cls<=1)++c1;
-                if (cc_enabled){ if(feas)++c2; if(lm_free&&lm_free[b]==0)++c3;
+                if (cc_enabled||sc_enabled){ if(feas)++c2; if(lm_free&&lm_free[b]==0)++c3;
                                  if(fallback&&fallback[b])++c4; if(!feas)++c5; }
             }
             if (taken) continue;
@@ -4557,7 +4982,7 @@ __global__ void segmented_topM_kernel(
             const bool invalid = (win.class_id == 2);
             if (m == 0) {
                 num_solved[p]=s_cnt[0]; num_valid[p]=s_cnt[1]; prob_success[p]=(s_cnt[0]>0)?1:0;
-                if (cc_enabled){ num_cfree[p]=s_cnt[2]; num_lm_coll[p]=s_cnt[3];
+                if (cc_enabled||sc_enabled){ num_cfree[p]=s_cnt[2]; num_lm_coll[p]=s_cnt[3];
                                  num_fb[p]=s_cnt[4]; num_infeas[p]=s_cnt[5]; }
             }
             s_taken[m] = invalid ? -1 : win.seed;
@@ -4604,6 +5029,7 @@ static SolveProblemsOutputs launch_solve_problems(
     SolveProblemsOutputs R;
     R.P = P; R.S = S; R.K = K; R.M = M; R.fp32 = std::is_same<CT,float>::value;
     R.cc_enabled = (cc_model && cc_env_ptr);
+    R.sc_enabled = in.self_collision;
     if (B <= 0 || P <= 0 || S <= 0 || !d_robotModel || !ws) return R;
     init_joint_limits_from_grid();
     const grid::robotModel<CT>* d_rm = robot_model_for<CT>(d_robotModel);
@@ -4630,6 +5056,16 @@ static SolveProblemsOutputs launch_solve_problems(
     // calls -- ensure_raw only grows, and a fixed-base call after a floating-base one would
     // otherwise keep the larger arena anyway.
     need += al((size_t)B*3*ct) + al((size_t)B*4*ct) + al((size_t)B*3*sizeof(int));  // + base diag
+    // Optional per-problem orientation modes/axes (Checkpoint 2) -- same rule: budget or crash.
+    need += al(pk*sizeof(int)) + al(pk*3*ct);
+    // Checkpoint 7 self-collision channel: q(float) + per-pair verdicts + eligible + free.
+    // Budgeted UNCONDITIONALLY for the same reason as the base above: the arena is reused across
+    // calls and only ever grows, so making its size depend on the mode flag buys nothing and
+    // would leave an `off` call after a `final` call silently sized for `final` anyway.
+    need += al((size_t)B*N*sizeof(float))
+          + al((size_t)B*(size_t)sidecar_num_checked_pairs())
+          + al((size_t)B)*2
+          + al((size_t)B*sizeof(int)) + al(sizeof(int));   // compaction slots + count
     ws->ensure_raw(need, R.fp32 ? 1 : 0);
     ws->rewind();
 
@@ -4640,12 +5076,27 @@ static SolveProblemsOutputs launch_solve_problems(
     unsigned int* d_pseeds = (in.problem_seeds != nullptr) ? ws->take<unsigned int>(P) : nullptr;
     CT* d_tp = ws->take<CT>(pk*3);  CT* d_tq = ws->take<CT>(pk*4);
     CT* d_wp = ws->take<CT>(pk);    CT* d_wo = ws->take<CT>(pk);
+    // Orientation modes/axes are OPTIONAL: reserved only when the caller supplied them, so a
+    // legacy (all-FULL) solve allocates nothing extra and passes the kernel a null pointer --
+    // the same branch it took before modes existed.
+    int* d_om = (in.ori_mode != nullptr) ? ws->take<int>(pk) : nullptr;
+    CT* d_oa  = (in.ori_axis != nullptr) ? ws->take<CT>(pk*3) : nullptr;
     unsigned int* d_act = ws->take<unsigned int>(P);
     unsigned char* d_usec = ws->take<unsigned char>(B);
     CT* d_cq = ws->take<CT>(bn); CT* d_cpe = ws->take<CT>(bk); CT* d_coe = ws->take<CT>(bk);
     CT* d_cc = ws->take<CT>(B);  unsigned char* d_cs = ws->take<unsigned char>(B);
     CT* d_lq = ws->take<CT>(bn); CT* d_lpe = ws->take<CT>(bk); CT* d_loe = ws->take<CT>(bk);
     CT* d_lc = ws->take<CT>(B);  unsigned char* d_ls = ws->take<unsigned char>(B);
+    // Checkpoint 7 self-collision channel. Reserved only when requested, so an `off` solve
+    // allocates nothing and hands the selection kernel a null pointer + sc_enabled = 0.
+    const int sc_enabled = in.self_collision ? 1 : 0;
+    const int sc_pairs = sc_enabled ? sidecar_num_checked_pairs() : 0;
+    float* d_scq = sc_enabled ? ws->take<float>((size_t)B * N) : nullptr;
+    unsigned char* d_scpairs = sc_enabled ? ws->take<unsigned char>((size_t)B * sc_pairs) : nullptr;
+    unsigned char* d_sceli = sc_enabled ? ws->take<unsigned char>(B) : nullptr;
+    unsigned char* d_scfree_cand = sc_enabled ? ws->take<unsigned char>(B) : nullptr;
+    int* d_scslot = sc_enabled ? ws->take<int>(B) : nullptr;
+    int* d_sccount = sc_enabled ? ws->take<int>(1) : nullptr;
     unsigned char* d_lmfree = ws->take<unsigned char>(B);
     unsigned char* d_cofree = ws->take<unsigned char>(B);
     unsigned char* d_final  = ws->take<unsigned char>(B);
@@ -4689,6 +5140,8 @@ static SolveProblemsOutputs launch_solve_problems(
     upload_in<CT>(d_tq,    in.tgt_q, in.f32, pk*4, stage);
     upload_in<CT>(d_wp,    in.wp,    in.f32, pk, stage);
     upload_in<CT>(d_wo,    in.wo,    in.f32, pk, stage);
+    if (d_om) CUDA_OK(cudaMemcpy(d_om, in.ori_mode, sizeof(int)*pk, cudaMemcpyHostToDevice));
+    if (d_oa) upload_in<CT>(d_oa, in.ori_axis, in.f32, pk*3, stage);
     if (floating_base) {
         upload_in<CT>(d_bp, in.base_p, in.f32, (size_t)B * 3, stage);
         upload_in<CT>(d_bq, in.base_q, in.f32, (size_t)B * 4, stage);
@@ -4716,7 +5169,7 @@ static SolveProblemsOutputs launch_solve_problems(
                     cudaFuncAttributeMaxDynamicSharedMemorySize, (int)cc_smem));
         }
         coarse_search_mt_kernel<CT, false, false><<<B,32,cc_smem>>>(
-            d_cq, d_tp, d_tq, d_act, d_wp, d_wo, d_bp, d_bq, d_cpe, d_coe, d_cc, d_cs, nullptr, 0,
+            d_cq, d_tp, d_tq, d_act, d_wp, d_wo, d_om, d_oa, d_bp, d_bq, d_cpe, d_coe, d_cc, d_cs, nullptr, 0,
             d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_coord, (CT)h_min, (CT)max_step,
             coarse_iters, coarse_stall_lim, B, S, use_incremental, seed, d_pseeds, max_pert_attempts,
             0 /*hard_enabled*/, 1 /*hard_top_k*/, 0 /*oracle*/, 0.0f /*hard_margin*/,
@@ -4727,7 +5180,7 @@ static SolveProblemsOutputs launch_solve_problems(
 #else
         (void)cc_smem;
         coarse_search_mt_kernel<CT, false, false><<<B,32,0>>>(
-            d_cq, d_tp, d_tq, d_act, d_wp, d_wo, d_bp, d_bq, d_cpe, d_coe, d_cc, d_cs, nullptr, 0,
+            d_cq, d_tp, d_tq, d_act, d_wp, d_wo, d_om, d_oa, d_bp, d_bq, d_cpe, d_coe, d_cc, d_cs, nullptr, 0,
             d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_coord, (CT)h_min, (CT)max_step,
             coarse_iters, coarse_stall_lim, B, S, use_incremental, seed, d_pseeds, max_pert_attempts,
             0 /*hard_enabled*/, 1 /*hard_top_k*/, 0 /*oracle*/, 0.0f /*hard_margin*/,
@@ -4748,7 +5201,7 @@ static SolveProblemsOutputs launch_solve_problems(
         CUDA_OK(cudaFuncSetAttribute(lm_multi_target_kernel<CT>,
                 cudaFuncAttributeMaxDynamicSharedMemorySize, (int)smem));
     lm_multi_target_kernel<CT><<<B,32,smem>>>(
-        d_lq, d_tp, d_tq, d_act, d_wp, d_wo, d_bp, d_bq, d_bdiag,
+        d_lq, d_tp, d_tq, d_act, d_wp, d_wo, d_om, d_oa, d_bp, d_bq, d_bdiag,
         d_lpe, d_loe, d_lc, d_ls, nullptr, nullptr, 0,
         d_rm, (CT)eps_pos, (CT)eps_ori, (CT)lambda_init, lm_iters, B, 0, stag_patience, (CT)stag_rel, S,
         bcfg);
@@ -4776,19 +5229,49 @@ static SolveProblemsOutputs launch_solve_problems(
         const size_t mc_smem = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<float>();
         CUDA_OK(cudaFuncSetAttribute(mark_collisions_ct<CT>,
                 cudaFuncAttributeMaxDynamicSharedMemorySize, (int)mc_smem));
-        mark_collisions_ct<CT><<<B,128,mc_smem>>>(d_lq, B, d_lmfree, rmcc, env);
-        mark_collisions_ct<CT><<<B,128,mc_smem>>>(d_cq, B, d_cofree, rmcc, env);
+        // d_bp/d_bq are the CANDIDATE-level base states the LM optimized (null => fixed base).
+        // include_self = 0: environment ONLY. Self-collision is the sidecar channel's job.
+        mark_collisions_ct<CT><<<B,128,mc_smem>>>(d_lq, d_bp, d_bq, B, d_lmfree, rmcc, env, 0);
+        mark_collisions_ct<CT><<<B,128,mc_smem>>>(d_cq, d_bp, d_bq, B, d_cofree, rmcc, env, 0);
         apply_fallback_kernel<CT><<<B,32>>>(d_lq,d_lpe,d_loe,d_lc,d_ls, d_cq,d_cpe,d_coe,d_cc,d_cs,
                                             d_lmfree,d_cofree,d_final,d_fb, B, K);
         CUDA_OK(cudaPeekAtLastError());
     }
 #endif
 
+    // ---- Checkpoint 7: SELF-COLLISION ELIGIBILITY, BEFORE SELECTION ----
+    // This is the earliest point at which all B = P*S FINAL candidate configurations exist: the
+    // LM has written them to d_lq and nothing downstream rewrites them (apply_fallback_kernel
+    // above is the environment-collision path and runs before this). Everything stays on the
+    // device -- d_lq feeds the sidecar's own kernel directly and the verdict feeds selection in
+    // the same stream, so there is no host round trip for the candidate configs or the mask.
+    cudaEvent_t esc0, esc1; CUDA_OK(cudaEventCreate(&esc0)); CUDA_OK(cudaEventCreate(&esc1));
+    CUDA_OK(cudaEventRecord(esc0));
+    if (sc_enabled) {
+        // eligibility -> scan -> gather -> ONE sidecar launch over the compacted set -> scatter.
+        sc_prepare_kernel<CT><<<(B + 255) / 256, 256>>>(
+            d_lq, d_lpe, d_loe, d_act, d_sceli, B, S, in.self_collision_eligible_tol);
+        sc_scan_kernel<<<1, 32>>>(d_sceli, d_scslot, d_sccount, B);
+        // The compacted COUNT sizes the sidecar launch, so it has to be known on the host. This is
+        // the only host round trip the channel makes -- 4 bytes, no candidate data.
+        CUDA_OK(cudaMemcpy(&R.sc_checked, d_sccount, sizeof(int), cudaMemcpyDeviceToHost));
+        R.sc_eligible = R.sc_checked;
+        if (R.sc_checked > 0) {
+            sc_gather_kernel<CT><<<B, 32>>>(d_lq, d_sceli, d_scslot, d_scq, B);
+            sidecar_full_check_device(d_scq, d_scpairs, R.sc_checked,
+                                      (float)in.self_collision_margin);
+        }
+        sc_scatter_kernel<<<B, 128>>>(d_scpairs, d_sceli, d_scslot, d_scfree_cand, B, sc_pairs);
+        CUDA_OK(cudaPeekAtLastError());
+    }
+    CUDA_OK(cudaEventRecord(esc1));
+
     // ---- segmented top-M (M == 1 reproduces top-1) ----
     const int blk = seg_block_size(S);
     const size_t sel_smem = (size_t)blk * (sizeof(Cand) + 6*sizeof(int)) + (size_t)M*sizeof(int);
     segmented_topM_kernel<CT><<<P, blk, sel_smem>>>(
         d_lq, d_lpe, d_loe, d_lc, d_ls, d_final, d_fb, d_lmfree, d_seeds, d_act,
+        d_scfree_cand, sc_enabled,
         (CT)eps_pos, (CT)eps_ori, S, P, M, cc_enabled,
         d_sq, d_spe, d_soe, d_sc, d_sephys, d_sseed, d_ssucc, d_svalid, d_scfree, d_sfb,
         d_nsolved, d_nvalid, d_psucc, d_ncfree, d_nlmcoll, d_nfb, d_ninfeas);
@@ -4797,7 +5280,9 @@ static SolveProblemsOutputs launch_solve_problems(
     CUDA_OK(cudaDeviceSynchronize());
     { float ms; CUDA_OK(cudaEventElapsedTime(&ms,e0,e1)); R.coarse_ms=ms;
       CUDA_OK(cudaEventElapsedTime(&ms,e1,e2)); R.lm_ms=ms;
-      CUDA_OK(cudaEventElapsedTime(&ms,e2,e3)); R.select_ms=ms; }
+      CUDA_OK(cudaEventElapsedTime(&ms,esc1,e3)); R.select_ms=ms;
+      CUDA_OK(cudaEventElapsedTime(&ms,esc0,esc1)); R.self_collision_ms=ms; }
+    CUDA_OK(cudaEventDestroy(esc0)); CUDA_OK(cudaEventDestroy(esc1));
     for (auto e:{e0,e1,e2,e3}) CUDA_OK(cudaEventDestroy(e));
 
     // ---- D2H: selected only (config goes straight into the caller's [P,N] buffer) ----
@@ -4816,7 +5301,7 @@ static SolveProblemsOutputs launch_solve_problems(
     d2hb(d_scfree,R.sel_cfree,(int)pm); d2hb(d_sfb,R.sel_fb,(int)pm);
     d2hb(d_psucc,R.prob_success,P);
     d2hi(d_nsolved,R.num_solved); d2hi(d_nvalid,R.num_valid);
-    if (cc_enabled) { d2hi(d_ncfree,R.num_cfree); d2hi(d_nlmcoll,R.num_lm_coll);
+    if (cc_enabled || sc_enabled) { d2hi(d_ncfree,R.num_cfree); d2hi(d_nlmcoll,R.num_lm_coll);
                       d2hi(d_nfb,R.num_fb); d2hi(d_ninfeas,R.num_infeas); }
 
     if (return_all) {
@@ -4826,11 +5311,19 @@ static SolveProblemsOutputs launch_solve_problems(
         widen_d2h<CT>(d_lc,  R.all_cost, (size_t)B);
         d2hb(d_ls, R.all_succ, B);
         R.all_cfree.assign(B, 1);
+        R.all_env_free.assign(B, 1);
+        R.all_self_free.assign(B, 1);
         R.all_fb.assign(B, 0);
         if (cc_enabled) {
-            CUDA_OK(cudaMemcpy(R.all_cfree.data(), d_final, B, cudaMemcpyDeviceToHost));
-            CUDA_OK(cudaMemcpy(R.all_fb.data(),    d_fb,    B, cudaMemcpyDeviceToHost));
+            CUDA_OK(cudaMemcpy(R.all_env_free.data(), d_final, B, cudaMemcpyDeviceToHost));
+            CUDA_OK(cudaMemcpy(R.all_fb.data(),       d_fb,    B, cudaMemcpyDeviceToHost));
         }
+        if (sc_enabled)
+            CUDA_OK(cudaMemcpy(R.all_self_free.data(), d_scfree_cand, B, cudaMemcpyDeviceToHost));
+        // The combined mask is the AND of the ACTIVE channels; an inactive channel stays all-ones,
+        // so it contributes `true` and cannot mask the other's verdict.
+        for (int i = 0; i < B; ++i)
+            R.all_cfree[i] = (R.all_env_free[i] && R.all_self_free[i]) ? 1 : 0;
     }
     return R;
 }
@@ -4987,7 +5480,8 @@ double bench_fk_mode(const double* h_q, int j, int iters, int mode,
 
 NormalEquations compute_normal_equations(
     const double* h_q, const double* h_tgt_p, const double* h_tgt_q,
-    const unsigned int* h_active, const double* h_wp, const double* h_wo, int B,
+    const unsigned int* h_active, const double* h_wp, const double* h_wo,
+    const int* h_ori_mode, const double* h_ori_axis, int B,
     const grid::robotModel<double>* d_robotModel)
 {
     const int K = hjcd::NT;
@@ -5007,6 +5501,18 @@ NormalEquations compute_normal_equations(
     CUDA_OK(cudaMalloc(&d_wo, sizeof(double)*(size_t)B*K));
     CUDA_OK(cudaMalloc(&d_A,  sizeof(double)*R.A.size()));
     CUDA_OK(cudaMalloc(&d_b,  sizeof(double)*R.b.size()));
+    // Null host pointer => null device pointer => the kernel's FULL default. Allocating a
+    // "FULL everywhere" buffer instead would work but would hide that legacy callers take the
+    // exact same branch they always did.
+    int* d_om = nullptr; double* d_oa = nullptr;
+    if (h_ori_mode) {
+        CUDA_OK(cudaMalloc(&d_om, sizeof(int)*(size_t)B*K));
+        CUDA_OK(cudaMemcpy(d_om, h_ori_mode, sizeof(int)*(size_t)B*K, cudaMemcpyHostToDevice));
+    }
+    if (h_ori_axis) {
+        CUDA_OK(cudaMalloc(&d_oa, sizeof(double)*(size_t)B*K*3));
+        CUDA_OK(cudaMemcpy(d_oa, h_ori_axis, sizeof(double)*(size_t)B*K*3, cudaMemcpyHostToDevice));
+    }
     CUDA_OK(cudaMemcpy(d_q,  h_q,  sizeof(double)*(size_t)B*N, cudaMemcpyHostToDevice));
     CUDA_OK(cudaMemcpy(d_tp, h_tgt_p, sizeof(double)*(size_t)B*K*3, cudaMemcpyHostToDevice));
     CUDA_OK(cudaMemcpy(d_tq, h_tgt_q, sizeof(double)*(size_t)B*K*4, cudaMemcpyHostToDevice));
@@ -5014,20 +5520,21 @@ NormalEquations compute_normal_equations(
     CUDA_OK(cudaMemcpy(d_wp, h_wp, sizeof(double)*(size_t)B*K, cudaMemcpyHostToDevice));
     CUDA_OK(cudaMemcpy(d_wo, h_wo, sizeof(double)*(size_t)B*K, cudaMemcpyHostToDevice));
 
-    normal_equations_kernel<double><<<B, 32>>>(d_q, d_tp, d_tq, d_act, d_wp, d_wo, d_A, d_b,
+    normal_equations_kernel<double><<<B, 32>>>(d_q, d_tp, d_tq, d_act, d_wp, d_wo, d_om, d_oa, d_A, d_b,
                                                d_robotModel, B);
     CUDA_OK(cudaPeekAtLastError());
     CUDA_OK(cudaDeviceSynchronize());
     CUDA_OK(cudaMemcpy(R.A.data(), d_A, sizeof(double)*R.A.size(), cudaMemcpyDeviceToHost));
     CUDA_OK(cudaMemcpy(R.b.data(), d_b, sizeof(double)*R.b.size(), cudaMemcpyDeviceToHost));
     for (void* p : {(void*)d_q,(void*)d_tp,(void*)d_tq,(void*)d_act,(void*)d_wp,(void*)d_wo,
-                    (void*)d_A,(void*)d_b}) cudaFree(p);
+                    (void*)d_A,(void*)d_b,(void*)d_om,(void*)d_oa}) cudaFree(p);
     return R;
 }
 
 ResidualOutputs compute_target_residuals(
     const double* h_q, const double* h_tgt_p, const double* h_tgt_q,
     const unsigned int* h_active, const double* h_wp, const double* h_wo,
+    const int* h_ori_mode, const double* h_ori_axis,
     const double* h_eps_p, const double* h_eps_o, int B,
     const grid::robotModel<double>* d_robotModel)
 {
@@ -5058,6 +5565,9 @@ ResidualOutputs compute_target_residuals(
     M((void**)&d_wo,  sizeof(double) * (size_t)B * K);
     M((void**)&d_ep,  sizeof(double) * K);
     M((void**)&d_eo,  sizeof(double) * K);
+    int* d_om = nullptr; double* d_oa = nullptr;   // null => the kernel's FULL default
+    if (h_ori_mode) M((void**)&d_om, sizeof(int) * (size_t)B * K);
+    if (h_ori_axis) M((void**)&d_oa, sizeof(double) * (size_t)B * K * 3);
     M((void**)&d_epos, sizeof(double) * (size_t)B * K * 3);
     M((void**)&d_eori, sizeof(double) * (size_t)B * K * 3);
     M((void**)&d_pn,  sizeof(double) * (size_t)B * K);
@@ -5079,9 +5589,11 @@ ResidualOutputs compute_target_residuals(
     H2D(d_wo,  h_wo,    sizeof(double) * (size_t)B * K);
     H2D(d_ep,  h_eps_p, sizeof(double) * K);
     H2D(d_eo,  h_eps_o, sizeof(double) * K);
+    if (h_ori_mode) H2D(d_om, h_ori_mode, sizeof(int) * (size_t)B * K);
+    if (h_ori_axis) H2D(d_oa, h_ori_axis, sizeof(double) * (size_t)B * K * 3);
 
     target_residual_kernel<double><<<B, 32>>>(
-        d_q, d_tp, d_tq, d_act, d_wp, d_wo, d_ep, d_eo,
+        d_q, d_tp, d_tq, d_act, d_wp, d_wo, d_om, d_oa, d_ep, d_eo,
         d_epos, d_eori, d_pn, d_on, d_c, d_craw, d_cnorm, d_succ, d_sall, d_robotModel, B);
     CUDA_OK(cudaPeekAtLastError());
     CUDA_OK(cudaDeviceSynchronize());
@@ -5437,28 +5949,38 @@ __global__ void mark_collisions(
 // Exact collision check for a batch of configs, using the SAME evaluator the solver gates on
 // (grid_collision::config_free -- SELF + environment). Test/introspection entry point.
 std::vector<unsigned char> check_collision_free(
-    const double* h_q, int B, const char* json, const char* set_name, int idx)
+    const double* h_q, int B, const char* json, const char* set_name, int idx,
+    const double* h_base_p, const double* h_base_q, bool include_self)
 {
     std::vector<unsigned char> out((size_t)B, 1);
 #if defined(HJCD_HAS_COLLISION)
     if (!bind_collision_env(json, set_name, idx)) return out;
     double* d_q = nullptr; unsigned char* d_v = nullptr;
+    double* d_bp = nullptr; double* d_bq = nullptr;
     CUDA_OK(cudaMalloc(&d_q, sizeof(double)*(size_t)B*N));
     CUDA_OK(cudaMalloc(&d_v, sizeof(unsigned char)*(size_t)B));
     CUDA_OK(cudaMemcpy(d_q, h_q, sizeof(double)*(size_t)B*N, cudaMemcpyHostToDevice));
+    // Optional floating base, [B,3] + [B,4] wxyz. Both null => identity, the fixed-base path.
+    if (h_base_p && h_base_q) {
+        CUDA_OK(cudaMalloc(&d_bp, sizeof(double)*(size_t)B*3));
+        CUDA_OK(cudaMalloc(&d_bq, sizeof(double)*(size_t)B*4));
+        CUDA_OK(cudaMemcpy(d_bp, h_base_p, sizeof(double)*(size_t)B*3, cudaMemcpyHostToDevice));
+        CUDA_OK(cudaMemcpy(d_bq, h_base_q, sizeof(double)*(size_t)B*4, cudaMemcpyHostToDevice));
+    }
     const size_t cc_smem = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<float>();
-    CUDA_OK(cudaFuncSetAttribute((const void*)mark_collisions,
+    CUDA_OK(cudaFuncSetAttribute(mark_collisions_ct<double>,
                                  cudaFuncAttributeMaxDynamicSharedMemorySize, (int)cc_smem));
-    mark_collisions<<<B, CC_TPB, cc_smem>>>(
-        d_q, B, d_v,
+    mark_collisions_ct<double><<<B, CC_TPB, cc_smem>>>(
+        d_q, d_bp, d_bq, B, d_v,
         reinterpret_cast<const grid::robotModel<float>*>(collision_model_ptr()),
-        *reinterpret_cast<const grid_collision::Environment<float>*>(collision_env_ptr()));
+        *reinterpret_cast<const grid_collision::Environment<float>*>(collision_env_ptr()),
+        include_self ? 1 : 0);
     CUDA_OK(cudaPeekAtLastError());
     CUDA_OK(cudaDeviceSynchronize());
     CUDA_OK(cudaMemcpy(out.data(), d_v, sizeof(unsigned char)*(size_t)B, cudaMemcpyDeviceToHost));
-    cudaFree(d_q); cudaFree(d_v);
+    for (void* p : {(void*)d_q,(void*)d_v,(void*)d_bp,(void*)d_bq}) cudaFree(p);
 #else
-    (void)h_q; (void)json; (void)set_name; (void)idx;
+    (void)h_q; (void)json; (void)set_name; (void)idx; (void)h_base_p; (void)h_base_q; (void)include_self;
 #endif
     return out;
 }
@@ -5916,7 +6438,8 @@ Result<T> generate_ik_solutions(
                 cudaFuncAttributeMaxDynamicSharedMemorySize, (int)lm_smem));
 
         lm_multi_target_kernel<RT><<<Krep, 32, lm_smem>>>(
-            dx64, d_p, d_qt, d_act, d_wp, d_wo, /*base_p=*/nullptr, /*base_q=*/nullptr,
+            dx64, d_p, d_qt, d_act, d_wp, d_wo, /*ori_mode=*/nullptr, /*ori_axis=*/nullptr,
+            /*base_p=*/nullptr, /*base_q=*/nullptr,
             /*out_base_diag=*/nullptr,
             dposmm64, dori64, d_cost, d_su, dpose64,
             /*out_trace=*/nullptr, /*trace_cap=*/0,

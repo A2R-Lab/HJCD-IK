@@ -100,7 +100,9 @@ const void* collision_env_ptr();     // grid_collision::Environment<float>*, or 
 
 // Exact collision check for a batch, using the SAME evaluator the coarse gate uses.
 std::vector<unsigned char> check_collision_free(
-    const double* h_q, int B, const char* json, const char* set_name, int idx);
+    const double* h_q, int B, const char* json, const char* set_name, int idx,
+    const double* h_base_p = nullptr, const double* h_base_q = nullptr,
+    bool include_self = true);
 
 // Persistent device workspace (Phase 0E). Owned by exactly one solver instance; NOT thread-safe.
 // Stage 3D/3E hard-mode introspection (implemented in hjcd_kernel.cu; see the persistent
@@ -137,6 +139,21 @@ struct SolveInputs {
     // and seeds_per_problem = 1, i.e. every candidate is its own problem with its own target copy.
     int num_problems = 0;         // P; 0 means "legacy: P = B, S = 1" (filled in by the launcher)
     int seeds_per_problem = 1;    // S
+    // Per-target orientation mode (0 NONE, 1 AXIS, 2 FULL) and the target-LOCAL unit axis AXIS
+    // mode aligns. PROBLEM-level like the weights: [P, K] and [P, K, 3]. Both null => FULL for
+    // every target, which is the pre-modes behaviour bit-for-bit. `ori_axis` follows the same
+    // f32/f64 selection as the other geometry arrays.
+    const int* ori_mode = nullptr;
+    const void* ori_axis = nullptr;
+    // Checkpoint 7: run the g1sc self-collision sidecar over ALL candidates and let the verdict
+    // gate ELIGIBILITY before top-M selection. Distinct from grid_collision (--collision), which
+    // has its own channel; a build may enable either, both, or neither.
+    bool self_collision = false;
+    double self_collision_margin = 0.0;
+    // Caller's ACCEPTANCE threshold on max position error. Negative => disabled (check every
+    // otherwise-selectable candidate). See hjcdik/__init__.py for the semantics change this
+    // carries relative to the pre-Checkpoint-7 post-selection gate.
+    double self_collision_eligible_tol = -1.0;
     // Floating base (optional). Both null => FIXED base, and every downstream path is
     // bit-identical to the pre-floating-base solver. Non-null => [B, 3] and [B, 4] (wxyz, unit),
     // CANDIDATE-level like q, NOT problem-level like tgt_p: each seed carries its own base.
@@ -302,9 +319,17 @@ struct SolveProblemsOutputs {
     std::vector<int> num_solved, num_valid, num_cfree, num_lm_coll, num_fb, num_infeas;  // [P]
     std::vector<unsigned char> prob_success;                 // [P]
     bool cc_enabled = false;
+    bool sc_enabled = false;   // Checkpoint 7: self-collision channel was active
+    float self_collision_ms = 0.0f;   // device sidecar prepare+compact+check+scatter, excluded from select_ms
+    int sc_eligible = 0;              // candidates that could still win selection
+    int sc_checked = 0;               // candidates actually sent to the sidecar (== sc_eligible)
     // Full candidate arrays (only when return_all). Candidate config comes back via out_all_q_ct.
     std::vector<double> all_pe, all_oe, all_cost;            // [B,K] [B,K] [B]
     std::vector<unsigned char> all_succ, all_cfree, all_fb;  // [B]
+    // Per-CHANNEL candidate masks. all_cfree is their AND; these keep the two verdicts
+    // separable so a caller (and the composition test) can tell which channel rejected what.
+    std::vector<unsigned char> all_env_free;    // environment channel alone
+    std::vector<unsigned char> all_self_free;   // self-collision channel alone
 };
 
 // Orchestrate coarse -> LM -> (collision + candidate-local fallback) -> segmented top-1, all
@@ -356,7 +381,8 @@ struct NormalEquations {
 };
 NormalEquations compute_normal_equations(
     const double* h_q, const double* h_tgt_p, const double* h_tgt_q,
-    const unsigned int* h_active, const double* h_wp, const double* h_wo, int B,
+    const unsigned int* h_active, const double* h_wp, const double* h_wo,
+    const int* h_ori_mode, const double* h_ori_axis, int B,
     const grid::robotModel<double>* d_robotModel);
 
 ResidualOutputs compute_target_residuals(
@@ -366,6 +392,8 @@ ResidualOutputs compute_target_residuals(
     const unsigned int* h_active,  // B      (bit k = target k active)
     const double* h_wp,       // B x K
     const double* h_wo,       // B x K
+    const int* h_ori_mode,    // B x K, may be null => FULL everywhere
+    const double* h_ori_axis, // B x K x 3, may be null
     const double* h_eps_p,    // K
     const double* h_eps_o,    // K
     int B,

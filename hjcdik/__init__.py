@@ -44,14 +44,187 @@ __all__ = [
     "link_transforms", "target_transforms", "target_metadata", "target_residuals",
     "normal_equations", "refine", "coarse_search", "incremental_probe", "bench_fk",
     "pack_active_mask", "collision_free", "solve", "solve_problems", "HJCDSolver",
-    "self_collision_info",
+    "self_collision_info", "joint_names", "target_names", "target_axes",
+    "ORI_NONE", "ORI_AXIS", "ORI_FULL",
 ]
 
-# The generated target order is FIXED and is the order of every [.., K, ..] axis in this API,
-# in every result array, and in the benchmarks:
-#     0 = left hand    1 = right hand    2 = left foot    3 = right foot
-# (For a single-target robot such as Panda, K == 1 and index 0 is its one generated target.)
-# Names for index k: target_metadata() -> see csrc/generated/hjcd_targets.json.
+# The generated target order is FIXED and is the order of every [.., K, ..] axis in this API, in
+# every result array, and in the benchmarks. It is whatever order the targets were declared to
+# scripts/codegen/generate_grid.py in -- for the current G1 build, left hand / right hand / left
+# foot / right foot; for a single-target robot such as Panda, K == 1 and index 0 is its one
+# generated target. Call target_names() for the compiled build's actual order rather than assuming
+# one; likewise joint_names() for the configuration-vector order.
+
+
+# --- generated model metadata (names) ------------------------------------------------------------
+# num_joints()/num_targets()/target_metadata() come from the compiled extension and carry no
+# strings: the CUDA hot path never sees a name. The names are resolved at codegen time and written
+# to the JSON sidecar below, which ships as package data. Read it through importlib.resources so
+# this works identically from a wheel, a site-packages install and an editable checkout -- never
+# relative to the CWD, and never by walking back up to a repository layout.
+
+_METADATA_RESOURCE = "hjcd_targets.json"
+
+_metadata_lock = _threading.Lock()
+_metadata_cache = None
+_names_cache = {}
+
+
+def _read_metadata_text():
+    """Return the packaged metadata sidecar as text.
+
+    Resolved through importlib.resources against this package, so it works identically from a
+    wheel, a site-packages install and an editable checkout. Isolated in its own function to give
+    the tests a seam for injecting malformed metadata without touching the real file.
+    """
+    try:
+        from importlib.resources import files as _files
+    except ImportError:                      # Python 3.8; the project floor is 3.9, so belt-and-braces
+        from importlib_resources import files as _files   # type: ignore[import-not-found]
+
+    return (_files(__package__) / _METADATA_RESOURCE).read_text(encoding="utf-8")
+
+
+def _generated_metadata():
+    """Parse (once) and return the generated metadata sidecar as a dict."""
+    global _metadata_cache
+    if _metadata_cache is not None:
+        return _metadata_cache
+    with _metadata_lock:
+        if _metadata_cache is not None:      # another thread won the race
+            return _metadata_cache
+
+        import json as _json
+
+        try:
+            text = _read_metadata_text()
+        except (FileNotFoundError, ModuleNotFoundError, OSError) as exc:
+            raise RuntimeError(
+                f"Generated metadata {_METADATA_RESOURCE!r} is missing from the hjcdik package. "
+                "It is written by scripts/codegen/generate_grid.py; regenerate the build "
+                "(scripts/dev/g1_check.sh, or generate_grid.py directly) to restore it."
+            ) from exc
+
+        try:
+            meta = _json.loads(text)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"Generated metadata {_METADATA_RESOURCE!r} is not valid JSON: {exc}. "
+                "Regenerate it with scripts/codegen/generate_grid.py."
+            ) from exc
+
+        if not isinstance(meta, dict):
+            raise RuntimeError(
+                f"Generated metadata {_METADATA_RESOURCE!r} must be a JSON object, "
+                f"got {type(meta).__name__}."
+            )
+
+        _metadata_cache = meta
+        return _metadata_cache
+
+
+def _generated_names(key, expected, what):
+    """Read `key` from the sidecar, validating it against the compiled extension.
+
+    A stale sidecar is the failure mode that matters: the .so is rebuilt for a different robot but
+    the JSON is left behind, and every name is then silently wrong-by-one. Checking the length
+    against the extension's own count catches that at the first call rather than downstream.
+
+    The validated tuple is memoized, so callers get the identical object every time and the
+    validation runs once.
+    """
+    cached = _names_cache.get(key)
+    if cached is not None:
+        return cached
+
+    meta = _generated_metadata()
+
+    if key not in meta:
+        raise RuntimeError(
+            f"Generated metadata {_METADATA_RESOURCE!r} has no {key!r} field. It predates the "
+            "metadata-names change; regenerate it with scripts/codegen/generate_grid.py."
+        )
+
+    names = meta[key]
+    if not isinstance(names, list) or not all(isinstance(x, str) for x in names):
+        raise RuntimeError(
+            f"Generated metadata {key!r} must be a list of strings, got {type(names).__name__}."
+        )
+
+    if not names:
+        raise RuntimeError(f"Generated metadata {key!r} is empty; the build has no {what}.")
+
+    if len(set(names)) != len(names):
+        seen, dupes = set(), []
+        for name in names:
+            if name in seen and name not in dupes:
+                dupes.append(name)
+            seen.add(name)
+        raise RuntimeError(
+            f"Generated metadata {key!r} contains duplicate {what} names: {dupes}. "
+            "Names index the generated order, so they must be unique."
+        )
+
+    if len(names) != expected:
+        raise RuntimeError(
+            f"Generated metadata is stale: {key!r} has {len(names)} entries but the compiled "
+            f"extension reports {expected} {what}. The .so and {_METADATA_RESOURCE!r} came from "
+            "different codegen runs; re-run scripts/codegen/generate_grid.py and rebuild."
+        )
+
+    result = tuple(names)
+    _names_cache[key] = result
+    return result
+
+
+def joint_names():
+    """Generated joint names, in configuration-vector order.
+
+    ``joint_names()[j]`` names joint ``j`` -- the same index used by ``joint_limits()``, by the
+    ``q`` vectors passed to and returned by the solver, and by every per-joint device array.
+
+    Returns a tuple of ``num_joints()`` unique strings. Raises RuntimeError if the generated
+    metadata is missing, malformed, or inconsistent with the compiled extension.
+    """
+    return _generated_names("joint_names", num_joints(), "joints")
+
+
+def target_names():
+    """Generated target names, in target order.
+
+    ``target_names()[k]`` names target ``k`` -- the index of every ``[.., K, ..]`` axis in this API.
+
+    Returns a tuple of ``num_targets()`` unique strings. Raises RuntimeError if the generated
+    metadata is missing, malformed, or inconsistent with the compiled extension.
+    """
+    return _generated_names("target_names", num_targets(), "targets")
+
+
+def target_axes():
+    """Generated per-target contact axes, in target order: float64 ``[K, 3]``.
+
+    ``target_axes()[k]`` is target k's default ORI_AXIS direction, expressed in that target's own
+    frame and unit-normalized at codegen time. It is the axis
+    ``solve_problems(orientation_modes="axis")`` aligns unless an ``orientation_axes=`` override is
+    given.
+
+    A target that declared no ``orientation_axis=`` at codegen gets a ZERO row. That is a sentinel,
+    not a direction -- no unit axis is zero -- and requesting AXIS mode for such a target raises
+    rather than silently constraining nothing. Builds generated before this field existed return
+    all-zero, i.e. "no target declares an axis", which is the correct answer for them.
+    """
+    K = num_targets()
+    meta = _generated_metadata()
+    raw = meta.get("target_orientation_axes")
+    if raw is None:
+        return _np.zeros((K, 3), dtype=_np.float64)
+    a = _np.asarray(raw, dtype=_np.float64)
+    if a.shape != (K, 3):
+        raise RuntimeError(
+            f"Generated metadata 'target_orientation_axes' has shape {a.shape}, expected "
+            f"{(K, 3)} for the compiled build's {K} targets. The .so and the metadata came from "
+            "different codegen runs; re-run scripts/codegen/generate_grid.py.")
+    return a
 
 
 def pack_active_mask(mask, B, K):
@@ -111,6 +284,114 @@ def _bcast_weights(w, B, K, name):
     if _np.any(a < 0):
         raise ValueError(f"{name} contains negative values")
     return _np.ascontiguousarray(a, dtype=_np.float64)
+
+
+# --- per-target orientation modes -----------------------------------------------------------
+# A contact generally pins position and a contact NORMAL, not a full pose: the twist about that
+# normal is a free DoF of the contact, and constraining it turns a feasible multi-contact stance
+# into an infeasible one. ORI_AXIS expresses that; ORI_FULL is the legacy full-quaternion
+# constraint and stays the default so no existing call changes behaviour.
+ORI_NONE, ORI_AXIS, ORI_FULL = 0, 1, 2
+
+_ORI_MODE_NAMES = {"none": ORI_NONE, "axis": ORI_AXIS, "full": ORI_FULL}
+
+
+def _ori_mode_code(v, name):
+    """'none'|'axis'|'full' (any case) or 0|1|2 -> int code."""
+    if isinstance(v, str):
+        try:
+            return _ORI_MODE_NAMES[v.strip().lower()]
+        except KeyError:
+            raise ValueError(
+                f"{name}: unknown orientation mode {v!r}; "
+                f"expected one of {sorted(_ORI_MODE_NAMES)} or 0|1|2") from None
+    iv = int(v)
+    if iv not in (ORI_NONE, ORI_AXIS, ORI_FULL):
+        raise ValueError(f"{name}: orientation mode must be 0 (NONE), 1 (AXIS) or 2 (FULL), got {iv}")
+    return iv
+
+
+def _bcast_ori_modes(modes, P, K, name="orientation_modes"):
+    """None | scalar | [K] | [P,K] of names/codes -> contiguous [P,K] int32, or None for all-FULL.
+
+    None returns None rather than a FULL-filled array so the whole feature stays a null pointer
+    down to the kernel: a legacy caller must not merely *behave* like the old path, it must take it.
+    """
+    if modes is None:
+        return None
+    a = _np.asarray(modes, dtype=object)
+    if a.ndim == 0:
+        out = _np.full((P, K), _ori_mode_code(a.item(), name), dtype=_np.int32)
+    elif a.ndim == 1 and a.shape[0] == K:
+        row = _np.array([_ori_mode_code(v, name) for v in a], dtype=_np.int32)
+        out = _np.broadcast_to(row, (P, K))
+    elif a.ndim == 2 and a.shape == (P, K):
+        out = _np.array([[_ori_mode_code(v, name) for v in r] for r in a], dtype=_np.int32)
+    else:
+        raise ValueError(f"{name} must be scalar, [K]={K}, or [P,K]={(P, K)}; got shape {a.shape}")
+    return _np.ascontiguousarray(out, dtype=_np.int32)
+
+
+def _bcast_ori_axes(axes, P, K, name="orientation_axes"):
+    """None | [3] | [K,3] | [P,K,3] -> contiguous [P,K,3] float64 of UNIT axes, or None.
+
+    None falls back to the generated per-target default (target_axes()); a target with neither an
+    override nor a generated axis yields a zero row, which only matters if that target is AXIS --
+    _require_axes_for_axis_mode is what turns that into a loud error.
+    """
+    if axes is None:
+        default = target_axes()                      # [K,3]; zero row == "no generated axis"
+        if not _np.any(default):
+            return None                              # nothing to send: no target declares an axis
+        out = _np.broadcast_to(default, (P, K, 3))
+    else:
+        a = _np.asarray(axes, dtype=_np.float64)
+        if a.ndim == 1 and a.shape == (3,):
+            out = _np.broadcast_to(a, (P, K, 3))
+        elif a.ndim == 2 and a.shape == (K, 3):
+            out = _np.broadcast_to(a, (P, K, 3))
+        elif a.ndim == 3 and a.shape == (P, K, 3):
+            out = a
+        else:
+            raise ValueError(
+                f"{name} must be [3], [K,3]={(K, 3)}, or [P,K,3]={(P, K, 3)}; got shape {a.shape}")
+        if not _np.all(_np.isfinite(out)):
+            raise ValueError(f"{name} contains NaN or inf")
+    out = _np.array(out, dtype=_np.float64, copy=True)
+    n = _np.linalg.norm(out, axis=-1, keepdims=True)
+    nz = n[..., 0] > 0
+    out[nz] /= n[nz]                                 # normalize; zero rows stay zero
+    return _np.ascontiguousarray(out)
+
+
+def _require_axes_for_axis_mode(modes, axes, active, P, K):
+    """AXIS without a usable axis is a silent wrong answer, so make it a loud one.
+
+    A zero-length axis cannot define a direction: R a would be the zero vector and the residual
+    would be identically zero, i.e. the target would appear perfectly solved while constraining
+    nothing at all. Checked only for ACTIVE targets, since an inactive target is never evaluated.
+    """
+    if modes is None:
+        return
+    is_axis = (modes == ORI_AXIS)
+    act = ((_np.asarray(active, dtype=_np.uint32)[:, None] >> _np.arange(K, dtype=_np.uint32)) & 1)
+    need = is_axis & act.astype(bool)
+    if not need.any():
+        return
+    if axes is None:
+        bad = _np.argwhere(need)
+        raise ValueError(
+            f"orientation_modes requests AXIS for target(s) {sorted(set(int(k) for _, k in bad))} "
+            "but no axis is available: the build's generated metadata declares no orientation_axis "
+            "for them and no orientation_axes= override was passed. Give the target an axis at "
+            "codegen time (--target '...;orientation_axis=x,y,z') or pass orientation_axes=.")
+    norms = _np.linalg.norm(axes, axis=-1)
+    bad = _np.argwhere(need & (norms <= 0))
+    if bad.size:
+        raise ValueError(
+            "orientation_modes requests AXIS for (problem, target) "
+            f"{[(int(p), int(k)) for p, k in bad]} but the corresponding orientation_axes entry is "
+            "a zero vector, which defines no direction.")
 
 
 def _bcast_tol(t, K, name):
@@ -736,6 +1017,15 @@ def solve(q, target_positions, target_quaternions, active_target_mask=None,
     cp_code, lp_code = _split_precision(precision, coarse_precision, lm_precision)
     cp, lp = _PRECISIONS[cp_code], _PRECISIONS[lp_code]
 
+    if self_collision_mode not in ("off", "final"):
+        raise ValueError(
+            f"solve_problems supports self_collision_mode off|final, got {self_collision_mode!r}"
+            " (hard mode is a single-problem solve() feature)")
+    if self_collision_mode == "final":
+        # Uploaded BEFORE the solve now, not after: the sidecar's SDF/convex tables have to be
+        # resident when solve_problems_batched calls the device check between LM and selection.
+        _ensure_self_collision_sidecar()
+
     cc_enabled = bool(problems_json_text) and bool(problem_set_name)
 
     # The coarse stage also runs whenever collision is enabled, EVEN IF the dispatch would not
@@ -1187,6 +1477,7 @@ def solve_problems(target_poses, active_masks, seed_configs,
                    return_all_candidates=False, floating_base=False, base_bounds=None,
                    base_update=None, self_collision_mode="off",
                    self_collision_margin=0.0, self_collision_eligible_tol=None,
+                   orientation_modes=None, orientation_axes=None,
                    _solver=None):
     """Solve P distinct multi-target IK problems in parallel, returning the top-1 per problem.
 
@@ -1281,7 +1572,21 @@ def solve_problems(target_poses, active_masks, seed_configs,
 
     wp = _bcast_weights(position_weights, P, K, "position_weights").astype(wire, copy=False)
     wo = _bcast_weights(orientation_weights, P, K, "orientation_weights").astype(wire, copy=False)
+    om = _bcast_ori_modes(orientation_modes, P, K)
+    oa = _bcast_ori_axes(orientation_axes, P, K) if om is not None else None
+    _require_axes_for_axis_mode(om, oa, packed, P, K)
+    if oa is not None:
+        oa = oa.astype(wire, copy=False)
     wp = _np.ascontiguousarray(wp); wo = _np.ascontiguousarray(wo)
+
+    if self_collision_mode not in ("off", "final"):
+        raise ValueError(
+            f"solve_problems supports self_collision_mode off|final, got {self_collision_mode!r}"
+            " (hard mode is a single-problem solve() feature)")
+    if self_collision_mode == "final":
+        # Uploaded BEFORE the solve now, not after: the sidecar's SDF/convex tables have to be
+        # resident when solve_problems_batched calls the device check between LM and selection.
+        _ensure_self_collision_sidecar()
 
     cc_enabled = bool(problems_json_text) and bool(problem_set_name)
 
@@ -1317,7 +1622,12 @@ def solve_problems(target_poses, active_masks, seed_configs,
             5e-3, int(lm_iters), int(stag_patience), float(stag_rel),
             int(num_solutions), pc, bool(return_all_candidates),
             str(problems_json_text), str(problem_set_name), int(problem_idx), sv._ws,
-            base_p, base_q, base_diag, problem_seeds=_pseeds, **_bu)
+            base_p, base_q, base_diag, problem_seeds=_pseeds,
+            orientation_modes=om, orientation_axes=oa,
+            self_collision=(self_collision_mode == "final"),
+            self_collision_margin=float(self_collision_margin),
+            self_collision_eligible_tol=(-1.0 if self_collision_eligible_tol is None
+                                         else float(self_collision_eligible_tol)), **_bu)
     finally:
         sv._exit()
 
@@ -1377,98 +1687,48 @@ def solve_problems(target_poses, active_masks, seed_configs,
                                     * act_b).sum(axis=2)
 
     # -------------------------------------------------------------------------------------------
-    # FINAL SELF-COLLISION GATE for the batched-problem API (Checkpoint 3C.3 / parent integration).
+    # CHECKPOINT 7: self-collision now gates ELIGIBILITY on the device, BEFORE segmented top-M
+    # selection, so this layer no longer re-checks or re-rejects the winner.
     #
-    # Identical semantics to solve()'s `final` mode: ONE batched sidecar full-check over the
-    # ALREADY-PRODUCED candidates. Selection, ranking and q are untouched -- a colliding candidate
-    # is marked unsuccessful, never rewritten -- so every free candidate is byte-identical to off
-    # mode. The check is on the 29 ACTUATED joints only: self-collision is invariant to the
-    # floating base, so `base_position`/`base_quaternion` play no part in it.
+    # Old flow:  solve -> select winner -> gather base -> check ONLY the winner -> fail if it hit.
+    #            A colliding best candidate failed the whole problem even when a slightly worse
+    #            collision-free candidate existed, and `checked` was 1 per problem.
+    # New flow:  solve -> device sidecar over ALL B = P*S candidates -> self_collision_free[B]
+    #            -> segmented_topM_kernel ANDs it into feasibility -> cand_better() ranks the
+    #            survivors -> ONE gather of q/base/diagnostics from the final selected_seed_ids.
+    #
+    # cand_better() therefore remains the only ranking implementation; nothing here re-ranks.
+    # The per-candidate configs never reach the host: d_lq feeds the sidecar kernel directly.
     # -------------------------------------------------------------------------------------------
-    if self_collision_mode not in ("off", "final"):
-        raise ValueError(
-            f"solve_problems supports self_collision_mode off|final, got {self_collision_mode!r}"
-            " (hard mode is a single-problem solve() feature)")
     if self_collision_mode == "final":
-        import time as _time
-        _ensure_self_collision_sidecar()
-        qc = _np.asarray(out["joint_config"])                  # [P, M, N]
-        flat = qc.reshape(-1, qc.shape[-1])
-        nslots = flat.shape[0]
+        B_total = int(P * S)
+        n_elig = int(out.pop("self_collision_eligible", B_total))
+        n_check = int(out.pop("self_collision_checked", B_total))
+        cfree_sel = _np.asarray(out.get("collision_free"))
+        nfree = _np.asarray(out.get("num_collision_free"))
+        n_free_total = int(nfree.sum()) if nfree is not None else 0
 
-        # ---- ELIGIBILITY PREDICATE (documented, and deliberately not tuned for timing) --------
-        # A candidate reaches the native checker iff it could actually be RETURNED:
-        #
-        #   valid            the selection slot holds a real solution
-        #   finite q         no NaN/Inf configuration ever reaches a collision kernel
-        #   finite errors    a candidate whose error is not a number cannot be judged against a
-        #                    tolerance, so it is not eligible
-        #   max target error <= self_collision_eligible_tol   (only when the caller states one)
-        #
-        # The tolerance is the CALLER'S acceptance threshold, not HJCD's internal `position_tol`:
-        # a consumer that accepts at 3 cm would otherwise have its accepted candidates go
-        # unchecked. Passing None checks everything valid and finite -- conservative, and the
-        # behaviour of the pre-compaction implementation.
-        #
-        # Not checking an ineligible candidate is safe in both directions: it was already being
-        # discarded on error, and its success/valid flags are left exactly as they were.
-        _t_e = _time.perf_counter()
-        elig = _np.isfinite(flat).all(axis=1)
-        v = out.get("valid")
-        if v is not None:
-            elig &= _np.asarray(v).astype(bool).reshape(-1)
-        pe = _np.asarray(out["position_errors"]).reshape(nslots, -1)
-        elig &= _np.isfinite(pe).all(axis=1)
-        if self_collision_eligible_tol is not None:
-            elig &= pe.max(axis=1) <= float(self_collision_eligible_tol)
-        idx = _np.flatnonzero(elig)
-        compact = _np.ascontiguousarray(flat[idx].astype(_np.float32))
-        _t_compact = (_time.perf_counter() - _t_e) * 1e3
-
-        # ---- one batched full-check over the COMPACTED set -----------------------------------
-        # `self_collision_margin` shifts the verdict threshold: a pair is colliding when its
-        # signed gap < margin. margin = 0 means "any proxy overlap at all", which is STRICTER than
-        # a MuJoCo gate that only counts penetrations deeper than its `self_clearance`. A consumer
-        # whose authority uses a depth threshold should pass the matching NEGATIVE margin.
-        _t0 = _time.perf_counter()
-        if len(idx):
-            hit = _np.asarray(
-                _hjcdik.sidecar_full_check(compact, float(self_collision_margin))).any(axis=1)
-        else:
-            hit = _np.zeros(0, bool)            # nothing eligible -> no kernel launched at all
-        _t_sc = (_time.perf_counter() - _t0) * 1e3
-
-        # ---- scatter verdicts back to the ORIGINAL candidate indices -------------------------
-        _t1 = _time.perf_counter()
-        colliding = _np.zeros(nslots, bool)
-        checked = _np.zeros(nslots, bool)
-        colliding[idx] = hit
-        checked[idx] = True
-        colliding = colliding.reshape(qc.shape[:-1])
-        checked = checked.reshape(qc.shape[:-1])
-        prev = _np.asarray(out["success"]).astype(bool)
-        out["success"] = prev & ~colliding
-        # NOT "collision free": an unchecked candidate is unknown, not free. Callers that need the
-        # distinction read `self_collision_checked`.
-        out["self_collision_free"] = ~colliding
-        out["self_collision_checked"] = checked
-        if "valid" in out:
-            out["valid"] = _np.asarray(out["valid"]).astype(bool) & ~colliding
-        _t_scatter = (_time.perf_counter() - _t1) * 1e3
-
+        # Three states, kept distinguishable rather than collapsed into one boolean:
+        #   not checked   permanently selection-ineligible (non-finite q/errors, or above the
+        #                 caller's acceptance tolerance). NOT counted as colliding.
+        #   checked, colliding
+        #   checked, collision-free
+        out["self_collision_free"] = cfree_sel          # the SELECTED candidate(s)
         out["self_collision"] = dict(
             mode="final",
-            candidate_slots=int(nslots),
-            eligible=int(len(idx)),
-            candidates_checked=int(len(idx)),
-            n_colliding=int(colliding.sum()),
-            candidates_rejected=int((prev & colliding).sum()),
+            selection="pre-selection (device eligibility gate)",
+            candidates_total=B_total,
+            candidates_collision_eligible=n_elig,
+            candidates_checked=n_check,
+            candidates_not_checked=B_total - n_check,   # ineligible, NOT "colliding"
+            num_collision_free=n_free_total,
+            num_colliding=n_check - n_free_total,       # checked AND hit, nothing else
+            num_infeasible=(None if out.get("num_infeasible") is None
+                            else _np.asarray(out["num_infeasible"]).tolist()),
+            per_problem_collision_free=(None if nfree is None else nfree.tolist()),
             margin=float(self_collision_margin),
             eligible_tol=(None if self_collision_eligible_tol is None
                           else float(self_collision_eligible_tol)),
             native_collision_tolerance_m=abs(float(self_collision_margin)),
-            semantics="native self-collision prefilter passed; MuJoCo remains authoritative",
-            compaction_ms=float(_t_compact),
-            kernel_ms=float(_t_sc),
-            scatter_ms=float(_t_scatter))
+            semantics="native self-collision prefilter passed; MuJoCo remains authoritative")
     return out

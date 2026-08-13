@@ -287,8 +287,37 @@ py::dict py_target_metadata() {
 using arrd = py::array_t<double, py::array::c_style | py::array::forcecast>;
 using arru = py::array_t<std::uint32_t, py::array::c_style | py::array::forcecast>;
 
+
+// Optional per-target orientation modes/axes for the DIAGNOSTIC entry points. None => null
+// pointers => the kernel's FULL default, i.e. the exact pre-modes behaviour. The returned arrays
+// must outlive the call: the caller keeps them in scope, which is why they are returned rather
+// than converted inline.
+struct OriArgs {
+  py::array_t<int, py::array::c_style | py::array::forcecast> modes;
+  py::array_t<double, py::array::c_style | py::array::forcecast> axes;
+  bool has_modes = false, has_axes = false;
+  const int* mode_ptr() const { return has_modes ? modes.data() : nullptr; }
+  const double* axis_ptr() const { return has_axes ? axes.data() : nullptr; }
+};
+static OriArgs parse_ori_args(const py::object& modes, const py::object& axes, int B, int K) {
+  OriArgs o;
+  if (!modes.is_none()) {
+    o.modes = py::cast<py::array_t<int, py::array::c_style | py::array::forcecast>>(modes);
+    if (o.modes.size() != (py::ssize_t)B * K)
+      throw std::invalid_argument("orientation_modes must have shape (B, K)");
+    o.has_modes = true;
+  }
+  if (!axes.is_none()) {
+    o.axes = py::cast<py::array_t<double, py::array::c_style | py::array::forcecast>>(axes);
+    if (o.axes.size() != (py::ssize_t)B * K * 3)
+      throw std::invalid_argument("orientation_axes must have shape (B, K, 3)");
+    o.has_axes = true;
+  }
+  return o;
+}
+
 py::dict py_target_residuals(arrd q, arrd tgt_p, arrd tgt_q, arru active,
-                             arrd w_pos, arrd w_ori, arrd eps_pos, arrd eps_ori) {
+                             arrd w_pos, arrd w_ori, arrd eps_pos, arrd eps_ori, py::object ori_modes, py::object ori_axes) {
   auto* model = ensure_robot();
   const int N = grid_num_joints();
   const int K = grid_num_targets();
@@ -311,9 +340,12 @@ py::dict py_target_residuals(arrd q, arrd tgt_p, arrd tgt_q, arru active,
   want(eps_pos, {K}, "position_tol");
   want(eps_ori, {K}, "orientation_tol");
 
+  const OriArgs oa_ = parse_ori_args(ori_modes, ori_axes, B, K);
+  const int* ori_mode_ptr = oa_.mode_ptr();
+  const double* ori_axis_ptr = oa_.axis_ptr();
   ResidualOutputs r = compute_target_residuals(
       q.data(), tgt_p.data(), tgt_q.data(), active.data(), w_pos.data(), w_ori.data(),
-      eps_pos.data(), eps_ori.data(), B, model);
+      ori_mode_ptr, ori_axis_ptr, eps_pos.data(), eps_ori.data(), B, model);
 
   py::dict o;
   o["position_residuals"]    = arr_from(r.e_pos, {B, K, 3});
@@ -329,12 +361,16 @@ py::dict py_target_residuals(arrd q, arrd tgt_p, arrd tgt_q, arru active,
   return o;
 }
 
-py::dict py_normal_equations(arrd q, arrd tgt_p, arrd tgt_q, arru active, arrd w_pos, arrd w_ori) {
+py::dict py_normal_equations(arrd q, arrd tgt_p, arrd tgt_q, arru active, arrd w_pos, arrd w_ori, py::object ori_modes, py::object ori_axes) {
   auto* model = ensure_robot();
   const int N = grid_num_joints();
   const int B = (int)q.shape(0);
+  const OriArgs oa_ = parse_ori_args(ori_modes, ori_axes, B, grid_num_targets());
+  const int* ori_mode_ptr = oa_.mode_ptr();
+  const double* ori_axis_ptr = oa_.axis_ptr();
   NormalEquations r = compute_normal_equations(q.data(), tgt_p.data(), tgt_q.data(), active.data(),
-                                               w_pos.data(), w_ori.data(), B, model);
+                                               w_pos.data(), w_ori.data(),
+                                               ori_mode_ptr, ori_axis_ptr, B, model);
   py::dict o;
   o["A"] = arr_from(r.A, {B, N, N});
   o["b"] = arr_from(r.b, {B, N});
@@ -574,10 +610,25 @@ py::dict py_coarse_search(py::array q, py::array tgt_p, py::array tgt_q, arru ac
 }
 
 py::array_t<bool> py_collision_free(arrd q, const std::string& json, const std::string& set_name,
-                                    int idx) {
+                                    int idx, py::object base_p, py::object base_q,
+                                    bool include_self) {
   ensure_robot();
   const int B = (int)q.shape(0);
-  std::vector<unsigned char> v = check_collision_free(q.data(), B, json.c_str(), set_name.c_str(), idx);
+  // Optional floating base: [B,3] + [B,4] (wxyz). Omit BOTH for the fixed-base check, which is
+  // the pre-existing behaviour (identity transform).
+  arrd bp, bq;
+  const double *pp = nullptr, *pq = nullptr;
+  if (!base_p.is_none() && !base_q.is_none()) {
+    bp = py::cast<arrd>(base_p);
+    bq = py::cast<arrd>(base_q);
+    if (bp.size() != (py::ssize_t)B * 3) throw std::invalid_argument("base_positions must be (B,3)");
+    if (bq.size() != (py::ssize_t)B * 4) throw std::invalid_argument("base_quaternions must be (B,4)");
+    pp = bp.data(); pq = bq.data();
+  } else if (!base_p.is_none() || !base_q.is_none()) {
+    throw std::invalid_argument("base_positions and base_quaternions must be given together");
+  }
+  std::vector<unsigned char> v = check_collision_free(q.data(), B, json.c_str(), set_name.c_str(),
+                                                     idx, pp, pq, include_self);
   return barr_from(v, {B});
 }
 
@@ -603,7 +654,10 @@ py::dict py_solve_problems(py::array q, py::array tgt_p, py::array tgt_q, arru a
                            double base_max_translation_step, double base_max_rotation_step,
                            std::array<double,3> base_position_lower,
                            std::array<double,3> base_position_upper,
-                           py::array_t<unsigned int, py::array::c_style | py::array::forcecast> problem_seeds) {
+                           py::array_t<unsigned int, py::array::c_style | py::array::forcecast> problem_seeds,
+                           py::object ori_modes, py::object ori_axes,
+                           bool self_collision, double self_collision_margin,
+                           double self_collision_eligible_tol) {
   auto* model = ensure_robot();
   const int N = grid_num_joints();
   const int K = grid_num_targets();
@@ -621,6 +675,29 @@ py::dict py_solve_problems(py::array q, py::array tgt_p, py::array tgt_q, arru a
   const bool in_f32 = q.dtype().is(py::dtype::of<float>());
   SolveInputs in{q.data(), tgt_p.data(), tgt_q.data(), w_pos.data(), w_ori.data(),
                  (const unsigned int*)active.data(), in_f32, P, S};
+
+  // Per-target orientation modes/axes. None => the fields stay null and every downstream branch is
+  // the pre-modes one. The keep-alive arrays must outlive the solve call below.
+  py::array_t<int, py::array::c_style | py::array::forcecast> om_keep;
+  py::array om_axes_keep;
+  if (!ori_modes.is_none()) {
+    om_keep = py::cast<py::array_t<int, py::array::c_style | py::array::forcecast>>(ori_modes);
+    if (om_keep.size() != (py::ssize_t)P * K)
+      throw std::invalid_argument("orientation_modes must have shape (P, K)");
+    in.ori_mode = om_keep.data();
+  }
+  if (!ori_axes.is_none()) {
+    om_axes_keep = in_f32
+        ? (py::array)py::cast<py::array_t<float, py::array::c_style | py::array::forcecast>>(ori_axes)
+        : (py::array)py::cast<py::array_t<double, py::array::c_style | py::array::forcecast>>(ori_axes);
+    if (om_axes_keep.size() != (py::ssize_t)P * K * 3)
+      throw std::invalid_argument("orientation_axes must have shape (P, K, 3)");
+    in.ori_axis = om_axes_keep.data();
+  }
+  in.self_collision = self_collision;
+  in.self_collision_margin = self_collision_margin;
+  in.self_collision_eligible_tol = self_collision_eligible_tol;
+
   // 5D.14c: semantic per-problem RNG roots (rng_policy_version = semantic_problem_rng_v2).
   // Empty array => nullptr => the kernel's slot-derived fallback, which is NOT authoritative.
   if (problem_seeds.size() > 0) {
@@ -716,8 +793,12 @@ py::dict py_solve_problems(py::array q, py::array tgt_p, py::array tgt_q, arru a
   o["coarse_kernel_ms"] = r.coarse_ms;
   o["lm_kernel_ms"] = r.lm_ms;
   o["select_kernel_ms"] = r.select_ms;
+  o["self_collision_kernel_ms"] = r.self_collision_ms;
+  o["self_collision_eligible"] = r.sc_eligible;
+  o["self_collision_checked"] = r.sc_checked;
   o["collision_enabled"] = r.cc_enabled;
-  if (r.cc_enabled) {
+  o["self_collision_enabled"] = r.sc_enabled;
+  if (r.cc_enabled || r.sc_enabled) {
     o["collision_free"] = barr_from(r.sel_cfree, {P, M});
     o["used_coarse_fallback"] = barr_from(r.sel_fb, {P, M});
     o["num_collision_free"] = arr_from(r.num_cfree, {P});
@@ -731,8 +812,10 @@ py::dict py_solve_problems(py::array q, py::array tgt_p, py::array tgt_q, arru a
     o["all_orientation_errors"] = arr_from(r.all_oe, {P, S, K});
     o["all_cost_lm"] = arr_from(r.all_cost, {P, S});
     o["all_success"] = barr_from(r.all_succ, {P, S});
-    if (r.cc_enabled) {
-      o["all_collision_free"] = barr_from(r.all_cfree, {P, S});
+    if (r.cc_enabled || r.sc_enabled) {
+      o["all_collision_free"] = barr_from(r.all_cfree, {P, S});          // AND of active channels
+      o["all_environment_free"] = barr_from(r.all_env_free, {P, S});      // environment alone
+      o["all_self_collision_free"] = barr_from(r.all_self_free, {P, S});  // self-collision alone
       o["all_used_coarse_fallback"] = barr_from(r.all_fb, {P, S});
     }
   }
@@ -894,7 +977,8 @@ PYBIND11_MODULE(_hjcdik, m) {
   m.def("_target_residuals_raw", &py_target_residuals,
         py::arg("q"), py::arg("target_positions"), py::arg("target_quaternions"),
         py::arg("active_target_mask"), py::arg("position_weights"), py::arg("orientation_weights"),
-        py::arg("position_tol"), py::arg("orientation_tol"));
+        py::arg("position_tol"), py::arg("orientation_tol"),
+        py::arg("orientation_modes") = py::none(), py::arg("orientation_axes") = py::none());
   m.def("_incremental_probe_raw", &py_incremental_probe,
         py::arg("q"), py::arg("upd_j"), py::arg("upd_v"), py::arg("accept"),
         py::arg("target_positions"), py::arg("target_quaternions"),
@@ -905,9 +989,12 @@ PYBIND11_MODULE(_hjcdik, m) {
         py::arg("active_target_mask"), py::arg("position_weights"), py::arg("orientation_weights"));
   m.def("_normal_equations_raw", &py_normal_equations,
         py::arg("q"), py::arg("target_positions"), py::arg("target_quaternions"),
-        py::arg("active_target_mask"), py::arg("position_weights"), py::arg("orientation_weights"));
+        py::arg("active_target_mask"), py::arg("position_weights"), py::arg("orientation_weights"),
+        py::arg("orientation_modes") = py::none(), py::arg("orientation_axes") = py::none());
   m.def("collision_free", &py_collision_free, py::arg("q"), py::arg("problems_json_text"),
         py::arg("problem_set_name"), py::arg("problem_idx") = 0,
+        py::arg("base_positions") = py::none(), py::arg("base_quaternions") = py::none(),
+        py::arg("include_self_collision") = true,
         "Exact collision check (self + environment), the same evaluator the solver gates on.");
   m.def("_coarse_search_raw", &py_coarse_search,
         py::arg("q"), py::arg("target_positions"), py::arg("target_quaternions"),
@@ -953,5 +1040,9 @@ PYBIND11_MODULE(_hjcdik, m) {
         py::arg("base_position_upper") = std::array<double,3>{ 1e30, 1e30, 1e30},
         // 5D.14c: [P] uint32 semantic per-problem RNG seeds. Empty => legacy slot-derived
         // fallback; the production planner MUST pass these.
-        py::arg("problem_seeds") = py::array_t<unsigned int>());
+        py::arg("problem_seeds") = py::array_t<unsigned int>(),
+        py::arg("orientation_modes") = py::none(),
+        py::arg("orientation_axes") = py::none(),
+        py::arg("self_collision") = false, py::arg("self_collision_margin") = 0.0,
+        py::arg("self_collision_eligible_tol") = -1.0);
 }

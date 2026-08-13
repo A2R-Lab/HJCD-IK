@@ -9,6 +9,7 @@ initialized (run scripts/setup/setup_dev.sh, or git submodule update --init --re
 By default writes to csrc/generated/grid.cuh (the committed, build-default header).
 """
 import argparse
+import math
 import re
 import sys
 from pathlib import Path
@@ -17,6 +18,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 GRID_DIR = REPO_ROOT / "external" / "GRiD"
 DEFAULT_OUT = REPO_ROOT / "csrc" / "generated" / "grid.cuh"
 DEFAULT_TARGETS_OUT = REPO_ROOT / "csrc" / "generated" / "hjcd_targets.cuh"
+
+# The host-side metadata sidecar. It lives INSIDE the Python package rather than next to the .cuh
+# because hjcdik.joint_names() / target_names() read it through importlib.resources -- it has to
+# ship as package data in a wheel, and be importable from the source tree in an editable install.
+# It is the single source of truth for generated names: nothing may re-derive them from grid.cuh
+# comments, from the collision sidecar, or from a hand-written table. --targets-output moves the
+# device header only; this path is fixed, because the package it belongs to is.
+PACKAGE_METADATA_OUT = REPO_ROOT / "hjcdik" / "hjcd_targets.json"
 
 # Compile-time ceiling on the target count. Bumping it costs nothing until targets are actually
 # declared (loops are bounded by NUM_TARGETS), but the per-problem active mask is one bit per target.
@@ -53,6 +62,10 @@ def main():
                          "  anchor=<movable_joint_name>        anchor explicitly (required without "
                          "'fixed=')\n"
                          "  xyz=x,y,z   rpy=r,p,y              explicit tool offset (default identity)\n"
+                         "  orientation_axis=ax,ay,az          OPTIONAL contact axis in the TARGET's\n"
+                         "                                     own frame; the default direction that\n"
+                         "                                     solve_problems(orientation_modes='axis')\n"
+                         "                                     aligns. Normalized at codegen.\n"
                          'e.g. --target "name=left_hand;fixed=left_hand_palm_joint"\n'
                          '     --target "name=left_foot;anchor=left_ankle_roll_joint;'
                          'xyz=0.035,0,-0.035"\n'
@@ -218,6 +231,22 @@ def _parse_target_spec(spec):
         raise SystemExit(f"[generate_grid] --target '{spec}' is missing name=")
     if "fixed" not in d and "anchor" not in d:
         raise SystemExit(f"[generate_grid] --target '{d['name']}' needs fixed= or anchor=")
+    if "orientation_axis" in d:
+        try:
+            v = [float(x) for x in d["orientation_axis"].split(",")]
+        except ValueError:
+            raise SystemExit(f"[generate_grid] --target '{d['name']}': orientation_axis must be "
+                             "three comma-separated numbers") from None
+        if len(v) != 3:
+            raise SystemExit(f"[generate_grid] --target '{d['name']}': orientation_axis needs 3 "
+                             f"components, got {len(v)}")
+        nrm = math.sqrt(sum(c*c for c in v))
+        # A zero axis defines no direction: R a would be the zero vector, so the AXIS residual
+        # would be identically zero and the target would read as solved while constraining nothing.
+        if not (nrm > 1e-12) or not all(math.isfinite(c) for c in v):
+            raise SystemExit(f"[generate_grid] --target '{d['name']}': orientation_axis must be a "
+                             f"non-zero finite vector, got {v}")
+        d["orientation_axis"] = [c / nrm for c in v]     # persist NORMALIZED
     return d
 
 
@@ -270,7 +299,8 @@ def _resolve_targets(robot, args):
         if aj is None:
             raise SystemExit(f"[generate_grid] anchor '{anchor_name}' is not a movable joint")
         out.append(dict(name=d["name"], anchor_jid=aj.get_id(), anchor_name=anchor_name,
-                        tool=tool, source=source, fixed_joint=d.get("fixed")))
+                        tool=tool, source=source, fixed_joint=d.get("fixed"),
+                        orientation_axis=d.get("orientation_axis")))
     return out
 
 
@@ -426,25 +456,44 @@ def emit_target_metadata(robot, args, out_path):
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text("\n".join(lines))
 
-    # Host-side sidecar: target names + the same numbers, for tests and the Python arg validation
-    # layer. Never read by device code.
+    # Host-side sidecar: generated names + the same numbers, for tests, the Python arg validation
+    # layer, and hjcdik.joint_names() / target_names(). Never read by device code.
+    #
+    # joint_names is in GRiD joint-id order -- range(n) -- which IS the configuration-vector order:
+    # the same iteration order every per-joint device array is emitted in (JOINT_PARENT_JID,
+    # JOINT_AXIS_*, joint_limits). target_names is in generated target order, i.e. device target id.
+    # Both are written here, at the one point where the parsed robot and the resolved target list
+    # are simultaneously in scope, so neither can drift from what was compiled.
+    joint_names = [robot.get_joint_by_id(j).get_name() for j in range(n)]
+    target_names = [t["name"] for t in targets]
     meta = dict(
         robot=robot.name, num_joints=n, max_targets=MAX_TARGETS,
+        joint_names=joint_names,
+        target_names=target_names,
+        # Parallel to target_names. A target that declares no orientation_axis gets a ZERO row:
+        # the array stays rectangular (so hjcdik.target_axes() is always [K,3]) while "absent"
+        # remains distinguishable from any real direction, since no unit axis is the zero vector.
+        target_orientation_axes=[list(t["orientation_axis"]) if t.get("orientation_axis")
+                                 else [0.0, 0.0, 0.0] for t in targets],
         targets=[dict(name=t["name"], anchor_jid=t["anchor_jid"], anchor_name=t["anchor_name"],
-                      tool_row_major=t["tool"], source=t["source"], fixed_joint=t["fixed_joint"])
+                      tool_row_major=t["tool"], source=t["source"], fixed_joint=t["fixed_joint"],
+                      orientation_axis=t.get("orientation_axis"))
                  for t in targets],
         target_ancestor_mask=target_ancestor_mask,
         joint_target_mask=joint_target_mask,
         joint_parent_jid=parent,
         joint_descendant_mask=descendant_mask,
     )
-    out_path.with_suffix(".json").write_text(json.dumps(meta, indent=2))
+    PACKAGE_METADATA_OUT.parent.mkdir(parents=True, exist_ok=True)
+    PACKAGE_METADATA_OUT.write_text(json.dumps(meta, indent=2))
 
     print(f"[generate_grid] targets ({len(targets)}): "
           + ", ".join(f"{k}:{t['name']}@jid{t['anchor_jid']}" for k, t in enumerate(targets)))
     for k, t in enumerate(targets):
         print(f"[generate_grid]   [{k}] {t['name']:<12s} ancestors={bin(target_ancestor_mask[k])}")
-    print(f"[generate_grid] wrote {out_path} (+ .json sidecar)")
+    print(f"[generate_grid] wrote {out_path}")
+    print(f"[generate_grid] wrote {PACKAGE_METADATA_OUT} "
+          f"({n} joint names, {len(targets)} target names)")
 
 
 def inject_joint_axis_metadata(robot, out):
