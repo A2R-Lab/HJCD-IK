@@ -12,6 +12,14 @@ if(NOT DEFINED CMAKE_CUDA_HOST_COMPILER)
   endif()
 endif()
 
+# MUST precede project(): enabling the CUDA language initialises CMAKE_CUDA_ARCHITECTURES to the
+# nvcc default (sm_52), after which `if(NOT DEFINED ...)` can never fire. Setting it afterwards is
+# dead code, and the resulting sm_52-only binary forces a ~60 s / 1.3 GB PTX JIT on every load on
+# any newer GPU. Override with -DCMAKE_CUDA_ARCHITECTURES=86;89 for cross-compiling / CI w/o a GPU.
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+  set(CMAKE_CUDA_ARCHITECTURES native)
+endif()
+
 project(hjcdik LANGUAGES CXX CUDA)
 
 option(HJCDIK_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
@@ -24,11 +32,7 @@ set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-  # Build for the GPU present at configure time. Override with
-  # -DCMAKE_CUDA_ARCHITECTURES=86;89 (or a specific list) for cross-compiling / CI without a GPU.
-  set(CMAKE_CUDA_ARCHITECTURES native)
-endif()
+message(STATUS "HJCD-IK: CUDA architectures = ${CMAKE_CUDA_ARCHITECTURES}")
 
 find_package(CUDAToolkit REQUIRED)
 find_package(Eigen3 CONFIG REQUIRED)
