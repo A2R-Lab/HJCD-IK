@@ -5158,12 +5158,34 @@ static SolveProblemsOutputs launch_solve_problems(
     }
 
     // ---- coarse ----
+    //
+    // ENVIRONMENT COLLISION IS NOT A SEARCH GATE ON THIS PATH.
+    //
+    // coarse_search_mt_kernel's cc_enabled is an EXACT collision gate on proposals and kicks: a
+    // proposal that collides is rejected outright, so the sweep cannot pass THROUGH an
+    // intermediate colliding configuration to reach a free one on the far side. That is a
+    // reasonable policy for the single-problem solve(), where the coarse result is the answer.
+    //
+    // It is the wrong policy here. In the batched path the coarse output is only the LM's SEED,
+    // and collision is supposed to be an ELIGIBILITY predicate applied once to the FINAL
+    // candidates -- exactly how the self-collision channel behaves, and what segmented_topM's
+    // feasibility term expects. Gating the search as well makes the two channels asymmetric and
+    // costs real solutions: measured on CRAG's 4-contact wall stance, 291 candidates came back
+    // environment-free but ZERO solved, while the identical problem solved with self-collision
+    // alone produced a stance that is independently environment-free at its own base. The solution
+    // existed; the gated sweep could not reach it, because every route to it passes near a wall
+    // whose holds sit 10 cm proud.
+    //
+    // So: run the sweep ungated, then let mark_collisions_ct + final_free + segmented_topM reject
+    // whatever is still colliding at the end. Nothing downstream changes -- a candidate whose
+    // FINAL configuration collides is as ineligible as it ever was.
+    const int cc_coarse_gate = 0;
     CUDA_OK(cudaEventRecord(e0));
     if (run_coarse) {
         CUDA_OK(cudaMemcpy(d_cq, d_seeds, sizeof(CT)*bn, cudaMemcpyDeviceToDevice));
         size_t cc_smem = 0;
 #if defined(HJCD_HAS_COLLISION)
-        if (cc_enabled) {
+        if (cc_coarse_gate) {
             cc_smem = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<float>();
             CUDA_OK(cudaFuncSetAttribute(coarse_search_mt_kernel<CT, false, false>,
                     cudaFuncAttributeMaxDynamicSharedMemorySize, (int)cc_smem));
@@ -5174,7 +5196,7 @@ static SolveProblemsOutputs launch_solve_problems(
             coarse_iters, coarse_stall_lim, B, S, use_incremental, seed, d_pseeds, max_pert_attempts,
             0 /*hard_enabled*/, 1 /*hard_top_k*/, 0 /*oracle*/, 0.0f /*hard_margin*/,
         g1sc::HardWorkspace{},
-        cc_enabled, reinterpret_cast<const grid::robotModel<float>*>(cc_model),
+        cc_coarse_gate, reinterpret_cast<const grid::robotModel<float>*>(cc_model),
             cc_env_ptr ? *reinterpret_cast<const grid_collision::Environment<float>*>(cc_env_ptr)
                        : grid_collision::Environment<float>{});
 #else
@@ -5185,7 +5207,7 @@ static SolveProblemsOutputs launch_solve_problems(
             coarse_iters, coarse_stall_lim, B, S, use_incremental, seed, d_pseeds, max_pert_attempts,
             0 /*hard_enabled*/, 1 /*hard_top_k*/, 0 /*oracle*/, 0.0f /*hard_margin*/,
         g1sc::HardWorkspace{},
-        cc_enabled);
+        cc_coarse_gate);
 #endif
         CUDA_OK(cudaPeekAtLastError());
         const int NB = (int)((bn + 255) / 256);

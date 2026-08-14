@@ -19,7 +19,7 @@ from urdf_fk import UrdfFK
 
 REPO = Path(__file__).resolve().parents[1]
 URDF = Path(os.environ.get("HJCD_TEST_URDF", REPO / "csrc" / "urdf" / "panda.urdf"))
-SIDECAR = REPO / "csrc" / "generated" / "hjcd_targets.json"
+SIDECAR = REPO / "hjcdik" / "hjcd_targets.json"   # package data; see generate_grid.py
 
 N = hjcdik.num_joints()
 K = hjcdik.num_targets()

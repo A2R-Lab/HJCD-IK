@@ -22,16 +22,22 @@ from urdf_fk import UrdfFK
 
 REPO = Path(__file__).resolve().parents[1]
 URDF = Path(os.environ.get("HJCD_TEST_URDF", REPO / "csrc" / "urdf" / "panda.urdf"))
-SIDECAR = REPO / "csrc" / "generated" / "hjcd_targets.json"
+SIDECAR = REPO / "hjcdik" / "hjcd_targets.json"   # package data; see generate_grid.py
 
 # What each robot's target set is REQUIRED to be. This is the spec, written out independently of the
 # codegen, so a silent change to ordering, anchors or offsets fails here.
 #   name -> (anchor joint name, expected tool xyz, expected tool rpy)
-G1_SOLE = (0.035, 0.0, -0.035)     # = (x-centroid, y-centroid, min_i(z_i - r_i)) of the 4 foot spheres
+# The G1 offsets are shared with the CRAG bouldering MJCF (scripts/build_g1_mjcf.py CONTACT_SITES);
+# the two must agree or HJCD and MuJoCo disagree on where a contact frame is. See tests/test_hjcd_
+# integration.py in CRAG, which asserts FK equivalence between the two.
+G1_SOLE = (0.035, 0.0, -0.030)     # = (x-centroid, y-centroid, z-centroid) of the 4 foot spheres
+# Mid-palm, NOT the rubber-hand link origin: the palm fixed joint (0.0415, +/-0.003, 0) composed with
+# the mid-palm offset (0.085, -/+0.015, 0.005). Anchoring on left_hand_palm_joint alone puts the
+# target at the wrist, ~86 mm short of where the hand actually grips.
 EXPECTED = {
     "g1_29dof_rev_1_0": [
-        ("left_hand",  "left_wrist_yaw_joint",    (0.0415,  0.003, 0.0)),
-        ("right_hand", "right_wrist_yaw_joint",   (0.0415, -0.003, 0.0)),
+        ("left_hand",  "left_wrist_yaw_joint",    (0.1265, -0.012, 0.005)),
+        ("right_hand", "right_wrist_yaw_joint",   (0.1265,  0.012, 0.005)),
         ("left_foot",  "left_ankle_roll_joint",   G1_SOLE),
         ("right_foot", "right_ankle_roll_joint",  G1_SOLE),
     ],
