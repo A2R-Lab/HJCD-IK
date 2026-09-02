@@ -472,3 +472,6 @@ All poses use:
 ## License
 
 HJCD-IK is released under the [MIT License](LICENSE).
+
+## Funding Acknowledgement
+This material is based upon work supported by the National Science Foundation (under Award [2411369](https://www.nsf.gov/awardsearch/show-award/?AWD_ID=2411369)). Any opinions, findings, conclusions, or recommendations expressed in this material are those of the authors and do not necessarily reflect those of the funding organizations.
