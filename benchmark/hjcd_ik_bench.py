@@ -321,6 +321,9 @@ def main() -> None:
 
     # Collision-free (RoboMetrics)
     ap.add_argument("--collision-free", action="store_true",help="Enable collision-free solutions.")
+    ap.add_argument("--collision-mode", choices=("hard", "soft", "both"),
+                    default=os.environ.get("HJCD_CC_MODE", "hard"),
+                    help="Collision policy (default: hard; HJCD_CC_MODE remains a benchmark compatibility fallback).")
     ap.add_argument( "--problems-json", type=str, default=str(ROOT / "tests" / "mb_problems.json"),help="Path to problems JSON (e.g., mb_problems.json).")
     ap.add_argument("--problem-set", type=str, default="box_panda",help="Problem set name in JSON (paper Table II scene).")
     ap.add_argument("--problem-idx", type=int, default=-1,help="If >=0, run only this problem index; if -1 run all.")
@@ -441,6 +444,7 @@ def main() -> None:
                 target, batch_size=Bd, num_solutions=K,
                 collision_free=args.collision_free, problems_json_text=problems_text,
                 problem_set_name=args.problem_set, problem_idx=eff_pidx,
+                collision_mode=args.collision_mode,
             )
             jc = res.get("joint_config")
             if jc is None:
@@ -480,6 +484,7 @@ def main() -> None:
                 problem_set_name=args.problem_set,
                 problem_idx=eff_pidx,
                 write_stats=False,
+                collision_mode=args.collision_mode,
             )
 
             # Timed run
@@ -493,6 +498,7 @@ def main() -> None:
                 problem_set_name=args.problem_set,
                 problem_idx=eff_pidx,
                 write_stats=args.write_stats,
+                collision_mode=args.collision_mode,
             )
             dt_ms = (time.perf_counter() - t0) * 1e3
 

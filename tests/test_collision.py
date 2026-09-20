@@ -80,6 +80,12 @@ def test_hard_mode_returns_no_solution_when_every_candidate_collides(monkeypatch
     assert out["count"] == 0
     assert out["joint_config"].shape == (0, hjcdik.num_joints())
 
+    soft = hjcdik.generate_solutions(
+        _goal7(base), batch_size=256, num_solutions=4, collision_free=True,
+        problems_json_text=text, problem_set_name="strict", problem_idx=0,
+        collision_mode="soft")
+    assert soft["count"] == 4  # ranking mode is explicitly non-filtering
+
 
 @pytest.mark.skipif(not MB_PATH.exists(), reason="tests/mb_problems.json missing")
 def test_collision_cache_includes_environment_contents(monkeypatch):

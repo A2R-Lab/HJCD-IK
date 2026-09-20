@@ -46,7 +46,8 @@ covering spheres baked into `grid.cuh` at codegen (`--collision`); obstacles (sp
 come from the problem set. `hard` mode (default) filters colliding candidates with
 `grid_collision::config_free` (self **and** environment), so a request can return fewer solutions than
 requested, including zero. `soft` adds a penetration cost for ranking experiments but does not guarantee
-collision freedom; `both` combines the two (env `HJCD_CC_MODE`).
+collision freedom; `both` combines the two. Select the policy with the Python `collision_mode` argument;
+the benchmark also accepts `--collision-mode`.
 
 Because collision geometry is generated from the same URDF as the kinematics, adding a robot needs no
 hand-written collision code — see {doc}`../tutorials/custom_robot`. Python rejects

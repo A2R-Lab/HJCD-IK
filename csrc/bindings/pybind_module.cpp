@@ -3,9 +3,16 @@
 #include <pybind11/stl.h>
 #include <cstring>
 #include <cmath>
+#include <memory>
+#include <mutex>
 #include "kernel/hjcd_kernel.h"
 
 namespace py = pybind11;
+
+static std::mutex& solver_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
 
 static grid::robotModel<double>* ensure_robot() {
   static grid::robotModel<double>* model = grid::init_robotModel<double>();
@@ -25,7 +32,8 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
                                const std::string& problem_set_name,
                                int problem_idx,
                                int refine_fp64,
-                               bool write_stats) {
+                               bool write_stats,
+                               const std::string& collision_mode) {
   auto* model = ensure_robot();
 
   if (batch_size <= 0) throw py::value_error("batch_size must be positive");
@@ -39,6 +47,13 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
     throw py::value_error("collision_free=True requires problem_set_name");
   if (collision_free && !grid_has_collision())
     throw py::value_error("collision_free=True requires a collision-enabled grid.cuh build");
+
+  int collision_mode_code = -1;
+  if (collision_mode == "soft") collision_mode_code = 0;
+  else if (collision_mode == "hard") collision_mode_code = 1;
+  else if (collision_mode == "both") collision_mode_code = 2;
+  else if (collision_mode != "auto")
+    throw py::value_error("collision_mode must be one of: hard, soft, both, auto");
 
   double tp[7];
   for (int i = 0; i < 7; ++i) {
@@ -60,11 +75,23 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
   //    1 = force fp64 (RT=double, sub-micron).   0 = force fp32 (RT=float, faster, ~fp32 accuracy).
   // Either way I/O stays double, and the Cholesky solve precision follows the compute type.
   const bool use_fp64 = (refine_fp64 < 0) ? (num_solutions <= 1) : (refine_fp64 != 0);
-  auto res = use_fp64
-      ? generate_ik_solutions<double, double>(
-            tp, model, batch_size, num_solutions, collision_free, json_cstr, set_cstr, problem_idx, write_stats)
-      : generate_ik_solutions<double, float>(
-            tp, model, batch_size, num_solutions, collision_free, json_cstr, set_cstr, problem_idx, write_stats);
+  Result<double> res{};
+  {
+    py::gil_scoped_release release;
+    std::lock_guard<std::mutex> lock(solver_mutex());
+    res = use_fp64
+        ? generate_ik_solutions<double, double>(
+              tp, model, batch_size, num_solutions, collision_free, json_cstr, set_cstr,
+              problem_idx, write_stats, collision_mode_code)
+        : generate_ik_solutions<double, float>(
+              tp, model, batch_size, num_solutions, collision_free, json_cstr, set_cstr,
+              problem_idx, write_stats, collision_mode_code);
+  }
+
+  std::unique_ptr<double[]> joint_config_owner(res.joint_config);
+  std::unique_ptr<double[]> pose_owner(res.pose);
+  std::unique_ptr<double[]> pos_errors_owner(res.pos_errors);
+  std::unique_ptr<double[]> ori_errors_owner(res.ori_errors);
 
   const int N = grid_num_joints();
 
@@ -76,15 +103,11 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
   py::array_t<double> pos_errors({S});
   py::array_t<double> ori_errors({S});
 
-  std::memcpy(joint_config.mutable_data(), res.joint_config, sizeof(double) * S * N);
-  std::memcpy(pose.mutable_data(),         res.pose,         sizeof(double) * S * 7);
-  std::memcpy(pos_errors.mutable_data(),   res.pos_errors,   sizeof(double) * S);
-  std::memcpy(ori_errors.mutable_data(),   res.ori_errors,   sizeof(double) * S);
+  std::memcpy(joint_config.mutable_data(), joint_config_owner.get(), sizeof(double) * S * N);
+  std::memcpy(pose.mutable_data(),         pose_owner.get(),         sizeof(double) * S * 7);
+  std::memcpy(pos_errors.mutable_data(),   pos_errors_owner.get(),   sizeof(double) * S);
+  std::memcpy(ori_errors.mutable_data(),   ori_errors_owner.get(),   sizeof(double) * S);
 
-  delete[] res.joint_config;
-  delete[] res.pose;
-  delete[] res.pos_errors;
-  delete[] res.ori_errors;
 
   py::dict out;
   out["joint_config"] = std::move(joint_config);
@@ -98,11 +121,17 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
 std::vector<std::array<double,7>> py_sample_targets(int num_targets, std::uint64_t seed) {
   if (num_targets <= 0) throw py::value_error("num_targets must be positive");
   auto* model = ensure_robot();
-  return sample_random_target_poses<double>(model, num_targets, seed);
+  std::vector<std::array<double,7>> targets;
+  {
+    py::gil_scoped_release release;
+    std::lock_guard<std::mutex> lock(solver_mutex());
+    targets = sample_random_target_poses<double>(model, num_targets, seed);
+  }
+  return targets;
 }
 
 PYBIND11_MODULE(_hjcdik, m) {
-  m.doc() = "Minimal pybind11 bindings for hjcdik";
+  m.doc() = "Python bindings for the HJCD-IK CUDA solver";
   m.def("generate_solutions", &py_generate_solutions,
       py::arg("target_pose"),
       py::arg("batch_size") = 2000,
@@ -112,8 +141,16 @@ PYBIND11_MODULE(_hjcdik, m) {
       py::arg("problem_set_name") = "",
       py::arg("problem_idx") = 0,
       py::arg("refine_fp64") = -1,    // -1=auto (fp64 if num_solutions==1 else fp32); 1=fp64; 0=fp32
-      py::arg("write_stats") = false);   // append a row to ik_stats.csv (see scripts/ik_stats_summary.py)
+      py::arg("write_stats") = false,   // append a row to ik_stats.csv
+      py::arg("collision_mode") = "hard");  // hard|soft|both|auto (legacy env fallback)
   m.def("sample_targets", &py_sample_targets,
         py::arg("num_targets"), py::arg("seed") = 0);
   m.def("num_joints", &grid_num_joints);
+  m.def("collision_enabled", &grid_has_collision);
+  m.def("build_info", [] {
+    py::dict info;
+    info["num_joints"] = grid_num_joints();
+    info["collision_enabled"] = grid_has_collision();
+    return info;
+  });
 }

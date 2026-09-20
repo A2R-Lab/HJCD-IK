@@ -27,11 +27,15 @@ out = generate_solutions(
     batch_size=2000,
     num_solutions=4,
     collision_free=True,
+    collision_mode="hard",
     problems_json_text=problems_text,   # the GPU reads obstacles from this set...
     problem_set_name=PROBLEM_SET,
     problem_idx=PROBLEM_IDX,             # ...for this specific scene
 )
 
 print(f"set={PROBLEM_SET} idx={PROBLEM_IDX}: {out['count']} collision-free solutions")
-print("best position error (m):   ", float(out["pos_errors"].min()))
-print("best orientation error (rad):", float(out["ori_errors"].min()))
+if out["count"]:
+    print("best position error (mm):  ", float(out["pos_errors"].min()))
+    print("best orientation error (rad):", float(out["ori_errors"].min()))
+else:
+    print("No collision-free candidate was found in this batch.")

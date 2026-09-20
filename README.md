@@ -244,13 +244,14 @@ python benchmark/hjcd_ik_bench.py \
   --batches "1,10,100,1000,2000"
 ```
 
-Collision modes are selected with `HJCD_CC_MODE`:
+Select the policy explicitly with `collision_mode="hard"`, `"soft"`, or `"both"`:
 
-```bash
-HJCD_CC_MODE=soft python benchmark/hjcd_ik_bench.py ...
-HJCD_CC_MODE=hard python benchmark/hjcd_ik_bench.py ...
-HJCD_CC_MODE=both python benchmark/hjcd_ik_bench.py ...
+```python
+result = hjcdik.generate_solutions(..., collision_free=True, collision_mode="hard")
 ```
+
+The benchmark also accepts `--collision-mode`; `HJCD_CC_MODE` remains a compatibility default for
+benchmark scripts.
 
 - `hard` (default): filters self- and environment-colliding solutions; the result may contain fewer
   than `num_solutions`, including zero

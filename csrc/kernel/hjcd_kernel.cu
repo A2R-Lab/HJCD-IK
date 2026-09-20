@@ -1651,7 +1651,8 @@ Result<T> generate_ik_solutions(
     const char* problems_json_text,
     const char* problem_set_name,
     int problem_idx,
-    bool write_stats
+    bool write_stats,
+    int collision_mode
 )
 {
     init_joint_limits_from_grid();
@@ -2047,8 +2048,11 @@ Result<T> generate_ik_solutions(
     // Collision scoring mode (comparison knob, env HJCD_CC_MODE): "hard" (default) filters
     // colliding candidates outright; "soft" = penetration cost that only biases selection;
     // "both" = soft cost + hard filter. Strict filtering makes collision_free=True truthful.
-    int cc_mode = 1;  // 0=soft, 1=hard, 2=both
-    if (const char* e = std::getenv("HJCD_CC_MODE")) {
+    int cc_mode = collision_mode;  // -1=legacy env/default, 0=soft, 1=hard, 2=both
+    if (cc_mode < 0) {
+        cc_mode = 1;
+        const char* e = std::getenv("HJCD_CC_MODE");
+        if (!e) e = "hard";
         std::string m(e);
         if (m == "soft") cc_mode = 0;
         else if (m == "hard") cc_mode = 1;
@@ -2371,7 +2375,8 @@ template Result<double> generate_ik_solutions<double>(   // RT=double (full fp64
     const char* problems_json_text,
     const char* problem_set_name,
     int problem_idx,
-    bool write_stats
+    bool write_stats,
+    int collision_mode
 );
 
 template Result<double> generate_ik_solutions<double, float>(   // RT=float (fp32 refine knob)
@@ -2383,7 +2388,8 @@ template Result<double> generate_ik_solutions<double, float>(   // RT=float (fp3
     const char* problems_json_text,
     const char* problem_set_name,
     int problem_idx,
-    bool write_stats
+    bool write_stats,
+    int collision_mode
 );
 
 template Result<float> generate_ik_solutions<float>(
@@ -2395,7 +2401,8 @@ template Result<float> generate_ik_solutions<float>(
     const char* problems_json_text,
     const char* problem_set_name,
     int problem_idx,
-    bool write_stats
+    bool write_stats,
+    int collision_mode
 );
 
 template std::vector<std::array<double, 7>> sample_random_target_poses(

@@ -1,5 +1,6 @@
 """Public Python API validation and normalization contracts."""
 import math
+from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 np = pytest.importorskip("numpy")
@@ -35,6 +36,12 @@ def test_zero_quaternion_is_rejected():
         hjcdik.generate_solutions([0, 0, 0, 0, 0, 0, 0])
 
 
+def test_collision_mode_is_validated():
+    target = [0, 0, 0, 1, 0, 0, 0]
+    with pytest.raises(ValueError, match="collision_mode"):
+        hjcdik.generate_solutions(target, collision_mode="invalid")
+
+
 def test_collision_arguments_are_required():
     target = [0, 0, 0, 1, 0, 0, 0]
     with pytest.raises(ValueError, match="problems_json_text"):
@@ -51,6 +58,17 @@ def test_target_quaternion_is_normalized_at_boundary():
     assert normalized["count"] == rescaled["count"]
     assert np.allclose(normalized["pos_errors"], rescaled["pos_errors"], atol=1e-5)
     assert np.allclose(normalized["ori_errors"], rescaled["ori_errors"], atol=1e-6)
+
+
+def test_gpu_entry_points_are_thread_safe():
+    targets = hjcdik.sample_targets(num_targets=2, seed=17)
+
+    def solve(target):
+        return hjcdik.generate_solutions(target, batch_size=128, num_solutions=1)["count"]
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        counts = list(pool.map(solve, targets))
+    assert counts == [1, 1]
 
 
 @pytest.mark.parametrize("num_targets", [0, -1])

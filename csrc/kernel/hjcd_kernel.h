@@ -33,7 +33,8 @@ Result<T> generate_ik_solutions(
     const char* problems_json_text = nullptr,
     const char* problem_set_name = nullptr,
     int problem_idx = 0,
-    bool write_stats = false
+    bool write_stats = false,
+    int collision_mode = -1
 );
 
 template<typename T>

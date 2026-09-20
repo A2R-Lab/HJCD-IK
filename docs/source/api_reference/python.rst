@@ -3,9 +3,11 @@ Python API
 
 The ``hjcdik`` package exposes the solver via pybind11.
 
-``generate_solutions(target_pose, batch_size=2000, num_solutions=1, collision_free=False, ...)``
+``generate_solutions(target_pose, batch_size=2000, num_solutions=1, collision_free=False, collision_mode="hard", ...)``
    Solve IK for a single 6-DOF target. ``target_pose`` is ``[x, y, z, qw, qx, qy, qz]`` (position +
-   quaternion). Returns a dict ``{joint_config, pose, pos_errors, ori_errors, count}``.
+   quaternion). Returns a dict ``{joint_config, pose, pos_errors, ori_errors, count}``. Hard collision mode
+   is the default and may return fewer than ``num_solutions`` (including zero); ``soft`` ranks but does
+   not guarantee collision freedom, and ``both`` ranks then filters.
 
 ``sample_targets(num_targets, seed=0)``
    Sample reachable random EE targets (list of 7-vectors), useful for benchmarking.
