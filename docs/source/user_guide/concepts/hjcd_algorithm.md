@@ -43,10 +43,12 @@ sizes.
 With `collision_free=True`, the refined candidates are scored against the environment *after* optimization
 (never on the hot solver loop) using GRiD's URDF-driven `grid_collision`. The robot is approximated by
 covering spheres baked into `grid.cuh` at codegen (`--collision`); obstacles (spheres / cuboids / cylinders)
-come from the problem set. `soft` mode (default) adds a penetration cost that biases selection; `hard` mode
-filters colliding candidates with `grid_collision::config_free` (self **and** environment); `both` combines
-them (env `HJCD_CC_MODE`).
+come from the problem set. `hard` mode (default) filters colliding candidates with
+`grid_collision::config_free` (self **and** environment), so a request can return fewer solutions than
+requested, including zero. `soft` adds a penetration cost for ranking experiments but does not guarantee
+collision freedom; `both` combines the two (env `HJCD_CC_MODE`).
 
 Because collision geometry is generated from the same URDF as the kinematics, adding a robot needs no
-hand-written collision code — see {doc}`../tutorials/custom_robot`. A `grid.cuh` built without `--collision`
-runs open-world (a `collision_free=True` request is ignored).
+hand-written collision code — see {doc}`../tutorials/custom_robot`. Python rejects
+`collision_free=True` when `grid.cuh` was built without `--collision` instead of silently running
+open-world.

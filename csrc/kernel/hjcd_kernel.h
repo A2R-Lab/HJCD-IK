@@ -48,3 +48,4 @@ void init_joint_limits_constants();
 void init_joint_limits_from_grid();
 
 extern "C" int grid_num_joints();
+extern "C" bool grid_has_collision();

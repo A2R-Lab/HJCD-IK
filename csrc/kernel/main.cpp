@@ -222,12 +222,12 @@ int main(int argc, char** argv) {
         const auto t1 = clock::now();
         const double elapsed_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
-        append_solution_vectors(S, B, elapsed_ms, res.pos_errors, res.ori_errors,
+        append_solution_vectors(res.count, B, elapsed_ms, res.pos_errors, res.ori_errors,
                                 y_batch, y_time, y_pos, y_ori);
 
         write_yaml_flat(args.yaml_out, y_batch, y_time, y_pos, y_ori);
         std::cout << "[OK] wrote " << args.yaml_out
-                  << " with " << S << " solutions (single target).\n";
+                  << " with " << res.count << " solutions (single target).\n";
 
         delete[] res.joint_config;
         delete[] res.pose;
@@ -260,7 +260,7 @@ int main(int argc, char** argv) {
             const auto t1 = clock::now();
             const double elapsed_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
-            append_solution_vectors(S, B, elapsed_ms, res.pos_errors, res.ori_errors,
+            append_solution_vectors(res.count, B, elapsed_ms, res.pos_errors, res.ori_errors,
                                     y_batch, y_time, y_pos, y_ori);
 
             delete[] res.joint_config;
@@ -276,7 +276,7 @@ int main(int argc, char** argv) {
 
         write_yaml_flat(args.yaml_out, y_batch, y_time, y_pos, y_ori);
         std::cout << "[OK] wrote sweep results to " << args.yaml_out
-                  << " (" << (T * S) << " entries; " << T << " targets x " << S << " solutions each).\n";
+                  << " (" << y_batch.size() << " entries from " << T << " targets).\n";
         return 0;
     }
 
@@ -310,6 +310,7 @@ int main(int argc, char** argv) {
         out << "\n";
 
         std::size_t processed = 0;
+        std::size_t rows_written = 0;
         for (const auto& t : targets) {
             // Pose: [x,y,z,qw,qx,qy,qz]
             double target_pose[7];
@@ -317,12 +318,13 @@ int main(int argc, char** argv) {
 
             auto res = generate_ik_solutions<double>(target_pose, d_robotModel, B, S);
 
-            for (int r = 0; r < S; ++r) {
+            for (int r = 0; r < res.count; ++r) {
                 const double* qrow = res.joint_config + (size_t)r * N;
                 out << t.target_id << "," << r;
                 for (int j = 0; j < N; ++j) out << "," << qrow[j];
                 out << "\n";
             }
+            rows_written += static_cast<std::size_t>(res.count);
 
             delete[] res.joint_config;
             delete[] res.pose;
@@ -336,7 +338,8 @@ int main(int argc, char** argv) {
         }
 
         std::cout << "[from_csv] Wrote " << args.csv_out
-                  << " with " << targets.size() << " targets x 50 samples each (q only).\n";
+                  << " with " << rows_written << " samples from " << targets.size()
+                  << " targets (q only).\n";
         return 0;
     }
 

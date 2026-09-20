@@ -252,8 +252,9 @@ HJCD_CC_MODE=hard python benchmark/hjcd_ik_bench.py ...
 HJCD_CC_MODE=both python benchmark/hjcd_ik_bench.py ...
 ```
 
-- `soft`: biases solutions away from environment collisions
-- `hard`: filters self- and environment-colliding solutions
+- `hard` (default): filters self- and environment-colliding solutions; the result may contain fewer
+  than `num_solutions`, including zero
+- `soft`: ranks solutions using an environment penetration cost but does not guarantee collision freedom
 - `both`: combines both modes
 
 ## Optional Baselines

@@ -25,6 +25,8 @@
 #include <limits>
 #include <type_traits>
 #include <cstdlib>
+#include <functional>
+#include <string_view>
 
 // Collision checking (grid_collision: URDF-driven spheres baked into grid.cuh)
 #include <nlohmann/json.hpp>
@@ -34,6 +36,13 @@ enum : int {
     N = grid::NUM_JOINTS
 };
 extern "C" int grid_num_joints() { return N; }
+extern "C" bool grid_has_collision() {
+#if defined(HJCD_HAS_COLLISION)
+    return true;
+#else
+    return false;
+#endif
+}
 
 constexpr int FLANGE_IDX = N + 1;
 constexpr int EE_IDX     = N;
@@ -1682,7 +1691,12 @@ Result<T> generate_ik_solutions(
             collision_free = false;
             printf("[grid_collision] Warning: collision-free requested but no problem JSON provided\n");
         } else {
-            std::string key = std::string(problem_set_name) + "#" + std::to_string(problem_idx);
+            int cc_device = 0;
+            CUDA_OK(cudaGetDevice(&cc_device));
+            const std::string_view json_view(problems_json_text);
+            std::string key = std::string(problem_set_name) + "#" + std::to_string(problem_idx)
+                            + "#device=" + std::to_string(cc_device)
+                            + "#json=" + std::to_string(std::hash<std::string_view>{}(json_view));
 
             if (!g_cc_ready || g_cc_key != key) {
                 if (g_cc_ready) { hjcd_env::free_env(g_cc_env); g_cc_ready = false; }
@@ -1976,17 +1990,26 @@ Result<T> generate_ik_solutions(
         int W = 1;
         if (const char* e = std::getenv("HJCD_LM_WARPS")) { int v = std::atoi(e); if (v >= 1 && v <= 32) W = v; }
         if (Krep > 0 && W > Krep) W = Krep;
-        int lm_dev = 0; cudaGetDevice(&lm_dev);
+        int lm_dev = 0;
+        CUDA_OK(cudaGetDevice(&lm_dev));
         int smem_optin = 48 * 1024;
-        cudaDeviceGetAttribute(&smem_optin, cudaDevAttrMaxSharedMemoryPerBlockOptin, lm_dev);
-        while (W > 1 && (size_t)W * sizeof(LMWarpScratch<RT>) > (size_t)smem_optin) W >>= 1;
-        const int TPB_lm  = 32 * W;
-        const int grid_lm = (Krep + W - 1) / W;
-        const size_t lm_smem = (size_t)W * sizeof(LMWarpScratch<RT>);
-        if (lm_smem > (size_t)48 * 1024) {
-            CUDA_OK(cudaFuncSetAttribute(lm_tuner<RT>,
-                cudaFuncAttributeMaxDynamicSharedMemorySize, (int)lm_smem));
-        }
+        CUDA_OK(cudaDeviceGetAttribute(&smem_optin,
+                                       cudaDevAttrMaxSharedMemoryPerBlockOptin, lm_dev));
+        cudaFuncAttributes lm_attr{};
+        CUDA_OK(cudaFuncGetAttributes(&lm_attr, (const void*)lm_tuner<RT>));
+        int max_regs_per_block = 0;
+        CUDA_OK(cudaDeviceGetAttribute(&max_regs_per_block,
+                                       cudaDevAttrMaxRegistersPerBlock, lm_dev));
+        auto lm_resources_fit = [&]() {
+            const long long threads = (long long)WARP_SIZE * W;
+            const long long registers = threads * lm_attr.numRegs;
+            return threads <= lm_attr.maxThreadsPerBlock
+                && (size_t)W * sizeof(LMWarpScratch<RT>) <= (size_t)smem_optin
+                && (lm_attr.numRegs <= 0 || registers <= max_regs_per_block);
+        };
+        while (W > 1 && !lm_resources_fit()) W >>= 1;
+        if (!lm_resources_fit())
+            throw std::runtime_error("LM kernel does not fit device per-block resource limits");
 
         // Convergence / early-stop tolerance (pos in m, ori in rad). Default 1e-8 m is far below the
         // fp32 representable floor at ~0.5 m coords, so fp32 can't early-stop and grinds all iters at
@@ -1995,21 +2018,40 @@ Result<T> generate_ik_solutions(
         if (const char* e = std::getenv("HJCD_LM_EPS_POS")) { double v = std::atof(e); if (v > 0) eps_pos = (RT)v; }
         if (const char* e = std::getenv("HJCD_LM_EPS_ORI")) { double v = std::atof(e); if (v > 0) eps_ori = (RT)v; }
 
-        lm_tuner<RT><<<grid_lm, TPB_lm, lm_smem>>>(
-            dx64, dpose64, dtgt64, dposmm64, dori64, d_robotModel_rt,
-            eps_pos, eps_ori, (RT)5e-3, max_iters, Krep, stop_on_first_lm
-        );
-        cudaGetLastError();
+        // Register pressure can make a requested warp count unlaunchable even when threads and
+        // dynamic shared memory fit (especially in fp64). Downshift on
+        // cudaErrorLaunchOutOfResources instead of continuing with uninitialized result buffers.
+        for (;;) {
+            const int TPB_lm = WARP_SIZE * W;
+            const int grid_lm = (Krep + W - 1) / W;
+            const size_t lm_smem = (size_t)W * sizeof(LMWarpScratch<RT>);
+            if (lm_smem > (size_t)48 * 1024) {
+                CUDA_OK(cudaFuncSetAttribute((const void*)lm_tuner<RT>,
+                    cudaFuncAttributeMaxDynamicSharedMemorySize, (int)lm_smem));
+            }
+            lm_tuner<RT><<<grid_lm, TPB_lm, lm_smem>>>(
+                dx64, dpose64, dtgt64, dposmm64, dori64, d_robotModel_rt,
+                eps_pos, eps_ori, (RT)5e-3, max_iters, Krep, stop_on_first_lm
+            );
+            cudaError_t launch_err = cudaPeekAtLastError();
+            if (launch_err == cudaSuccess) break;
+            if (launch_err == cudaErrorLaunchOutOfResources && W > 1) {
+                W >>= 1;
+                continue;
+            }
+            CUDA_OK(launch_err);
+        }
         CUDA_OK(cudaDeviceSynchronize());
     }
 
-    // Collision scoring mode (comparison knob, env HJCD_CC_MODE): "soft" (default) = penetration cost
-    // biases selection; "hard" = grid_collision::config_free filters colliding candidates outright
-    // (self + env); "both" = soft cost + hard filter. Default preserves prior behavior.
-    int cc_mode = 0;  // 0=soft, 1=hard, 2=both
+    // Collision scoring mode (comparison knob, env HJCD_CC_MODE): "hard" (default) filters
+    // colliding candidates outright; "soft" = penetration cost that only biases selection;
+    // "both" = soft cost + hard filter. Strict filtering makes collision_free=True truthful.
+    int cc_mode = 1;  // 0=soft, 1=hard, 2=both
     if (const char* e = std::getenv("HJCD_CC_MODE")) {
         std::string m(e);
-        if (m == "hard") cc_mode = 1;
+        if (m == "soft") cc_mode = 0;
+        else if (m == "hard") cc_mode = 1;
         else if (m == "both") cc_mode = 2;
     }
     const bool use_soft = do_cc && (cc_mode == 0 || cc_mode == 2);
@@ -2175,6 +2217,7 @@ Result<T> generate_ik_solutions(
     std::vector<int> chosen;
     chosen.reserve(S_target);
     for (int idx : order) {
+        if (use_hard && !h_valid_refined[idx]) continue;
         bool dup = false;
         for (int c : chosen) {
             if (is_dup(idx, c)) { dup = true; break; }
@@ -2192,6 +2235,7 @@ Result<T> generate_ik_solutions(
                 [&](int a, int b){ return score_coarse(a) < score_coarse(b); });
 
         for (int cidx : order_coarse) {
+            if (use_hard && !h_valid_coarse[cidx]) continue;
             chosen.push_back(-1 - cidx);
             if ((int)chosen.size() == S_target) break;
         }

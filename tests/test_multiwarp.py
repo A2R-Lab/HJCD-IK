@@ -58,7 +58,7 @@ def test_multiwarp_matches_w1(W):
 
 
 def test_multiwarp_high_w_opt_in_smem():
-    """W=16 exceeds 48KB/block (fp64) -> opt-in dynamic shared via cudaFuncSetAttribute. Must still match."""
+    """A high requested W may require opt-in shared memory or a register-pressure downshift. It must still match."""
     targets = hjcdik.sample_targets(num_targets=6, seed=2)
     ref = _solve_errs(targets, W=1)
     cur = _solve_errs(targets, W=16)

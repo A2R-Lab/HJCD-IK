@@ -25,6 +25,6 @@ python scripts/codegen/generate_grid.py path/to/robot.urdf -t <ee_target> --coll
 
 ## Caveats
 - The solver currently assumes revolute/prismatic/fixed joints, no kinematic loops.
-- Without `--collision` the build runs open-world; a `collision_free=True` request is ignored
+- Without `--collision` the build runs open-world; the Python API rejects `collision_free=True`
   (the collision path is compiled out via the `HJCD_HAS_COLLISION` sentinel).
 - Keep the EE-target frame consistent with `FLANGE_IDX` usage in the kernel.

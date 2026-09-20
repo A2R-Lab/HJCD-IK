@@ -2,6 +2,7 @@
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
 #include <cstring>
+#include <cmath>
 #include "kernel/hjcd_kernel.h"
 
 namespace py = pybind11;
@@ -27,8 +28,26 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
                                bool write_stats) {
   auto* model = ensure_robot();
 
+  if (batch_size <= 0) throw py::value_error("batch_size must be positive");
+  if (num_solutions <= 0) throw py::value_error("num_solutions must be positive");
+  if (refine_fp64 < -1 || refine_fp64 > 1)
+    throw py::value_error("refine_fp64 must be -1 (auto), 0 (fp32), or 1 (fp64)");
+  if (problem_idx < 0) throw py::value_error("problem_idx must be non-negative");
+  if (collision_free && problems_json_text.empty())
+    throw py::value_error("collision_free=True requires problems_json_text");
+  if (collision_free && problem_set_name.empty())
+    throw py::value_error("collision_free=True requires problem_set_name");
+  if (collision_free && !grid_has_collision())
+    throw py::value_error("collision_free=True requires a collision-enabled grid.cuh build");
+
   double tp[7];
-  for (int i = 0; i < 7; ++i) tp[i] = target_pose[i];
+  for (int i = 0; i < 7; ++i) {
+    if (!std::isfinite(target_pose[i])) throw py::value_error("target_pose values must be finite");
+    tp[i] = target_pose[i];
+  }
+  const double qnorm = std::sqrt(tp[3]*tp[3] + tp[4]*tp[4] + tp[5]*tp[5] + tp[6]*tp[6]);
+  if (!(qnorm > 1e-12)) throw py::value_error("target_pose quaternion must be non-zero");
+  for (int i = 3; i < 7; ++i) tp[i] /= qnorm;
 
   const char* json_cstr = problems_json_text.empty() ? nullptr : problems_json_text.c_str();
   const char* set_cstr  = problem_set_name.empty() ? nullptr : problem_set_name.c_str();
@@ -77,6 +96,7 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
 }
 
 std::vector<std::array<double,7>> py_sample_targets(int num_targets, std::uint64_t seed) {
+  if (num_targets <= 0) throw py::value_error("num_targets must be positive");
   auto* model = ensure_robot();
   return sample_random_target_poses<double>(model, num_targets, seed);
 }
