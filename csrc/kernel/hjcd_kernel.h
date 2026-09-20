@@ -98,6 +98,33 @@ bool bind_collision_env(const char* problems_json, const char* set_name, int idx
 const void* collision_model_ptr();   // grid::robotModel<float>*, or null
 const void* collision_env_ptr();     // grid_collision::Environment<float>*, or null
 
+// HJCD-COLLISION-DISTANCE-GRADIENT-0. The CONTINUOUS quantity whose sign `check_collision_free`
+// returns: one signed margin m = distance - required_clearance per (collision sphere, obstacle)
+// pair, un-reduced, plus its unit world surface normal and -- optionally -- its gradient with
+// respect to the N actuated joints.
+//
+// Layout is sphere-major then obstacle: row(b, i, o) = (b * num_spheres + i) * num_obstacles + o.
+// `flags` packs (nonsmoothness_bits << 2) | category, with category 0 sphere / 1 capsule /
+// 2 cuboid / 3 plane and bits 1 = degenerate normal, 2 = interior branch, 4 = feature tie.
+//
+// The base ROTATION gradient is deliberately absent: `sphere_world` and `normal` are returned so a
+// caller can form it in ITS OWN angular-velocity convention. See the kernel's comment.
+struct CollisionMarginBatch {
+  bool ok = false;
+  int  batch = 0, num_spheres = 0, num_obstacles = 0, num_joints = 0;
+  std::vector<float> margin;        // [B, S, O]
+  std::vector<float> required;      // [B, S, O]
+  std::vector<float> normal;        // [B, S, O, 3]  world, unit
+  std::vector<int>   flags;         // [B, S, O]
+  std::vector<float> sphere_world;  // [B, S, 3]
+  std::vector<float> djoint;        // [B, S, O, N]  empty unless gradients were asked for
+};
+
+CollisionMarginBatch collision_margin_pairs(
+    const double* h_q, int B, const char* json, const char* set_name, int idx,
+    const double* h_base_p = nullptr, const double* h_base_q = nullptr,
+    bool want_gradients = true, double feature_band = 1e-4);
+
 // Exact collision check for a batch, using the SAME evaluator the coarse gate uses.
 std::vector<unsigned char> check_collision_free(
     const double* h_q, int B, const char* json, const char* set_name, int idx,
@@ -145,6 +172,19 @@ struct SolveInputs {
     // f32/f64 selection as the other geometry arrays.
     const int* ori_mode = nullptr;
     const void* ori_axis = nullptr;
+    // CRAG-HJCD-CONTACT-MANIFOLD-ALIGNMENT-0, both OPTIONAL and both
+    // per-TARGET (not per-problem) -- see hjcd_settings.h for why.
+    //
+    // tool_override  [num_targets*16] column-major rigid offsets replacing
+    //                the generated TARGET_TOOL_XFORM. null => the generated
+    //                table, byte for byte.
+    // twist_spec     [num_targets*5] = (grip axis in the target frame,
+    //                arc lo, arc hi). Read only by ORI_AXIS_BOUNDED_TWIST.
+    //                null => a zero arc, which that mode would then treat as
+    //                "twist pinned to 0"; a caller selecting the mode must
+    //                supply it.
+    const double* tool_override = nullptr;
+    const double* twist_spec = nullptr;
     // Checkpoint 7: run the g1sc self-collision sidecar over ALL candidates and let the verdict
     // gate ELIGIBILITY before top-M selection. Distinct from grid_collision (--collision), which
     // has its own channel; a build may enable either, both, or neither.
@@ -154,6 +194,35 @@ struct SolveInputs {
     // otherwise-selectable candidate). See hjcdik/__init__.py for the semantics change this
     // carries relative to the pre-Checkpoint-7 post-selection gate.
     double self_collision_eligible_tol = -1.0;
+    // CRAG-HJCD-COLLISION-STACK-0. Two ADDITIVE narrowings of the same eligibility predicate and
+    // one selection-semantics switch. Every default below reproduces the shipped behaviour exactly.
+    //
+    //   ..._orientation_tol  the caller's ACCEPTANCE threshold on max orientation error, the
+    //                        other half of the production IK-valid predicate. Negative =>
+    //                        disabled, which is the shipped predicate (position only).
+    //   ..._require_environment_free
+    //                        skip candidates the ENVIRONMENT channel has already refused. Such a
+    //                        candidate is class 2 in segmented_topM whatever self-collision says,
+    //                        so checking it cannot change any selection. It DOES change what the
+    //                        per-candidate annotation reports for those candidates (they read
+    //                        `not checked`, i.e. 0), which is why it is opt-in.
+    //   self_collision_gate_selection
+    //                        1 (shipped): the verdict is ANDed into candidate feasibility, so a
+    //                        colliding candidate becomes class 2 and cannot be returned.
+    //                        0: the verdict is COMPUTED and REPORTED but not ANDed, so an
+    //                        IK-valid colliding candidate survives in the bank carrying its own
+    //                        collision annotation. Never widens acceptance: nothing here makes a
+    //                        candidate valid that was not already finite and on its channels.
+    double self_collision_eligible_orientation_tol = -1.0;
+    int self_collision_eligible_require_environment_free = 0;
+    int self_collision_gate_selection = 1;
+    //   self_collision_rank_selection
+    //                        0 (shipped): collision plays no part in ORDERING.
+    //                        1: a colliding candidate is selectable but sorts after every
+    //                        collision-free one of the same solved/valid class, so the gated
+    //                        top-M is a PREFIX of the ranked top-M. Only meaningful with
+    //                        self_collision_gate_selection = 0.
+    int self_collision_rank_selection = 0;
     // Floating base (optional). Both null => FIXED base, and every downstream path is
     // bit-identical to the pre-floating-base solver. Non-null => [B, 3] and [B, 4] (wxyz, unit),
     // CANDIDATE-level like q, NOT problem-level like tgt_p: each seed carries its own base.
@@ -171,6 +240,10 @@ struct SolveInputs {
     // root from the scalar `seed` and the problem INDEX, which is slot-dependent and therefore
     // NOT authoritative -- the production planner must pass this array.
     const unsigned int* problem_seeds = nullptr;
+    // CRAG-HJCD-SINGLE-VISIT-DIVERSE-TOPK-0: [B] semantic per-CANDIDATE RNG ids, candidate-major
+    // exactly like `seeds`. NULL keeps the candidate's random identity keyed on its row within
+    // its own bank, which is what every pre-existing caller gets.
+    const unsigned int* candidate_ids = nullptr;
     // [B,3] int32 (attempted, accepted, numerical failures) per candidate; null => not collected.
     // Always int regardless of precision -- these are counts, not geometry.
     const void* base_diag = nullptr;
@@ -189,6 +262,7 @@ struct SolveInputs {
     double base_max_rotation_step = 0.10;      // rad
     double base_position_lower[3] = {-1e30, -1e30, -1e30};   // +-1e30 == unbounded
     double base_position_upper[3] = { 1e30,  1e30,  1e30};
+
 
     // Self-collision HARD mode (Checkpoint 3D/3E). 0 => the coarse kernel's <T,false> instantiation
     // runs and no sidecar code exists in it at all, so `off` and `final` are byte-identical AND
@@ -315,6 +389,9 @@ struct SolveProblemsOutputs {
     std::vector<double> sel_ephys;                           // [P]
     std::vector<int>    sel_seed;                            // [P]  (-1 = no valid candidate)
     std::vector<unsigned char> sel_succ, sel_valid, sel_cfree, sel_fb;   // [P]
+    // CRAG-HJCD-COLLISION-STACK-0: the SELF-collision verdict of the selected candidate, kept
+    // separate from sel_cfree (which carries the ENVIRONMENT channel). Empty when sc is off.
+    std::vector<unsigned char> sel_self_free;                           // [P*M]
     // Per-problem summaries.
     std::vector<int> num_solved, num_valid, num_cfree, num_lm_coll, num_fb, num_infeas;  // [P]
     std::vector<unsigned char> prob_success;                 // [P]
@@ -379,6 +456,13 @@ struct NormalEquations {
     std::vector<double> A;   // B x N x N, row-major
     std::vector<double> b;   // B x N
 };
+// CRAG-HJCD-CONTACT-MANIFOLD-ALIGNMENT-0. `tool` is [num_targets*16]
+// column-major, `twist` is [num_targets*5] = (grip xyz, arc lo, arc hi);
+// either may be null. `solve_problems` calls this itself on every launch --
+// this declaration is for the DIAGNOSTIC entry points, which take their
+// semantics from whatever was installed last.
+void hjcd_install_contact_semantics(const double* tool, const double* twist);
+
 NormalEquations compute_normal_equations(
     const double* h_q, const double* h_tgt_p, const double* h_tgt_q,
     const unsigned int* h_active, const double* h_wp, const double* h_wo,

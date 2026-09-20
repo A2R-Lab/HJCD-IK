@@ -197,6 +197,75 @@ void world_target_to_base(const T* __restrict__ tgt_p_w, const T* __restrict__ t
 //
 //     X_target[k] = X_world[ anchor(k) ] * TOOL[k]        (column-major 4x4)
 //
+
+// ---------------------------------------------------------------------------
+// CRAG-HJCD-CONTACT-MANIFOLD-ALIGNMENT-0 -- RUNTIME TOOL TRANSFORM.
+//
+// `hjcd_gen::TARGET_TOOL_XFORM` is generated and correct; what it cannot be is
+// CHOSEN at run time. A caller whose physical contact is a fixed rigid offset
+// from the generated target frame -- CRAG's hook seat is exactly that, a pure
+// translation in the same attachment body -- would otherwise need a codegen
+// round-trip to aim at its own contact.
+//
+// So the tool transform is read through here instead of directly. With no
+// override installed this returns `hjcd_gen::tool_xform<T>(i)` and the solver
+// is byte-for-byte what it was; `set_tool_override(nullptr)` restores that at
+// any time. The generated header is NOT edited.
+//
+// __constant__ because the access is warp-uniform and broadcast: the constant
+// cache serves it at register speed, which is what the constexpr table gave.
+// This header is included by exactly one translation unit (hjcd_kernel.cu),
+// so there is exactly one device symbol and the host setter below addresses
+// it unambiguously.
+// ---------------------------------------------------------------------------
+namespace hjcd_rt {
+
+__constant__ double TOOL_OVERRIDE[hjcd_gen::NUM_TARGETS * 16];
+__constant__ float  TOOL_OVERRIDE_F[hjcd_gen::NUM_TARGETS * 16];
+__constant__ int    TOOL_OVERRIDE_ACTIVE[1];
+
+// CRAG-HJCD-CONTACT-MANIFOLD-ALIGNMENT-0 -- the BOUNDED-TWIST spec, per
+// target: the GRIP axis in the target's own frame (3) and the graspable arc
+// [lo, hi] (2).
+//
+// WHY A PER-TARGET CONSTANT TABLE AND NOT A PER-PROBLEM ARRAY. Neither
+// quantity is a property of the PROBLEM. The grip axis is a property of the
+// ROBOT -- which way the hand's fingers lie in its own wrist frame -- and the
+// arc is a property of the HOLD SHAPE, which one route carries once. Passing
+// them per problem would be generality nothing uses, at the cost of two
+// kernel signatures, two scratch arrays, two upload paths and seven launch
+// sites. A caller that one day needs per-problem arcs turns this into an
+// array; nothing else about the mode changes.
+//
+// Like the axis, the grip is TARGET-LOCAL, so the base retarget that rotates
+// s_tgt_q carries the required world tangent t = R(s_tgt_q) g with it and no
+// transform is needed here.
+__constant__ double TWIST_SPEC[hjcd_gen::NUM_TARGETS * 5];
+__constant__ float  TWIST_SPEC_F[hjcd_gen::NUM_TARGETS * 5];
+
+template<typename T> __device__ __forceinline__ T tool_xform(int i);
+
+template<> __device__ __forceinline__ double tool_xform<double>(int i) {
+    return TOOL_OVERRIDE_ACTIVE[0] ? TOOL_OVERRIDE[i]
+                                   : hjcd_gen::tool_xform<double>(i);
+}
+template<> __device__ __forceinline__ float tool_xform<float>(int i) {
+    return TOOL_OVERRIDE_ACTIVE[0] ? TOOL_OVERRIDE_F[i]
+                                   : hjcd_gen::tool_xform<float>(i);
+}
+
+// Target k's bounded-twist spec, or a zero arc when none was installed. The
+// mode branch is what decides whether it is read at all.
+template<typename T> __device__ __forceinline__ const T* twist_spec(int k);
+template<> __device__ __forceinline__ const double* twist_spec<double>(int k) {
+    return &TWIST_SPEC[5 * k];
+}
+template<> __device__ __forceinline__ const float* twist_spec<float>(int k) {
+    return &TWIST_SPEC_F[5 * k];
+}
+
+}  // namespace hjcd_rt
+
 // The FK (grid::ee_pose_inner_warp) already gives the world transform of every movable joint, so
 // each target costs exactly one 4x4 multiply -- no per-target FK re-walk.
 //
@@ -216,7 +285,7 @@ void compose_target_frames_warp(T* __restrict__ s_target_X, const T* __restrict_
         T acc = (T)0;
         #pragma unroll
         for (int m = 0; m < 4; ++m)
-            acc += A[4 * m + r] * hjcd_gen::tool_xform<T>(16 * k + 4 * c + m);
+            acc += A[4 * m + r] * hjcd_rt::tool_xform<T>(16 * k + 4 * c + m);
         s_target_X[idx] = acc;
     }
     __syncwarp(FULL_WARP_MASK);
@@ -240,7 +309,7 @@ void compose_target_frames_masked_warp(T* __restrict__ s_target_X,
         T acc = (T)0;
         #pragma unroll
         for (int m = 0; m < 4; ++m)
-            acc += A[4 * m + r] * hjcd_gen::tool_xform<T>(16 * k + 4 * c + m);
+            acc += A[4 * m + r] * hjcd_rt::tool_xform<T>(16 * k + 4 * c + m);
         s_target_X[idx] = acc;
     }
     __syncwarp(FULL_WARP_MASK);

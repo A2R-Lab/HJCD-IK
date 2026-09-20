@@ -632,6 +632,49 @@ py::array_t<bool> py_collision_free(arrd q, const std::string& json, const std::
   return barr_from(v, {B});
 }
 
+// HJCD-COLLISION-DISTANCE-GRADIENT-0. The continuous margin underneath `collision_free`, batched.
+//
+// Returns a dict of numpy arrays rather than a bespoke type so a caller can slice, argmin and mask
+// with no per-row Python object. Every array is sphere-major then obstacle:
+//     row(b, i, o) = (b * num_spheres + i) * num_obstacles + o
+py::dict py_collision_margins(arrd q, const std::string& json, const std::string& set_name,
+                              int idx, py::object base_p, py::object base_q,
+                              bool gradients, double feature_band) {
+  ensure_robot();
+  const int B = (int)q.shape(0);
+  arrd bp, bq;
+  const double *pp = nullptr, *pq = nullptr;
+  if (!base_p.is_none() && !base_q.is_none()) {
+    bp = py::cast<arrd>(base_p);
+    bq = py::cast<arrd>(base_q);
+    if (bp.size() != (py::ssize_t)B * 3) throw std::invalid_argument("base_positions must be (B,3)");
+    if (bq.size() != (py::ssize_t)B * 4) throw std::invalid_argument("base_quaternions must be (B,4)");
+    pp = bp.data(); pq = bq.data();
+  } else if (!base_p.is_none() || !base_q.is_none()) {
+    throw std::invalid_argument("base_positions and base_quaternions must be given together");
+  }
+
+  CollisionMarginBatch r = collision_margin_pairs(q.data(), B, json.c_str(), set_name.c_str(),
+                                                  idx, pp, pq, gradients, feature_band);
+  py::dict o;
+  o["ok"] = r.ok;
+  o["num_spheres"] = r.num_spheres;
+  o["num_obstacles"] = r.num_obstacles;
+  o["num_joints"] = r.num_joints;
+  const int S = r.num_spheres, O = r.num_obstacles, J = r.num_joints;
+  if (!r.ok || O == 0) {
+    o["margin"] = arr_from(r.margin, {B, S, 0});
+    return o;
+  }
+  o["margin"]       = arr_from(r.margin,   {B, S, O});
+  o["required"]     = arr_from(r.required, {B, S, O});
+  o["normal"]       = arr_from(r.normal,   {B, S, O, 3});
+  o["flags"]        = arr_from(r.flags,    {B, S, O});
+  o["sphere_world"] = arr_from(r.sphere_world, {B, S, 3});
+  if (gradients) o["djoint"] = arr_from(r.djoint, {B, S, O, J});
+  return o;
+}
+
 // Milestone 3: batched-problem solve with on-device per-problem top-1 selection. Consumes already
 // canonicalized [B,N] seeds + [P,K,...] problem data + a [B] per-candidate dispatch flag. Returns
 // only the selected [P,1,...] outputs and per-problem summaries (and, if return_all, [P,S,...]).
@@ -655,9 +698,16 @@ py::dict py_solve_problems(py::array q, py::array tgt_p, py::array tgt_q, arru a
                            std::array<double,3> base_position_lower,
                            std::array<double,3> base_position_upper,
                            py::array_t<unsigned int, py::array::c_style | py::array::forcecast> problem_seeds,
+                           py::array_t<unsigned int, py::array::c_style | py::array::forcecast> candidate_ids,
                            py::object ori_modes, py::object ori_axes,
+                           py::object tool_override, py::object twist_spec,
                            bool self_collision, double self_collision_margin,
-                           double self_collision_eligible_tol) {
+                           double self_collision_eligible_tol,
+                           // CRAG-HJCD-COLLISION-STACK-0. Defaults reproduce the shipped call.
+                           double self_collision_eligible_orientation_tol,
+                           bool self_collision_eligible_require_environment_free,
+                           bool self_collision_gate_selection,
+                           bool self_collision_rank_selection) {
   auto* model = ensure_robot();
   const int N = grid_num_joints();
   const int K = grid_num_targets();
@@ -694,9 +744,33 @@ py::dict py_solve_problems(py::array q, py::array tgt_p, py::array tgt_q, arru a
       throw std::invalid_argument("orientation_axes must have shape (P, K, 3)");
     in.ori_axis = om_axes_keep.data();
   }
+  // CRAG-HJCD-CONTACT-MANIFOLD-ALIGNMENT-0. Both are per-TARGET tables and
+  // both are ALWAYS double: they go into __constant__ memory once per launch,
+  // not into the per-candidate arena, so the wire precision does not apply.
+  // None => the generated tool table and a zero arc, which is the solver
+  // byte for byte as it was.
+  py::array_t<double, py::array::c_style | py::array::forcecast> tool_keep;
+  py::array_t<double, py::array::c_style | py::array::forcecast> twist_keep;
+  if (!tool_override.is_none()) {
+    tool_keep = py::cast<py::array_t<double, py::array::c_style | py::array::forcecast>>(tool_override);
+    if (tool_keep.size() != (py::ssize_t)K * 16)
+      throw std::invalid_argument("tool_override must have shape (K, 4, 4) column-major");
+    in.tool_override = tool_keep.data();
+  }
+  if (!twist_spec.is_none()) {
+    twist_keep = py::cast<py::array_t<double, py::array::c_style | py::array::forcecast>>(twist_spec);
+    if (twist_keep.size() != (py::ssize_t)K * 5)
+      throw std::invalid_argument("twist_spec must have shape (K, 5) = (grip xyz, arc lo, arc hi)");
+    in.twist_spec = twist_keep.data();
+  }
   in.self_collision = self_collision;
   in.self_collision_margin = self_collision_margin;
   in.self_collision_eligible_tol = self_collision_eligible_tol;
+  in.self_collision_eligible_orientation_tol = self_collision_eligible_orientation_tol;
+  in.self_collision_eligible_require_environment_free =
+      self_collision_eligible_require_environment_free ? 1 : 0;
+  in.self_collision_gate_selection = self_collision_gate_selection ? 1 : 0;
+  in.self_collision_rank_selection = self_collision_rank_selection ? 1 : 0;
 
   // 5D.14c: semantic per-problem RNG roots (rng_policy_version = semantic_problem_rng_v2).
   // Empty array => nullptr => the kernel's slot-derived fallback, which is NOT authoritative.
@@ -705,6 +779,15 @@ py::dict py_solve_problems(py::array q, py::array tgt_p, py::array tgt_q, arru a
       throw std::invalid_argument("problem_seeds must have length num_problems (P)");
     in.problem_seeds = problem_seeds.data();
   }
+  // CRAG-HJCD-SINGLE-VISIT-DIVERSE-TOPK-0: [B] semantic per-candidate RNG ids, candidate-major.
+  // Empty => the candidate's identity stays its ROW within its bank, which is what every
+  // pre-existing caller gets and what the byte-identical baseline requires.
+  if (candidate_ids.size() > 0) {
+    if ((long long)candidate_ids.size() != (long long)B)
+      throw std::invalid_argument("candidate_ids must have length B = P*S");
+    in.candidate_ids = candidate_ids.data();
+  }
+  // CRAG-HJCD-CENTROID-NULLSPACE-QS-0: [P,3] per-problem base position bounds. Both or neither.
   // Floating base: candidate-level [B,3]/[B,4], or BOTH empty for a fixed-base solve (which
   // leaves in.base_* null and every downstream path bit-identical). Shapes, dtype and
   // quaternion norms are validated in hjcdik/__init__.py, like every other input.
@@ -795,6 +878,8 @@ py::dict py_solve_problems(py::array q, py::array tgt_p, py::array tgt_q, arru a
   o["select_kernel_ms"] = r.select_ms;
   o["self_collision_kernel_ms"] = r.self_collision_ms;
   o["self_collision_eligible"] = r.sc_eligible;
+  if (!r.sel_self_free.empty())
+    o["selected_self_collision_free"] = barr_from(r.sel_self_free, {P, M});
   o["self_collision_checked"] = r.sc_checked;
   o["collision_enabled"] = r.cc_enabled;
   o["self_collision_enabled"] = r.sc_enabled;
@@ -962,6 +1047,34 @@ PYBIND11_MODULE(_hjcdik, m) {
       py::arg("coarse_incremental") = true);
   m.def("sample_targets", &py_sample_targets,
         py::arg("num_targets"), py::arg("seed") = 0);
+  m.def("set_contact_semantics",
+        [](py::object tool_override, py::object twist_spec) {
+          const int K = grid_num_targets();
+          py::array_t<double, py::array::c_style | py::array::forcecast> t_keep, w_keep;
+          const double* tool = nullptr;
+          const double* twist = nullptr;
+          if (!tool_override.is_none()) {
+            t_keep = py::cast<py::array_t<double, py::array::c_style | py::array::forcecast>>(tool_override);
+            if (t_keep.size() != (py::ssize_t)K * 16)
+              throw std::invalid_argument("tool_override must have shape (K, 4, 4) column-major");
+            tool = t_keep.data();
+          }
+          if (!twist_spec.is_none()) {
+            w_keep = py::cast<py::array_t<double, py::array::c_style | py::array::forcecast>>(twist_spec);
+            if (w_keep.size() != (py::ssize_t)K * 5)
+              throw std::invalid_argument("twist_spec must have shape (K, 5)");
+            twist = w_keep.data();
+          }
+          hjcd_install_contact_semantics(tool, twist);
+        },
+        "CRAG-HJCD-CONTACT-MANIFOLD-ALIGNMENT-0: install the runtime tool\n"
+        "transform and the bounded-twist spec into __constant__ memory.\n"
+        "solve_problems() installs its own on every launch; this exists so the\n"
+        "DIAGNOSTIC entry points (target_residuals, normal_equations) can be\n"
+        "pointed at the same semantics.",
+        py::arg("tool_override") = py::none(),
+        py::arg("twist_spec") = py::none());
+
   m.def("num_joints", &grid_num_joints);
   m.def("num_frames", &grid_num_frames);
   m.def("num_targets", &grid_num_targets);
@@ -991,6 +1104,14 @@ PYBIND11_MODULE(_hjcdik, m) {
         py::arg("q"), py::arg("target_positions"), py::arg("target_quaternions"),
         py::arg("active_target_mask"), py::arg("position_weights"), py::arg("orientation_weights"),
         py::arg("orientation_modes") = py::none(), py::arg("orientation_axes") = py::none());
+  m.def("collision_margins", &py_collision_margins, py::arg("q"), py::arg("problems_json_text"),
+        py::arg("problem_set_name"), py::arg("problem_idx") = 0,
+        py::arg("base_positions") = py::none(), py::arg("base_quaternions") = py::none(),
+        py::arg("gradients") = true, py::arg("feature_band") = 1e-4,
+        "Per-(sphere, obstacle) signed collision margin m = distance - required_clearance, the "
+        "CONTINUOUS quantity whose sign collision_free() returns, with unit world normals, "
+        "nonsmoothness flags and optional joint gradients. Batched over configurations.");
+
   m.def("collision_free", &py_collision_free, py::arg("q"), py::arg("problems_json_text"),
         py::arg("problem_set_name"), py::arg("problem_idx") = 0,
         py::arg("base_positions") = py::none(), py::arg("base_quaternions") = py::none(),
@@ -1041,8 +1162,20 @@ PYBIND11_MODULE(_hjcdik, m) {
         // 5D.14c: [P] uint32 semantic per-problem RNG seeds. Empty => legacy slot-derived
         // fallback; the production planner MUST pass these.
         py::arg("problem_seeds") = py::array_t<unsigned int>(),
+        // CRAG-HJCD-SINGLE-VISIT-DIVERSE-TOPK-0: [B] uint32 semantic per-CANDIDATE RNG ids.
+        // Empty => the candidate's row within its bank, which is slot identity.
+        py::arg("candidate_ids") = py::array_t<unsigned int>(),
+        // CRAG-HJCD-CENTROID-NULLSPACE-QS-0: [P,3] per-problem base position bounds.
+        // Empty => the call-wide box, unchanged.
         py::arg("orientation_modes") = py::none(),
         py::arg("orientation_axes") = py::none(),
+        // CRAG-HJCD-CONTACT-MANIFOLD-ALIGNMENT-0
+        py::arg("tool_override") = py::none(),
+        py::arg("twist_spec") = py::none(),
         py::arg("self_collision") = false, py::arg("self_collision_margin") = 0.0,
-        py::arg("self_collision_eligible_tol") = -1.0);
+        py::arg("self_collision_eligible_tol") = -1.0,
+        py::arg("self_collision_eligible_orientation_tol") = -1.0,
+        py::arg("self_collision_eligible_require_environment_free") = false,
+        py::arg("self_collision_gate_selection") = true,
+        py::arg("self_collision_rank_selection") = false);
 }

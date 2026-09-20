@@ -1,58 +1,58 @@
 {
   "state": {
-    "branch": "feature/g1-collision-sidecar",
-    "head": "439c68f",
-    "extension_path": "/home/kale/dev/research/robot_bouldering/external/HJCD-IK/hjcdik/__init__.py",
+    "branch": "humanoid",
+    "head": "a1c94de",
+    "extension_path": "/home/kale/dev/research/CRAG/external/HJCD-IK/hjcdik/__init__.py",
     "num_joints": 29,
     "num_targets": 4,
     "num_frames": 31,
     "hashes": {
-      "csrc/generated/grid.cuh": "1995aeaf14874f06",
-      "csrc/kernel/hjcd_kernel.cu": "96818acacfcb6eca",
+      "csrc/generated/grid.cuh": "cf47abfa68edcf16",
+      "csrc/kernel/hjcd_kernel.cu": "c3c0f07b02ae9e83",
       "csrc/kernel/hjcd_settings.h": "2374f2ee6a4c03de",
-      "csrc/bindings/pybind_module.cpp": "1e1fa1c57c165aee"
+      "csrc/bindings/pybind_module.cpp": "5b7ffcb93383956d"
     },
-    "grid_collision_baked": false
+    "grid_collision_baked": true
   },
   "runs": {
     "B256": {
       "batch_size": 256,
       "reproducible": true,
       "n_success": [
-        36,
+        38,
         222,
-        233,
-        241
+        238,
+        243
       ],
       "q_hashes": [
-        "06b8658ec6d64b5d",
-        "117506c104206f1c",
-        "7fe9197d06edddee",
-        "43161014f54ad250"
+        "a26c2ff349a687bb",
+        "b992e168de4d35f1",
+        "d2031b96199a4922",
+        "b51251836d73b580"
       ],
       "wall_s": [
-        0.008801528998446884,
-        0.008095274999504909
+        0.009364958154037595,
+        0.009037199895828962
       ]
     },
     "B1024": {
       "batch_size": 1024,
       "reproducible": true,
       "n_success": [
-        147,
-        875,
-        973,
-        932
+        149,
+        880,
+        972,
+        934
       ],
       "q_hashes": [
-        "eb6440225e192785",
-        "66e0cd3ece1ddc03",
-        "0b000b583e246132",
-        "6c00a86ce5d326b0"
+        "89677edac307b8e6",
+        "95c259ff1e823ee6",
+        "acefbfff472465ab",
+        "069a6ca5d9631c15"
       ],
       "wall_s": [
-        0.021526040000026114,
-        0.020650623999245
+        0.02325171115808189,
+        0.022137155989184976
       ]
     }
   },

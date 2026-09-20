@@ -16,6 +16,7 @@ if os.name == "nt":
 import threading as _threading
 
 import numpy as _np
+from dataclasses import dataclass as _dataclass
 
 from . import _hjcdik            # module handle for the Checkpoint 3 sidecar entry points
 from ._hjcdik import (
@@ -35,8 +36,11 @@ from ._hjcdik import (
     _coarse_search_raw,
     _solve_problems_raw,
     collision_free,
+    collision_margins as _collision_margins_raw,
     _incremental_probe_raw,
     _bench_fk_raw,
+    # CRAG-HJCD-CONTACT-MANIFOLD-ALIGNMENT-0
+    set_contact_semantics,
 )
 
 __all__ = [
@@ -44,8 +48,12 @@ __all__ = [
     "link_transforms", "target_transforms", "target_metadata", "target_residuals",
     "normal_equations", "refine", "coarse_search", "incremental_probe", "bench_fk",
     "pack_active_mask", "collision_free", "solve", "solve_problems", "HJCDSolver",
+    "collision_margins", "collision_margin", "collision_constraints",
+    "CollisionMargin", "CollisionConstraint", "COLLISION_CATEGORIES",
+    "COLLISION_FLAG_DEGENERATE", "COLLISION_FLAG_INTERIOR", "COLLISION_FLAG_FEATURE_TIE",
     "self_collision_info", "joint_names", "target_names", "target_axes",
-    "ORI_NONE", "ORI_AXIS", "ORI_FULL",
+    "ORI_NONE", "ORI_AXIS", "ORI_FULL", "ORI_AXIS_BOUNDED_TWIST",
+    "set_contact_semantics",
 ]
 
 # The generated target order is FIXED and is the order of every [.., K, ..] axis in this API, in
@@ -55,6 +63,232 @@ __all__ = [
 # generated target. Call target_names() for the compiled build's actual order rather than assuming
 # one; likewise joint_names() for the configuration-vector order.
 
+
+
+# --- the continuous collision margin (HJCD-COLLISION-DISTANCE-GRADIENT-0) -------------------------
+#
+# `collision_free(q)` answers a BIT. Underneath it every primitive computes a SQUARED GAP
+#
+#     squared_gap = A^2 - B^2 ,   A >= 0 the geometric distance, B >= 0 the required clearance
+#
+# and reports collision iff that is < 0. For A, B >= 0 that is EXACTLY `A - B < 0`, so the Boolean
+# is the sign of a continuous margin
+#
+#     m_io(q) = A_io(q) - B_io ,   collision_free(q)  <=>  min_{i,o} m_io(q) >= 0
+#
+# with the same `>=` convention (touching is FREE). These three functions expose that margin, its
+# unit surface normal, its joint gradient and its nonsmoothness, WITHOUT changing the Boolean,
+# any geometry, any radius or any threshold.
+#
+# WHY PER-PAIR AND NOT JUST THE MINIMUM. `m(q) = min_k m_k(q)` is nonsmooth exactly where the
+# winning pair changes, so an optimizer handed a differentiated `min` is handed a derivative that
+# is wrong at every switch. `collision_constraints` returns the individual near-active rows
+# instead, and returns ALL of them when several tie.
+
+#: category code -> name, matching the flattened obstacle order spheres | capsules | cuboids | planes.
+COLLISION_CATEGORIES = ("sphere", "capsule", "cuboid", "plane")
+
+#: The separating direction vanished; the normal is a fabricated fallback and NO derivative exists.
+COLLISION_FLAG_DEGENERATE = 1
+#: The sphere centre is inside the obstacle; the value comes from a least-penetration branch and
+#: the returned direction is a valid SUBGRADIENT, not a derivative.
+COLLISION_FLAG_INTERIOR = 2
+#: The active face/edge/vertex (cuboid) or segment endpoint (capsule) is about to switch: the
+#: derivative is one-sided. Governed by `feature_band`, which changes no margin and no verdict.
+COLLISION_FLAG_FEATURE_TIE = 4
+
+
+@_dataclass(frozen=True)
+class CollisionMargin:
+    """The controlling pair of one configuration, and what it is controlled by."""
+
+    margin: float
+    distance: float
+    required_clearance: float
+    sphere: int
+    obstacle: int
+    category: str
+    flags: int
+    free: bool
+
+    @property
+    def differentiable(self) -> bool:
+        return self.flags == 0
+
+
+@_dataclass(frozen=True)
+class CollisionConstraint:
+    """
+    One near-active pair row: `m_k(q) >= 0` and its gradient with respect to the N actuated joints.
+
+    `normal` is the unit WORLD surface normal, the direction the sphere centre must move to open
+    the pair up, and `sphere_world` is that centre. Together they are everything a caller needs to
+    build the floating-base columns in ITS OWN angular-velocity convention -- which is why this API
+    does not build them: a body-frame and a world-frame perturbation give different columns, and
+    guessing is how a quaternion gets differentiated as though it were Euclidean.
+    """
+
+    margin: float
+    distance: float
+    required_clearance: float
+    sphere: int
+    obstacle: int
+    category: str
+    flags: int
+    gradient_joints: _np.ndarray
+    normal: _np.ndarray
+    sphere_world: _np.ndarray
+
+    @property
+    def differentiable(self) -> bool:
+        return self.flags == 0
+
+
+def _margin_call(q, problems_json_text, problem_set_name, problem_idx,
+                 base_positions, base_quaternions, gradients, feature_band):
+    q = _np.ascontiguousarray(_np.atleast_2d(_np.asarray(q, dtype=_np.float64)))
+
+    def _pair(v, width):
+        if v is None:
+            return None
+        return _np.ascontiguousarray(
+            _np.asarray(v, dtype=_np.float64).reshape(-1, width)
+        )
+
+    return _collision_margins_raw(
+        q, problems_json_text, problem_set_name, int(problem_idx),
+        _pair(base_positions, 3), _pair(base_quaternions, 4),
+        bool(gradients), float(feature_band),
+    )
+
+
+def collision_margins(q, problems_json_text, problem_set_name, problem_idx=0,
+                      base_positions=None, base_quaternions=None,
+                      gradients=True, feature_band=1e-4):
+    """
+    BATCHED per-(sphere, obstacle) margins for `q` of shape `[B, N]`.
+
+    Returns a dict of arrays, sphere-major then obstacle:
+
+        margin        [B, S, O]     m = distance - required_clearance; >= 0 is free
+        required      [B, S, O]     the required clearance B
+        normal        [B, S, O, 3]  unit WORLD surface normal
+        flags         [B, S, O]     (nonsmoothness << 2) | category
+        sphere_world  [B, S, 3]     the collision sphere centres, world frame
+        djoint        [B, S, O, N]  d(margin)/d(joint), present iff `gradients`
+
+    This is ONE GPU launch for the whole batch: the underlying kernel is one block a configuration
+    and one thread-strided loop over pairs, so a Python loop around a scalar call would be strictly
+    worse. `distance` is `margin + required`, exactly, and is not returned separately.
+    """
+
+    return _margin_call(q, problems_json_text, problem_set_name, problem_idx,
+                        base_positions, base_quaternions, gradients, feature_band)
+
+
+def collision_margin(q, problems_json_text, problem_set_name, problem_idx=0,
+                     base_positions=None, base_quaternions=None, feature_band=1e-4):
+    """
+    The CONTROLLING pair of each configuration: `min_k m_k(q)` and which pair attains it.
+
+    Returns one `CollisionMargin` for a single configuration, or a list for a batch. `free` is the
+    margin predicate `m >= 0`, which is `collision_free(q)` for the same arguments -- the same
+    geometry, the same radii, the same `>=` boundary.
+    """
+
+    out = _margin_call(q, problems_json_text, problem_set_name, problem_idx,
+                       base_positions, base_quaternions, False, feature_band)
+
+    single = _np.asarray(q, dtype=_np.float64).ndim == 1
+
+    if not out.get("ok") or int(out.get("num_obstacles", 0)) == 0:
+        # A scene with no obstacles has no rows. That is not a failure and it is not a collision:
+        # nothing to hit means free, with an infinite margin.
+        empty = CollisionMargin(float("inf"), float("inf"), 0.0, -1, -1, "", 0, True)
+        n = 1 if single else int(_np.atleast_2d(_np.asarray(q)).shape[0])
+        return empty if single else [empty] * n
+
+    margin = out["margin"]
+    required = out["required"]
+    flags = out["flags"]
+
+    results = []
+    for b in range(margin.shape[0]):
+        flat = margin[b].reshape(-1)
+        k = int(_np.argmin(flat))
+        i, o = divmod(k, margin.shape[2])
+        raw = int(flags[b, i, o])
+        m = float(flat[k])
+        req = float(required[b, i, o])
+        results.append(CollisionMargin(
+            margin=m, distance=m + req, required_clearance=req,
+            sphere=i, obstacle=o, category=COLLISION_CATEGORIES[raw & 3],
+            flags=raw >> 2, free=bool(m >= 0.0),
+        ))
+
+    return results[0] if single else results
+
+
+def collision_constraints(q, problems_json_text, problem_set_name, problem_idx=0,
+                          base_positions=None, base_quaternions=None,
+                          active_band=0.05, limit=None, feature_band=1e-4):
+    """
+    The NEAR-ACTIVE pair rows of ONE configuration, for an SQP's inequality block.
+
+    A row is returned when
+
+        m_k(q) <= min_j m_j(q) + active_band
+
+    which keeps every pair that could become the controlling one inside a step of that size, and
+    keeps ALL of them when several tie -- the global minimum has no unique derivative at a tie and
+    this API does not pretend otherwise. Rows come back ordered by margin, tightest first.
+
+    `active_band` is a SELECTION rule, not a threshold on the physics: it changes which rows a
+    caller is handed, never any margin, any normal or any verdict. `limit` caps the count for a
+    caller with a fixed row budget; the tightest rows are kept.
+    """
+
+    single = _np.asarray(q, dtype=_np.float64).ndim == 1
+    if not single:
+        raise ValueError("collision_constraints takes ONE configuration; use collision_margins")
+
+    out = _margin_call(q, problems_json_text, problem_set_name, problem_idx,
+                       base_positions, base_quaternions, True, feature_band)
+
+    if not out.get("ok") or int(out.get("num_obstacles", 0)) == 0:
+        return []
+
+    margin = out["margin"][0]
+    required = out["required"][0]
+    normal = out["normal"][0]
+    flags = out["flags"][0]
+    djoint = out["djoint"][0]
+    centres = out["sphere_world"][0]
+
+    flat = margin.reshape(-1)
+    cutoff = float(flat.min()) + float(active_band)
+
+    order = _np.argsort(flat, kind="stable")
+    keep = [int(k) for k in order if float(flat[k]) <= cutoff]
+    if limit is not None:
+        keep = keep[: int(limit)]
+
+    rows = []
+    for k in keep:
+        i, o = divmod(k, margin.shape[1])
+        raw = int(flags[i, o])
+        m = float(margin[i, o])
+        req = float(required[i, o])
+        rows.append(CollisionConstraint(
+            margin=m, distance=m + req, required_clearance=req,
+            sphere=i, obstacle=o, category=COLLISION_CATEGORIES[raw & 3],
+            flags=raw >> 2,
+            gradient_joints=_np.asarray(djoint[i, o], dtype=float).copy(),
+            normal=_np.asarray(normal[i, o], dtype=float).copy(),
+            sphere_world=_np.asarray(centres[i], dtype=float).copy(),
+        ))
+
+    return rows
 
 # --- generated model metadata (names) ------------------------------------------------------------
 # num_joints()/num_targets()/target_metadata() come from the compiled extension and carry no
@@ -292,8 +526,14 @@ def _bcast_weights(w, B, K, name):
 # into an infeasible one. ORI_AXIS expresses that; ORI_FULL is the legacy full-quaternion
 # constraint and stays the default so no existing call changes behaviour.
 ORI_NONE, ORI_AXIS, ORI_FULL = 0, 1, 2
+# CRAG-HJCD-CONTACT-MANIFOLD-ALIGNMENT-0. The facing axis, plus a DEADZONE on
+# the twist about it -- the contact a hand on a hold actually makes. Needs
+# `twist_spec=` (per target: the grip axis in the target frame, then the arc's
+# lo and hi in radians). The three pre-existing codes are unchanged.
+ORI_AXIS_BOUNDED_TWIST = 3
 
-_ORI_MODE_NAMES = {"none": ORI_NONE, "axis": ORI_AXIS, "full": ORI_FULL}
+_ORI_MODE_NAMES = {"none": ORI_NONE, "axis": ORI_AXIS, "full": ORI_FULL,
+                   "axis_bounded_twist": ORI_AXIS_BOUNDED_TWIST}
 
 
 def _ori_mode_code(v, name):
@@ -306,7 +546,7 @@ def _ori_mode_code(v, name):
                 f"{name}: unknown orientation mode {v!r}; "
                 f"expected one of {sorted(_ORI_MODE_NAMES)} or 0|1|2") from None
     iv = int(v)
-    if iv not in (ORI_NONE, ORI_AXIS, ORI_FULL):
+    if iv not in (ORI_NONE, ORI_AXIS, ORI_FULL, ORI_AXIS_BOUNDED_TWIST):
         raise ValueError(f"{name}: orientation mode must be 0 (NONE), 1 (AXIS) or 2 (FULL), got {iv}")
     return iv
 
@@ -373,7 +613,7 @@ def _require_axes_for_axis_mode(modes, axes, active, P, K):
     """
     if modes is None:
         return
-    is_axis = (modes == ORI_AXIS)
+    is_axis = (modes == ORI_AXIS) | (modes == ORI_AXIS_BOUNDED_TWIST)
     act = ((_np.asarray(active, dtype=_np.uint32)[:, None] >> _np.arange(K, dtype=_np.uint32)) & 1)
     need = is_axis & act.astype(bool)
     if not need.any():
@@ -392,6 +632,41 @@ def _require_axes_for_axis_mode(modes, axes, active, P, K):
             "orientation_modes requests AXIS for (problem, target) "
             f"{[(int(p), int(k)) for p, k in bad]} but the corresponding orientation_axes entry is "
             "a zero vector, which defines no direction.")
+
+
+def _require_twist_spec(modes, twist_spec, active, P, K):
+    """BOUNDED_TWIST without an arc is a silent wrong answer, so make it loud.
+
+    With no spec the kernel reads a ZERO arc, which pins the twist to a point
+    -- that is ORI_FULL's constraint wearing this mode's name, and it is
+    exactly the failure this mode exists to avoid. Checked only for ACTIVE
+    targets, as the axis check is.
+    """
+    if modes is None:
+        return
+    need = (modes == ORI_AXIS_BOUNDED_TWIST)
+    act = ((_np.asarray(active, dtype=_np.uint32)[:, None]
+            >> _np.arange(K, dtype=_np.uint32)) & 1)
+    need = need & act.astype(bool)
+    if not need.any():
+        return
+    if twist_spec is None:
+        raise ValueError(
+            "orientation_modes requests ORI_AXIS_BOUNDED_TWIST but no "
+            "twist_spec= was passed. Give one row per target: "
+            "(grip_x, grip_y, grip_z, arc_lo, arc_hi), the grip axis in the "
+            "TARGET's own frame and the arc in radians.")
+    spec = _np.asarray(twist_spec, dtype=_np.float64).reshape(K, 5)
+    ks = sorted({int(k) for _, k in _np.argwhere(need)})
+    bad_axis = [k for k in ks if _np.linalg.norm(spec[k, :3]) <= 0]
+    if bad_axis:
+        raise ValueError(
+            f"twist_spec grip axis for target(s) {bad_axis} is a zero vector, "
+            "which defines no twist.")
+    bad_arc = [k for k in ks if not spec[k, 4] >= spec[k, 3]]
+    if bad_arc:
+        raise ValueError(
+            f"twist_spec arc for target(s) {bad_arc} has hi < lo.")
 
 
 def _bcast_tol(t, K, name):
@@ -1466,8 +1741,34 @@ def _canonical_problems(target_poses, active_masks, seed_configs, dtype, floatin
             base_p, base_q)
 
 
+#: Whether the LOADED extension carries the CRAG-HJCD-COLLISION-STACK-0 eligibility/selection
+#: arguments. The Python layer is shared with older builds of `_hjcdik` (an editable install can
+#: bind either), so the extras are passed only when the binding has them and their absence is a
+#: capability, not an error. Asking for a NON-DEFAULT value against a build that cannot honour it
+#: raises rather than silently running the shipped path.
+_CSS0_RAW_ARGS = "self_collision_gate_selection" in (_hjcdik._solve_problems_raw.__doc__ or "")
+
+
+def _css0_kwargs(ori_tol, require_env_free, selection):
+    want = (ori_tol is not None) or bool(require_env_free) or (selection != "gate")
+    if not _CSS0_RAW_ARGS:
+        if want:
+            raise RuntimeError(
+                "self_collision_eligible_orientation_tol / "
+                "self_collision_eligible_require_environment_free / "
+                "self_collision_selection need an _hjcdik built with "
+                "CRAG-HJCD-COLLISION-STACK-0; this one does not carry them")
+        return {}
+    return dict(
+        self_collision_eligible_orientation_tol=(-1.0 if ori_tol is None else float(ori_tol)),
+        self_collision_eligible_require_environment_free=bool(require_env_free),
+        self_collision_gate_selection=(selection == "gate"),
+        self_collision_rank_selection=(selection == "rank"),
+    )
+
+
 def solve_problems(target_poses, active_masks, seed_configs,
-                   problem_seeds=None,
+                   problem_seeds=None, candidate_ids=None,
                    num_solutions=1, precision="float32", coarse_mode="auto",
                    coarse_iters=120, lm_iters=60, seed=0, diagnostics=False,
                    stag_patience=2, stag_rel=1e-3,
@@ -1475,8 +1776,36 @@ def solve_problems(target_poses, active_masks, seed_configs,
                    position_weights=1.0, orientation_weights=1.0,
                    problems_json_text="", problem_set_name="", problem_idx=0,
                    return_all_candidates=False, floating_base=False, base_bounds=None,
+                   tool_override=None, twist_spec=None,
                    base_update=None, self_collision_mode="off",
                    self_collision_margin=0.0, self_collision_eligible_tol=None,
+                   # CRAG-HJCD-COLLISION-STACK-0. All three default to the shipped behaviour.
+                   #
+                   # self_collision_eligible_orientation_tol
+                   #     the ORIENTATION half of the caller's acceptance predicate, the companion
+                   #     of self_collision_eligible_tol. None (default) leaves the eligibility
+                   #     predicate exactly as it was: position only.
+                   # self_collision_eligible_require_environment_free
+                   #     skip candidates the ENVIRONMENT channel already refused. They are class 2
+                   #     in selection whatever self-collision says, so this cannot move a verdict;
+                   #     it DOES leave their per-candidate annotation reading 0 (`not checked`).
+                   # self_collision_selection
+                   #     "gate" (default, shipped): the verdict is ANDed into feasibility, so a
+                   #        colliding candidate is class 2 and never returned.
+                   #     "annotate": the verdict is computed and REPORTED but never ANDed, so an
+                   #        IK-valid colliding candidate stays in the bank carrying its own
+                   #        annotation. `selected_self_collision_free` is the per-slot verdict.
+                   #        MEASURED CAVEAT: with nothing ordering on collision, a better-fitting
+                   #        COLLIDING candidate can take a top-M slot from a collision-free one,
+                   #        so the gated bank is NOT a subset of the annotated bank.
+                   #     "rank": annotate, plus collision as a SECONDARY ranking class -- a
+                   #        colliding candidate sorts after every collision-free one of the same
+                   #        solved/valid class. The gated top-M is then a PREFIX of this one:
+                   #        nothing the gate returned is lost or moved, and the colliding
+                   #        candidates fill only the slots the gate left as invalid pads.
+                   self_collision_eligible_orientation_tol=None,
+                   self_collision_eligible_require_environment_free=False,
+                   self_collision_selection="gate",
                    orientation_modes=None, orientation_axes=None,
                    _solver=None):
     """Solve P distinct multi-target IK problems in parallel, returning the top-1 per problem.
@@ -1575,6 +1904,13 @@ def solve_problems(target_poses, active_masks, seed_configs,
     om = _bcast_ori_modes(orientation_modes, P, K)
     oa = _bcast_ori_axes(orientation_axes, P, K) if om is not None else None
     _require_axes_for_axis_mode(om, oa, packed, P, K)
+    _require_twist_spec(om, twist_spec, packed, P, K)
+    _tool = (None if tool_override is None
+             else _np.ascontiguousarray(
+                 _np.asarray(tool_override, dtype=_np.float64).reshape(K, 16)))
+    _twist = (None if twist_spec is None
+              else _np.ascontiguousarray(
+                  _np.asarray(twist_spec, dtype=_np.float64).reshape(K, 5)))
     if oa is not None:
         oa = oa.astype(wire, copy=False)
     wp = _np.ascontiguousarray(wp); wo = _np.ascontiguousarray(wo)
@@ -1587,6 +1923,10 @@ def solve_problems(target_poses, active_masks, seed_configs,
         # Uploaded BEFORE the solve now, not after: the sidecar's SDF/convex tables have to be
         # resident when solve_problems_batched calls the device check between LM and selection.
         _ensure_self_collision_sidecar()
+    if self_collision_selection not in ("gate", "annotate", "rank"):
+        raise ValueError(
+            "self_collision_selection must be gate|annotate|rank, got "
+            f"{self_collision_selection!r}")
 
     cc_enabled = bool(problems_json_text) and bool(problem_set_name)
 
@@ -1615,6 +1955,20 @@ def solve_problems(target_poses, active_masks, seed_configs,
             _pseeds = _np.ascontiguousarray(problem_seeds, dtype=_np.uint32).reshape(-1)
             if _pseeds.size != P:
                 raise ValueError(f"problem_seeds must have length P={P}, got {_pseeds.size}")
+        # CRAG-HJCD-SINGLE-VISIT-DIVERSE-TOPK-0: [B] = [P*S] uint32 SEMANTIC per-CANDIDATE RNG
+        # ids, candidate-major exactly like seed_configs. None => the candidate's identity stays
+        # its ROW within its own bank, which is slot identity and is what every caller got before.
+        if candidate_ids is None:
+            _cids = _np.empty(0, dtype=_np.uint32)
+        else:
+            _cids = _np.ascontiguousarray(candidate_ids, dtype=_np.uint32).reshape(-1)
+            if _cids.size != B:
+                raise ValueError(
+                    f"candidate_ids must have length B = P*S = {B}, got {_cids.size}")
+        # CRAG-HJCD-CENTROID-NULLSPACE-QS-0: (lower, upper) each [P,3]. `base_bounds` above is
+        # ONE box for the whole call; this is one box per PROBLEM, which is what a bound derived
+        # from the problem's own geometry needs. lower == upper on an axis PINS the base there.
+        _bpl = _np.zeros(0)
         out = _solve_problems_raw(
             seeds_flat, pos, quat, packed, wp, wo, use_coarse, bool(run_coarse),
             float(position_tol), float(orientation_tol),
@@ -1623,11 +1977,25 @@ def solve_problems(target_poses, active_masks, seed_configs,
             int(num_solutions), pc, bool(return_all_candidates),
             str(problems_json_text), str(problem_set_name), int(problem_idx), sv._ws,
             base_p, base_q, base_diag, problem_seeds=_pseeds,
+            # SENT ONLY WHEN ASKED FOR, like every other capability argument
+            # in this module: an extension built before
+            # CRAG-HJCD-SINGLE-VISIT-DIVERSE-TOPK-0 raises TypeError rather
+            # than ignoring it, which is the right refusal -- but every
+            # existing caller must keep working against either build.
+            **({} if _cids.size == 0 else {"candidate_ids": _cids}),
             orientation_modes=om, orientation_axes=oa,
+            # SENT ONLY WHEN ASKED FOR, like candidate_ids above: an extension
+            # built before CRAG-HJCD-CONTACT-MANIFOLD-ALIGNMENT-0 raises
+            # TypeError rather than silently ignoring the contact semantics.
+            **({} if _tool is None else {"tool_override": _tool}),
+            **({} if _twist is None else {"twist_spec": _twist}),
             self_collision=(self_collision_mode == "final"),
             self_collision_margin=float(self_collision_margin),
             self_collision_eligible_tol=(-1.0 if self_collision_eligible_tol is None
-                                         else float(self_collision_eligible_tol)), **_bu)
+                                         else float(self_collision_eligible_tol)),
+            **_css0_kwargs(self_collision_eligible_orientation_tol,
+                           self_collision_eligible_require_environment_free,
+                           self_collision_selection), **_bu)
     finally:
         sv._exit()
 
@@ -1713,7 +2081,15 @@ def solve_problems(target_poses, active_masks, seed_configs,
         #                 caller's acceptance tolerance). NOT counted as colliding.
         #   checked, colliding
         #   checked, collision-free
-        out["self_collision_free"] = cfree_sel          # the SELECTED candidate(s)
+        # NOTE (CRAG-HJCD-COLLISION-STACK-0): `collision_free` is the ENVIRONMENT channel's
+        # verdict for the selected candidate, not self-collision's. Under the shipped GATE
+        # semantics the distinction is unobservable -- a self-colliding candidate is class 2 and
+        # is never selected -- but under "annotate" it is exactly what the caller needs, so the
+        # sidecar's own per-slot verdict is carried through separately and preferred here when
+        # the kernel supplies it.
+        out["self_collision_free"] = (
+            _np.asarray(out["selected_self_collision_free"])
+            if "selected_self_collision_free" in out else cfree_sel)
         out["self_collision"] = dict(
             mode="final",
             selection="pre-selection (device eligibility gate)",
@@ -1729,6 +2105,12 @@ def solve_problems(target_poses, active_masks, seed_configs,
             margin=float(self_collision_margin),
             eligible_tol=(None if self_collision_eligible_tol is None
                           else float(self_collision_eligible_tol)),
+            eligible_orientation_tol=(
+                None if self_collision_eligible_orientation_tol is None
+                else float(self_collision_eligible_orientation_tol)),
+            eligible_require_environment_free=bool(
+                self_collision_eligible_require_environment_free),
+            selection_semantics=self_collision_selection,
             native_collision_tolerance_m=abs(float(self_collision_margin)),
             semantics="native self-collision prefilter passed; MuJoCo remains authoritative")
     return out
