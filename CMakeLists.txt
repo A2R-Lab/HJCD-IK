@@ -109,42 +109,31 @@ set(HJCDIK_CUDA_FLAGS
   $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-fcommon>
 )
 
-# Native Executable
-add_executable(hjcdik
-  csrc/kernel/main.cpp
-  ${HJCDIK_COMMON_SOURCES}
+# Compile the CUDA solver once and reuse the object code in both front ends. Keeping bindings and
+# CLI code out of this target means ordinary wrapper edits do not trigger the expensive CUDA compile.
+add_library(hjcdik_core OBJECT ${HJCDIK_COMMON_SOURCES})
+target_sources(hjcdik_core PRIVATE ${GRID_HEADER})
+target_include_directories(hjcdik_core PUBLIC ${HJCDIK_INCLUDE_DIRS})
+target_compile_options(hjcdik_core PRIVATE ${HJCDIK_WARN_FLAGS} ${HJCDIK_CUDA_FLAGS})
+target_link_libraries(hjcdik_core PUBLIC Eigen3::Eigen)
+set_target_properties(hjcdik_core PROPERTIES
+  CUDA_SEPARABLE_COMPILATION OFF
+  CUDA_RESOLVE_DEVICE_SYMBOLS OFF
+  POSITION_INDEPENDENT_CODE ON
 )
-target_sources(hjcdik PRIVATE ${GRID_HEADER})
-target_include_directories(hjcdik PRIVATE ${HJCDIK_INCLUDE_DIRS})
-target_compile_options(hjcdik PRIVATE ${HJCDIK_WARN_FLAGS} ${HJCDIK_CUDA_FLAGS})
 
+# Native executable
+add_executable(hjcdik csrc/kernel/main.cpp)
+target_compile_options(hjcdik PRIVATE ${HJCDIK_WARN_FLAGS})
+target_link_libraries(hjcdik PRIVATE hjcdik_core CUDA::cudart)
 set_target_properties(hjcdik PROPERTIES CUDA_RUNTIME_LIBRARY Static)
 
-target_link_libraries(hjcdik PRIVATE
-  CUDA::cudart
-  Eigen3::Eigen
-)
-
-# Python
+# Python extension
 if(BUILD_PYTHON)
-  pybind11_add_module(_hjcdik MODULE
-    csrc/bindings/pybind_module.cpp
-    ${HJCDIK_COMMON_SOURCES}
-  )
-  target_sources(_hjcdik PRIVATE ${GRID_HEADER})
-  target_include_directories(_hjcdik PRIVATE ${HJCDIK_INCLUDE_DIRS})
-  target_compile_options(_hjcdik PRIVATE ${HJCDIK_WARN_FLAGS} ${HJCDIK_CUDA_FLAGS})
-
-  set_target_properties(_hjcdik PROPERTIES
-    CUDA_SEPARABLE_COMPILATION OFF
-    CUDA_RESOLVE_DEVICE_SYMBOLS OFF
-    CUDA_RUNTIME_LIBRARY Shared
-  )
-
-  target_link_libraries(_hjcdik PRIVATE
-    CUDA::cudart
-    Eigen3::Eigen
-  )
+  pybind11_add_module(_hjcdik MODULE csrc/bindings/pybind_module.cpp)
+  target_compile_options(_hjcdik PRIVATE ${HJCDIK_WARN_FLAGS})
+  target_link_libraries(_hjcdik PRIVATE hjcdik_core CUDA::cudart)
+  set_target_properties(_hjcdik PROPERTIES CUDA_RUNTIME_LIBRARY Shared)
 
   install(TARGETS _hjcdik
     LIBRARY DESTINATION hjcdik
@@ -152,4 +141,3 @@ if(BUILD_PYTHON)
     ARCHIVE DESTINATION hjcdik
   )
 endif()
-

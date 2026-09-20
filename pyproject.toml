@@ -2,17 +2,13 @@
 requires = [
   "scikit-build-core>=0.9.0",
   "pybind11>=2.11",
-  "numpy>=1.17.4",
-  "sympy>=1.7.1",
-  "beautifulsoup4>=4.9.3",
-  "lxml>=4.2.1",
 ]
 build-backend = "scikit_build_core.build"
 
 [project]
 name = "hjcdik"
 version = "0.0.1"
-description = "Minimal Python bindings for hjcdik (C++/CUDA)"
+description = "GPU-parallel hierarchical joint-coordinate-descent inverse kinematics"
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [
@@ -22,17 +18,19 @@ authors = [
   { name = "Brian Plancher", email = "plancher@dartmouth.edu" },
 ]
 
-# REQUIRED runtime + codegen dependencies
+# Runtime dependency used by the Python array API. GRiD code generation is an explicit extra.
 dependencies = [
   "numpy>=1.17.4",
-  "sympy>=1.7.1",
-  "beautifulsoup4>=4.9.3",
-  "lxml>=4.2.1",
 ]
 
 # OPTIONAL extras. Base install stays lightweight (HJCD-IK needs none of these). The competitor
 # baselines are heavy and skippable — see docs/source/user_guide/benchmarks/results.rst.
 [project.optional-dependencies]
+codegen = [
+  "sympy>=1.7.1",
+  "beautifulsoup4>=4.9.3",
+  "lxml>=4.2.1",
+]
 # Lightweight tooling + PyRoki's pure-python friends that pip CAN resolve. The solver stacks
 # themselves (PyRoki, cuRobo) and their JAX-CUDA / torch deps are NOT plain-PyPI installs — run
 # scripts/setup/install_baselines.sh, which installs this extra and then the git/source solvers.
