@@ -12,7 +12,12 @@ if(NOT DEFINED CMAKE_CUDA_HOST_COMPILER)
   endif()
 endif()
 
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+  set(CMAKE_CUDA_ARCHITECTURES native CACHE STRING "CUDA architectures")
+endif()
+
 project(hjcdik LANGUAGES CXX CUDA)
+message(STATUS "HJCD-IK: CUDA architectures = ${CMAKE_CUDA_ARCHITECTURES}")
 
 option(HJCDIK_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
 option(BUILD_PYTHON "Build the Python extension module" ON)
@@ -24,11 +29,6 @@ set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-  # Build for the GPU present at configure time. Override with
-  # -DCMAKE_CUDA_ARCHITECTURES=86;89 (or a specific list) for cross-compiling / CI without a GPU.
-  set(CMAKE_CUDA_ARCHITECTURES native)
-endif()
 
 find_package(CUDAToolkit REQUIRED)
 find_package(Eigen3 CONFIG REQUIRED)

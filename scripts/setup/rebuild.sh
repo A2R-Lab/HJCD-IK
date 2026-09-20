@@ -7,7 +7,8 @@
 # rebuild via this script (or `pip install -e . --no-build-isolation`) so what you test is what you built.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
-NINJA=$(command -v ninja || echo .venv/bin/ninja)
+export PATH="$PWD/.venv/bin:$PATH"
+NINJA=$(command -v ninja)
 "$NINJA" -C build
 SO=$(ls build/_hjcdik*.so)
 DST=$(.venv/bin/python -c "import sysconfig,glob,os; \
