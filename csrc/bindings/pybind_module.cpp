@@ -2,7 +2,6 @@
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
 #include <cstring>
-#include <cmath>
 #include "kernel/hjcd_kernel.h"
 
 namespace py = pybind11;
@@ -111,15 +110,62 @@ PYBIND11_MODULE(_hjcdik, m) {
       py::arg("problem_idx") = 0,
       py::arg("refine_fp64") = -1,    // -1=auto (fp64 if num_solutions==1 else fp32); 1=fp64; 0=fp32
       py::arg("write_stats") = false,   // append a row to ik_stats.csv
-      py::arg("collision_mode") = "hard");  // hard|soft|both|auto (legacy env fallback)
+      py::arg("collision_mode") = "hard",
+      R"doc(Solve one end-effector target using a GPU batch of candidate configurations.
+
+target_pose is [x, y, z, qw, qx, qy, qz], in meters with a scalar-first
+quaternion. Finite nonzero quaternions are normalized. batch_size is the
+number of candidates, not the number of target poses.
+
+Returns a dict containing independent, owning float64 NumPy arrays:
+joint_config (count, num_joints()) in radians; pose (count, 7) in the
+input convention; pos_errors (count,) in millimeters; ori_errors (count,)
+in radians; and the integer count. count may be smaller than num_solutions,
+including zero. Check both errors: returning a candidate does not certify
+that the requested target was reached.
+
+collision_free=True requires a collision-enabled build plus
+problems_json_text, problem_set_name, and a nonnegative problem_idx.
+collision_mode='hard' filters self/environment collisions against the
+compiled sphere model; 'soft' only ranks by penetration and does NOT
+guarantee collision freedom; 'both' ranks and filters. 'auto' uses the
+legacy HJCD_CC_MODE environment variable. These modes apply only when
+collision_free=True, and do not check the path to a returned configuration.
+
+refine_fp64=-1 chooses fp64 for one requested solution, otherwise fp32;
+1 forces fp64 and 0 forces fp32. I/O remains float64. write_stats=True
+appends diagnostics to ik_stats.csv in the current working directory.
+
+Argument conversion errors raise TypeError; invalid values raise
+ValueError. Scene and CUDA failures raise exceptions. Calls release the
+GIL but serialize access to shared native state. Keep the CUDA context
+alive between calls; cudaDeviceReset invalidates cached models.
+)doc");
   m.def("sample_targets", &py_sample_targets,
-        py::arg("num_targets"), py::arg("seed") = 0);
-  m.def("num_joints", &grid_num_joints);
-  m.def("collision_enabled", &grid_has_collision);
+        py::arg("num_targets"), py::arg("seed") = 0,
+        R"doc(Sample reachable poses from a seeded Halton sequence within joint limits.
+
+Returns num_targets lists of [x, y, z, qw, qx, qy, qz], using meters and
+scalar-first quaternions. num_targets must be positive and seed must fit
+an unsigned 64-bit integer. Sampling does not filter self/environment
+collisions. The GIL is released while native sampling runs.
+)doc");
+  m.def("num_joints", &grid_num_joints,
+        "Return the compiled robot's actuated joint count without initializing CUDA.");
+  m.def("collision_enabled", &grid_has_collision,
+        "Report whether this build includes robot collision geometry, without initializing CUDA.");
   m.def("build_info", [] {
     py::dict info;
     info["num_joints"] = grid_num_joints();
     info["collision_enabled"] = grid_has_collision();
+    info["grid_header_sha256"] = HJCDIK_GRID_SHA256;
+    info["cuda_compiler_version"] = HJCDIK_CUDA_COMPILER_VERSION;
     return info;
-  });
+  }, R"doc(Return compiled model/build metadata without initializing CUDA.
+
+Includes num_joints, collision_enabled, grid_header_sha256 (the SHA-256 of
+the selected generated grid.cuh), and cuda_compiler_version (the build
+toolkit compiler, not the currently installed driver). Compare the header
+hash to detect a stale install or a wheel built for a different robot.
+)doc");
 }

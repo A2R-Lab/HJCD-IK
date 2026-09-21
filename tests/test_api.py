@@ -1,6 +1,9 @@
 """Public Python API validation and normalization contracts."""
+import hashlib
+import json
 import math
 import os
+from pathlib import Path
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -152,3 +155,65 @@ def test_gpu_entry_points_are_thread_safe():
 def test_sample_targets_requires_positive_count(num_targets):
     with pytest.raises(ValueError, match="num_targets must be positive"):
         hjcdik.sample_targets(num_targets=num_targets)
+
+
+@pytest.mark.parametrize("target", [
+    [0, 0, 0, 1, 0, 0],
+    [0, 0, 0, 1, 0, 0, 0, 0],
+    [[0, 0, 0, 1, 0, 0, 0], [0, 0, 0, 1, 0, 0, 0]],
+])
+def test_target_requires_one_seven_vector(target):
+    with pytest.raises(TypeError):
+        hjcdik.generate_solutions(target)
+
+
+def test_noncontiguous_numpy_target_is_accepted_without_mutation():
+    target = np.repeat(hjcdik.sample_targets(1, seed=53)[0], 2)[::2]
+    assert not target.flags.c_contiguous
+    original = target.copy()
+    result = hjcdik.generate_solutions(target, batch_size=128)
+    assert result["count"] == 1
+    np.testing.assert_array_equal(target, original)
+
+
+def test_result_arrays_own_their_storage_and_survive_later_calls():
+    target = hjcdik.sample_targets(1, seed=59)[0]
+    result = hjcdik.generate_solutions(target, batch_size=128, num_solutions=2)
+    count = result["count"]
+    assert 0 < count <= 2
+    shapes = {"joint_config": (count, hjcdik.num_joints()), "pose": (count, 7),
+              "pos_errors": (count,), "ori_errors": (count,)}
+    arrays = {key: result[key] for key in shapes}
+    snapshots = {key: value.copy() for key, value in arrays.items()}
+    for key, value in arrays.items():
+        assert value.shape == shapes[key]
+        assert value.dtype == np.float64
+        assert value.flags.owndata and value.flags.c_contiguous
+        assert np.isfinite(value).all()
+    del result
+    hjcdik.generate_solutions(target, batch_size=256)
+    for key, value in arrays.items():
+        np.testing.assert_array_equal(value, snapshots[key])
+
+
+def test_public_functions_have_interactive_help():
+    for name in hjcdik.__all__:
+        assert len(getattr(hjcdik, name).__doc__ or "") > 60
+    help_text = hjcdik.generate_solutions.__doc__
+    for contract in ("millimeters", "radians", "scalar-first", "does NOT", "zero", "TypeError"):
+        assert contract in help_text
+
+
+def test_build_metadata_matches_header_without_a_visible_gpu():
+    run = subprocess.run(
+        [sys.executable, "-c", "import json, hjcdik; print(json.dumps(hjcdik.build_info()))"],
+        capture_output=True, text=True, timeout=30,
+        env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
+    )
+    assert run.returncode == 0, run.stdout + run.stderr
+    info = json.loads(run.stdout)
+    header = Path(__file__).resolve().parents[1] / "csrc/generated/grid.cuh"
+    assert info["grid_header_sha256"] == hashlib.sha256(header.read_bytes()).hexdigest()
+    assert info["num_joints"] == hjcdik.num_joints()
+    assert info["collision_enabled"] == hjcdik.collision_enabled()
+    assert all(part.isdigit() for part in info["cuda_compiler_version"].split("."))

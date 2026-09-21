@@ -37,6 +37,8 @@ source .venv/bin/activate
 
 The script initializes the required submodules, creates a virtual environment, installs dependencies,
 regenerates the collision-enabled Panda model, and builds `hjcdik`.
+Development setup and signed GPU-proof tooling require Python 3.11 or newer; the base package
+supports Python 3.9 or newer.
 
 If needed, convert the shell scripts to Unix line endings:
 
@@ -51,7 +53,7 @@ python - <<'PY'
 import hjcdik
 
 print("hjcdik:", hjcdik.__file__)
-print("robot DoF:", hjcdik.num_joints())
+print("build/model:", hjcdik.build_info())
 PY
 ```
 

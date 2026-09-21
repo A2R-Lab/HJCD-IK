@@ -5,7 +5,8 @@ The ``hjcdik`` package exposes the solver via pybind11. Calls use the calling th
 current CUDA device. Sampling and solving release the GIL and serialize in the native layer.
 
 Targets use meters and scalar-first quaternions (``wxyz``). Any finite nonzero quaternion
-is normalized. Invalid arguments raise ``ValueError``; unusable scenes and CUDA runtime
+is normalized. Argument conversion errors raise ``TypeError`` and invalid values raise
+``ValueError``; unusable scenes and CUDA runtime
 failures raise exceptions. A returned candidate is not a success certificate: inspect both
 position and orientation errors against your application's tolerances.
 
@@ -17,6 +18,7 @@ position and orientation errors against your application's tolerances.
 
 ``sample_targets(num_targets, seed=0)``
    Sample reachable EE targets from a seeded Halton sequence (list of 7-vectors).
+   These targets are not filtered for self/environment collision.
 
 ``num_joints()``
    The robot's joint count (``grid::NUM_JOINTS``).
@@ -47,7 +49,13 @@ multiple solutions; ``1`` and ``0`` force the precision. I/O stays float64 in bo
 ``write_stats=True`` writes diagnostic rows to ``ik_stats.csv`` in the current directory.
 
 ``collision_enabled()`` reports whether collision was compiled in; ``build_info()``
-returns that flag and the joint count without initializing CUDA. Collision scenes use
+returns that flag, the joint count, ``grid_header_sha256``, and ``cuda_compiler_version``
+without initializing CUDA. The header hash identifies the generated model actually compiled
+into the loaded extension; compare it with your selected ``grid.cuh`` to detect stale installs
+or a different robot wheel. The compiler version describes the build toolkit, not the driver.
+Interactive ``help(hjcdik.generate_solutions)`` documents parameters, units, and caveats.
+
+Collision scenes use
 ``problems_json_text``, ``problem_set_name``, and ``problem_idx``; see :doc:`collision`.
 ``collision_mode="auto"`` reads the legacy ``HJCD_CC_MODE`` environment variable;
 the default ``"hard"`` is explicit and ignores that variable.

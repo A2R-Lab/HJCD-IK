@@ -31,9 +31,11 @@ python -m pip install -e .
 ```
 
 This builds the `_hjcdik` extension. The CUDA architecture is auto-detected for the GPU present at
-configure time (`CMAKE_CUDA_ARCHITECTURES=native`); override it (e.g. `-DCMAKE_CUDA_ARCHITECTURES=86;89`)
-when cross-compiling. The checked-in `grid.cuh` is used by default; set `-DHJCDIK_AUTO_CODEGEN=ON` to
-regenerate it during configure.
+configure time (`CMAKE_CUDA_ARCHITECTURES=native`). For a fresh build targeting other GPUs,
+set `CUDAARCHS` (for example `CUDAARCHS="86;89" python -m pip install -e .`), or explicitly override
+a cached setting with `python -m pip install -e . -Ccmake.define.CMAKE_CUDA_ARCHITECTURES="86;89"`.
+The checked-in collision-enabled Panda `grid.cuh` is used by default; codegen is not needed
+for that build. See the custom-robot tutorial to generate a different model.
 
 ```{tip}
 **One-shot dev setup** — system deps + pinned submodules + a `.venv` + the docs toolchain +
@@ -41,8 +43,10 @@ codegen + build:  `./scripts/setup/setup_dev.sh`  (`SKIP_APT=1` / `SKIP_BUILD=1`
 skip steps).
 ```
 
-The two submodules are `external/GRiD` (kinematics codegen → `grid.cuh`) and `external/GLASS`
-(single-block / warp CUDA linear algebra).
+The top-level submodules are `external/GRiD` (kinematics codegen → `grid.cuh`),
+`external/GLASS` (warp CUDA linear algebra), and `external/foam` (the default Panda's
+pre-spherized collision model). Development setup and GPU-proof tooling require Python 3.11+;
+the base package supports Python 3.9+.
 
 ## Quickstart
 

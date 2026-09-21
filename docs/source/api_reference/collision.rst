@@ -6,7 +6,8 @@ into the generated ``grid.cuh`` as GRiD's ``grid_collision`` namespace (pass ``-
 ``scripts/codegen/generate_grid.py``); the kernel scores them *post-solve* via
 ``grid_collision::collision_distance`` (soft penetration cost) and, in hard mode, filters with
 ``grid_collision::config_free`` (see :doc:`kernel`). There is no hand-written per-robot collision
-header — any URDF gets both FK and collision from one codegen step.
+header. Supported fixed-base serial arms get FK and collision from one codegen step;
+see :doc:`../user_guide/tutorials/custom_robot` for the solver's model restrictions.
 
 The obstacle set (spheres / cuboids / cylinders from a MotionBenchMaker-style problem JSON) is
 parsed and uploaded to the device by ``grid_env.cuh``, then passed by value into the scoring

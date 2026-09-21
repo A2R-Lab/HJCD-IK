@@ -160,7 +160,14 @@ endif()
 
 # Python extension
 if(BUILD_PYTHON)
+  # Reconfigure when the selected model changes so Python metadata cannot retain a stale hash.
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${GRID_HEADER}")
+  file(SHA256 "${GRID_HEADER}" HJCDIK_GRID_SHA256)
   pybind11_add_module(_hjcdik MODULE csrc/bindings/pybind_module.cpp)
+  target_compile_definitions(_hjcdik PRIVATE
+    HJCDIK_GRID_SHA256="${HJCDIK_GRID_SHA256}"
+    HJCDIK_CUDA_COMPILER_VERSION="${CMAKE_CUDA_COMPILER_VERSION}"
+  )
   target_compile_options(_hjcdik PRIVATE ${HJCDIK_WARN_FLAGS})
   target_link_libraries(_hjcdik PRIVATE hjcdik_core)
   set_target_properties(_hjcdik PROPERTIES CUDA_RUNTIME_LIBRARY Shared)
