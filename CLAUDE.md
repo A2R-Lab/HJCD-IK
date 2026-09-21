@@ -53,7 +53,7 @@ joints, `EE_IDX = 7`, `FLANGE_IDX = 8`, `NX = 9` stored frames.
 CMake 3.24+ / CUDA 12.x or 13.x / pybind11 (scikit-build-core). GRiD codegen runs at configure time when enabled.
 
 ```bash
-sudo apt install -y libeigen3-dev nlohmann-json3-dev   # system header deps (Eigen3 + nlohmann-json)
+sudo apt install -y nlohmann-json3-dev   # collision environment JSON header dependency
 git submodule update --init --recursive          # GRiD + GLASS
 python -m pip install -e .                        # builds the _hjcdik extension (CUDA arch auto-detected)
 python benchmark/hjcd_ik_bench.py --skip-grid-codegen   # run the solver
@@ -82,8 +82,8 @@ out = generate_solutions(targets[0], batch_size=2000, num_solutions=4)
   URDF directly — use the latter when the URDF's collision meshes don't resolve on disk. **Panda uses the
   checked-in foam model** (`external/foam/assets/panda/smaller_panda_spherized.urdf`, the paper's 59-sphere
   model → 58 non-base spheres); the build/codegen wires this automatically (see `CMakeLists.txt`). This is
-  the **bring-your-own-URDF** path: `generate_grid.py <robot.urdf> --collision [...]` gives any robot both
-  FK and collision with no hand-written per-robot header.
+  the **bring-your-own-URDF** path: `generate_grid.py <robot.urdf> --collision [...]` provides FK and
+  collision for supported fixed-base serial arms with no hand-written per-robot header.
 - **Collision policy.** Python exposes `collision_mode="hard"|"soft"|"both"`; `hard` is the
   default and strictly excludes colliding candidates (self **+** environment). `soft` is a penetration-cost
   ranking mode and does not guarantee collision freedom; `both` ranks and filters. `HJCD_CC_MODE` remains

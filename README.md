@@ -16,7 +16,6 @@ more robot configurations for a target end-effector pose.
 - Python 3.9 or newer
 - CMake 3.24 or newer
 - GCC or Clang
-- Eigen3
 - nlohmann-json
 
 ## Installation

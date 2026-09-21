@@ -1579,8 +1579,10 @@ __global__ void cast_array(const Src* __restrict__ in,
     if (i < n) out[i] = (Dst)in[i];
 }
 
+#if defined(HJCD_HAS_COLLISION)
 // Threads per block for the collision-scoring kernel (power of two for the reduction).
 static constexpr int CC_TPB = 128;
+#endif
 
 // Soft environment-collision penetration cost (mm) for a batch of candidate configs, scored via
 // grid_collision AFTER optimization (never on the hot solver path). One block per config,
@@ -2101,14 +2103,14 @@ Result<T> generate_ik_solutions(
     std::vector<float> h_env_cost_coarse(B, 0.0f);
     std::vector<unsigned char> h_valid_refined(Krep, 1);   // 1 = collision-free (hard mode)
     std::vector<unsigned char> h_valid_coarse(B, 1);
+    int n_cc_in_refined = 0, n_cc_in_coarse = 0;
+
+#if defined(HJCD_HAS_COLLISION)
     float* d_env_cost_refined = nullptr;
     float* d_env_cost_coarse = nullptr;
     unsigned char* d_valid_refined = nullptr;
     unsigned char* d_valid_coarse = nullptr;
     double* dx_coarse64 = nullptr;
-    int n_cc_in_refined = 0, n_cc_in_coarse = 0;
-
-#if defined(HJCD_HAS_COLLISION)
     if (do_cc) {
         allocations.allocate(dx_coarse64, sizeof(double) * num_elems_x);
         {

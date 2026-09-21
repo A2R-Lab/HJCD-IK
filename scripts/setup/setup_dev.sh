@@ -21,16 +21,16 @@ GLASS_BRANCH="${GLASS_BRANCH:-main}"
 PYTHON="${PYTHON:-python3}"
 "$PYTHON" -c 'import sys; sys.exit("Development setup requires Python 3.11 or newer") if sys.version_info < (3, 11) else None'
 
-# System (C++/CUDA) build dependencies. The build needs the CUDA toolkit (nvcc) plus two
-# header libraries: Eigen3 and nlohmann-json (the collision env parser includes it).
+# System (C++/CUDA) build dependencies. The build needs the CUDA toolkit (nvcc) and
+# nlohmann-json headers for the collision environment parser.
 # Set SKIP_APT=1 to skip the apt step (e.g. on non-Debian systems — install the equivalents
-# manually: cuda-toolkit, libeigen3-dev, nlohmann-json3-dev).
+# manually: cuda-toolkit, nlohmann-json3-dev).
 if [ "${SKIP_APT:-0}" != "1" ] && command -v apt-get >/dev/null 2>&1; then
-  echo "[setup] (0/4) system deps (Eigen3, nlohmann-json, Doxygen) via apt ..."
-  sudo apt-get install -y --no-install-recommends libeigen3-dev nlohmann-json3-dev doxygen \
-    || echo "[setup] WARNING: apt install failed; install libeigen3-dev + nlohmann-json3-dev + doxygen manually"
+  echo "[setup] (0/4) system deps (nlohmann-json, Doxygen) via apt ..."
+  sudo apt-get install -y --no-install-recommends nlohmann-json3-dev doxygen \
+    || echo "[setup] WARNING: apt install failed; install nlohmann-json3-dev + doxygen manually"
 else
-  echo "[setup] (0/4) skipping apt; ensure these are installed: cuda-toolkit, libeigen3-dev, nlohmann-json3-dev, doxygen (for docs)"
+  echo "[setup] (0/4) skipping apt; ensure these are installed: cuda-toolkit, nlohmann-json3-dev, doxygen (for docs)"
 fi
 
 if [ "${SKIP_SUBMODULES:-0}" != "1" ]; then

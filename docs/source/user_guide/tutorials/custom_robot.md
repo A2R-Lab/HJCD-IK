@@ -14,6 +14,35 @@ python scripts/codegen/generate_grid.py path/to/robot.urdf -t <ee_target_frame>
 
 Then rebuild: `python -m pip install -e .`.
 
+## Isolated native builds
+
+Generate into a separate directory to keep the checkout's default Panda model intact.
+For example, to build and test the bundled Fetch arm:
+
+```bash
+model_dir=$(mktemp -d /tmp/hjcd-fetch.XXXXXX)
+python scripts/codegen/generate_grid.py csrc/urdf/fetch.urdf -t ee_fixed -o "$model_dir/grid.cuh"
+cmake -S . -B "$model_dir/build" -DBUILD_PYTHON=OFF \
+  -DHJCDIK_GRID_HEADER="$model_dir/grid.cuh" -DHJCDIK_BUILD_NATIVE_TESTS=ON
+cmake --build "$model_dir/build" --parallel 2
+ctest --test-dir "$model_dir/build" --output-on-failure
+```
+
+`HJCDIK_GRID_HEADER` must point to a generated file named `grid.cuh`. Each build directory
+selects its own robot; use different directories for different models. Automatic codegen remains
+the default Panda workflow, so generate custom headers explicitly.
+
+For a Python wheel, pass the same option through scikit-build-core and select a separate build directory:
+
+```bash
+python -m pip wheel . --no-deps -Cbuild-dir="$model_dir/python-build" \
+  -Ccmake.define.HJCDIK_GRID_HEADER="$model_dir/grid.cuh" -w "$model_dir/wheels"
+```
+
+The wheel contains that one compiled robot. Install it in a separate virtual environment when
+comparing robots. Base CUDA architecture defaults to the available GPU; `CUDAARCHS` or
+`-DCMAKE_CUDA_ARCHITECTURES=...` can override it for cross-compilation.
+
 ## Collision (bring-your-own-URDF)
 Add `--collision` to bake GRiD's `grid_collision` spheres (and self-collision ranges) into the same
 `grid.cuh` — no hand-written per-robot collision code:

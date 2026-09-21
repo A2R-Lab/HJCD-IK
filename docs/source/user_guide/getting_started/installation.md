@@ -11,15 +11,15 @@ promising ones, with optional collision avoidance. Kinematics come from [GRiD](h
 - CUDA 12.x or 13.x toolkit (`nvcc`) and an NVIDIA GPU
 - CMake ≥ 3.24, a C++17 host compiler
 - Python ≥ 3.9
-- System header libraries: **Eigen3** and **nlohmann-json** (the collision env parser includes it)
+- System header library: **nlohmann-json** (the collision environment parser includes it)
 
 ### System dependencies (Debian/Ubuntu)
 
 ```bash
-sudo apt install -y libeigen3-dev nlohmann-json3-dev
+sudo apt install -y nlohmann-json3-dev
 ```
 
-On other platforms install the equivalents (`eigen`, `nlohmann-json`) via your package manager.
+On other platforms install `nlohmann-json` via your package manager.
 
 ## Build
 
