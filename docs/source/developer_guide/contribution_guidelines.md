@@ -23,16 +23,23 @@ canonical contributor entry points are the repository's `CLAUDE.md` (architectur
 - **Never hand-edit `csrc/generated/grid.cuh`.** It is GRiD codegen output. Regenerate it with
   `python scripts/codegen/generate_grid.py <urdf> -t <target>` and rebuild — see
   {doc}`../user_guide/tutorials/custom_robot`.
-- **Keep the math warp-scoped.** The solver is warp-per-candidate; use warp primitives
-  (`__shfl_*_sync` / `__syncwarp`, `grid::ee_pose_inner_warp`, `glass::warp::`), not block-scoped,
-  cooperative-groups, or vendor paths. See {doc}`../user_guide/concepts/hjcd_algorithm`.
+- **Keep LM math warp-scoped.** LM refinement is warp-per-candidate; use warp primitives
+  (`__shfl_*_sync` / `__syncwarp`, `grid::ee_pose_inner_warp`, `glass::warp::`) for its math.
+  Coarse search is candidate-per-block: its per-warp scratch needs warp fences and its shared
+  candidate state needs block barriers. See {doc}`../user_guide/concepts/hjcd_algorithm`.
 - **No regressions.** Run `python benchmark/hjcd_ik_bench.py --skip-grid-codegen` before/after kernel
   changes and compare to the committed baseline. Isolate timing runs (no concurrent GPU load).
 
 ## Tests
 
-- `pytest tests/` — regression (solved-rate / position–orientation error vs. the committed baseline) plus
-  FK-equivalence checks.
+- `pytest tests/` — numerical regression, independent FK, collision policy, Python API, codegen,
+  and signed-receipt policy checks. Install `.[dev,codegen]` and use the default collision-enabled Panda.
+- Native API and CLI tests are separate CTest checks (not claimed as outcomes in the Python receipt).
+  Configure with `-DHJCDIK_BUILD_NATIVE_TESTS=ON`; see
+  {doc}`../user_guide/getting_started/installation`. They require Python and a CUDA GPU; malformed-input
+  cases explicitly hide the GPU to check validation order.
+- For synchronization changes, also use Compute Sanitizer's Racecheck and Synccheck. Passing
+  numerical tests or Memcheck alone does not establish shared-memory ordering correctness.
 
 ## Editing the docs
 

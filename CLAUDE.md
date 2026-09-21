@@ -34,7 +34,7 @@ joints, `EE_IDX = 7`, `FLANGE_IDX = 8`, `NX = 9` stored frames.
 
 | Path | What it is |
 |---|---|
-| `csrc/kernel/hjcd_kernel.cu` | The solver: coarse search + LM refine, all warp-scoped. **The file you'll edit most.** |
+| `csrc/kernel/hjcd_kernel.cu` | The solver: block-cooperative coarse search + warp-scoped LM refine. **The file you'll edit most.** |
 | `csrc/kernel/hjcd_settings.h` | `HJCDSettings<T>`, `mat4_mul`, FK helpers (`ee_fk_warp`/`ee_fk_thread`/`ee_fk_suffix_thread`), `#include "grid.cuh"`, `N`/`FLANGE_JID`/`GRASP_FIXED_IDX`. |
 | `csrc/generated/grid.cuh` | **Generated** GRiD kinematics header (FK, robot model). Do **not** hand-edit. |
 | `external/GRiD/` | Submodule: GRiD codegen (emits `grid.cuh` from a URDF). |

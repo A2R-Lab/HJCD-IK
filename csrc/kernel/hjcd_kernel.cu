@@ -1132,7 +1132,7 @@ __global__ void coarse_search(
             // cand_p = s_x with the anchor perturbation on joint p — shared by every candidate j.
             // C1 (the FK of cand_p) is computed ONCE on lane 0 into per-warp l_C1 (world chain)
             // + l_tmp (locals), then published to the whole warp; the N candidates then run in
-            // PARALLEL across the warp's lanes (strided, so N > 32 / humanoids are supported),
+            // PARALLEL across the warp's lanes (the supported serial models have N <= 32),
             // each recomputing only the suffix from its joint j into a per-lane EE buffer.
             const T delta1 = pos_phase ? s_pos_theta1[p] : s_ori_theta1[p];
             if (lane == 0) {

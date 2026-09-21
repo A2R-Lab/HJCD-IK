@@ -3,8 +3,10 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cctype>
 #include <cmath>
 #include <cstring>
+#include <cstdlib>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -29,17 +31,30 @@ struct Args {
     std::string csv_out = "hjcd_mmd_q.csv";
 };
 
+static int parse_integer(const std::string& value, const std::string& name, bool positive = false) {
+    std::size_t end = 0;
+    int parsed = 0;
+    try {
+        parsed = std::stoi(value, &end);
+    } catch (const std::exception&) {
+        throw std::invalid_argument(name + " must be " + (positive ? "a positive" : "an") + " integer");
+    }
+    if (end != value.size() || (positive && parsed <= 0))
+        throw std::invalid_argument(name + " must be " + (positive ? "a positive" : "an") + " integer");
+    return parsed;
+}
+
 static Args parse_args(int argc, char** argv) {
     Args a;
     for (int i = 1; i < argc; ++i) {
         if (std::strncmp(argv[i], "--mode=", 7) == 0) {
             a.mode = std::string(argv[i] + 7);
         } else if (std::strncmp(argv[i], "--batch_size=", 13) == 0) {
-            a.batch_size = std::max(1, std::atoi(argv[i] + 13));
+            a.batch_size = parse_integer(argv[i] + 13, "--batch_size", true);
         } else if (std::strncmp(argv[i], "--num_solutions=", 16) == 0) {
-            a.num_solutions = std::max(1, std::atoi(argv[i] + 16));
+            a.num_solutions = parse_integer(argv[i] + 16, "--num_solutions", true);
         } else if (std::strncmp(argv[i], "--num_targets=", 14) == 0) {
-            a.num_targets = std::max(1, std::atoi(argv[i] + 14));
+            a.num_targets = parse_integer(argv[i] + 14, "--num_targets", true);
         } else if (std::strncmp(argv[i], "--yaml_out=", 11) == 0) {
             a.yaml_out = std::string(argv[i] + 11);
         } else if (std::strncmp(argv[i], "--csv_in=", 9) == 0) {
@@ -56,19 +71,30 @@ static Args parse_args(int argc, char** argv) {
                 "[--csv_in=panda_solutions_multi_targets.csv] "
                 "[--csv_out=hjcd_mmd_q.csv]\n";
             std::exit(0);
+        } else {
+            throw std::invalid_argument("Unknown argument: " + std::string(argv[i]));
         }
     }
+    if (a.mode != "single" && a.mode != "sweep" && a.mode != "from_csv")
+        throw std::invalid_argument("Unknown --mode=" + a.mode + " (use 'single', 'sweep', or 'from_csv')");
     return a;
+}
+
+static void finish_output(std::ofstream& stream, const std::string& path) {
+    // close() flushes buffered writes too; checking only is_open() misses full disks.
+    stream.close();
+    if (!stream) throw std::runtime_error("Failed to write output: " + path);
 }
 
 static void write_yaml_flat(
     const std::string& path,
     const std::vector<int>& batch_sizes,
     const std::vector<double>& time_ms,
-    const std::vector<double>& pos_err_m,
+    const std::vector<double>& pos_err_mm,
     const std::vector<double>& ori_err_rad)
 {
     std::ofstream y(path);
+    if (!y) throw std::runtime_error("Failed to open output: " + path);
     y << std::setprecision(17);
 
     auto write_list = [&](const char* key, auto&& vec) {
@@ -80,10 +106,32 @@ static void write_yaml_flat(
 
     write_list("Batch-Size", batch_sizes);
     write_list("IK-time(ms)", time_ms);
-    write_list("Pos-Error", pos_err_m);
+    write_list("Pos-Error", pos_err_mm);
     write_list("Ori-Error", ori_err_rad);
+    finish_output(y, path);
 }
 
+static std::string trim(const std::string& value) {
+    const auto space = [](unsigned char ch) { return std::isspace(ch); };
+    const auto first = std::find_if_not(value.begin(), value.end(), space);
+    const auto last = std::find_if_not(value.rbegin(), value.rend(), space).base();
+    return first < last ? std::string(first, last) : std::string();
+}
+
+static double parse_finite_real(const std::string& value, const std::string& name) {
+    std::size_t end = 0;
+    double parsed = 0;
+    try {
+        parsed = std::stod(value, &end);
+    } catch (const std::exception&) {
+        throw std::invalid_argument(name + " must be a finite number");
+    }
+    if (end != value.size() || !std::isfinite(parsed))
+        throw std::invalid_argument(name + " must be a finite number");
+    return parsed;
+}
+
+// This numeric interchange format has unquoted, comma-separated fields.
 static std::vector<std::string> split_csv_line(const std::string& line) {
     std::vector<std::string> out;
     std::string cur;
@@ -93,6 +141,7 @@ static std::vector<std::string> split_csv_line(const std::string& line) {
         else { cur.push_back(c); }
     }
     out.push_back(cur);
+    for (auto& field : out) field = trim(field);
     return out;
 }
 
@@ -137,35 +186,37 @@ static std::vector<PoseRow> load_unique_targets_from_tracik_csv(const std::strin
     std::unordered_set<int> seen;
     std::vector<PoseRow> out;
     std::string line;
+    std::size_t line_number = 1;
     while (std::getline(in, line)) {
-        if (line.empty()) continue;
-        auto f = split_csv_line(line);
-        if ((int)f.size() <= std::max({idx_tid, idx_px, idx_py, idx_pz, idx_qx, idx_qy, idx_qz, idx_qw})) {
-            continue;
-        }
-        int tid = 0;
-        try { tid = std::stoi(f[idx_tid]); } catch (...) { continue; }
-        if (seen.count(tid)) continue;
-        seen.insert(tid);
-
-        PoseRow row;
-        row.target_id = tid;
-
-        double x=0,y=0,z=0,qx=0,qy=0,qz=0,qw=1;
+        ++line_number;
+        if (trim(line).empty()) continue;
         try {
-            x  = std::stod(f[idx_px]);
-            y  = std::stod(f[idx_py]);
-            z  = std::stod(f[idx_pz]);
-            qx = std::stod(f[idx_qx]);
-            qy = std::stod(f[idx_qy]);
-            qz = std::stod(f[idx_qz]);
-            qw = std::stod(f[idx_qw]);
-        } catch (...) { continue; }
-
-        if (qw < 0.0) { qw = -qw; qx = -qx; qy = -qy; qz = -qz; }
-        row.wxyz_pose = { x, y, z, qw, qx, qy, qz };
-        out.push_back(row);
+            const auto f = split_csv_line(line);
+            if (f.size() != cols.size())
+                throw std::invalid_argument("wrong number of CSV fields");
+            PoseRow row;
+            row.target_id = parse_integer(f[idx_tid], "target_id");
+            row.wxyz_pose = {
+                parse_finite_real(f[idx_px], "target_px"),
+                parse_finite_real(f[idx_py], "target_py"),
+                parse_finite_real(f[idx_pz], "target_pz"),
+                parse_finite_real(f[idx_qw], "target_qw"),
+                parse_finite_real(f[idx_qx], "target_qx"),
+                parse_finite_real(f[idx_qy], "target_qy"),
+                parse_finite_real(f[idx_qz], "target_qz"),
+            };
+            const auto& pose = row.wxyz_pose;
+            if (std::max({std::abs(pose[3]), std::abs(pose[4]),
+                          std::abs(pose[5]), std::abs(pose[6])}) == 0.0)
+                throw std::invalid_argument("target quaternion must be nonzero");
+            // TRAC-IK exports multiple solutions per target. Validate every row before
+            // deduplicating, so corrupt repeated rows are not silently hidden.
+            if (seen.insert(row.target_id).second) out.push_back(row);
+        } catch (const std::invalid_argument& error) {
+            throw std::runtime_error(path + ":" + std::to_string(line_number) + ": " + error.what());
+        }
     }
+    if (in.bad()) throw std::runtime_error("Failed to read csv_in: " + path);
     return out;
 }
 
@@ -323,6 +374,7 @@ int main(int argc, char** argv) try {
             }
         }
 
+        finish_output(out, args.csv_out);
         std::cout << "[from_csv] Wrote " << args.csv_out
                   << " with " << rows_written << " samples from " << targets.size()
                   << " targets (q only).\n";

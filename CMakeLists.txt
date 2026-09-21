@@ -156,6 +156,9 @@ if(HJCDIK_BUILD_NATIVE_TESTS)
   target_link_libraries(hjcdik_native_tests PRIVATE hjcdik_core)
   set_target_properties(hjcdik_native_tests PROPERTIES CUDA_RUNTIME_LIBRARY Shared)
   add_test(NAME native_api COMMAND hjcdik_native_tests)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_test(NAME cli_contracts COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/cli_contracts.py" $<TARGET_FILE:hjcdik>)
 endif()
 
 # Python extension
