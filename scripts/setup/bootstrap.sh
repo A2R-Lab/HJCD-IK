@@ -8,8 +8,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-echo "[bootstrap] initialize external/GLASS + external/GRiD at committed revisions..."
-git submodule update --init external/GLASS external/GRiD
+echo "[bootstrap] initialize external/GLASS + external/GRiD + external/foam at committed revisions..."
+git submodule update --init external/GLASS external/GRiD external/foam
 
 echo "[bootstrap] init GRiD codegen deps (external/GLASS, external/URDFParser)..."
 for s in external/GLASS external/URDFParser; do
