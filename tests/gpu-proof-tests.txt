@@ -88,3 +88,8 @@ tests/test_stats.py::test_collision_stats_use_the_selected_checks[hard]
 tests/test_stats.py::test_collision_stats_use_the_selected_checks[soft]
 tests/test_stats.py::test_open_world_stats_report_accuracy_without_claiming_collision_checks
 tests/test_stats.py::test_stats_do_not_change_solver_outputs
+tests/test_stats_summary.py::test_summary_skips_truncated_rows
+tests/test_stats_summary.py::test_summary_uses_only_measured_denominators[32,0,0,0,0\n-expected3]
+tests/test_stats_summary.py::test_summary_uses_only_measured_denominators[32,100,-1,100,-1\n-expected0]
+tests/test_stats_summary.py::test_summary_uses_only_measured_denominators[32,2,1,4,1\n-expected1]
+tests/test_stats_summary.py::test_summary_uses_only_measured_denominators[32,2,1,4,1\n32,100,-1,100,-1\n-expected2]

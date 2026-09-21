@@ -64,6 +64,11 @@ collision check (or penetrating the environment in soft-only mode). Returned-sol
 accuracy is counted in every mode. With collision checking enabled but no returned
 solutions, ``pct_returned_coll_free`` is 0, not a success percentage.
 
+``python scripts/ik_stats_summary.py path/to/ik_stats.csv`` summarizes measured rows;
+it excludes unmeasured values and their denominators and prints ``n/a`` for undefined
+percentages. Do not mix soft-only and hard/both modes in one summary: the CSV's legacy
+columns do not encode which collision policy produced each row.
+
 Build and scene metadata
 ------------------------
 
