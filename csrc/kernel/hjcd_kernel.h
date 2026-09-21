@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <cstdint>
+#include <utility>
 
 namespace grid {
     template<typename T> struct robotModel;
@@ -13,12 +14,43 @@ namespace grid {
 
 template<typename T>
 struct Result {
-    T* joint_config;
-    T* pose;
-    T* pos_errors;
-    T* ori_errors;
-    T  elapsed_time;
-    int count;
+    T* joint_config = nullptr;
+    T* pose = nullptr;
+    T* pos_errors = nullptr;
+    T* ori_errors = nullptr;
+    T elapsed_time{};
+    int count = 0;
+
+    Result() = default;
+    ~Result() { reset(); }
+    Result(const Result&) = delete;
+    Result& operator=(const Result&) = delete;
+
+    Result(Result&& other) noexcept { *this = std::move(other); }
+    Result& operator=(Result&& other) noexcept {
+        if (this != &other) {
+            reset();
+            joint_config = std::exchange(other.joint_config, nullptr);
+            pose = std::exchange(other.pose, nullptr);
+            pos_errors = std::exchange(other.pos_errors, nullptr);
+            ori_errors = std::exchange(other.ori_errors, nullptr);
+            elapsed_time = other.elapsed_time;
+            count = other.count;
+            other.elapsed_time = T{};
+            other.count = 0;
+        }
+        return *this;
+    }
+
+    void reset() noexcept {
+        delete[] joint_config;
+        delete[] pose;
+        delete[] pos_errors;
+        delete[] ori_errors;
+        joint_config = pose = pos_errors = ori_errors = nullptr;
+        elapsed_time = T{};
+        count = 0;
+    }
 };
 
 // RT = LM-refine compute precision (speed/accuracy knob): RT=double (default) is full fp64;

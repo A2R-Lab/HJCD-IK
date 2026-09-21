@@ -25,8 +25,7 @@
 #include <limits>
 #include <type_traits>
 #include <cstdlib>
-#include <functional>
-#include <string_view>
+#include <unordered_map>
 
 // Collision checking (grid_collision: URDF-driven spheres baked into grid.cuh)
 #include <nlohmann/json.hpp>
@@ -1662,6 +1661,8 @@ Result<T> generate_ik_solutions(
     CUDA_OK(cudaDeviceSynchronize());
 
     Result<T> result{};
+    if (collision_mode < -1 || collision_mode > 2)
+        throw std::invalid_argument("invalid collision mode");
     if (!d_robotModel || !target_pose || b_size <= 0) {
         const int S = 1;
         result.pos_errors   = new T[S]{ std::numeric_limits<T>::infinity() };
@@ -1674,61 +1675,64 @@ Result<T> generate_ik_solutions(
         return result;
     }
 
-    // Collision environment (grid_collision). Cache the uploaded obstacle set + an fp32 robot model
-    // across calls with the same problem (both are constant per problem, keyed by set#idx).
-    // The whole collision path is compiled in only when grid.cuh was generated with --collision
-    // (HJCD_HAS_COLLISION); otherwise collision-free is disabled and the solver runs open-world.
+    // Collision environment (grid_collision). Cache exact problem contents and the fp32 robot model
+    // per CUDA device. Collision requests fail explicitly when their scene is unusable; they never
+    // degrade silently to an open-world solve. The path exists only in --collision-generated headers.
     bool have_env = false;
     bool stop_on_first = 1;
 
 #if defined(HJCD_HAS_COLLISION)
-    static hjcd_env::DeviceEnv g_cc_env;
-    static std::string g_cc_key;
-    static bool g_cc_ready = false;
-    static const grid::robotModel<float>* d_robotModel_cc = nullptr;
+    struct CachedCollisionEnvironment {
+        hjcd_env::DeviceEnv device_env;
+        std::string key;
+        bool ready = false;
+    };
+    static std::unordered_map<int, CachedCollisionEnvironment> g_cc_env_by_device;
+    static std::unordered_map<int, const grid::robotModel<float>*> g_cc_model_by_device;
+    grid_collision::Environment<float> cc_env{nullptr, 0, nullptr, 0, nullptr, 0};
+    const grid::robotModel<float>* d_robotModel_cc = nullptr;
 
     if (collision_free) {
-        if (!problems_json_text || !problem_set_name) {
-            collision_free = false;
-            printf("[grid_collision] Warning: collision-free requested but no problem JSON provided\n");
-        } else {
-            int cc_device = 0;
-            CUDA_OK(cudaGetDevice(&cc_device));
-            const std::string_view json_view(problems_json_text);
-            std::string key = std::string(problem_set_name) + "#" + std::to_string(problem_idx)
-                            + "#device=" + std::to_string(cc_device)
-                            + "#json=" + std::to_string(std::hash<std::string_view>{}(json_view));
+        if (!problems_json_text || !problem_set_name)
+            throw std::invalid_argument(
+                "collision-free solving requires problem JSON and a problem-set name");
 
-            if (!g_cc_ready || g_cc_key != key) {
-                if (g_cc_ready) { hjcd_env::free_env(g_cc_env); g_cc_ready = false; }
+        int cc_device = 0;
+        CUDA_OK(cudaGetDevice(&cc_device));
+        auto& cached = g_cc_env_by_device[cc_device];
+        const std::string key = std::string(problem_set_name) + "#"
+                              + std::to_string(problem_idx) + "#json="
+                              + problems_json_text;
 
-                nlohmann::json all_data = nlohmann::json::parse(problems_json_text);
-                nlohmann::json problems_root = all_data.at("problems");
-                nlohmann::json data = hjcd_env::select_problem_instance(
-                    problems_root, problem_set_name, problem_idx);
-
-                if (data.contains("valid") && !bool(data["valid"])) {
-                    collision_free = false;
-                } else {
-                    hjcd_env::HostEnv h = hjcd_env::problem_dict_to_env(data);
-                    g_cc_env = hjcd_env::upload_env(h);
-                    g_cc_key = key;
-                    g_cc_ready = true;
-                }
+        if (!cached.ready || cached.key != key) {
+            if (cached.ready) {
+                hjcd_env::free_env(cached.device_env);
+                cached.ready = false;
             }
 
-            if (g_cc_ready) {
-                if (!d_robotModel_cc) d_robotModel_cc = grid::init_robotModel<float>();
-                have_env = true;
-            }
+            const nlohmann::json all_data = nlohmann::json::parse(problems_json_text);
+            const nlohmann::json problems_root = all_data.at("problems");
+            const nlohmann::json data = hjcd_env::select_problem_instance(
+                problems_root, problem_set_name, problem_idx);
+            if (data.contains("valid") && !bool(data["valid"]))
+                throw std::runtime_error("collision problem is marked invalid");
+
+            const hjcd_env::HostEnv host_env = hjcd_env::problem_dict_to_env(data);
+            cached.device_env = hjcd_env::upload_env(host_env);
+            cached.key = key;
+            cached.ready = true;
         }
+
+        cc_env = cached.device_env.env;
+        auto& cached_model = g_cc_model_by_device[cc_device];
+        if (!cached_model) cached_model = grid::init_robotModel<float>();
+        d_robotModel_cc = cached_model;
+        have_env = true;
     }
 #else
-    if (collision_free) {
-        collision_free = false;
-        printf("[grid_collision] this build has no collision (regenerate grid.cuh with --collision); "
-               "running open-world\n");
-    }
+    if (collision_free)
+        throw std::runtime_error(
+            "collision-free solving requires grid.cuh generated with --collision");
 #endif  // HJCD_HAS_COLLISION
 
     if (!collision_free) have_env = false;
@@ -2102,9 +2106,9 @@ Result<T> generate_ik_solutions(
             CUDA_OK(cudaFuncSetAttribute((const void*)score_environment_costs,
                                          cudaFuncAttributeMaxDynamicSharedMemorySize, (int)cc_smem));
             score_environment_costs<<<Krep, CC_TPB, cc_smem>>>(
-                dq_ref, Krep, d_env_cost_refined, d_robotModel_cc, g_cc_env.env);
+                dq_ref, Krep, d_env_cost_refined, d_robotModel_cc, cc_env);
             score_environment_costs<<<B, CC_TPB, cc_smem>>>(
-                dx_coarse64, B, d_env_cost_coarse, d_robotModel_cc, g_cc_env.env);
+                dx_coarse64, B, d_env_cost_coarse, d_robotModel_cc, cc_env);
             cudaGetLastError();
             CUDA_OK(cudaDeviceSynchronize());
             CUDA_OK(cudaMemcpy(h_env_cost_refined.data(), d_env_cost_refined,
@@ -2123,9 +2127,9 @@ Result<T> generate_ik_solutions(
             CUDA_OK(cudaFuncSetAttribute((const void*)mark_collisions,
                                          cudaFuncAttributeMaxDynamicSharedMemorySize, (int)cc_smem));
             mark_collisions<<<Krep, CC_TPB, cc_smem>>>(
-                dq_ref, Krep, d_valid_refined, d_robotModel_cc, g_cc_env.env);
+                dq_ref, Krep, d_valid_refined, d_robotModel_cc, cc_env);
             mark_collisions<<<B, CC_TPB, cc_smem>>>(
-                dx_coarse64, B, d_valid_coarse, d_robotModel_cc, g_cc_env.env);
+                dx_coarse64, B, d_valid_coarse, d_robotModel_cc, cc_env);
             cudaGetLastError();
             CUDA_OK(cudaDeviceSynchronize());
             CUDA_OK(cudaMemcpy(h_valid_refined.data(), d_valid_refined,

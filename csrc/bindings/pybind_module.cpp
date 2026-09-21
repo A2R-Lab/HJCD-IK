@@ -3,7 +3,6 @@
 #include <pybind11/stl.h>
 #include <cstring>
 #include <cmath>
-#include <memory>
 #include <mutex>
 #include "kernel/hjcd_kernel.h"
 
@@ -88,11 +87,6 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
               problem_idx, write_stats, collision_mode_code);
   }
 
-  std::unique_ptr<double[]> joint_config_owner(res.joint_config);
-  std::unique_ptr<double[]> pose_owner(res.pose);
-  std::unique_ptr<double[]> pos_errors_owner(res.pos_errors);
-  std::unique_ptr<double[]> ori_errors_owner(res.ori_errors);
-
   const int N = grid_num_joints();
 
   // The solver may return fewer solutions after collision filtering.
@@ -103,10 +97,10 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
   py::array_t<double> pos_errors({S});
   py::array_t<double> ori_errors({S});
 
-  std::memcpy(joint_config.mutable_data(), joint_config_owner.get(), sizeof(double) * S * N);
-  std::memcpy(pose.mutable_data(),         pose_owner.get(),         sizeof(double) * S * 7);
-  std::memcpy(pos_errors.mutable_data(),   pos_errors_owner.get(),   sizeof(double) * S);
-  std::memcpy(ori_errors.mutable_data(),   ori_errors_owner.get(),   sizeof(double) * S);
+  std::memcpy(joint_config.mutable_data(), res.joint_config, sizeof(double) * S * N);
+  std::memcpy(pose.mutable_data(),         res.pose,         sizeof(double) * S * 7);
+  std::memcpy(pos_errors.mutable_data(),   res.pos_errors,   sizeof(double) * S);
+  std::memcpy(ori_errors.mutable_data(),   res.ori_errors,   sizeof(double) * S);
 
 
   py::dict out;

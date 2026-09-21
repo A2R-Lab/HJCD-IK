@@ -88,6 +88,30 @@ def test_hard_mode_returns_no_solution_when_every_candidate_collides(monkeypatch
 
 
 @pytest.mark.skipif(not MB_PATH.exists(), reason="tests/mb_problems.json missing")
+def test_invalid_collision_problem_is_rejected():
+    source = json.loads(MB_PATH.read_text())["problems"]
+    base = dict(source[sorted(source.keys())[0]][0])
+    base["valid"] = False
+    text = json.dumps({"problems": {"invalid": [base]}})
+    with pytest.raises(RuntimeError, match="marked invalid"):
+        hjcdik.generate_solutions(
+            _goal7(base), collision_free=True, problems_json_text=text,
+            problem_set_name="invalid", problem_idx=0)
+
+
+@pytest.mark.skipif(not MB_PATH.exists(), reason="tests/mb_problems.json missing")
+def test_collision_problem_index_is_checked():
+    text = MB_PATH.read_text()
+    problems = json.loads(text)["problems"]
+    set_name = sorted(problems)[0]
+    target = _goal7(problems[set_name][0])
+    with pytest.raises(RuntimeError, match="problem_idx out of range"):
+        hjcdik.generate_solutions(
+            target, collision_free=True, problems_json_text=text,
+            problem_set_name=set_name, problem_idx=10**9)
+
+
+@pytest.mark.skipif(not MB_PATH.exists(), reason="tests/mb_problems.json missing")
 def test_collision_cache_includes_environment_contents(monkeypatch):
     """The same set/index with changed JSON must not reuse device geometry from the first call."""
     monkeypatch.delenv("HJCD_CC_MODE", raising=False)

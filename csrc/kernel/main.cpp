@@ -229,10 +229,6 @@ int main(int argc, char** argv) {
         std::cout << "[OK] wrote " << args.yaml_out
                   << " with " << res.count << " solutions (single target).\n";
 
-        delete[] res.joint_config;
-        delete[] res.pose;
-        delete[] res.pos_errors;
-        delete[] res.ori_errors;
         return 0;
     }
 
@@ -262,11 +258,6 @@ int main(int argc, char** argv) {
 
             append_solution_vectors(res.count, B, elapsed_ms, res.pos_errors, res.ori_errors,
                                     y_batch, y_time, y_pos, y_ori);
-
-            delete[] res.joint_config;
-            delete[] res.pose;
-            delete[] res.pos_errors;
-            delete[] res.ori_errors;
 
             processed++;
             if ((processed % 50) == 0) {
@@ -325,11 +316,6 @@ int main(int argc, char** argv) {
                 out << "\n";
             }
             rows_written += static_cast<std::size_t>(res.count);
-
-            delete[] res.joint_config;
-            delete[] res.pose;
-            delete[] res.pos_errors;
-            delete[] res.ori_errors;
 
             processed++;
             if ((processed % 50) == 0) {
