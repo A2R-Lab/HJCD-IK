@@ -58,6 +58,16 @@ build-dir = "build"
 # The committed csrc/generated/grid.cuh is the build default; regenerate it explicitly
 # with scripts/codegen/generate_grid.py (or build with -DHJCDIK_AUTO_CODEGEN=ON to regenerate here).
 cmake.define.HJCDIK_AUTO_CODEGEN = "OFF"
+# Keep build/codegen sources, licenses, tests, and pre-spherized URDFs. Upstream
+# mesh collections, benchmark suites, and showcase media are not needed to build hjcdik.
+sdist.exclude = [
+  "external/foam/assets/**/meshes/**",
+  "external/foam/assets/*.zip",
+  "external/foam/images/**",
+  "external/**/docs/**",
+  "external/**/test/**",
+  "docs/landing/**",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

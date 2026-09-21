@@ -43,6 +43,10 @@ codegen + build:  `./scripts/setup/setup_dev.sh`  (`SKIP_APT=1` / `SKIP_BUILD=1`
 skip steps).
 ```
 
+Source archives retain the implementation, codegen sources, licenses, tests, and pre-spherized
+robot URDFs, but omit upstream mesh collections, upstream tests/docs, and showcase media.
+Use a recursive repository clone if you need those full asset collections.
+
 The top-level submodules are `external/GRiD` (kinematics codegen → `grid.cuh`),
 `external/GLASS` (warp CUDA linear algebra), and `external/foam` (the default Panda's
 pre-spherized collision model). Development setup and GPU-proof tooling require Python 3.11+;
