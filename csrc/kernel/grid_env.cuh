@@ -20,6 +20,7 @@
 #include <vector>
 
 #include <cuda_runtime.h>
+#include "kernel/util.h"
 #include <nlohmann/json.hpp>
 
 // The grid_collision primitives (Sphere/Capsule/Cuboid/Environment) exist only when grid.cuh was
@@ -198,8 +199,8 @@ inline DeviceEnv upload_env(const HostEnv& h) {
     auto up = [](const auto& vec, auto*& dptr) {
         using Elem = typename std::decay<decltype(vec)>::type::value_type;
         if (vec.empty()) return 0;
-        cudaMalloc(&dptr, sizeof(Elem) * vec.size());
-        cudaMemcpy(dptr, vec.data(), sizeof(Elem) * vec.size(), cudaMemcpyHostToDevice);
+        CUDA_OK(cudaMalloc(&dptr, sizeof(Elem) * vec.size()));
+        CUDA_OK(cudaMemcpy(dptr, vec.data(), sizeof(Elem) * vec.size(), cudaMemcpyHostToDevice));
         return (int)vec.size();
     };
     const int ns = up(h.spheres, d.d_spheres);
@@ -210,9 +211,9 @@ inline DeviceEnv upload_env(const HostEnv& h) {
 }
 
 inline void free_env(DeviceEnv& d) {
-    if (d.d_spheres) cudaFree(d.d_spheres);
-    if (d.d_capsules) cudaFree(d.d_capsules);
-    if (d.d_cuboids) cudaFree(d.d_cuboids);
+    if (d.d_spheres) CUDA_OK(cudaFree(d.d_spheres));
+    if (d.d_capsules) CUDA_OK(cudaFree(d.d_capsules));
+    if (d.d_cuboids) CUDA_OK(cudaFree(d.d_cuboids));
     d = DeviceEnv{};
 }
 

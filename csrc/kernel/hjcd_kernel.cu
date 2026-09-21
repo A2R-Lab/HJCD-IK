@@ -1399,14 +1399,14 @@ T* sample_ik_config_halton(const grid::robotModel<T>* d_robotModel,
     if (num_configs <= 0 || !d_robotModel) return nullptr;
 
     T* d_q = nullptr;
-    cudaMalloc(&d_q, sizeof(T) * (size_t)num_configs * N);
+    CUDA_OK(cudaMalloc(&d_q, sizeof(T) * (size_t)num_configs * N));
 
     const int tpb = 256;
     const int gpb = (num_configs + tpb - 1) / tpb;
 
     sample_q_halton_kernel<T><<<gpb, tpb>>>(d_q, num_configs, seed, offset, leap);
-    cudaGetLastError();
-    cudaDeviceSynchronize();
+    CUDA_OK(cudaGetLastError());
+    CUDA_OK(cudaDeviceSynchronize());
 
     return d_q;
 }
@@ -1422,7 +1422,7 @@ sample_random_target_poses(const grid::robotModel<T>* d_robotModel,
     if (!d_q) return out;
 
     T* d_pose7 = nullptr;
-    cudaMalloc(&d_pose7, sizeof(T) * 7 * (size_t)num_configs);
+    CUDA_OK(cudaMalloc(&d_pose7, sizeof(T) * 7 * (size_t)num_configs));
 
     const int threads = 32;
     const int blocks  = num_configs;
@@ -1430,20 +1430,20 @@ sample_random_target_poses(const grid::robotModel<T>* d_robotModel,
     forward_kinematics_kernel<T><<<blocks, threads>>>(
         d_q, d_pose7, nullptr, d_robotModel, num_configs
     );
-    cudaGetLastError();
-    cudaDeviceSynchronize();
+    CUDA_OK(cudaGetLastError());
+    CUDA_OK(cudaDeviceSynchronize());
 
     std::vector<T> h_pose7((size_t)num_configs * 7);
-    cudaMemcpy(h_pose7.data(), d_pose7,
-               sizeof(T) * 7 * (size_t)num_configs, cudaMemcpyDeviceToHost);
+    CUDA_OK(cudaMemcpy(h_pose7.data(), d_pose7,
+               sizeof(T) * 7 * (size_t)num_configs, cudaMemcpyDeviceToHost));
 
     out.resize(num_configs);
     for (int i = 0; i < num_configs; ++i)
         for (int k = 0; k < 7; ++k)
             out[i][k] = h_pose7[(size_t)i * 7 + k];
 
-    cudaFree(d_pose7);
-    cudaFree(d_q);
+    CUDA_OK(cudaFree(d_pose7));
+    CUDA_OK(cudaFree(d_q));
     return out;
 }
 
@@ -1781,7 +1781,7 @@ Result<T> generate_ik_solutions(
         const int blocks=B, tpb=32;
         replicate_target7_kernel<TC><<<blocks, tpb>>>(
             d_target7_c, d_targets_coarse_c, B);
-        cudaGetLastError();
+        CUDA_OK(cudaGetLastError());
         CUDA_OK(cudaDeviceSynchronize());
     }
 
@@ -1790,7 +1790,7 @@ Result<T> generate_ik_solutions(
         int zero=0, neg1=-1;
         CUDA_OK(cudaMemcpyToSymbol(g_stop,   &zero, sizeof(int)));
         CUDA_OK(cudaMemcpyToSymbol(g_winner, &neg1, sizeof(int)));
-        cudaGetLastError();
+        CUDA_OK(cudaGetLastError());
     }
 
     // COARSE SEARCH
@@ -1881,7 +1881,7 @@ Result<T> generate_ik_solutions(
         const int tpb = 256, gpb = (B + tpb - 1) / tpb;
         build_scores_kernel<TC><<<gpb, tpb>>>(
             d_pos_mm_c, d_ori_r_c, d_scores_c, B);
-        cudaGetLastError();
+        CUDA_OK(cudaGetLastError());
     }
 
     // sort configs and gather top K
@@ -1909,7 +1909,7 @@ Result<T> generate_ik_solutions(
             d_x_top_c,
             K
         );
-        cudaGetLastError();
+        CUDA_OK(cudaGetLastError());
     }
 
     const int Krep = K * repeats;
@@ -1919,13 +1919,13 @@ Result<T> generate_ik_solutions(
         const int blocks = K, tpb = 128;
         replicate_rows_kernel<TC><<<blocks, tpb>>>(
             d_x_top_c, d_x_rep_c, K, N, repeats);
-        cudaGetLastError();
+        CUDA_OK(cudaGetLastError());
     }
     {
         const int blocks = Krep, tpb = 128;
         perturb_rows_kernel<TC><<<blocks, tpb>>>(
             d_x_rep_c, Krep, (TC)sigma_frac, 0xC0FFEEull, repeats, keep_one);
-        cudaGetLastError();
+        CUDA_OK(cudaGetLastError());
     }
 
     CUDA_OK(cudaDeviceSynchronize());
@@ -1949,7 +1949,7 @@ Result<T> generate_ik_solutions(
         const int tpb = 256;
         int gpb = (int)((KrepN + tpb - 1) / tpb);
         cast_array<RT, TC><<<gpb, tpb>>>(d_x_rep_c, dx64, KrepN);
-        cudaGetLastError();
+        CUDA_OK(cudaGetLastError());
         CUDA_OK(cudaDeviceSynchronize());
     }
 
@@ -1969,7 +1969,7 @@ Result<T> generate_ik_solutions(
         const int tpb    = 32;
         replicate_target7_kernel<RT><<<blocks, tpb>>>(
             d_target7_d, dtgt64, Krep);
-        cudaGetLastError();
+        CUDA_OK(cudaGetLastError());
         CUDA_OK(cudaDeviceSynchronize());
     }
 
@@ -2083,7 +2083,7 @@ Result<T> generate_ik_solutions(
             const int tpb = 256;
             const int gpb = (int)((num_elems_x + tpb - 1) / tpb);
             cast_array<double, TC><<<gpb, tpb>>>(d_x_c, dx_coarse64, num_elems_x);
-            cudaGetLastError();
+            CUDA_OK(cudaGetLastError());
             CUDA_OK(cudaDeviceSynchronize());
         }
         // Dynamic smem for the multi_target FK extractor (shared by both collision kernels).
@@ -2109,7 +2109,7 @@ Result<T> generate_ik_solutions(
                 dq_ref, Krep, d_env_cost_refined, d_robotModel_cc, cc_env);
             score_environment_costs<<<B, CC_TPB, cc_smem>>>(
                 dx_coarse64, B, d_env_cost_coarse, d_robotModel_cc, cc_env);
-            cudaGetLastError();
+            CUDA_OK(cudaGetLastError());
             CUDA_OK(cudaDeviceSynchronize());
             CUDA_OK(cudaMemcpy(h_env_cost_refined.data(), d_env_cost_refined,
                                sizeof(float) * (size_t)Krep, cudaMemcpyDeviceToHost));
@@ -2130,7 +2130,7 @@ Result<T> generate_ik_solutions(
                 dq_ref, Krep, d_valid_refined, d_robotModel_cc, cc_env);
             mark_collisions<<<B, CC_TPB, cc_smem>>>(
                 dx_coarse64, B, d_valid_coarse, d_robotModel_cc, cc_env);
-            cudaGetLastError();
+            CUDA_OK(cudaGetLastError());
             CUDA_OK(cudaDeviceSynchronize());
             CUDA_OK(cudaMemcpy(h_valid_refined.data(), d_valid_refined,
                                sizeof(unsigned char) * (size_t)Krep, cudaMemcpyDeviceToHost));
@@ -2138,7 +2138,7 @@ Result<T> generate_ik_solutions(
                                sizeof(unsigned char) * (size_t)B, cudaMemcpyDeviceToHost));
         }
 
-        if (dq_ref_owned) cudaFree(dq_ref);
+        if (dq_ref_owned) CUDA_OK(cudaFree(dq_ref));
     }
 #endif  // HJCD_HAS_COLLISION
 
@@ -2340,29 +2340,29 @@ Result<T> generate_ik_solutions(
     }
 
     // CLEAN-UP
-    cudaFree(d_scores_c);
-    cudaFree(d_x_top_c);
-    cudaFree(d_x_rep_c);
+    CUDA_OK(cudaFree(d_scores_c));
+    CUDA_OK(cudaFree(d_x_top_c));
+    CUDA_OK(cudaFree(d_x_rep_c));
 
-    cudaFree(d_targets_coarse_c);
-    cudaFree(d_x_c);
-    cudaFree(d_pose_c);
-    cudaFree(d_pos_mm_c);
-    cudaFree(d_ori_r_c);
-    cudaFree(d_target7_c);
+    CUDA_OK(cudaFree(d_targets_coarse_c));
+    CUDA_OK(cudaFree(d_x_c));
+    CUDA_OK(cudaFree(d_pose_c));
+    CUDA_OK(cudaFree(d_pos_mm_c));
+    CUDA_OK(cudaFree(d_ori_r_c));
+    CUDA_OK(cudaFree(d_target7_c));
 
-    cudaFree(dx64);
-    cudaFree(dtgt64);
-    cudaFree(dpose64);
-    cudaFree(dposmm64);
-    cudaFree(dori64);
-    cudaFree(d_target7_d);
-    if (dx_coarse64) cudaFree(dx_coarse64);
+    CUDA_OK(cudaFree(dx64));
+    CUDA_OK(cudaFree(dtgt64));
+    CUDA_OK(cudaFree(dpose64));
+    CUDA_OK(cudaFree(dposmm64));
+    CUDA_OK(cudaFree(dori64));
+    CUDA_OK(cudaFree(d_target7_d));
+    if (dx_coarse64) CUDA_OK(cudaFree(dx_coarse64));
 
-    if (d_env_cost_refined) cudaFree(d_env_cost_refined);
-    if (d_env_cost_coarse) cudaFree(d_env_cost_coarse);
-    if (d_valid_refined) cudaFree(d_valid_refined);
-    if (d_valid_coarse) cudaFree(d_valid_coarse);
+    if (d_env_cost_refined) CUDA_OK(cudaFree(d_env_cost_refined));
+    if (d_env_cost_coarse) CUDA_OK(cudaFree(d_env_cost_coarse));
+    if (d_valid_refined) CUDA_OK(cudaFree(d_valid_refined));
+    if (d_valid_coarse) CUDA_OK(cudaFree(d_valid_coarse));
 
     auto t1 = high_resolution_clock::now();
     result.elapsed_time =
