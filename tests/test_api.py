@@ -107,6 +107,36 @@ print("interpreter survived")
     assert "interpreter survived" in run.stdout
 
 
+def test_stats_append_across_precision_modes_and_existing_calls(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    target = hjcdik.sample_targets(1, seed=31)[0]
+    for precision in (1, 0, 1):
+        hjcdik.generate_solutions(target, batch_size=32, refine_fp64=precision, write_stats=True)
+    lines = (tmp_path / "ik_stats.csv").read_text().splitlines()
+    assert len(lines) == 4
+    assert lines[0].startswith("b_size,krep,")
+    assert all(line.startswith("32,") for line in lines[1:])
+
+
+def test_stats_write_failure_raises_and_next_solve_recovers(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "ik_stats.csv").mkdir()
+    target = hjcdik.sample_targets(1, seed=37)[0]
+    with pytest.raises(RuntimeError, match="cannot open ik_stats.csv"):
+        hjcdik.generate_solutions(target, batch_size=32, write_stats=True)
+    assert hjcdik.generate_solutions(target, batch_size=32)["count"] == 1
+
+
+def test_solution_fallback_removes_duplicates():
+    target = hjcdik.sample_targets(1, seed=43)[0]
+    result = hjcdik.generate_solutions(target, batch_size=1, num_solutions=100)
+    configurations = np.asarray(result["joint_config"])
+    assert result["count"] > 0
+    for index, q in enumerate(configurations):
+        for previous in configurations[:index]:
+            assert np.max(np.abs(q - previous)) > 1e-7
+
+
 def test_gpu_entry_points_are_thread_safe():
     targets = hjcdik.sample_targets(num_targets=2, seed=17)
 

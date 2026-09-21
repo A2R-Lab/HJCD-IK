@@ -86,6 +86,9 @@ def main():
         validate_solver_robot(robot)
     except ValueError as error:
         ap.error(str(error))
+    fixed_target = robot.get_fixed_joint_by_name(args.fixed_target_name)
+    if fixed_target is None or fixed_target.parent_name != robot.get_joint_by_id(robot.get_num_joints() - 1).name:
+        ap.error("HJCD-IK requires a fixed end-effector target attached to the final actuated joint")
     print(f"[generate_grid] robot={robot.name} dof={robot.get_num_joints()} target={args.fixed_target_name}")
 
     # --- optional collision spec (URDF -> covering spheres -> grid_collision namespace) ---

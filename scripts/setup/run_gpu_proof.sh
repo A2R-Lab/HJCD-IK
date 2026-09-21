@@ -8,7 +8,7 @@
 #   PYTEST_ARGS="-k regression" scripts/setup/run_gpu_proof.sh   # scoped dry run
 #
 # Every HJCD-IK test carries the gpu_proof marker (auto-applied to the whole suite
-# by tests/conftest.py, since each test drives the CUDA kernel). The receipt records
+# by tests/conftest.py, including host/codegen contracts). The receipt records
 # their outcomes and signs the code fingerprint with your local SSH key; CI verifies
 # it CPU-only via github.com/plancherb1.keys.
 set -euo pipefail

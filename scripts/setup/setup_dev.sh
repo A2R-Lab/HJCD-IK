@@ -19,6 +19,7 @@ cd "$(dirname "$0")/../.."
 GLASS_LOCAL="${GLASS_LOCAL:-}"
 GLASS_BRANCH="${GLASS_BRANCH:-main}"
 PYTHON="${PYTHON:-python3}"
+"$PYTHON" -c 'import sys; sys.exit("Development setup requires Python 3.11 or newer") if sys.version_info < (3, 11) else None'
 
 # System (C++/CUDA) build dependencies. The build needs the CUDA toolkit (nvcc) plus two
 # header libraries: Eigen3 and nlohmann-json (the collision env parser includes it).

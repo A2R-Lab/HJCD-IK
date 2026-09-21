@@ -30,7 +30,7 @@ jobs:
       - name: Install pytest-gpu-proof
         # From PyPI (was a vendored submodule). pyyaml is needed to read the YAML policy below —
         # pytest-gpu-proof imports it on demand and does not declare it as a dependency.
-        run: pip install pyyaml pytest-gpu-proof
+        run: pip install pyyaml 'pytest-gpu-proof>=0.4.0'
 
       - name: Verify receipt
         # gpu-proof.json is committed by whoever ran scripts/setup/run_gpu_proof.sh

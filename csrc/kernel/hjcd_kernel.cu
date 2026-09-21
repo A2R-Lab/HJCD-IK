@@ -1666,7 +1666,6 @@ __global__ void mark_collisions(
 #endif  // HJCD_HAS_COLLISION
 
 const double ENV_COLLISION_COST_W = 1.5;
-const double CC_HARD_PENALTY      = 1e12;  // added to a colliding candidate's score in hard mode
 const double ORI_TARGET_RAD = 1.1e-4;
 const double ORI_OUTLIER_W  = 7000.0;
 const float  CC_SPHERE_MARGIN_MM = 0.0f;   // env-collision margin (mm) for the coll-free tally
@@ -2227,8 +2226,7 @@ Result<T> generate_ik_solutions(
         const double ori_excess = std::max(0.0, h_orir64[i] - ORI_TARGET_RAD);
         double s = h_posmm64[i] + ORI_OUTLIER_W * ori_excess;
         if (use_soft) s += ENV_COLLISION_COST_W * (double)h_env_cost_refined[i];
-        if (use_hard && !h_valid_refined[i]) s += CC_HARD_PENALTY;
-        return s;
+        return std::isfinite(s) ? s : std::numeric_limits<double>::infinity();
     };
 
     std::vector<int> order(Krep);
@@ -2237,11 +2235,13 @@ Result<T> generate_ik_solutions(
               [&](int a, int b){ return score_ref(a) < score_ref(b); });
 
     const T DUP_TOL = (T)1e-7;
+    auto joint_value = [&](int idx, int joint)->double {
+        return idx >= 0 ? h_x64[(size_t)idx * N + joint]
+                        : h_x_coarse_f[(size_t)(-1 - idx) * N + joint];
+    };
     auto is_dup = [&](int ia, int ib)->bool {
-        const double* qa = &h_x64[(size_t)ia * N];
-        const double* qb = &h_x64[(size_t)ib * N];
         for (int j = 0; j < N; ++j)
-            if (std::fabs(qa[j] - qb[j]) > (double)DUP_TOL)
+            if (std::fabs(joint_value(ia, j) - joint_value(ib, j)) > (double)DUP_TOL)
                 return false;
         return true;
     };
@@ -2250,14 +2250,13 @@ Result<T> generate_ik_solutions(
         const double ori_excess = std::max(0.0, (double)h_ori_rad_coarse_f[i] - ORI_TARGET_RAD);
         double s = (double)h_pos_mm_coarse_f[i] + ORI_OUTLIER_W * ori_excess;
         if (use_soft) s += ENV_COLLISION_COST_W * (double)h_env_cost_coarse[i];
-        if (use_hard && !h_valid_coarse[i]) s += CC_HARD_PENALTY;
-        return s;
+        return std::isfinite(s) ? s : std::numeric_limits<double>::infinity();
     };
 
     std::vector<int> chosen;
     chosen.reserve(S_target);
     for (int idx : order) {
-        if (use_hard && !h_valid_refined[idx]) continue;
+        if (!std::isfinite(score_ref(idx)) || (use_hard && !h_valid_refined[idx])) continue;
         bool dup = false;
         for (int c : chosen) {
             if (is_dup(idx, c)) { dup = true; break; }
@@ -2275,8 +2274,11 @@ Result<T> generate_ik_solutions(
                 [&](int a, int b){ return score_coarse(a) < score_coarse(b); });
 
         for (int cidx : order_coarse) {
-            if (use_hard && !h_valid_coarse[cidx]) continue;
-            chosen.push_back(-1 - cidx);
+            if (!std::isfinite(score_coarse(cidx)) || (use_hard && !h_valid_coarse[cidx])) continue;
+            const int idx = -1 - cidx;
+            if (std::any_of(chosen.begin(), chosen.end(),
+                            [&](int previous) { return is_dup(idx, previous); })) continue;
+            chosen.push_back(idx);
             if ((int)chosen.size() == S_target) break;
         }
     }
@@ -2305,11 +2307,10 @@ Result<T> generate_ik_solutions(
 
     if (write_stats) {
         constexpr const char* CSV_PATH = "ik_stats.csv";
-        static bool s_header_written = false;
-        std::ofstream csv(CSV_PATH, s_header_written ? std::ios::app : std::ios::trunc);
-        if (csv.is_open()) {
-            if (!s_header_written) {
-                s_header_written = true;
+        std::ofstream csv(CSV_PATH, std::ios::app | std::ios::ate);
+        if (!csv) throw std::runtime_error("cannot open ik_stats.csv for append");
+        {
+            if (csv.tellp() == std::streampos(0)) {
                 csv << "b_size,krep"
                        ",n_ik_accurate,n_coll_free_refined,n_feasible,n_ik_lost"
                        ",n_coll_in_refined,n_coll_in_coarse"
@@ -2336,6 +2337,8 @@ Result<T> generate_ik_solutions(
                 << ',' << pct_cf
                 << ',' << n_out_feasible
                 << '\n';
+            csv.flush();
+            if (!csv) throw std::runtime_error("cannot write ik_stats.csv");
         }
     }
 

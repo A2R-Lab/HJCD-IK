@@ -37,7 +37,7 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
   else if (collision_mode != "auto")
     throw py::value_error("collision_mode must be one of: hard, soft, both, auto");
 
-  auto tp = normalized_target_pose(target_pose.data());
+  auto tp = target_pose;  // The native boundary validates and normalizes before touching CUDA.
 
   const char* json_cstr = problems_json_text.empty() ? nullptr : problems_json_text.c_str();
   const char* set_cstr  = problem_set_name.empty() ? nullptr : problem_set_name.c_str();

@@ -50,6 +50,7 @@ void mat4_mul(const T* A, const T* B, T* C) {
 
 namespace hjcd {
     static constexpr int N = grid::NUM_JOINTS;            // actuated joints (7 for Panda)
+    static_assert(N > 0 && N <= 32, "HJCD-IK requires 1 to 32 actuated joints");
     static constexpr int XHOM = grid::XHOM_T_COUNT;       // full s_XmatsHom frame storage (16*num_frames)
     static constexpr int FLANGE_JID = N - 1;              // cumulative world transform of the last joint
     // Fixed EE-offset frame inside s_XmatsHom: the frame index where GRiD places the named EE target
