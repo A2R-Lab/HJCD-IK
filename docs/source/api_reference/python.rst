@@ -1,7 +1,13 @@
 Python API
 ==========
 
-The ``hjcdik`` package exposes the solver via pybind11.
+The ``hjcdik`` package exposes the solver via pybind11. Calls use the calling thread's
+current CUDA device. Sampling and solving release the GIL and serialize in the native layer.
+
+Targets use meters and scalar-first quaternions (``wxyz``). Any finite nonzero quaternion
+is normalized. Invalid arguments raise ``ValueError``; unusable scenes and CUDA runtime
+failures raise exceptions. A returned candidate is not a success certificate: inspect both
+position and orientation errors against your application's tolerances.
 
 ``generate_solutions(target_pose, batch_size=2000, num_solutions=1, collision_free=False, collision_mode="hard", ...)``
    Solve IK for a single 6-DOF target. ``target_pose`` is ``[x, y, z, qw, qx, qy, qz]`` (position +
@@ -10,10 +16,41 @@ The ``hjcdik`` package exposes the solver via pybind11.
    not guarantee collision freedom, and ``both`` ranks then filters.
 
 ``sample_targets(num_targets, seed=0)``
-   Sample reachable random EE targets (list of 7-vectors), useful for benchmarking.
+   Sample reachable EE targets from a seeded Halton sequence (list of 7-vectors).
 
 ``num_joints()``
    The robot's joint count (``grid::NUM_JOINTS``).
+
+Result arrays are independent, owning NumPy arrays with dtype ``float64``:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Key
+     - Shape
+     - Units / meaning
+   * - ``joint_config``
+     - ``(count, num_joints())``
+     - Joint angles in radians
+   * - ``pose``
+     - ``(count, 7)``
+     - Position in meters, quaternion in ``wxyz`` order
+   * - ``pos_errors``
+     - ``(count,)``
+     - Position error in millimeters
+   * - ``ori_errors``
+     - ``(count,)``
+     - Orientation error in radians
+
+``refine_fp64=-1`` selects fp64 refinement for one requested solution and fp32 for
+multiple solutions; ``1`` and ``0`` force the precision. I/O stays float64 in both modes.
+``write_stats=True`` writes diagnostic rows to ``ik_stats.csv`` in the current directory.
+
+``collision_enabled()`` reports whether collision was compiled in; ``build_info()``
+returns that flag and the joint count without initializing CUDA. Collision scenes use
+``problems_json_text``, ``problem_set_name``, and ``problem_idx``; see :doc:`collision`.
+``collision_mode="auto"`` reads the legacy ``HJCD_CC_MODE`` environment variable;
+the default ``"hard"`` is explicit and ignores that variable.
 
 .. code-block:: python
 

@@ -9,7 +9,7 @@ promising ones, with optional collision avoidance. Kinematics come from [GRiD](h
 ## Requirements
 
 - CUDA 12.x or 13.x toolkit (`nvcc`) and an NVIDIA GPU
-- CMake ≥ 3.23, a C++17 host compiler
+- CMake ≥ 3.24, a C++17 host compiler
 - Python ≥ 3.9
 - System header libraries: **Eigen3** and **nlohmann-json** (the collision env parser includes it)
 

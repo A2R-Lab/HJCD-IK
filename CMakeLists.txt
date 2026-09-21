@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.23)
+cmake_minimum_required(VERSION 3.24)
 
 if(NOT DEFINED CMAKE_CUDA_HOST_COMPILER)
   find_program(HJCDIK_GXX10 g++-10)
@@ -19,7 +19,7 @@ endif()
 project(hjcdik LANGUAGES CXX CUDA)
 message(STATUS "HJCD-IK: CUDA architectures = ${CMAKE_CUDA_ARCHITECTURES}")
 
-option(HJCDIK_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
+option(HJCDIK_WARNINGS_AS_ERRORS "Treat C++ front-end warnings as errors" OFF)
 option(BUILD_PYTHON "Build the Python extension module" ON)
 option(HJCDIK_AUTO_CODEGEN "Regenerate grid.cuh from the URDF via GRiD codegen before building" OFF)
 
@@ -32,6 +32,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 find_package(CUDAToolkit REQUIRED)
 find_package(Eigen3 CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 # Note: the CLI (csrc/kernel/main.cpp) emits its results YAML by hand via std::ofstream and
 # nothing in the project includes the yaml-cpp library, so it is not a dependency.
@@ -102,6 +103,13 @@ if(MSVC)
 else()
   set(HJCDIK_WARN_FLAGS $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wpedantic>)
 endif()
+if(HJCDIK_WARNINGS_AS_ERRORS)
+  if(MSVC)
+    list(APPEND HJCDIK_WARN_FLAGS $<$<COMPILE_LANGUAGE:CXX>:/WX>)
+  else()
+    list(APPEND HJCDIK_WARN_FLAGS $<$<COMPILE_LANGUAGE:CXX>:-Werror>)
+  endif()
+endif()
 
 set(HJCDIK_CUDA_FLAGS
   $<$<COMPILE_LANGUAGE:CUDA>:-use_fast_math>
@@ -115,7 +123,7 @@ add_library(hjcdik_core OBJECT ${HJCDIK_COMMON_SOURCES})
 target_sources(hjcdik_core PRIVATE ${GRID_HEADER})
 target_include_directories(hjcdik_core PUBLIC ${HJCDIK_INCLUDE_DIRS})
 target_compile_options(hjcdik_core PRIVATE ${HJCDIK_WARN_FLAGS} ${HJCDIK_CUDA_FLAGS})
-target_link_libraries(hjcdik_core PUBLIC Eigen3::Eigen)
+target_link_libraries(hjcdik_core PUBLIC Eigen3::Eigen nlohmann_json::nlohmann_json)
 set_target_properties(hjcdik_core PROPERTIES
   CUDA_SEPARABLE_COMPILATION OFF
   CUDA_RESOLVE_DEVICE_SYMBOLS OFF

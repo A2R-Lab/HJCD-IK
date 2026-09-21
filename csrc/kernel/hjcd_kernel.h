@@ -79,7 +79,7 @@ std::array<T, 7> normalized_target_pose(const T* pose) {
 }
 
 // RT = LM-refine compute precision (speed/accuracy knob): RT=double (default) is full fp64;
-// RT=float runs FK/Jacobian/residual/line-search in fp32 with the Cholesky solve still fp64.
+// RT=float runs FK/Jacobian/residual/line-search and the Cholesky solve in fp32.
 template<typename T, typename RT = double>
 Result<T> generate_ik_solutions(
     T* target_pose,

@@ -10,11 +10,27 @@ By default writes to csrc/generated/grid.cuh (the committed, build-default heade
 """
 import argparse
 import sys
+import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GRID_DIR = REPO_ROOT / "external" / "GRiD"
 DEFAULT_OUT = REPO_ROOT / "csrc" / "generated" / "grid.cuh"
+
+
+def validate_solver_robot(robot):
+    """Reject GRiD models that HJCD's warp solver cannot represent correctly."""
+    if robot.floating_base or not robot.is_serial_chain():
+        raise ValueError("HJCD-IK requires a fixed-base serial chain")
+    if not 1 <= robot.get_num_joints() <= 32:
+        raise ValueError("HJCD-IK requires 1 to 32 actuated joints (one joint per warp lane)")
+    for joint in robot.get_joints_ordered_by_id():
+        # The geometric Jacobian uses each joint frame's +Z axis as a revolute axis.
+        # GRiD supports more joint types, but accepting them here silently produces wrong IK.
+        if joint.is_mimic or joint.jtype not in ("revolute", "continuous"):
+            raise ValueError("HJCD-IK requires independent revolute or continuous joints")
+        if list(robot.get_S_by_id(joint.jid).reshape(-1)) != [0, 0, 1, 0, 0, 0]:
+            raise ValueError("HJCD-IK requires each actuated joint to rotate around local +Z")
 
 
 def main():
@@ -38,7 +54,15 @@ def main():
                          "<sphere>). Use this when the kinematic URDF's collision meshes can't be "
                          "resolved (e.g. Panda). Spheres are read directly and bound to the robot's "
                          "GRiD frames -- no re-spherization. A comma list => coarsest->finest tiers.")
+    ap.add_argument("--profile", choices=("kinematics", "all"), default="kinematics",
+                    help="GRiD algorithms to emit (default: kinematics, which is all HJCD-IK uses).")
     args = ap.parse_args()
+    if args.floating_base:
+        ap.error("HJCD-IK requires a fixed-base serial chain")
+    if args.namespace != "grid":
+        ap.error("HJCD-IK requires the grid namespace")
+    if not args.fixed_target_name:
+        ap.error("HJCD-IK requires a fixed end-effector target frame")
 
     urdf = Path(args.urdf_path)
     if not urdf.is_absolute():
@@ -58,6 +82,10 @@ def main():
     from grid_codegen import GRiDCodeGenerator   # noqa: E402
 
     robot = URDFParser().parse(str(urdf), floating_base=args.floating_base)
+    try:
+        validate_solver_robot(robot)
+    except ValueError as error:
+        ap.error(str(error))
     print(f"[generate_grid] robot={robot.name} dof={robot.get_num_joints()} target={args.fixed_target_name}")
 
     # --- optional collision spec (URDF -> covering spheres -> grid_collision namespace) ---
@@ -102,13 +130,22 @@ def main():
     out.parent.mkdir(parents=True, exist_ok=True)
     codegen = GRiDCodeGenerator(robot, DEBUG_MODE=False, NEED_PRINT_MAT=True,
                                 FILE_NAMESPACE=args.namespace)
+    # Keep the previous buildable header until every generation/postprocessing check succeeds.
+    with tempfile.TemporaryDirectory(prefix=".hjcd-codegen-", dir=out.parent) as temporary:
+        staged = Path(temporary) / out.name
+        emit_header(codegen, args, staged, collision_spec)
+        staged.replace(out)
+    print(f"[generate_grid] wrote {out}")
+
+
+def emit_header(codegen, args, out, collision_spec):
     codegen.gen_all_code(
+        codegen_profile=args.profile,
         include_homogenous_transforms=True,
         fixed_target_name=args.fixed_target_name,
         output_path=str(out),
         collision_spec=collision_spec,
     )
-    print(f"[generate_grid] wrote {out}")
 
     # --- inject a collision-presence sentinel (compile guard for the kernel) ---
     # grid.cuh only carries the grid_collision namespace when --collision was passed; the kernel and
@@ -153,6 +190,10 @@ def main():
     else:
         print("[generate_grid][warn] no fixed target — EE_FIXED_FRAME_IDX not injected "
               "(kernel grasptarget path requires a fixed EE frame).")
+
+
+    # Normalize generator formatting once, keeping reproducible headers and clean diffs.
+    out.write_text("".join(line.rstrip() + "\n" for line in out.read_text().splitlines()))
 
 
 if __name__ == "__main__":

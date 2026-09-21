@@ -24,7 +24,12 @@ python scripts/codegen/generate_grid.py path/to/robot.urdf -t <ee_target> --coll
 ```
 
 ## Caveats
-- The solver currently assumes revolute/prismatic/fixed joints, no kinematic loops.
+- HJCD-IK currently supports fixed-base serial chains with 1–32 independent revolute or continuous
+  joints, each rotating around its local +Z axis. Fixed joints may connect the links and tool frame.
+  GRiD supports more general robots, but this solver's geometric Jacobian and suffix FK do not;
+  codegen rejects floating bases, branches, mimic joints, prismatic joints, and other joint axes.
+- The default codegen profile emits kinematics and optional collision only. Use `--profile all`
+  only when the generated header is also needed by an external dynamics consumer.
 - Without `--collision` the build runs open-world; the Python API rejects `collision_free=True`
   (the collision path is compiled out via the `HJCD_HAS_COLLISION` sentinel).
 - Keep the EE-target frame consistent with `FLANGE_IDX` usage in the kernel.

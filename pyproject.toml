@@ -48,12 +48,12 @@ plots = [
 dev = [
   "pytest>=7.0",
   "scipy>=1.7",
-  "pytest-gpu-proof>=0.4.0",   # signed GPU-proof receipt gen/verify (PyPI; was a submodule). Needs Python >=3.11.
+  "pytest-gpu-proof>=0.4.0; python_version >= '3.11'", # receipt generation requires Python >=3.11
   "pyyaml>=5.4",               # read the YAML policy (tests/gpu-proof-policy.yaml); pytest-gpu-proof doesn't pull it in
 ]
 
 [tool.scikit-build]
-cmake.version = ">=3.23"
+cmake.version = ">=3.24"
 build-dir = "build"
 # The committed csrc/generated/grid.cuh is the build default; regenerate it explicitly
 # with scripts/codegen/generate_grid.py (or build with -DHJCDIK_AUTO_CODEGEN=ON to regenerate here).
@@ -62,7 +62,7 @@ cmake.define.HJCDIK_AUTO_CODEGEN = "OFF"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-  "gpu_proof: Test outcomes recorded in the signed pytest-gpu-proof receipt (auto-applied to the whole suite by tests/conftest.py; every HJCD-IK test drives the CUDA kernel).",
+  "gpu_proof: Full-suite outcomes recorded in the signed pytest-gpu-proof receipt (auto-applied by tests/conftest.py).",
 ]
 
 [tool.gpu_proof]

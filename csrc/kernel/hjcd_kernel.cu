@@ -1673,7 +1673,7 @@ const float  CC_SPHERE_MARGIN_MM = 0.0f;   // env-collision margin (mm) for the 
 
 // RT = LM-refine compute precision (the user-facing speed/accuracy knob). RT=double is the
 // full-fp64 default; RT=float runs FK/Jacobian/residual/line-search in fp32 (~2.4x cheaper FK,
-// cf. coarse_search) while the normal-equations Cholesky stays fp64 inside build_ne_and_solve_warp.
+// cf. coarse_search), including the normal-equations Cholesky in build_ne_and_solve_warp.
 // (Default RT=double is declared in the header; not repeated here.)
 template<typename T, typename RT>
 Result<T> generate_ik_solutions(
@@ -1964,7 +1964,7 @@ Result<T> generate_ik_solutions(
     CUDA_OK(cudaDeviceSynchronize());
 
     // JACOBIAN LM TUNER — runs in the refine precision RT (double by default; float = the
-    // fp32 speed knob). The Cholesky solve inside build_ne_and_solve_warp stays fp64 regardless.
+    // fp32 speed knob). The Cholesky solve follows RT as well.
     // (Array names keep the "64" suffix for continuity; their element type is RT.)
     RT *dx64=nullptr, *dtgt64=nullptr, *dpose64=nullptr;
     RT *dposmm64=nullptr, *dori64=nullptr;

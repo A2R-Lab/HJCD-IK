@@ -14,7 +14,7 @@ more robot configurations for a target end-effector pose.
 - NVIDIA GPU
 - CUDA Toolkit 12.x or 13.x
 - Python 3.9 or newer
-- CMake 3.23 or newer
+- CMake 3.24 or newer
 - GCC or Clang
 - Eigen3
 - nlohmann-json
@@ -108,7 +108,10 @@ Target poses use:
 [x, y, z, qw, qx, qy, qz]
 ```
 
-Position is in meters and quaternions use `wxyz` order.
+Target and returned pose positions are in meters; quaternions use `wxyz` order and are normalized on input.
+Returned `pos_errors` are in **millimeters** and `ori_errors` are in **radians**. Check these errors against
+your tolerances; the solver can return approximate candidates for unreachable targets. Collision filtering
+can return fewer solutions, including zero. See [the Python API](docs/source/api_reference/python.rst).
 
 ## Collision-Enabled Build
 
@@ -149,7 +152,8 @@ python examples/03_batch_sweep.py
 
 ## Tests
 
-For the full test suite, use the collision-enabled Panda build above.
+For the full test suite, use the collision-enabled Panda build above and install `.[dev,codegen]`.
+GPU-proof receipt generation and the one-shot development setup require Python 3.11 or newer.
 
 Run:
 
