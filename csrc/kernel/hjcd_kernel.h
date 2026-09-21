@@ -16,14 +16,22 @@ namespace grid {
 
 #define PI 3.14159265358979323846
 
+/**
+ * @brief Move-only owner of a native solve's row-major host buffers.
+ *
+ * Read only the first count rows. A returned candidate is not a success certificate:
+ * check both error arrays against your tolerances. Collision filtering can yield count == 0.
+ * Buffers remain valid until this object is reset, destroyed, or moved from.
+ * Do not delete the individual pointers; ownership follows the Result object.
+ */
 template<typename T>
 struct Result {
-    T* joint_config = nullptr;
-    T* pose = nullptr;
-    T* pos_errors = nullptr;
-    T* ori_errors = nullptr;
-    T elapsed_time{};
-    int count = 0;
+    T* joint_config = nullptr;  ///< count x grid_num_joints() joint angles, radians.
+    T* pose = nullptr;          ///< count x 7 poses: [x,y,z,qw,qx,qy,qz], positions in meters.
+    T* pos_errors = nullptr;    ///< count position errors, millimeters.
+    T* ori_errors = nullptr;    ///< count orientation errors, radians.
+    T elapsed_time{};          ///< Host-observed solve duration, milliseconds (not per candidate).
+    int count = 0;              ///< Number of returned candidates, possibly less than requested.
 
     Result() = default;
     ~Result() { reset(); }
@@ -46,6 +54,7 @@ struct Result {
         return *this;
     }
 
+    /// Release all owned buffers and restore the empty state; safe to call repeatedly.
     void reset() noexcept {
         delete[] joint_config;
         delete[] pose;
@@ -78,8 +87,33 @@ std::array<T, 7> normalized_target_pose(const T* pose) {
     return result;
 }
 
-// RT = LM-refine compute precision (speed/accuracy knob): RT=double (default) is full fp64;
-// RT=float runs FK/Jacobian/residual/line-search and the Cholesky solve in fp32.
+/**
+ * @brief Solve one end-effector target with a GPU batch of candidate configurations.
+ *
+ * Compiled instantiations are <double,double>, <double,float>, and <float,double>.
+ * T controls I/O; RT controls LM compute precision; coarse search always uses float.
+ * Calls serialize shared native state on the calling thread's current CUDA device.
+ * Cached models require that context to remain alive; cudaDeviceReset is unsupported.
+ *
+ * @param target_pose Nonnull seven-vector [x,y,z,qw,qx,qy,qz], meters and scalar-first
+ * quaternion. Finite nonzero quaternions are normalized without mutating this input.
+ * @param d_robotModel Retained for source compatibility; ignored. Precision-specific
+ * internally cached generated models are used by the solver.
+ * @param b_size Positive candidate count (not a target count), bounded by CUDA indexing.
+ * @param num_solutions Positive maximum number of distinct candidates requested.
+ * @param collision_free Enable post-solve collision processing; requires a collision build.
+ * @param problems_json_text MotionBenchMaker-style JSON, required with collision_free.
+ * @param problem_set_name Key under the JSON "problems" object.
+ * @param problem_idx Nonnegative index within the selected problem set.
+ * @param write_stats Append diagnostics to ik_stats.csv; write failures throw.
+ * @param collision_mode 0 = environment-only soft ranking, 1 = hard self/environment
+ * filtering, 2 = both; -1 reads HJCD_CC_MODE (defaults to hard). Ignored in open-world solves.
+ * @return Owning result. Candidates may be approximate, fewer than requested, or empty.
+ * Collision checks describe configurations, never paths.
+ * @throws std::invalid_argument For invalid scalar/pose values.
+ * @throws std::runtime_error For checked CUDA or output failures. Scene errors also throw.
+ * GRiD-generated model initialization retains its upstream abort-on-CUDA-error policy.
+ */
 template<typename T, typename RT = double>
 Result<T> generate_ik_solutions(
     T* target_pose,
@@ -94,6 +128,16 @@ Result<T> generate_ik_solutions(
     int collision_mode = -1
 );
 
+/**
+ * @brief Sample reachable world-frame poses from a seeded Halton joint sequence.
+ *
+ * T may be float or double. The result uses [x,y,z,qw,qx,qy,qz], meters and
+ * scalar-first quaternions. Sampling respects joint limits but does not check collision.
+ * Calls share the solver lock and use the calling thread's current CUDA device.
+ * @param d_robotModel Device model matching the compiled robot and T, or nullptr for the cache.
+ * @param num_configs Positive target count bounded by CUDA launch indexing.
+ * @param seed Unsigned seed used to shift the Halton sequence.
+ */
 template<typename T>
 std::vector<std::array<T, 7>> sample_random_target_poses(
     const grid::robotModel<T>* d_robotModel,
@@ -101,7 +145,10 @@ std::vector<std::array<T, 7>> sample_random_target_poses(
     std::uint64_t seed
 );
 
+/// Lazily initialize generated joint limits on the current device; normally called internally.
 void init_joint_limits_from_grid();
 
+/// Return the compiled actuated joint count without initializing CUDA.
 extern "C" int grid_num_joints();
+/// Return whether the compiled header includes collision geometry, without initializing CUDA.
 extern "C" bool grid_has_collision();

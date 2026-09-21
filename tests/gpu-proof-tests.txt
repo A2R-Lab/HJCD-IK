@@ -16,6 +16,7 @@ tests/test_api.py::test_refine_precision_enum_is_validated[-2]
 tests/test_api.py::test_refine_precision_enum_is_validated[2]
 tests/test_api.py::test_refine_precision_enum_is_validated[99]
 tests/test_api.py::test_result_arrays_own_their_storage_and_survive_later_calls
+tests/test_api.py::test_sample_targets_rejects_launch_index_overflow_before_cuda
 tests/test_api.py::test_sample_targets_requires_positive_count[-1]
 tests/test_api.py::test_sample_targets_requires_positive_count[0]
 tests/test_api.py::test_solution_fallback_removes_duplicates
@@ -80,3 +81,10 @@ tests/test_precision.py::test_fp32_refine_accuracy
 tests/test_precision.py::test_fp64_refine_accuracy
 tests/test_regression.py::test_no_regression_vs_baseline
 tests/test_regression.py::test_solver_runs_and_returns_solutions
+tests/test_stats.py::test_both_mode_counts_include_self_collisions_with_empty_environment
+tests/test_stats.py::test_buffered_stats_write_failure_raises_and_next_solve_recovers
+tests/test_stats.py::test_collision_stats_use_the_selected_checks[both]
+tests/test_stats.py::test_collision_stats_use_the_selected_checks[hard]
+tests/test_stats.py::test_collision_stats_use_the_selected_checks[soft]
+tests/test_stats.py::test_open_world_stats_report_accuracy_without_claiming_collision_checks
+tests/test_stats.py::test_stats_do_not_change_solver_outputs

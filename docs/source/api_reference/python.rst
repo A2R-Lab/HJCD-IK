@@ -46,7 +46,26 @@ Result arrays are independent, owning NumPy arrays with dtype ``float64``:
 
 ``refine_fp64=-1`` selects fp64 refinement for one requested solution and fp32 for
 multiple solutions; ``1`` and ``0`` force the precision. I/O stays float64 in both modes.
-``write_stats=True`` writes diagnostic rows to ``ik_stats.csv`` in the current directory.
+
+Diagnostics
+-----------
+
+``write_stats=True`` appends diagnostic rows to ``ik_stats.csv`` in the current directory.
+It does not change solution selection. Open or buffered-write failures raise an exception.
+The accuracy tallies use position error < 5 mm **and** orientation error < 0.001 rad.
+
+Collision/feasibility fields are **-1 when not measured**, including open-world calls.
+In ``hard`` and ``both`` modes, collision counts include self and environment checks;
+in ``soft`` mode they report environment penetration only, not self-collision freedom.
+``env_cost_*_mm`` contains refined-candidate penetration-cost summaries only in ``soft``
+or ``both`` mode; hard-only calls report -1 because they do not compute that cost.
+``n_coll_in_refined`` and ``n_coll_in_coarse`` count candidates rejected by the selected
+collision check (or penetrating the environment in soft-only mode). Returned-solution
+accuracy is counted in every mode. With collision checking enabled but no returned
+solutions, ``pct_returned_coll_free`` is 0, not a success percentage.
+
+Build and scene metadata
+------------------------
 
 ``collision_enabled()`` reports whether collision was compiled in; ``build_info()``
 returns that flag, the joint count, ``grid_header_sha256``, and ``cuda_compiler_version``

@@ -1,7 +1,8 @@
 Solver kernel
 =============
 
-The batched HJCD solver: coarse search + Levenberg–Marquardt refine, warp-per-candidate.
+The batched HJCD solver: block-cooperative coarse search, then warp-per-candidate
+Levenberg–Marquardt refinement.
 
 The native host API lives in ``csrc/kernel/hjcd_kernel.h``. Both sampling and solving
 serialize access to shared CUDA constants and stop flags. Python releases the GIL while

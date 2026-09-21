@@ -157,6 +157,22 @@ def test_sample_targets_requires_positive_count(num_targets):
         hjcdik.sample_targets(num_targets=num_targets)
 
 
+def test_sample_targets_rejects_launch_index_overflow_before_cuda():
+    run = subprocess.run(
+        [sys.executable, "-c", """
+import hjcdik
+try:
+    hjcdik.sample_targets(2**31 - 1)
+except ValueError as error:
+    assert "indexing" in str(error)
+else:
+    raise AssertionError("overflowing launch count was accepted")
+"""], capture_output=True, text=True, timeout=30,
+        env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
+    )
+    assert run.returncode == 0, run.stdout + run.stderr
+
+
 @pytest.mark.parametrize("target", [
     [0, 0, 0, 1, 0, 0],
     [0, 0, 0, 1, 0, 0, 0, 0],

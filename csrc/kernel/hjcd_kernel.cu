@@ -1351,7 +1351,7 @@ __global__ void forward_kinematics_kernel(
     __shared__ T s_tmp[NX * 2];
 
     for (int j = threadIdx.x; j < N; j += blockDim.x)
-        s_q[j] = q[b * N + j];
+        s_q[j] = q[(size_t)b * N + j];
     __syncthreads();
 
     grid::load_update_XmatsHom_helpers<T>(s_XmatsHom, /*s_topology_helpers=*/nullptr, s_q, RM, s_tmp);
@@ -1364,17 +1364,17 @@ __global__ void forward_kinematics_kernel(
             const T* Cee = &s_jointX[EE_IDX * 16];
             T qee[4];
             mat_to_quat(Cee, qee);
-            ee_pose7[b * 7 + 0] = Cee[12];
-            ee_pose7[b * 7 + 1] = Cee[13];
-            ee_pose7[b * 7 + 2] = Cee[14];
-            ee_pose7[b * 7 + 3] = qee[0];
-            ee_pose7[b * 7 + 4] = qee[1];
-            ee_pose7[b * 7 + 5] = qee[2];
-            ee_pose7[b * 7 + 6] = qee[3];
+            ee_pose7[(size_t)b * 7 + 0] = Cee[12];
+            ee_pose7[(size_t)b * 7 + 1] = Cee[13];
+            ee_pose7[(size_t)b * 7 + 2] = Cee[14];
+            ee_pose7[(size_t)b * 7 + 3] = qee[0];
+            ee_pose7[(size_t)b * 7 + 4] = qee[1];
+            ee_pose7[(size_t)b * 7 + 5] = qee[2];
+            ee_pose7[(size_t)b * 7 + 6] = qee[3];
         }
 
         if (all_link_T) {
-            T* out = &all_link_T[b * (NX * 16)];
+            T* out = &all_link_T[(size_t)b * (NX * 16)];
 #pragma unroll
             for (int i = 0; i < NX * 16; ++i) out[i] = s_jointX[i];
         }
@@ -2109,11 +2109,11 @@ Result<T> generate_ik_solutions(
     const bool use_soft = do_cc && (cc_mode == 0 || cc_mode == 2);
     const bool use_hard = do_cc && (cc_mode == 1 || cc_mode == 2);
 
-    std::vector<float> h_env_cost_refined(Krep, 0.0f);
-    std::vector<float> h_env_cost_coarse(B, 0.0f);
-    std::vector<unsigned char> h_valid_refined(Krep, 1);   // 1 = collision-free (hard mode)
-    std::vector<unsigned char> h_valid_coarse(B, 1);
-    int n_cc_in_refined = 0, n_cc_in_coarse = 0;
+    // Host collision buffers are needed only for the requested check, not open-world solves.
+    std::vector<float> h_env_cost_refined(use_soft ? Krep : 0);
+    std::vector<float> h_env_cost_coarse(use_soft ? B : 0);
+    std::vector<unsigned char> h_valid_refined(use_hard ? Krep : 0);
+    std::vector<unsigned char> h_valid_coarse(use_hard ? B : 0);
 
 #if defined(HJCD_HAS_COLLISION)
     float* d_env_cost_refined = nullptr;
@@ -2159,10 +2159,6 @@ Result<T> generate_ik_solutions(
                                sizeof(float) * (size_t)Krep, cudaMemcpyDeviceToHost));
             CUDA_OK(cudaMemcpy(h_env_cost_coarse.data(), d_env_cost_coarse,
                                sizeof(float) * (size_t)B, cudaMemcpyDeviceToHost));
-            for (int i = 0; i < Krep; ++i)
-                if (h_env_cost_refined[i] > CC_SPHERE_MARGIN_MM) ++n_cc_in_refined;
-            for (int i = 0; i < B; ++i)
-                if (h_env_cost_coarse[i] > CC_SPHERE_MARGIN_MM) ++n_cc_in_coarse;
         }
 
         if (use_hard) {
@@ -2203,33 +2199,6 @@ Result<T> generate_ik_solutions(
         std::copy(t_orir .begin(), t_orir .end(), h_orir64 .begin());
         std::copy(t_pose .begin(), t_pose .end(), h_pose64 .begin());
         std::copy(t_x    .begin(), t_x    .end(), h_x64    .begin());
-    }
-
-    // IK accuracy and collision-filter interaction stats
-    int n_ik_lost = 0, n_ik_good_ref = 0, n_coll_free_ref = 0, n_feasible_ref = 0;
-    float env_cost_min = std::numeric_limits<float>::infinity();
-    float env_cost_max = 0.0f;
-    double env_cost_mean = 0.0;
-    {
-        constexpr double POS_THR_MM  = 5.0;
-        constexpr double ORI_THR_RAD = 1e-3;
-        for (int i = 0; i < Krep; ++i) {
-            const bool ik_good   = h_posmm64[i] < POS_THR_MM && h_orir64[i] < ORI_THR_RAD;
-            const bool coll_free = !do_cc
-                || (use_hard ? (bool)h_valid_refined[i]
-                             : (h_env_cost_refined[i] <= CC_SPHERE_MARGIN_MM));
-            if (ik_good)               ++n_ik_good_ref;
-            if (coll_free)             ++n_coll_free_ref;
-            if (ik_good && coll_free)  ++n_feasible_ref;
-            if (ik_good && !coll_free) ++n_ik_lost;
-            if (do_cc) {
-                const float c = h_env_cost_refined[i];
-                if (c < env_cost_min) env_cost_min = c;
-                if (c > env_cost_max) env_cost_max = c;
-                env_cost_mean += c;
-            }
-        }
-        if (do_cc && Krep > 0) env_cost_mean /= Krep;
     }
 
     // GET SOLUTIONS
@@ -2295,29 +2264,55 @@ Result<T> generate_ik_solutions(
         }
     }
 
-    // Tally quality of the returned solutions
-    int n_out_ik = 0, n_out_cf = 0, n_out_feasible = 0;
-    if (do_cc) {
-        constexpr double POS_THR = 5.0, ORI_THR = 1e-3;
-        for (int idx : chosen) {
-            double pos_mm, ori_r; float env_mm; bool cfree;
-            if (idx >= 0) {
-                pos_mm = h_posmm64[idx]; ori_r = h_orir64[idx];
-                env_mm = h_env_cost_refined[idx];
-                cfree = use_hard ? (bool)h_valid_refined[idx] : (env_mm <= CC_SPHERE_MARGIN_MM);
-            } else {
-                int cidx = -1 - idx;
-                pos_mm = h_pos_mm_coarse_f[cidx]; ori_r = h_ori_rad_coarse_f[cidx];
-                env_mm = h_env_cost_coarse[cidx];
-                cfree = use_hard ? (bool)h_valid_coarse[cidx] : (env_mm <= CC_SPHERE_MARGIN_MM);
-            }
-            if (pos_mm < POS_THR && ori_r < ORI_THR)                ++n_out_ik;
-            if (cfree)                                              ++n_out_cf;
-            if (pos_mm < POS_THR && ori_r < ORI_THR && cfree)       ++n_out_feasible;
-        }
-    }
-
     if (write_stats) {
+        // Diagnostic work stays off the normal solve path. Unmeasured values are -1,
+        // not zero or "collision-free". In soft-only mode clearance is environment-only.
+        constexpr double POS_THR_MM = 5.0, ORI_THR_RAD = 1e-3;
+        auto accurate = [&](double pos, double ori) {
+            return pos < POS_THR_MM && ori < ORI_THR_RAD;
+        };
+        auto collision_clear = [&](int index, bool refined) {
+            if (!do_cc) return false;
+            if (use_hard) return bool(refined ? h_valid_refined[index] : h_valid_coarse[index]);
+            const float cost = refined ? h_env_cost_refined[index] : h_env_cost_coarse[index];
+            return use_soft && cost <= CC_SPHERE_MARGIN_MM;
+        };
+
+        int n_ik_good_ref = 0, n_coll_free_ref = 0, n_feasible_ref = 0, n_ik_lost = 0;
+        float env_cost_min = std::numeric_limits<float>::infinity(), env_cost_max = 0;
+        double env_cost_mean = 0;
+        for (int i = 0; i < Krep; ++i) {
+            const bool ik_good = accurate(h_posmm64[i], h_orir64[i]);
+            const bool coll_free = collision_clear(i, true);
+            n_ik_good_ref += ik_good;
+            n_coll_free_ref += coll_free;
+            n_feasible_ref += ik_good && coll_free;
+            n_ik_lost += ik_good && !coll_free;
+            if (use_soft) {
+                const float cost = h_env_cost_refined[i];
+                env_cost_min = std::min(env_cost_min, cost);
+                env_cost_max = std::max(env_cost_max, cost);
+                env_cost_mean += cost;
+            }
+        }
+        if (use_soft) env_cost_mean /= Krep;
+        const int n_cc_in_refined = Krep - n_coll_free_ref;
+        int n_cc_in_coarse = 0;
+        if (do_cc)
+            for (int i = 0; i < B; ++i) n_cc_in_coarse += !collision_clear(i, false);
+
+        int n_out_ik = 0, n_out_cf = 0, n_out_feasible = 0;
+        for (int index : chosen) {
+            const bool refined = index >= 0;
+            const int row = refined ? index : -1 - index;
+            const bool ik_good = accurate(
+                refined ? h_posmm64[row] : h_pos_mm_coarse_f[row],
+                refined ? h_orir64[row] : h_ori_rad_coarse_f[row]);
+            const bool coll_free = collision_clear(row, refined);
+            n_out_ik += ik_good;
+            n_out_cf += coll_free;
+            n_out_feasible += ik_good && coll_free;
+        }
         constexpr const char* CSV_PATH = "ik_stats.csv";
         std::ofstream csv(CSV_PATH, std::ios::app | std::ios::ate);
         if (!csv) throw std::runtime_error("cannot open ik_stats.csv for append");
@@ -2335,21 +2330,21 @@ Result<T> generate_ik_solutions(
                                                   : 100.0 * n_out_cf / (double)chosen.size();
             csv << B           << ',' << Krep
                 << ',' << n_ik_good_ref
-                << ',' << n_coll_free_ref
-                << ',' << n_feasible_ref
-                << ',' << n_ik_lost
+                << ',' << (do_cc ? n_coll_free_ref : -1)
+                << ',' << (do_cc ? n_feasible_ref : -1)
+                << ',' << (do_cc ? n_ik_lost : -1)
                 << ',' << (do_cc ? n_cc_in_refined : -1)
                 << ',' << (do_cc ? n_cc_in_coarse  : -1)
-                << ',' << (do_cc ? env_cost_min  : -1.f)
-                << ',' << (do_cc ? env_cost_max  : -1.f)
-                << ',' << (do_cc ? env_cost_mean : -1.0)
+                << ',' << (use_soft ? env_cost_min  : -1.f)
+                << ',' << (use_soft ? env_cost_max  : -1.f)
+                << ',' << (use_soft ? env_cost_mean : -1.0)
                 << ',' << (int)chosen.size()
                 << ',' << n_out_ik
-                << ',' << n_out_cf
-                << ',' << pct_cf
-                << ',' << n_out_feasible
+                << ',' << (do_cc ? n_out_cf : -1)
+                << ',' << (do_cc ? pct_cf : -1.0)
+                << ',' << (do_cc ? n_out_feasible : -1)
                 << '\n';
-            csv.flush();
+            csv.close();
             if (!csv) throw std::runtime_error("cannot write ik_stats.csv");
         }
     }
