@@ -678,10 +678,12 @@ __device__ void solve_lm_batched(
     }
     SYNC();
 
-    best_pos_seen = pos_err_m;
+    if (tid == 0) best_pos_seen = pos_err_m;
     if (tid < N) best_x_pos[tid] = s_x[tid];
     if (tid == 0 && pos_err_m < eps_pos && ori_err_rad < eps_ori) s_break = 1;
     SYNC(); if (s_break) goto WRITE_OUT;
+    // Finish the entry guard before lane 0 can update s_break from the global stop flag.
+    SYNC();
 
     for (int it = 0; it < k_max; ++it) {
         if (stop_on_first && tid == 0 && ((it & 1) == 0)) {
@@ -967,6 +969,9 @@ WRITE_OUT:
             SYNC();
         }
     }
+    // Even when no restore was needed, every lane must finish reading the shared
+    // restore guard before lane 0 overwrites pos_err_m for the final output.
+    SYNC();
 
     if (tid == 0) {
         pos_err_m   = compute_pos_err(s_jointX, tp);
@@ -1072,9 +1077,11 @@ __global__ void coarse_search(
     }
     __syncthreads();
 
+    // Poll once here; later iterations reuse the flag published at the loop's end.
+    // Rewriting it at the top could race another warp's previous stop decision.
+    if (tid == 0) s_stop = stop_on_first ? read_stop() : 0;
+    __syncthreads();
     for (int k = 0; k < HJCDSettings<T>::k_max; ++k) {
-        if (stop_on_first && tid == 0) s_stop = read_stop();
-        __syncthreads();
         if (stop_on_first && s_stop) break;
 
         if ((threadIdx.x >> 5) == 0) { // warp 0
@@ -1184,6 +1191,9 @@ __global__ void coarse_search(
                 if (pos_phase) s_pos_err[p] = best_err_lane;
                 else           s_ori_err[p] = best_err_lane;
             }
+            // The shuffle reduction exchanges registers, not a shared-memory fence.
+            // Finish every lane's anchor reads before lane 0 reuses l_C1/l_tmp.
+            __syncwarp(FULL_WARP_MASK);
         }
         __syncthreads();
 

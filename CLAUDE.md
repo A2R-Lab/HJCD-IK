@@ -12,9 +12,11 @@ solutions in parallel for a 6-DOF end-effector target, with optional collision a
 
 ## Mental model
 
-**One CUDA block per IK problem; warp-per-candidate inside.** The solver is **warp-scoped throughout**
-(`warp_id = threadIdx.x >> 5`, `lane = threadIdx.x & 31`), not block-scoped — this is the core performance
-contract. Two phases (`csrc/kernel/hjcd_kernel.cu`):
+Each solve handles one target and a batch of candidate configurations. **Coarse search assigns one
+candidate per block**, with warps evaluating joint-pair perturbations. **LM refinement assigns one
+candidate per warp**, optionally packing several independent candidates into a block.
+LM math and per-warp coarse scratch stay warp-scoped; coarse state shared across warps needs block
+barriers. Two phases (`csrc/kernel/hjcd_kernel.cu`):
 1. **Coarse search** (`coarse_search`): random restarts + greedy pairwise coordinate descent. The candidate
    sweep over the second joint runs **lane-parallel across the warp** (`for j = lane; j < N; j += WARP_SIZE`
    + warp min-reduce); each candidate recomputes only the **FK suffix** from its perturbed joint

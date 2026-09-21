@@ -1,7 +1,7 @@
 # Installation & Quickstart
 
 HJCD-IK is a GPU-accelerated, *batched* inverse kinematics solver: it explores many candidate joint
-configurations in parallel (one CUDA block per IK problem, one candidate per warp) and refines the
+configurations in parallel (one candidate per coarse-search block, then one candidate per LM warp) and refines the
 promising ones, with optional collision avoidance. Kinematics come from [GRiD](https://github.com/A2R-Lab/GRiD)
 (a per-URDF generated `grid.cuh`); the warp-scoped linear algebra comes from
 [GLASS](https://github.com/A2R-Lab/GLASS).

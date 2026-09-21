@@ -4,7 +4,8 @@ A 90-second primer for picking up work on **HJCD-IK**.
 
 **What it is:** a GPU-accelerated, batched inverse-kinematics solver — Hybrid Jacobian Coordinate Descent —
 that produces many candidate IK solutions in parallel for a 6-DOF EE target, with optional collision
-avoidance (Panda/Fetch). One CUDA block per problem; **warp-per-candidate**, warp-scoped math throughout.
+avoidance (Panda/Fetch). Coarse search uses one candidate per block; LM uses **one candidate per warp**.
+Coarse block-shared state needs block barriers; independent LM math stays warp-scoped.
 Built on GRiD (kinematics codegen) + GLASS (single-block/warp linear algebra).
 
 **Read in order:**

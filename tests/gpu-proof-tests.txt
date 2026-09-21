@@ -71,7 +71,8 @@ tests/test_multiwarp.py::test_multiwarp_high_w_opt_in_smem
 tests/test_multiwarp.py::test_multiwarp_matches_w1[2]
 tests/test_multiwarp.py::test_multiwarp_matches_w1[4]
 tests/test_multiwarp.py::test_multiwarp_matches_w1[8]
-tests/test_multiwarp.py::test_partial_last_block_no_crash
+tests/test_multiwarp.py::test_partial_last_block_no_crash[0]
+tests/test_multiwarp.py::test_partial_last_block_no_crash[1]
 tests/test_multiwarp.py::test_run_to_run_stability
 tests/test_precision.py::test_auto_select_matches_explicit
 tests/test_precision.py::test_default_arg_is_auto

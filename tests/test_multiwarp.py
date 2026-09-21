@@ -66,13 +66,15 @@ def test_multiwarp_high_w_opt_in_smem():
         assert abs(p1 - p2) < 1e-3, f"W=16 pos err diff: {abs(p1-p2):.2e} mm"
 
 
-def test_partial_last_block_no_crash():
-    """Krep not a multiple of W => the last block has idle warps that must early-return cleanly (gp>=B).
-    A tiny batch makes Krep small and not 8-divisible; assert it still runs and solves."""
+@pytest.mark.parametrize("refine_fp64", [0, 1])
+def test_partial_last_block_no_crash(refine_fp64):
+    """The 16-repeat schedule is divisible by 8, so W=8 never covered a partial block.
+    W=3 leaves idle warps in the final block for this batch; check both compute types."""
     targets = hjcdik.sample_targets(num_targets=4, seed=3)
-    with warps(8):
+    with warps(3):
         for t in targets:
-            r = hjcdik.generate_solutions(t, batch_size=37, num_solutions=4)
+            r = hjcdik.generate_solutions(t, batch_size=37, num_solutions=4,
+                                         refine_fp64=refine_fp64)
             assert r["count"] > 0
             assert float(np.min(np.array(r["pos_errors"], dtype=float))) < 1.0  # sub-mm
 
