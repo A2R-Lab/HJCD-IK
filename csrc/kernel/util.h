@@ -1,6 +1,6 @@
 #pragma once
-#include <array>
-#include <vector>
+#include <cuda_runtime.h>
+#include <stdexcept>
 #include <string>
 
 #ifndef CUDA_OK
@@ -8,9 +8,9 @@
     do {                                                                      \
         cudaError_t __err = (stmt);                                           \
         if (__err != cudaSuccess) {                                           \
-            fprintf(stderr, "CUDA error %s at %s:%d\n",                       \
-                    cudaGetErrorString(__err), __FILE__, __LINE__);           \
-            std::abort();                                                     \
+            throw std::runtime_error(std::string("CUDA error: ") +            \
+                cudaGetErrorString(__err) + " in " #stmt + " at " +           \
+                __FILE__ + ":" + std::to_string(__LINE__));                    \
         }                                                                     \
     } while (0)
 #endif

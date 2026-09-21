@@ -1,5 +1,8 @@
 """Public Python API validation and normalization contracts."""
 import math
+import os
+import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 import pytest
 
@@ -58,6 +61,50 @@ def test_target_quaternion_is_normalized_at_boundary():
     assert normalized["count"] == rescaled["count"]
     assert np.allclose(normalized["pos_errors"], rescaled["pos_errors"], atol=1e-5)
     assert np.allclose(normalized["ori_errors"], rescaled["ori_errors"], atol=1e-6)
+
+
+@pytest.mark.parametrize("scale", [1e-300, 1e300])
+def test_extreme_finite_quaternions_normalize_safely(scale):
+    target = hjcdik.sample_targets(num_targets=1, seed=29)[0]
+    scaled = list(target[:3]) + [scale * x for x in target[3:]]
+    result = hjcdik.generate_solutions(scaled, batch_size=128)
+    assert result["count"] == 1
+    assert np.isfinite(result["pose"]).all()
+    assert result["pos_errors"][0] < 1.0
+
+
+def test_oversized_batch_is_rejected_before_allocation():
+    with pytest.raises(ValueError, match="indexing"):
+        hjcdik.generate_solutions([0, 0, 0, 1, 0, 0, 0], batch_size=2**31 - 1)
+
+
+def test_no_visible_gpu_raises_without_terminating_python():
+    # A subprocess is essential: the parent already has a CUDA context, and the old
+    # generated error path exited the interpreter instead of raising an exception.
+    code = """
+import hjcdik
+try:
+    hjcdik.generate_solutions([0, 0, 0, 1, 0, 0, 0], batch_size=0)
+except ValueError:
+    pass
+else:
+    raise AssertionError("invalid input was not rejected before CUDA initialization")
+for call in (lambda: hjcdik.sample_targets(1),
+             lambda: hjcdik.generate_solutions([0, 0, 0, 1, 0, 0, 0])):
+    try:
+        call()
+    except RuntimeError as error:
+        assert "CUDA" in str(error)
+    else:
+        raise AssertionError("expected a CUDA exception")
+print("interpreter survived")
+"""
+    run = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=30,
+        env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
+    )
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert "interpreter survived" in run.stdout
 
 
 def test_gpu_entry_points_are_thread_safe():

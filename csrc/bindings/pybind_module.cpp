@@ -3,25 +3,10 @@
 #include <pybind11/stl.h>
 #include <cstring>
 #include <cmath>
-#include <mutex>
 #include "kernel/hjcd_kernel.h"
 
 namespace py = pybind11;
 
-static std::mutex& solver_mutex() {
-  static std::mutex mutex;
-  return mutex;
-}
-
-static grid::robotModel<double>* ensure_robot() {
-  static grid::robotModel<double>* model = grid::init_robotModel<double>();
-  static bool limits_inited = false;
-  if (!limits_inited) {
-    init_joint_limits_from_grid();
-    limits_inited = true;
-  }
-  return model;
-}
 
 py::dict py_generate_solutions(const std::array<double,7>& target_pose,
                                int batch_size,
@@ -33,8 +18,6 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
                                int refine_fp64,
                                bool write_stats,
                                const std::string& collision_mode) {
-  auto* model = ensure_robot();
-
   if (batch_size <= 0) throw py::value_error("batch_size must be positive");
   if (num_solutions <= 0) throw py::value_error("num_solutions must be positive");
   if (refine_fp64 < -1 || refine_fp64 > 1)
@@ -54,14 +37,7 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
   else if (collision_mode != "auto")
     throw py::value_error("collision_mode must be one of: hard, soft, both, auto");
 
-  double tp[7];
-  for (int i = 0; i < 7; ++i) {
-    if (!std::isfinite(target_pose[i])) throw py::value_error("target_pose values must be finite");
-    tp[i] = target_pose[i];
-  }
-  const double qnorm = std::sqrt(tp[3]*tp[3] + tp[4]*tp[4] + tp[5]*tp[5] + tp[6]*tp[6]);
-  if (!(qnorm > 1e-12)) throw py::value_error("target_pose quaternion must be non-zero");
-  for (int i = 3; i < 7; ++i) tp[i] /= qnorm;
+  auto tp = normalized_target_pose(target_pose.data());
 
   const char* json_cstr = problems_json_text.empty() ? nullptr : problems_json_text.c_str();
   const char* set_cstr  = problem_set_name.empty() ? nullptr : problem_set_name.c_str();
@@ -77,13 +53,12 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
   Result<double> res{};
   {
     py::gil_scoped_release release;
-    std::lock_guard<std::mutex> lock(solver_mutex());
     res = use_fp64
         ? generate_ik_solutions<double, double>(
-              tp, model, batch_size, num_solutions, collision_free, json_cstr, set_cstr,
+              tp.data(), nullptr, batch_size, num_solutions, collision_free, json_cstr, set_cstr,
               problem_idx, write_stats, collision_mode_code)
         : generate_ik_solutions<double, float>(
-              tp, model, batch_size, num_solutions, collision_free, json_cstr, set_cstr,
+              tp.data(), nullptr, batch_size, num_solutions, collision_free, json_cstr, set_cstr,
               problem_idx, write_stats, collision_mode_code);
   }
 
@@ -97,10 +72,12 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
   py::array_t<double> pos_errors({S});
   py::array_t<double> ori_errors({S});
 
-  std::memcpy(joint_config.mutable_data(), res.joint_config, sizeof(double) * S * N);
-  std::memcpy(pose.mutable_data(),         res.pose,         sizeof(double) * S * 7);
-  std::memcpy(pos_errors.mutable_data(),   res.pos_errors,   sizeof(double) * S);
-  std::memcpy(ori_errors.mutable_data(),   res.ori_errors,   sizeof(double) * S);
+  if (S > 0) {
+    std::memcpy(joint_config.mutable_data(), res.joint_config, sizeof(double) * S * N);
+    std::memcpy(pose.mutable_data(),         res.pose,         sizeof(double) * S * 7);
+    std::memcpy(pos_errors.mutable_data(),   res.pos_errors,   sizeof(double) * S);
+    std::memcpy(ori_errors.mutable_data(),   res.ori_errors,   sizeof(double) * S);
+  }
 
 
   py::dict out;
@@ -114,12 +91,10 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
 
 std::vector<std::array<double,7>> py_sample_targets(int num_targets, std::uint64_t seed) {
   if (num_targets <= 0) throw py::value_error("num_targets must be positive");
-  auto* model = ensure_robot();
   std::vector<std::array<double,7>> targets;
   {
     py::gil_scoped_release release;
-    std::lock_guard<std::mutex> lock(solver_mutex());
-    targets = sample_random_target_poses<double>(model, num_targets, seed);
+    targets = sample_random_target_poses<double>(nullptr, num_targets, seed);
   }
   return targets;
 }

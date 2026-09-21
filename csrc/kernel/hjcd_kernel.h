@@ -4,6 +4,10 @@
 #include <string>
 #include <cstdint>
 #include <utility>
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <stdexcept>
 
 namespace grid {
     template<typename T> struct robotModel;
@@ -53,6 +57,27 @@ struct Result {
     }
 };
 
+// Validate before touching CUDA; scale first so finite extreme quaternions normalize safely.
+template<typename T>
+std::array<T, 7> normalized_target_pose(const T* pose) {
+    std::array<T, 7> result;
+    for (int i = 0; i < 7; ++i) {
+        if (!std::isfinite(pose[i])) throw std::invalid_argument("target_pose values must be finite");
+        result[i] = pose[i];
+    }
+    for (int i = 0; i < 3; ++i)
+        if (std::abs(result[i]) > std::numeric_limits<float>::max())
+            throw std::invalid_argument("target_pose position exceeds fp32 range");
+    T scale = 0;
+    for (int i = 3; i < 7; ++i) scale = std::max(scale, std::abs(result[i]));
+    if (!(scale > 0)) throw std::invalid_argument("target_pose quaternion must be non-zero");
+    T sum = 0;
+    for (int i = 3; i < 7; ++i) { result[i] /= scale; sum += result[i] * result[i]; }
+    const T norm = std::sqrt(sum);
+    for (int i = 3; i < 7; ++i) result[i] /= norm;
+    return result;
+}
+
 // RT = LM-refine compute precision (speed/accuracy knob): RT=double (default) is full fp64;
 // RT=float runs FK/Jacobian/residual/line-search in fp32 with the Cholesky solve still fp64.
 template<typename T, typename RT = double>
@@ -75,8 +100,6 @@ std::vector<std::array<T, 7>> sample_random_target_poses(
     int num_configs,
     std::uint64_t seed
 );
-
-void init_joint_limits_constants();
 
 void init_joint_limits_from_grid();
 

@@ -22,6 +22,38 @@ sys.path.insert(0, str(HERE.parent / "benchmark"))
 from panda_collision import mb_instance_to_world_dict, panda_config_collision_free  # noqa: E402
 
 
+@pytest.mark.parametrize("obstacles,match", [
+    (None, "obstacles must be an object"),
+    ([], "obstacles must be an object"),
+    ({"mesh": {}}, "unsupported obstacle type"),
+    ({"spheres": {}}, "unsupported obstacle type"),
+    ({"sphere": [{"radius": -1, "position": [0, 0, 0]}]}, "positive"),
+    ({"sphere": [{"radius": 1e300, "position": [0, 0, 0]}]}, "finite"),
+    ({"sphere": [{"radius": 1, "position": [0, 0]}]}, "three"),
+    ({"cuboid": [{"dims": [1, 0, 1], "pose": [0, 0, 0, 1, 0, 0, 0]}]}, "positive"),
+    ({"cuboid": [{"dims": [1, 1, 1], "pose": [0, 0, 0, 0, 0, 0, 0]}]}, "quaternion"),
+    ({"cylinder": [{"radius": 1, "height": -1, "pose": [0, 0, 0, 1, 0, 0, 0]}]}, "positive"),
+])
+def test_malformed_collision_geometry_is_rejected(obstacles, match):
+    text = json.dumps({"problems": {"malformed": [{"obstacles": obstacles}]}})
+    with pytest.raises(ValueError, match=match):
+        hjcdik.generate_solutions(
+            [0.4, 0, 0.4, 1, 0, 0, 0], batch_size=32, collision_free=True,
+            problems_json_text=text, problem_set_name="malformed",
+        )
+
+
+def test_explicit_empty_scene_and_valid_scene_after_parse_error():
+    target = hjcdik.sample_targets(1, seed=47)[0]
+    kwargs = dict(batch_size=128, collision_free=True, problem_set_name="recovery")
+    with pytest.raises(ValueError, match="obstacles"):
+        hjcdik.generate_solutions(
+            target, problems_json_text='{"problems":{"recovery":[{}]}}', **kwargs)
+    result = hjcdik.generate_solutions(
+        target, problems_json_text='{"problems":{"recovery":[{"obstacles":{}}]}}', **kwargs)
+    assert np.isfinite(result["pose"]).all()
+
+
 def _goal7(entry):
     gp = entry["goal_pose"]
     return list(gp["position_xyz"]) + list(gp["quaternion_wxyz"])

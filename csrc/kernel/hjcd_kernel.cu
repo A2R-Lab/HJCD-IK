@@ -1,6 +1,7 @@
 #include "kernel/hjcd_kernel.h"
 #include "kernel/hjcd_settings.h"
 #include "kernel/util.h"
+#include "kernel/cuda_memory.h"
 #include "kernel/device_utils.cuh"
 
 #include <cuda_runtime.h>
@@ -26,6 +27,28 @@
 #include <type_traits>
 #include <cstdlib>
 #include <unordered_map>
+#include <unordered_set>
+#include <mutex>
+
+namespace {
+// Stop flags/constants are shared. Protect native callers too, while Python releases its GIL.
+std::recursive_mutex& solver_mutex() {
+    static std::recursive_mutex mutex;
+    return mutex;
+}
+}
+
+template<typename T>
+grid::robotModel<T>* cached_robot_model() {
+    std::lock_guard<std::recursive_mutex> lock(solver_mutex());
+    int device = 0;
+    CUDA_OK(cudaGetDevice(&device));
+    // Immutable generated models live as long as the CUDA context, shared by all solver stages.
+    static std::unordered_map<int, grid::robotModel<T>*> models;
+    auto& model = models[device];
+    if (!model) model = grid::init_robotModel<T>();
+    return model;
+}
 
 // Collision checking (grid_collision: URDF-driven spheres baked into grid.cuh)
 #include <nlohmann/json.hpp>
@@ -58,12 +81,18 @@ namespace grid {
 
 void init_joint_limits_from_grid()
 {
-    double* d_limits = grid::init_joint_limits<double>();
+    std::lock_guard<std::recursive_mutex> lock(solver_mutex());
+    int device = 0;
+    CUDA_OK(cudaGetDevice(&device));
+    static std::unordered_set<int> initialized;
+    if (initialized.count(device)) return;
+    hjcd::DeviceAllocations allocations;
+    double* d_limits = allocations.adopt(grid::init_joint_limits<double>());
 
     std::vector<double> h_limits(2 * N);
     CUDA_OK(cudaMemcpy(h_limits.data(), d_limits,
                        sizeof(double) * 2 * N, cudaMemcpyDeviceToHost));
-    CUDA_OK(cudaFree(d_limits));
+    allocations.clear();
 
     std::vector<double2> packed(N);
     for (int j = 0; j < N; ++j) {
@@ -80,6 +109,7 @@ void init_joint_limits_from_grid()
 
     CUDA_OK(cudaMemcpyToSymbol(c_joint_limits, packed.data(),
                                sizeof(double2) * N));
+    initialized.insert(device);
 }
 
 template<typename T>
@@ -1391,7 +1421,8 @@ __global__ void sample_q_halton_kernel(T* __restrict__ d_q,
 }
 
 template<typename T>
-T* sample_ik_config_halton(const grid::robotModel<T>* d_robotModel,
+T* sample_ik_config_halton(hjcd::DeviceAllocations& allocations,
+                           const grid::robotModel<T>* d_robotModel,
                            int num_configs,
                            uint64_t seed,
                            int offset = 1,
@@ -1399,7 +1430,7 @@ T* sample_ik_config_halton(const grid::robotModel<T>* d_robotModel,
     if (num_configs <= 0 || !d_robotModel) return nullptr;
 
     T* d_q = nullptr;
-    CUDA_OK(cudaMalloc(&d_q, sizeof(T) * (size_t)num_configs * N));
+    allocations.allocate(d_q, sizeof(T) * (size_t)num_configs * N);
 
     const int tpb = 256;
     const int gpb = (num_configs + tpb - 1) / tpb;
@@ -1415,14 +1446,19 @@ template<typename T>
 std::vector<std::array<T,7>>
 sample_random_target_poses(const grid::robotModel<T>* d_robotModel,
                            int num_configs, uint64_t seed) {
+    std::lock_guard<std::recursive_mutex> lock(solver_mutex());
+    if (num_configs <= 0 || num_configs > std::numeric_limits<int>::max() - 255)
+        throw std::invalid_argument("num_configs must be positive and fit CUDA launch indexing");
+    init_joint_limits_from_grid();
+    if (!d_robotModel) d_robotModel = cached_robot_model<T>();
+    hjcd::DeviceAllocations allocations;
     std::vector<std::array<T,7>> out;
-    if (num_configs <= 0 || !d_robotModel) return out;
 
-    T* d_q = sample_ik_config_halton<T>(d_robotModel, num_configs, seed, /*offset=*/1, /*leap=*/1);
+    T* d_q = sample_ik_config_halton<T>(allocations, d_robotModel, num_configs, seed, /*offset=*/1, /*leap=*/1);
     if (!d_q) return out;
 
     T* d_pose7 = nullptr;
-    CUDA_OK(cudaMalloc(&d_pose7, sizeof(T) * 7 * (size_t)num_configs));
+    allocations.allocate(d_pose7, sizeof(T) * 7 * (size_t)num_configs);
 
     const int threads = 32;
     const int blocks  = num_configs;
@@ -1442,8 +1478,7 @@ sample_random_target_poses(const grid::robotModel<T>* d_robotModel,
         for (int k = 0; k < 7; ++k)
             out[i][k] = h_pose7[(size_t)i * 7 + k];
 
-    CUDA_OK(cudaFree(d_pose7));
-    CUDA_OK(cudaFree(d_q));
+    allocations.clear();
     return out;
 }
 
@@ -1654,26 +1689,29 @@ Result<T> generate_ik_solutions(
     int collision_mode
 )
 {
+    std::lock_guard<std::recursive_mutex> lock(solver_mutex());
+    if (!target_pose) throw std::invalid_argument("target_pose must not be null");
+    if (b_size <= 0 || b_size > (std::numeric_limits<int>::max() - 255) / (16 * N))
+        throw std::invalid_argument("batch_size must be positive and fit CUDA indexing");
+    if (num_solutions <= 0)
+        throw std::invalid_argument("num_solutions must be positive");
+    if (collision_mode < -1 || collision_mode > 2)
+        throw std::invalid_argument("invalid collision mode");
+    if (problem_idx < 0) throw std::invalid_argument("problem_idx must be non-negative");
+    auto normalized_target = normalized_target_pose(target_pose);
+    target_pose = normalized_target.data();
+    // Kept for native source compatibility; each solver stage uses its precision-specific cache.
+    (void)d_robotModel;
     init_joint_limits_from_grid();
+    int device = 0;
+    CUDA_OK(cudaGetDevice(&device));
+    hjcd::DeviceAllocations allocations;
 
     using std::chrono::high_resolution_clock;
     auto t0 = high_resolution_clock::now();
     CUDA_OK(cudaDeviceSynchronize());
 
     Result<T> result{};
-    if (collision_mode < -1 || collision_mode > 2)
-        throw std::invalid_argument("invalid collision mode");
-    if (!d_robotModel || !target_pose || b_size <= 0) {
-        const int S = 1;
-        result.pos_errors   = new T[S]{ std::numeric_limits<T>::infinity() };
-        result.ori_errors   = new T[S]{ std::numeric_limits<T>::infinity() };
-        result.pose         = new T[7 * S]{};
-        result.joint_config = new T[N * S]{};
-        result.elapsed_time = 0.0;
-        result.count = S;
-
-        return result;
-    }
 
     // Collision environment (grid_collision). Cache exact problem contents and the fp32 robot model
     // per CUDA device. Collision requests fail explicitly when their scene is unusable; they never
@@ -1688,7 +1726,6 @@ Result<T> generate_ik_solutions(
         bool ready = false;
     };
     static std::unordered_map<int, CachedCollisionEnvironment> g_cc_env_by_device;
-    static std::unordered_map<int, const grid::robotModel<float>*> g_cc_model_by_device;
     grid_collision::Environment<float> cc_env{nullptr, 0, nullptr, 0, nullptr, 0};
     const grid::robotModel<float>* d_robotModel_cc = nullptr;
 
@@ -1724,9 +1761,7 @@ Result<T> generate_ik_solutions(
         }
 
         cc_env = cached.device_env.env;
-        auto& cached_model = g_cc_model_by_device[cc_device];
-        if (!cached_model) cached_model = grid::init_robotModel<float>();
-        d_robotModel_cc = cached_model;
+        d_robotModel_cc = cached_robot_model<float>();
         have_env = true;
     }
 #else
@@ -1745,18 +1780,16 @@ Result<T> generate_ik_solutions(
     const size_t num_elems_x  = (size_t)B * N;
     const size_t num_elems_p7 = (size_t)B * 7;
 
-    // Robot model is a process-lifetime constant (baked from the URDF). Cache it once instead of
-    // malloc+H2D every call; the previous per-call init_robotModel was also never freed (leak).
-    static const grid::robotModel<TC>* d_robotModel_f = grid::init_robotModel<TC>();
+    const auto* d_robotModel_f = cached_robot_model<TC>();
 
     TC *d_x_c=nullptr, *d_pose_c=nullptr, *d_pos_mm_c=nullptr, *d_ori_r_c=nullptr;
     TC *d_target7_c=nullptr, *d_targets_coarse_c=nullptr;
 
-    CUDA_OK(cudaMalloc(&d_x_c,         sizeof(TC) * num_elems_x));
-    CUDA_OK(cudaMalloc(&d_pose_c,      sizeof(TC) * num_elems_p7));
-    CUDA_OK(cudaMalloc(&d_pos_mm_c,    sizeof(TC) * B));
-    CUDA_OK(cudaMalloc(&d_ori_r_c,     sizeof(TC) * B));
-    CUDA_OK(cudaMalloc(&d_target7_c,   sizeof(TC) * 7));
+    allocations.allocate(d_x_c, sizeof(TC) * num_elems_x);
+    allocations.allocate(d_pose_c, sizeof(TC) * num_elems_p7);
+    allocations.allocate(d_pos_mm_c, sizeof(TC) * B);
+    allocations.allocate(d_ori_r_c, sizeof(TC) * B);
+    allocations.allocate(d_target7_c, sizeof(TC) * 7);
 
     // copy target pose -> float (for coarse phase only)
     {
@@ -1776,7 +1809,7 @@ Result<T> generate_ik_solutions(
     }
 
     // replicate target7 -> B (float coarse targets)
-    CUDA_OK(cudaMalloc(&d_targets_coarse_c, sizeof(TC) * (size_t)B * 7));
+    allocations.allocate(d_targets_coarse_c, sizeof(TC) * (size_t)B * 7);
     {
         const int blocks=B, tpb=32;
         replicate_target7_kernel<TC><<<blocks, tpb>>>(
@@ -1799,7 +1832,7 @@ Result<T> generate_ik_solutions(
         int TPB_req = std::min((int)(2 * N * WARP_SIZE), 256);
         int maxThreadsPerBlock = 0;
         CUDA_OK(cudaDeviceGetAttribute(&maxThreadsPerBlock,
-                                       cudaDevAttrMaxThreadsPerBlock, 0));
+                                       cudaDevAttrMaxThreadsPerBlock, device));
         TPB_req = std::min(TPB_req, maxThreadsPerBlock);
         TPB_req = (TPB_req + WARP_SIZE - 1) / WARP_SIZE * WARP_SIZE;
         TPB_req = std::max(TPB_req, WARP_SIZE);
@@ -1812,9 +1845,9 @@ Result<T> generate_ik_solutions(
 
         int maxOptIn=0, maxDefault=0;
         CUDA_OK(cudaDeviceGetAttribute(&maxOptIn,
-                                       cudaDevAttrMaxSharedMemoryPerBlockOptin, 0));
+                                       cudaDevAttrMaxSharedMemoryPerBlockOptin, device));
         CUDA_OK(cudaDeviceGetAttribute(&maxDefault,
-                                       cudaDevAttrMaxSharedMemoryPerBlock, 0));
+                                       cudaDevAttrMaxSharedMemoryPerBlock, device));
         size_t maxSharedAvail = (size_t)std::max(maxOptIn, maxDefault);
 
         size_t roomForDyn = (maxSharedAvail > staticShmem)
@@ -1842,7 +1875,7 @@ Result<T> generate_ik_solutions(
                 d_pos_mm_c, d_ori_r_c, d_robotModel_f,
                 stop_on_first
             );
-            cudaError_t e = cudaPeekAtLastError();
+            cudaError_t e = cudaGetLastError();
             if (e == cudaSuccess) break;
             if (e != cudaErrorLaunchOutOfResources) CUDA_OK(e);
             if (warpsPerBlock > 1) {
@@ -1869,14 +1902,14 @@ Result<T> generate_ik_solutions(
                        sizeof(TC) * num_elems_x, cudaMemcpyDeviceToHost));
 
     const auto sch = schedule_for_B(B);
-    const int top_k_req = sch.top_k * std::max(1, num_solutions / 2);
+    const auto top_k_req = static_cast<long long>(sch.top_k) * std::max(1, num_solutions / 2);
     const int repeats = sch.repeats;
     const double sigma_frac = sch.sigma_frac;
     const bool keep_one = sch.keep_one;
 
     // score: pos + ori error (float)
     TC* d_scores_c = nullptr;
-    CUDA_OK(cudaMalloc(&d_scores_c, sizeof(TC) * B));
+    allocations.allocate(d_scores_c, sizeof(TC) * B);
     {
         const int tpb = 256, gpb = (B + tpb - 1) / tpb;
         build_scores_kernel<TC><<<gpb, tpb>>>(
@@ -1894,13 +1927,13 @@ Result<T> generate_ik_solutions(
     }
 
     // K in [1, B]
-    const int K = (top_k_req <= 0) ? B : std::min(B, std::max(1, top_k_req));
+    const int K = static_cast<int>(std::clamp(top_k_req, 1LL, static_cast<long long>(B)));
 
     thrust::device_vector<int> d_top_idx(K);
     thrust::copy(d_idx.begin(), d_idx.begin() + K, d_top_idx.begin());
 
     TC* d_x_top_c = nullptr;
-    CUDA_OK(cudaMalloc(&d_x_top_c, sizeof(TC) * (size_t)K * N));
+    allocations.allocate(d_x_top_c, sizeof(TC) * (size_t)K * N);
     {
         const int blocks = K, tpb = 128;
         gather_rows_kernel<TC><<<blocks, tpb>>>(
@@ -1914,7 +1947,7 @@ Result<T> generate_ik_solutions(
 
     const int Krep = K * repeats;
     TC* d_x_rep_c = nullptr;
-    CUDA_OK(cudaMalloc(&d_x_rep_c, sizeof(TC) * (size_t)Krep * N));
+    allocations.allocate(d_x_rep_c, sizeof(TC) * (size_t)Krep * N);
     {
         const int blocks = K, tpb = 128;
         replicate_rows_kernel<TC><<<blocks, tpb>>>(
@@ -1938,11 +1971,11 @@ Result<T> generate_ik_solutions(
     const size_t KrepN = (size_t)Krep * N;
     const size_t Krep7 = (size_t)Krep * 7;
 
-    CUDA_OK(cudaMalloc(&dx64,    sizeof(RT) * KrepN));
-    CUDA_OK(cudaMalloc(&dtgt64,  sizeof(RT) * Krep7));
-    CUDA_OK(cudaMalloc(&dpose64, sizeof(RT) * Krep7));
-    CUDA_OK(cudaMalloc(&dposmm64,sizeof(RT) * Krep));
-    CUDA_OK(cudaMalloc(&dori64,  sizeof(RT) * Krep));
+    allocations.allocate(dx64, sizeof(RT) * KrepN);
+    allocations.allocate(dtgt64, sizeof(RT) * Krep7);
+    allocations.allocate(dpose64, sizeof(RT) * Krep7);
+    allocations.allocate(dposmm64, sizeof(RT) * Krep);
+    allocations.allocate(dori64, sizeof(RT) * Krep);
 
     // cast coarse float -> RT
     {
@@ -1959,7 +1992,7 @@ Result<T> generate_ik_solutions(
         h_target7d[i] = static_cast<RT>(target_pose[i]);
 
     RT* d_target7_d = nullptr;
-    CUDA_OK(cudaMalloc(&d_target7_d, sizeof(RT) * 7));
+    allocations.allocate(d_target7_d, sizeof(RT) * 7);
     CUDA_OK(cudaMemcpy(d_target7_d, h_target7d,
                        sizeof(RT) * 7,
                        cudaMemcpyHostToDevice));
@@ -1973,7 +2006,7 @@ Result<T> generate_ik_solutions(
         CUDA_OK(cudaDeviceSynchronize());
     }
 
-    static auto* d_robotModel_rt = grid::init_robotModel<RT>();  // cached once per RT instantiation
+    const auto* d_robotModel_rt = cached_robot_model<RT>();
     {
         int zero = 0, neg1 = -1;
         CUDA_OK(cudaMemcpyToSymbol(g_stop,   &zero, sizeof(int)));
@@ -2038,7 +2071,7 @@ Result<T> generate_ik_solutions(
                 dx64, dpose64, dtgt64, dposmm64, dori64, d_robotModel_rt,
                 eps_pos, eps_ori, (RT)5e-3, max_iters, Krep, stop_on_first_lm
             );
-            cudaError_t launch_err = cudaPeekAtLastError();
+            cudaError_t launch_err = cudaGetLastError();
             if (launch_err == cudaSuccess) break;
             if (launch_err == cudaErrorLaunchOutOfResources && W > 1) {
                 W >>= 1;
@@ -2078,7 +2111,7 @@ Result<T> generate_ik_solutions(
 
 #if defined(HJCD_HAS_COLLISION)
     if (do_cc) {
-        CUDA_OK(cudaMalloc(&dx_coarse64, sizeof(double) * num_elems_x));
+        allocations.allocate(dx_coarse64, sizeof(double) * num_elems_x);
         {
             const int tpb = 256;
             const int gpb = (int)((num_elems_x + tpb - 1) / tpb);
@@ -2090,19 +2123,19 @@ Result<T> generate_ik_solutions(
         const size_t cc_smem = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<float>();
 
         // Refined q as double (both collision kernels read double). Reuse dx64 when RT==double.
-        double* dq_ref = nullptr; bool dq_ref_owned = false;
+        double* dq_ref = nullptr;
         if constexpr (std::is_same_v<RT, double>) {
             dq_ref = dx64;
         } else {
-            CUDA_OK(cudaMalloc(&dq_ref, sizeof(double) * KrepN));
+            allocations.allocate(dq_ref, sizeof(double) * KrepN);
             cast_array<double, RT><<<(int)((KrepN + 255) / 256), 256>>>(dx64, dq_ref, KrepN);
+            CUDA_OK(cudaGetLastError());
             CUDA_OK(cudaDeviceSynchronize());
-            dq_ref_owned = true;
         }
 
         if (use_soft) {
-            CUDA_OK(cudaMalloc(&d_env_cost_refined, sizeof(float) * (size_t)Krep));
-            CUDA_OK(cudaMalloc(&d_env_cost_coarse, sizeof(float) * (size_t)B));
+            allocations.allocate(d_env_cost_refined, sizeof(float) * (size_t)Krep);
+            allocations.allocate(d_env_cost_coarse, sizeof(float) * (size_t)B);
             CUDA_OK(cudaFuncSetAttribute((const void*)score_environment_costs,
                                          cudaFuncAttributeMaxDynamicSharedMemorySize, (int)cc_smem));
             score_environment_costs<<<Krep, CC_TPB, cc_smem>>>(
@@ -2122,8 +2155,8 @@ Result<T> generate_ik_solutions(
         }
 
         if (use_hard) {
-            CUDA_OK(cudaMalloc(&d_valid_refined, sizeof(unsigned char) * (size_t)Krep));
-            CUDA_OK(cudaMalloc(&d_valid_coarse, sizeof(unsigned char) * (size_t)B));
+            allocations.allocate(d_valid_refined, sizeof(unsigned char) * (size_t)Krep);
+            allocations.allocate(d_valid_coarse, sizeof(unsigned char) * (size_t)B);
             CUDA_OK(cudaFuncSetAttribute((const void*)mark_collisions,
                                          cudaFuncAttributeMaxDynamicSharedMemorySize, (int)cc_smem));
             mark_collisions<<<Krep, CC_TPB, cc_smem>>>(
@@ -2138,7 +2171,6 @@ Result<T> generate_ik_solutions(
                                sizeof(unsigned char) * (size_t)B, cudaMemcpyDeviceToHost));
         }
 
-        if (dq_ref_owned) CUDA_OK(cudaFree(dq_ref));
     }
 #endif  // HJCD_HAS_COLLISION
 
@@ -2190,7 +2222,7 @@ Result<T> generate_ik_solutions(
     }
 
     // GET SOLUTIONS
-    const int S_target = std::max(1, num_solutions);
+    const int S_target = std::min(num_solutions, Krep + B);
     auto score_ref = [&](int i)->double {
         const double ori_excess = std::max(0.0, h_orir64[i] - ORI_TARGET_RAD);
         double s = h_posmm64[i] + ORI_OUTLIER_W * ori_excess;
@@ -2339,30 +2371,7 @@ Result<T> generate_ik_solutions(
         }
     }
 
-    // CLEAN-UP
-    CUDA_OK(cudaFree(d_scores_c));
-    CUDA_OK(cudaFree(d_x_top_c));
-    CUDA_OK(cudaFree(d_x_rep_c));
-
-    CUDA_OK(cudaFree(d_targets_coarse_c));
-    CUDA_OK(cudaFree(d_x_c));
-    CUDA_OK(cudaFree(d_pose_c));
-    CUDA_OK(cudaFree(d_pos_mm_c));
-    CUDA_OK(cudaFree(d_ori_r_c));
-    CUDA_OK(cudaFree(d_target7_c));
-
-    CUDA_OK(cudaFree(dx64));
-    CUDA_OK(cudaFree(dtgt64));
-    CUDA_OK(cudaFree(dpose64));
-    CUDA_OK(cudaFree(dposmm64));
-    CUDA_OK(cudaFree(dori64));
-    CUDA_OK(cudaFree(d_target7_d));
-    if (dx_coarse64) CUDA_OK(cudaFree(dx_coarse64));
-
-    if (d_env_cost_refined) CUDA_OK(cudaFree(d_env_cost_refined));
-    if (d_env_cost_coarse) CUDA_OK(cudaFree(d_env_cost_coarse));
-    if (d_valid_refined) CUDA_OK(cudaFree(d_valid_refined));
-    if (d_valid_coarse) CUDA_OK(cudaFree(d_valid_coarse));
+    allocations.clear();
 
     auto t1 = high_resolution_clock::now();
     result.elapsed_time =

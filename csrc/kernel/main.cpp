@@ -189,12 +189,12 @@ static void append_solution_vectors(
     }
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char** argv) try {
     const Args args_in = parse_args(argc, argv);
     Args args = args_in;
 
-    auto* d_robotModel = grid::init_robotModel<double>();
-    init_joint_limits_from_grid();
+    // The native API lazily initializes and shares the model on the current CUDA device.
+    const grid::robotModel<double>* d_robotModel = nullptr;
 
     const int N = grid_num_joints();
     const int B = args.batch_size;
@@ -331,4 +331,7 @@ int main(int argc, char** argv) {
 
     std::cerr << "Unknown --mode=" << args.mode << " (use 'single', 'sweep', or 'from_csv').\n";
     return 2;
+} catch (const std::exception& error) {
+    std::cerr << "HJCD-IK: " << error.what() << '\n';
+    return 1;
 }
