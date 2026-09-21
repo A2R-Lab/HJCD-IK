@@ -1,27 +1,16 @@
 @echo off
 setlocal EnableExtensions
 
-REM --- Go to repo root (directory of this script's parent) ---
-cd /d "%~dp0\.."
+REM --- scripts/setup is two directories below the repository root. ---
+cd /d "%~dp0\..\.." || exit /b 1
 
-echo [bootstrap] syncing top-level submodules...
-git submodule sync --recursive || exit /b 1
+echo [bootstrap] initialize top-level build and Panda collision dependencies...
+git submodule update --init external/GLASS external/GRiD external/foam || exit /b 1
 
-echo [bootstrap] init/update GRiD submodule (top-level)...
-git submodule update --init external/GRiD || exit /b 1
-
-echo [bootstrap] rewriting GRiD nested submodule URLs to HTTPS...
-REM Post packaging-fold layout: codegen is the tracked grid_codegen/ package; the
-REM nested submodules are GLASS / URDFParser / RBDReference under external/GRiD/external/.
-git config -f external/GRiD/.gitmodules submodule.GLASS.url        https://github.com/A2R-Lab/GLASS.git        || exit /b 1
-git config -f external/GRiD/.gitmodules submodule.RBDReference.url https://github.com/A2R-Lab/RBDReference.git || exit /b 1
-git config -f external/GRiD/.gitmodules submodule.URDFParser.url   https://github.com/A2R-Lab/URDFParser.git   || exit /b 1
-
-echo [bootstrap] syncing GRiD nested submodules...
-git -C external/GRiD submodule sync --recursive || exit /b 1
-
-echo [bootstrap] init/update codegen deps (GLASS, URDFParser)...
-git -C external/GRiD submodule update --init external/GLASS external/URDFParser || exit /b 1
+REM Use HTTPS for nested codegen dependencies without editing tracked .gitmodules.
+REM RBDReference is not needed for building or codegen. Preserve the committed pins.
+echo [bootstrap] initialize GRiD codegen dependencies...
+git -C external/GRiD -c submodule.GLASS.url=https://github.com/A2R-Lab/GLASS.git -c submodule.URDFParser.url=https://github.com/A2R-Lab/URDFParser.git submodule update --init external/GLASS external/URDFParser || exit /b 1
 
 echo [OK] submodules ready
 endlocal
