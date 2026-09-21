@@ -72,10 +72,9 @@ mode = "local"
 output = "gpu-proof.json"
 github_username = "plancherb1"     # org remotes (A2R-Lab) carry no SSH keys — sign as the keyholder
 required_marker = "gpu_proof"
-# Fingerprint the test harness only. The code under test — the CUDA kernel and the
-# GRiD/GLASS submodules — is pinned by the parent tree's commit + gitlinks, which the
-# fingerprinter cannot descend into; the verifier's commit-SHA check invalidates the
-# receipt on any kernel or pin change, forcing a re-run.
-fingerprint_paths = ["tests"]
+# The verifier permits ancestor commits, so fingerprints must cover implementation as well
+# as tests. pytest-gpu-proof >=0.4 records submodule gitlinks in its v2 source manifest.
+fingerprint_paths = ["csrc", "hjcdik", "tests", "benchmark", "scripts", "CMakeLists.txt", "pyproject.toml", ".gitmodules", "external"]
+fingerprint_excluded_paths = ["gpu-proof.json"]
 max_age_days = 30
 require_gpu = true

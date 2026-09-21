@@ -1,7 +1,7 @@
 name: Verify GPU Proof
 
 # CPU-only CI, no GPU, no secrets. Validates the committed gpu-proof.json receipt
-# (signature via github.com/{signer}.keys, code fingerprint over tests/, commit SHA,
+# (signature via github.com/{signer}.keys, implementation + test + gitlink fingerprint, ancestry,
 # freshness, and the allow_dirty:false policy). This is what lets HJCD-IK's CUDA
 # correctness gate merges without paying for a GPU CI runner — the receipt is
 # produced locally on a real GPU by scripts/setup/run_gpu_proof.sh.

@@ -161,6 +161,15 @@ Run:
 python -m pytest tests/ -v
 ```
 
+When adding or renaming tests, regenerate and commit the proof manifest before recording a receipt:
+
+```bash
+python scripts/setup/update_gpu_proof_manifest.py
+```
+
+The GPU-proof policy binds the full test list, solver sources, build/codegen scripts, and dependency
+gitlinks. A scoped `pytest -k ...` run is useful for diagnosis but cannot certify the full suite.
+
 Run one test file:
 
 ```bash

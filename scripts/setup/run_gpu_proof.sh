@@ -16,14 +16,11 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
-# Refuse to sign a dirty tree: the fingerprint can't descend into the CUDA kernel's
-# build or the GRiD/GLASS submodules, so a clean tree is what makes the receipt's
-# commit SHA an honest description of the code under test (mirrors
-# tests/gpu-proof-policy.yaml allow_dirty:false).
+# Refuse to sign a dirty tree. The source manifest covers implementation and dependency
+# gitlinks; allow_dirty:false also prevents uncommitted edits inside those dependencies.
 if [[ -n "$(git status --porcelain)" ]]; then
     echo "ERROR: working tree is dirty. Commit or stash before signing a receipt" >&2
-    echo "       (a clean tree is what pins the kernel + GRiD/GLASS submodules via" >&2
-    echo "        the receipt's commit SHA)." >&2
+    echo "       Source files and dependency gitlinks must match the committed build." >&2
     exit 1
 fi
 
