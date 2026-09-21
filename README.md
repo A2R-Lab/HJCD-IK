@@ -36,8 +36,8 @@ chmod +x scripts/setup/setup_dev.sh
 source .venv/bin/activate
 ```
 
-The script initializes the required submodules, creates a virtual environment,
-installs dependencies, generates the robot model, and builds `hjcdik`.
+The script initializes the required submodules, creates a virtual environment, installs dependencies,
+regenerates the collision-enabled Panda model, and builds `hjcdik`.
 
 If needed, convert the shell scripts to Unix line endings:
 
@@ -71,39 +71,17 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-Install dependencies:
+Install the build tools, then build the package and development dependencies against the committed,
+collision-enabled `grid.cuh`:
 
 ```bash
 python -m pip install --upgrade \
-  pip \
-  setuptools \
-  wheel \
-  cmake \
-  ninja \
-  scikit-build-core
-
-python -m pip install \
-  numpy \
-  scipy \
-  sympy \
-  beautifulsoup4 \
-  lxml \
-  pytest
+  pip setuptools wheel cmake ninja scikit-build-core pybind11
+python -m pip install -e ".[dev]" --no-build-isolation
 ```
 
-Generate the Panda model:
-
-```bash
-python scripts/codegen/generate_grid.py \
-  csrc/urdf/panda.urdf \
-  -t panda_grasptarget_hand
-```
-
-Build the package:
-
-```bash
-python -m pip install -e . --no-build-isolation
-```
+GRiD code generation is optional for the default Panda build. Install `.[codegen]` and use the
+collision-enabled command below only when changing the URDF or end-effector target.
 
 ## Quick Start
 

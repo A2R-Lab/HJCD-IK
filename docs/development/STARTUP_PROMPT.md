@@ -8,7 +8,7 @@ avoidance (Panda/Fetch). One CUDA block per problem; **warp-per-candidate**, war
 Built on GRiD (kinematics codegen) + GLASS (single-block/warp linear algebra).
 
 **Read in order:**
-1. [`CLAUDE.md`](../CLAUDE.md) — mental model, key files, build commands, discipline.
+1. [`CLAUDE.md`](../../CLAUDE.md) — mental model, key files, build commands, discipline.
 2. [`agent_debugging_guide.md`](agent_debugging_guide.md) — recurring traps (stale `grid.cuh`, `FLANGE_IDX`,
    warp/block sync, robot constants, submodules).
 3. `HANDOFF.md` — current status / open work. **This is a LOCAL, gitignored per-session handoff**
@@ -26,4 +26,4 @@ short single-line commits, no Co-Authored-By footer.
 
 **Build:** `git submodule update --init --recursive && python -m pip install -e .`
 
-**Now:** on branch `grid-glass-integration` re-basing onto latest GRiD/GLASS (see the local `HANDOFF.md` if present).
+Use `git status --short --branch` and the latest local handoff under `docs/open-tasks/` to establish the current working state.

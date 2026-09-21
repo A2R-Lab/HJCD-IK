@@ -2,13 +2,13 @@
 
 Hard-won, HJCD-IK-specific institutional knowledge. **Read before changing the kernel, codegen, or robot
 config.** HJCD-IK is a batched GPU IK solver: one CUDA block per problem, warp-per-candidate, warp-scoped
-math throughout. Companion docs: [`CLAUDE.md`](../CLAUDE.md), [`STARTUP_PROMPT.md`](STARTUP_PROMPT.md),
-[`HANDOFF.md`](HANDOFF.md).
+math throughout. Companion docs: [`CLAUDE.md`](../../CLAUDE.md), [`STARTUP_PROMPT.md`](STARTUP_PROMPT.md).
+Local session handoffs live under `docs/open-tasks/` (ignored by Git).
 
 ## 0. Validation checklist (before committing)
 
 1. **Regenerate `grid.cuh` and rebuild** if the URDF or EE target changed:
-   `python scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_grasptarget_hand` then
+   `python scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_grasptarget_hand --collision --spherized-urdf external/foam/assets/panda/smaller_panda_spherized.urdf` then
    `python -m pip install -e .`. Stale `grid.cuh` = silently wrong FK/Jacobian.
 2. **`FLANGE_IDX` / target agreement** across `grid.cuh`, `csrc/kernel/hjcd_kernel.cu`, and any benchmark problem.
 3. **Build clean** and import: `python -c "import hjcdik; print(hjcdik.num_joints())"`.
@@ -53,7 +53,7 @@ is a 19-DOF robot; Panda regenerates to `NUM_JOINTS=7`.
 ### 1f. Collision geometry mismatch
 **Symptom:** free targets flagged in-collision (or vice versa).
 **Cause:** the baked collision spheres don't match the robot — `grid.cuh` was generated without
-`--collision` (no `grid_collision` namespace → collision-free requests are ignored, see the
+`--collision` (no `grid_collision` namespace → the Python API rejects collision-free requests; see the
 `HJCD_HAS_COLLISION` guard), or the spherization source is wrong (Panda needs the foam
 `--spherized-urdf`, not on-disk meshes).
 **Fix:** regenerate with `--collision` (and, for Panda, `--spherized-urdf …/smaller_panda_spherized.urdf`);

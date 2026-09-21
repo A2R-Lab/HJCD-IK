@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-shot local dev setup for HJCD-IK: submodules (on our branches), a project
+# One-shot local dev setup for HJCD-IK: pinned submodules, a project
 # venv, codegen, and an editable build — so the whole pipeline runs against our
 # own copy of GRiD/GLASS.
 #
@@ -8,7 +8,7 @@
 # Sets up everything needed to build the extension AND the docs site (Sphinx + Doxygen).
 #
 # Env overrides:
-#   GLASS_LOCAL       sibling GLASS checkout to overlay our branch from (default ~/Desktop/GLASS)
+#   GLASS_LOCAL       optional sibling GLASS checkout to overlay (unset by default)
 #   GLASS_BRANCH      GLASS branch to use (default main)
 #   PYTHON            python interpreter (default python3)
 #   SKIP_APT=1        skip the system (apt) deps step
@@ -16,9 +16,7 @@
 #   SKIP_BUILD=1      set up env + codegen but skip the editable build
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-ROOT="$(pwd)"
-
-GLASS_LOCAL="${GLASS_LOCAL:-$HOME/Desktop/GLASS}"
+GLASS_LOCAL="${GLASS_LOCAL:-}"
 GLASS_BRANCH="${GLASS_BRANCH:-main}"
 PYTHON="${PYTHON:-python3}"
 
@@ -36,15 +34,12 @@ fi
 
 if [ "${SKIP_SUBMODULES:-0}" != "1" ]; then
   echo "[setup] (1/4) submodules ..."
-  bash scripts/setup/bootstrap.sh                       # external/GRiD + nested GRiDCodeGenerator/URDFParser
-  git submodule update --init external/GLASS
-  # Overlay our local GLASS branch for dev (so we build against our warp primitives).
-  if [ -e "$GLASS_LOCAL/.git" ]; then
+  bash scripts/setup/bootstrap.sh
+  # Explicit opt-in only: normal setup must reproduce the repository's committed pins.
+  if [ -n "$GLASS_LOCAL" ] && [ -e "$GLASS_LOCAL/.git" ]; then
     echo "[setup] overlaying GLASS '$GLASS_BRANCH' from $GLASS_LOCAL"
-    git -C external/GLASS remote add local "$GLASS_LOCAL" 2>/dev/null || true
-    if git -C external/GLASS fetch -q local "$GLASS_BRANCH"; then
-      git -C external/GLASS checkout -q "$GLASS_BRANCH" || git -C external/GLASS checkout -q FETCH_HEAD
-    fi
+    git -C external/GLASS fetch -q "$GLASS_LOCAL" "$GLASS_BRANCH"
+    git -C external/GLASS checkout -q --detach FETCH_HEAD
   fi
 else
   echo "[setup] (1/4) skipping submodules (SKIP_SUBMODULES=1) — using current checkout"
@@ -55,14 +50,15 @@ echo "[setup] (2/4) venv + deps ..."
 # shellcheck disable=SC1091
 . .venv/bin/activate
 pip install -q --upgrade pip
-# Codegen (GRiD) needs numpy/sympy/bs4/lxml; tests need pytest/scipy — mirrors pyproject
-# `dependencies` + the `[dev]` extra. (Kept explicit so codegen at step 3 works before the build.)
-pip install -q numpy sympy beautifulsoup4 lxml pytest scipy
+# Install codegen and test dependencies before regeneration; the editable build happens after codegen.
+# Keep this explicit to avoid building once against the committed header and immediately rebuilding.
+pip install -q numpy sympy beautifulsoup4 lxml pytest scipy pytest-gpu-proof pyyaml
 # Docs toolchain (Sphinx + Breathe + pydata theme) so `make -C docs all` builds the site in this venv.
 pip install -q -r docs/requirements.txt
 
 echo "[setup] (3/4) generate grid.cuh ..."
-python scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_grasptarget_hand
+python scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_grasptarget_hand \
+  --collision --spherized-urdf external/foam/assets/panda/smaller_panda_spherized.urdf
 
 if [ "${SKIP_BUILD:-0}" = "1" ]; then
   echo "[setup] SKIP_BUILD=1 — skipping editable build."

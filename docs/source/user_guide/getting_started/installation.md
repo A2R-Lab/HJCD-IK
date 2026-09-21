@@ -36,7 +36,7 @@ when cross-compiling. The checked-in `grid.cuh` is used by default; set `-DHJCDI
 regenerate it during configure.
 
 ```{tip}
-**One-shot dev setup** — system deps + submodules (on our branches) + a `.venv` + the docs toolchain +
+**One-shot dev setup** — system deps + pinned submodules + a `.venv` + the docs toolchain +
 codegen + build:  `./scripts/setup/setup_dev.sh`  (`SKIP_APT=1` / `SKIP_BUILD=1` / `SKIP_SUBMODULES=1` to
 skip steps).
 ```

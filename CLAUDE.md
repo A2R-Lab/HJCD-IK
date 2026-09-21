@@ -59,7 +59,7 @@ python -m pip install -e .                        # builds the _hjcdik extension
 python benchmark/hjcd_ik_bench.py --skip-grid-codegen   # run the solver
 ```
 
-`./scripts/setup/setup_dev.sh` does all of the above (system deps + submodules on our branches + venv + codegen + build).
+`./scripts/setup/setup_dev.sh` does all of the above (system deps + pinned submodules + venv + codegen + build).
 
 Python API:
 ```python
@@ -84,10 +84,10 @@ out = generate_solutions(targets[0], batch_size=2000, num_solutions=4)
   model → 58 non-base spheres); the build/codegen wires this automatically (see `CMakeLists.txt`). This is
   the **bring-your-own-URDF** path: `generate_grid.py <robot.urdf> --collision [...]` gives any robot both
   FK and collision with no hand-written per-robot header.
-- **Collision scoring mode (`HJCD_CC_MODE` env, comparison knob).** `soft` (default) = penetration cost
-  biases selection (env-only, behavior-preserving); `hard` = `grid_collision::config_free` filters
-  colliding candidates outright (self **+** environment; `mark_collisions` kernel → score += big penalty);
-  `both` = soft cost + hard filter. All three are post-solve, off the hot warp loop.
+- **Collision policy.** Python exposes `collision_mode="hard"|"soft"|"both"`; `hard` is the
+  default and strictly excludes colliding candidates (self **+** environment). `soft` is a penetration-cost
+  ranking mode and does not guarantee collision freedom; `both` ranks and filters. `HJCD_CC_MODE` remains
+  only as the benchmark compatibility fallback (`collision_mode="auto"`). All three are post-solve, off the hot warp loop.
 - **`FLANGE_IDX` discipline.** The fixed EE target (`panda_grasptarget_hand`) and its index must agree across
   codegen, the kernel, and any benchmark problem. A mismatch silently solves to the wrong frame.
 - **Warp-locality is the performance contract.** New math must stay warp-scoped (`__shfl_*_sync`, `__syncwarp`).
@@ -106,16 +106,16 @@ for the per-robot EE map + how to regenerate the paper sweeps.
 
 **Collision migrated to `grid_collision`.** The former bespoke pRRTC stack (`csrc/collision/` +
 `csrc/robots/{panda,fetch}.cuh`) is gone; collision is now GRiD's URDF-driven `grid_collision` baked into
-`grid.cuh` (`--collision`), scored post-solve by `score_environment_costs` (a soft penetration cost,
-`grid_collision::collision_distance`; the hot warp solver never touches collision). The paper's 59-sphere
-model is preserved byte-for-byte via the foam spherized URDF, so the collision-free rate is unchanged. The
+`grid.cuh` (`--collision`), scored post-solve by `mark_collisions` for strict filtering and optionally by `score_environment_costs`
+for soft ranking (the hot warp solver never touches collision). The paper's 59-sphere
+model is preserved via the foam spherized URDF. Strict filtering can return fewer solutions than the historical soft-ranking path. The
 paper reference model lives frozen under `benchmark/reference/panda_collision_model.cuh` (independent oracle
 for the Table II collision-free column; `benchmark/panda_model.py`).
 
 The collision code path is compiled in only when `grid.cuh` was generated with `--collision` — codegen emits
 a `#define HJCD_HAS_COLLISION 1` sentinel and the kernel + `grid_env.cuh` guard all `grid_collision::` use on
 it. A no-collision header (e.g. the DoF-scaling regens, or any BYO-URDF built without `--collision`) still
-compiles and runs open-world; a collision-free request in that build is ignored. **Timing (2026-07-10, RTX
+compiles and runs open-world; the Python API rejects a collision-free request in that build. **Timing (2026-07-10, RTX
 5090) confirms no regression** from the migration: open-world B=2000 ≈ 1.86 ms (matches pre-migration), and
 the collision-free leg reports a per-mode `soft`/`hard` column (`scripts/perf/run_all_timing_sweeps.sh`).
 
