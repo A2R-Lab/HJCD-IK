@@ -56,6 +56,8 @@ def main():
                          "GRiD frames -- no re-spherization. A comma list => coarsest->finest tiers.")
     ap.add_argument("--profile", choices=("kinematics", "all"), default="kinematics",
                     help="GRiD algorithms to emit (default: kinematics, which is all HJCD-IK uses).")
+    ap.add_argument("--glass-revision", default=None,
+                    help="GLASS commit label for Git-free source archives; verified against Git when available.")
     args = ap.parse_args()
     if args.floating_base:
         ap.error("HJCD-IK requires a fixed-base serial chain")
@@ -144,6 +146,7 @@ def main():
 def emit_header(codegen, args, out, collision_spec):
     codegen.gen_all_code(
         codegen_profile=args.profile,
+        glass_revision=args.glass_revision,
         include_homogenous_transforms=True,
         fixed_target_name=args.fixed_target_name,
         output_path=str(out),

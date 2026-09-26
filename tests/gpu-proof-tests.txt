@@ -30,12 +30,14 @@ tests/test_api.py::test_target_values_must_be_finite[-inf]
 tests/test_api.py::test_target_values_must_be_finite[inf]
 tests/test_api.py::test_target_values_must_be_finite[nan]
 tests/test_api.py::test_zero_quaternion_is_rejected
+tests/test_codegen.py::test_explicit_glass_provenance_is_archive_reproducible
 tests/test_codegen.py::test_failed_codegen_preserves_previous_header[flags0-fixed-base serial chain]
 tests/test_codegen.py::test_failed_codegen_preserves_previous_header[flags1-grid namespace]
 tests/test_codegen.py::test_failed_codegen_preserves_previous_header[flags2-None]
 tests/test_codegen.py::test_generation_failure_after_partial_write_preserves_header
 tests/test_codegen.py::test_unsupported_joint_geometry_is_rejected[negative_axis-local +Z]
 tests/test_codegen.py::test_unsupported_joint_geometry_is_rejected[prismatic-independent revolute]
+tests/test_codegen.py::test_wrong_glass_provenance_preserves_previous_header
 tests/test_collision.py::test_collision_cache_includes_environment_contents
 tests/test_collision.py::test_collision_free_matches_unconstrained_reach
 tests/test_collision.py::test_collision_free_runs_and_solves
@@ -67,6 +69,18 @@ tests/test_fk_equivalence.py::test_legacy_digit_permutation_unchanged
 tests/test_fk_equivalence.py::test_no_scramble_is_raw_halton_and_ignores_method
 tests/test_gpu_proof_policy.py::test_kernel_and_dependency_pin_changes_invalidate_fingerprint
 tests/test_gpu_proof_policy.py::test_receipt_policy_cannot_narrow_the_source_scope
+tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[1-cudaMalloc(d_joint_limits)-sample]
+tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[1-cudaMalloc(d_joint_limits)-solve]
+tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[2-cudaMemcpy(d_joint_limits)-sample]
+tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[2-cudaMemcpy(d_joint_limits)-solve]
+tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[3-cudaMalloc(d_XImats)-sample]
+tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[3-cudaMalloc(d_XImats)-solve]
+tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[4-cudaMemcpy(d_XImats)-sample]
+tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[4-cudaMemcpy(d_XImats)-solve]
+tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[5-cudaMalloc(d_robotModel)-sample]
+tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[5-cudaMalloc(d_robotModel)-solve]
+tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[6-cudaMemcpy(d_robotModel)-sample]
+tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[6-cudaMemcpy(d_robotModel)-solve]
 tests/test_multiwarp.py::test_default_config_solves
 tests/test_multiwarp.py::test_multiwarp_high_w_opt_in_smem
 tests/test_multiwarp.py::test_multiwarp_matches_w1[2]

@@ -14,6 +14,15 @@ python scripts/codegen/generate_grid.py path/to/robot.urdf -t <ee_target_frame>
 
 Then rebuild: `python -m pip install -e .`.
 
+### Source archives without Git metadata
+
+Pass `--glass-revision <full-commit-sha>` to label generated headers from a source
+archive, or set `GRID_GLASS_REVISION` (also honored by the header-freshness check).
+Use the nested GLASS revision recorded for that source release, not an unrelated
+top-level checkout. With Git present, GRiD rejects a label that disagrees with the
+nested checkout; without Git it explicitly reports the supplied label as unverified.
+This preserves byte-identical generation without weakening freshness checks.
+
 ## Isolated native builds
 
 Generate into a separate directory to keep the checkout's default Panda model intact.

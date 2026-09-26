@@ -36,6 +36,12 @@ std::recursive_mutex& solver_mutex() {
     static std::recursive_mutex mutex;
     return mutex;
 }
+
+void check_grid_initialization(cudaError_t error, const char* operation) {
+    if (error != cudaSuccess)
+        throw std::runtime_error(std::string("GRiD CUDA initialization failed at ") +
+            (operation ? operation : "unknown operation") + ": " + cudaGetErrorString(error));
+}
 }
 
 template<typename T>
@@ -46,7 +52,11 @@ grid::robotModel<T>* cached_robot_model() {
     // Immutable generated models live as long as the CUDA context, shared by all solver stages.
     static std::unordered_map<int, grid::robotModel<T>*> models;
     auto& model = models[device];
-    if (!model) model = grid::init_robotModel<T>();
+    if (!model) {
+        const char* operation = nullptr;
+        const auto error = grid::init_robotModel_checked<T>(&model, &operation);
+        check_grid_initialization(error, operation);
+    }
     return model;
 }
 
@@ -72,13 +82,6 @@ constexpr int NX         = FLANGE_IDX + 1;
 
 __constant__ double2 c_joint_limits[N];
 
-// GRiD HELPER FUNCTIONS
-namespace grid {
-  template<typename T>
-  T* init_joint_limits();
-}
-
-
 void init_joint_limits_from_grid()
 {
     std::lock_guard<std::recursive_mutex> lock(solver_mutex());
@@ -87,7 +90,11 @@ void init_joint_limits_from_grid()
     static std::unordered_set<int> initialized;
     if (initialized.count(device)) return;
     hjcd::DeviceAllocations allocations;
-    double* d_limits = allocations.adopt(grid::init_joint_limits<double>());
+    double* d_limits = nullptr;
+    const char* operation = nullptr;
+    const auto error = grid::init_joint_limits_checked<double>(&d_limits, &operation);
+    check_grid_initialization(error, operation);
+    allocations.adopt(d_limits);
 
     std::vector<double> h_limits(2 * N);
     CUDA_OK(cudaMemcpy(h_limits.data(), d_limits,
@@ -2439,6 +2446,3 @@ template std::vector<std::array<float, 7>> sample_random_target_poses(
     int num_configs,
     uint64_t seed
 );
-
-template grid::robotModel<double>* grid::init_robotModel<double>();
-template grid::robotModel<float>* grid::init_robotModel<float>();

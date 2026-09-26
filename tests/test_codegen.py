@@ -79,3 +79,43 @@ def test_unsupported_joint_geometry_is_rejected(tmp_path, kind, match):
     assert run.returncode != 0
     assert match in run.stderr
     assert not output.exists()
+
+
+def test_explicit_glass_provenance_is_archive_reproducible(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT / "external/GRiD"))
+    monkeypatch.syspath_prepend(str(ROOT / "external/GRiD/external"))
+    from grid_codegen.helpers import _lin_alg_helpers as glass
+    # Model Git discovery explicitly so this test also runs from a source archive.
+    revision = "1" * 40
+    monkeypatch.setattr(glass, "_glass_git_head", lambda: revision)
+    spec = importlib.util.spec_from_file_location("hjcd_codegen_provenance_test", GEN)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    output = tmp_path / "grid.cuh"
+    monkeypatch.setattr(sys, "argv", [
+        str(GEN), str(PANDA), "-o", str(output), "--glass-revision", revision,
+    ])
+    module.main()
+    checkout_bytes = output.read_bytes()
+    monkeypatch.setattr(glass, "_glass_git_head", lambda: None)
+    module.main()
+    assert output.read_bytes() == checkout_bytes
+
+
+def test_wrong_glass_provenance_preserves_previous_header(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT / "external/GRiD"))
+    monkeypatch.syspath_prepend(str(ROOT / "external/GRiD/external"))
+    from grid_codegen.helpers import _lin_alg_helpers as glass
+    monkeypatch.setattr(glass, "_glass_git_head", lambda: "1" * 40)
+    output = tmp_path / "grid.cuh"
+    output.write_text("previous header\n")
+    spec = importlib.util.spec_from_file_location("hjcd_codegen_wrong_provenance_test", GEN)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(sys, "argv", [
+        str(GEN), str(PANDA), "-o", str(output), "--glass-revision", "0" * 40,
+    ])
+    with pytest.raises(ValueError, match="disagrees with the GLASS checkout"):
+        module.main()
+    assert output.read_text() == "previous header\n"
+    assert not list(tmp_path.glob(".hjcd-codegen-*"))

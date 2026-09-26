@@ -11,8 +11,11 @@ keep the CUDA context alive (calling ``cudaDeviceReset`` invalidates those cache
 
 ``Result<T>`` owns its host arrays, releases them on destruction, and supports moves
 but not copies. Temporary device allocations are released on normal return and exceptions.
-HJCD CUDA runtime failures raise ``std::runtime_error`` (Python ``RuntimeError``);
-GRiD's generated model initialization still uses its upstream error policy.
+HJCD CUDA runtime failures raise ``std::runtime_error`` (Python ``RuntimeError``),
+including generated model/limit initialization. HJCD uses GRiD's checked APIs:
+initialization failures report the operation, roll back partial allocations best-effort,
+and never reset the CUDA context or terminate the process. This does not promise
+recovery after a context-invalidating CUDA error.
 
 A null model argument selects the internally cached model for sampling. The solver selects
 its own coarse/refine models by precision; its model argument is retained for source

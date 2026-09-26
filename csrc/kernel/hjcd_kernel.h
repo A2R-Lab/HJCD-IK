@@ -112,7 +112,7 @@ std::array<T, 7> normalized_target_pose(const T* pose) {
  * Collision checks describe configurations, never paths.
  * @throws std::invalid_argument For invalid scalar/pose values.
  * @throws std::runtime_error For checked CUDA or output failures. Scene errors also throw.
- * GRiD-generated model initialization retains its upstream abort-on-CUDA-error policy.
+ * Generated model/limit initialization uses GRiD's checked APIs and raises on failure.
  */
 template<typename T, typename RT = double>
 Result<T> generate_ik_solutions(
