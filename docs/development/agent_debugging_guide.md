@@ -150,5 +150,16 @@ Full data: [`open-tasks/multiwarp_timing_result.md`](open-tasks/multiwarp_timing
   accuracy (11–140 mm — it returns coarse-quality solutions). Keep tight 1e-8 unless you've confirmed via
   nsys that the LM loop is the bottleneck for your DoF/num_solutions.
 
+### Statistics output comparisons and coarse early-stop
+
+Requesting multiple solutions disables LM early-stop, not coarse early-stop. Coarse
+blocks still publish a first-success flag, so scheduling (including sanitizer
+instrumentation) can change the candidate pool and returned joint configurations
+between otherwise identical solves. A test requiring identical arrays with and
+without statistics should use one coarse block and multiple outputs, removing
+inter-block early-stop while retaining the strict numerical comparison. Larger-batch
+tests should check solution quality, collision policy and statistics consistency,
+not exact candidate identity.
+
 ## 6. Lessons log
 *(Append new bug classes / tricks here as they emerge — keep this guide the single source of truth.)*

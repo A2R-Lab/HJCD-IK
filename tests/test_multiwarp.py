@@ -1,9 +1,10 @@
 """Multi-warp LM-refine correctness.
 
 The LM refine packs W independent candidates per block (one per warp), selected by the env knob
-`HJCD_LM_WARPS` (read per-call). Each warp's candidate is independent of W, so with early-stop OFF
-(num_solutions>=2) the per-candidate outputs must match the single-warp (W=1) baseline. Also guards the
-warp-vs-block sync trap (the #1 bug class) and the partial-last-block (`gp>=B`) early-return.
+`HJCD_LM_WARPS` (read per-call). Each warp's candidate is independent of W. Multiple outputs
+disable LM early-stop, but coarse search still has inter-block early-stop, so comparisons below
+check pose quality within tolerance rather than promising identical candidate sets. Also guards
+the warp-vs-block sync trap and the partial-last-block (`gp>=B`) early-return.
 
 Requires a CUDA GPU + built `hjcdik`; skips cleanly otherwise. Correctness-only (no timing) — safe to run
 under GPU contention.
@@ -47,7 +48,7 @@ def _solve_errs(targets, W, num_solutions=4, batch_size=2000):
 
 @pytest.mark.parametrize("W", [2, 4, 8])
 def test_multiwarp_matches_w1(W):
-    """W in {2,4,8} must match W=1 to fp-noise (num_solutions=4 => early-stop off => deterministic)."""
+    """W in {2,4,8} must match W=1 pose quality with LM early-stop disabled."""
     targets = hjcdik.sample_targets(num_targets=8, seed=0)
     ref = _solve_errs(targets, W=1)
     cur = _solve_errs(targets, W=W)

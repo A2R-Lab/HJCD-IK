@@ -92,7 +92,10 @@ def test_buffered_stats_write_failure_raises_and_next_solve_recovers(tmp_path, m
 def test_stats_do_not_change_solver_outputs(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     target = hjcdik.sample_targets(1, seed=59)[0]
-    kwargs = dict(batch_size=32, num_solutions=4, refine_fp64=0)
+    # Coarse search always stops on the first successful block, even when multiple
+    # outputs disable LM early-stop. Use one coarse block so scheduling cannot
+    # change its candidate pool between calls; keep the strict output comparison.
+    kwargs = dict(batch_size=1, num_solutions=4, refine_fp64=0)
     normal = hjcdik.generate_solutions(target, **kwargs)
     logged = hjcdik.generate_solutions(target, write_stats=True, **kwargs)
     assert normal["count"] == logged["count"]
