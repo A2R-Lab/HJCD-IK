@@ -338,17 +338,27 @@ Collision-free IK — Panda, box_panda (Table II)
 
    **Collision-free validation (methodology).** The benchmark harness reports a
    ``collision_free`` / ``success_both`` rate for every solver by validating each returned
-   configuration *post-hoc* against the **same** 59-sphere Panda collision model HJCD-IK
-   itself filters against (``benchmark/panda_collision.py``, sourced from the frozen paper model
-   ``benchmark/reference/panda_collision_model.cuh``). HJCD-IK's kernel now filters via GRiD's
-   URDF-driven ``grid_collision`` (the identical spheres, baked into ``grid.cuh`` from the foam
-   spherized URDF), so this independent numpy oracle stays a fair cross-check.
+   configuration *post-hoc* against the **same legacy paper** 59-sphere Panda model
+   (``benchmark/panda_collision.py``, sourced from the frozen
+   ``benchmark/reference/panda_collision_model.cuh``). This is an environment-only check.
+   It is not identical to HJCD-IK's compiled URDF-driven model: the paper reference uses
+   +/-65 mm finger-joint origins, whereas the compiled kinematic URDF uses +/-40 mm.
+   Four finger-sphere centers consequently differ by 25 mm. Self-collision exclusions
+   also follow the generated topology rather than this environment-only oracle.
    Because all solvers are judged by one shared geometry — not each tool's own collision
    notion — the column is apples-to-apples, and the check is pure-numpy (no cuRobo dependency).
    ``success_both`` is pose-success **and** collision-free. Regenerate with
    ``benchmark/baseline_bench.py --mode {pyroki,curobo} --collision_free`` (per-run CSV/YAML land
    under the gitignored ``benchmark/results/``; the time/accuracy numbers above are the
    camera-ready values).
+
+   HJCD's harness preserves this comparison with ``--collision-validation-model paper``
+   (default). Select ``--collision-validation-model hjcd`` for an independent CPU check
+   of its current URDF-bound sphere geometry instead; this does not change the solver model.
+   Do not mix those rates in one cross-solver table. Collision CSV/YAML outputs also write
+   ``<output>.metadata.json`` with validation model, source hashes, finger origins, and
+   the compiled header identity. Historical result files without that sidecar retain
+   their original paper-model interpretation.
 
 DoF scalability — Panda variants, B = 1000 (Table III)
 ------------------------------------------------------

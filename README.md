@@ -141,6 +141,16 @@ bash scripts/setup/rebuild.sh
 
 Note: the tests and collision-free example require a collision-enabled build.
 
+The default Panda model keeps fixed finger-joint origins at +/-40 mm in the hand frame.
+Foam supplies sphere shapes, but their placement uses this kinematic URDF. The frozen paper
+reference uses +/-65 mm finger origins and is deliberately retained for historical comparisons.
+The benchmark's `--collision-validation-model paper` (default) selects that legacy reference;
+`--collision-validation-model hjcd` selects an independent URDF-derived check of the current
+geometry. This flag changes only post-hoc validation, never the solver's compiled robot.
+Both checks are environment-only; the solver's hard/both modes additionally check self-collision.
+CSV/YAML collision results have a `.metadata.json` sidecar identifying the selected model,
+source hashes, finger origins, and compiled-header identity.
+
 ## Examples
 
 Run the included examples:

@@ -82,8 +82,10 @@ out = generate_solutions(targets[0], batch_size=2000, num_solutions=4)
   `csrc/kernel/hjcd_kernel.cu` `score_environment_costs`). Sphere source: `--collision-res R` spherizes
   the URDF's own collision geometry, OR `--spherized-urdf <foam.urdf>` reads a pre-spherized (foam-format)
   URDF directly — use the latter when the URDF's collision meshes don't resolve on disk. **Panda uses the
-  checked-in foam model** (`external/foam/assets/panda/smaller_panda_spherized.urdf`, the paper's 59-sphere
-  model → 58 non-base spheres); the build/codegen wires this automatically (see `CMakeLists.txt`). This is
+  checked-in foam sphere geometry** (`external/foam/assets/panda/smaller_panda_spherized.urdf`,
+  58 non-base spheres), bound to the kinematic URDF's fixed frames. Its +/-40 mm finger origins
+  differ from the legacy paper reference's +/-65 mm origins. The build/codegen wires this automatically
+  (see `CMakeLists.txt`). This is
   the **bring-your-own-URDF** path: `generate_grid.py <robot.urdf> --collision [...]` provides FK and
   collision for supported fixed-base serial arms with no hand-written per-robot header.
 - **Collision policy.** Python exposes `collision_mode="hard"|"soft"|"both"`; `hard` is the
@@ -109,10 +111,12 @@ for the per-robot EE map + how to regenerate the paper sweeps.
 **Collision migrated to `grid_collision`.** The former bespoke pRRTC stack (`csrc/collision/` +
 `csrc/robots/{panda,fetch}.cuh`) is gone; collision is now GRiD's URDF-driven `grid_collision` baked into
 `grid.cuh` (`--collision`), scored post-solve by `mark_collisions` for strict filtering and optionally by `score_environment_costs`
-for soft ranking (the hot warp solver never touches collision). The paper's 59-sphere
-model is preserved via the foam spherized URDF. Strict filtering can return fewer solutions than the historical soft-ranking path. The
-paper reference model lives frozen under `benchmark/reference/panda_collision_model.cuh` (independent oracle
-for the Table II collision-free column; `benchmark/panda_model.py`).
+for soft ranking (the hot warp solver never touches collision). Strict filtering can return fewer
+solutions than the historical soft-ranking path. The paper reference model lives frozen under
+`benchmark/reference/panda_collision_model.cuh`; it is NOT identical to the compiled geometry
+because the fixed finger openings differ. `benchmark/panda_model.py` provides explicit `paper`
+and URDF-derived `hjcd` models. Paper comparisons retain `paper`; implementation tests use `hjcd`.
+Both Python oracles check environment collisions only, not the kernel's self-collision policy.
 
 The collision code path is compiled in only when `grid.cuh` was generated with `--collision` — codegen emits
 a `#define HJCD_HAS_COLLISION 1` sentinel and the kernel + `grid_env.cuh` guard all `grid_collision::` use on

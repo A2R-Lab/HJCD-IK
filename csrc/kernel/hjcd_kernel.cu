@@ -1740,7 +1740,9 @@ Result<T> generate_ik_solutions(
 #if defined(HJCD_HAS_COLLISION)
     struct CachedCollisionEnvironment {
         hjcd_env::DeviceEnv device_env;
-        std::string key;
+        hjcd_env::ProblemDocument document;
+        std::string problem_set;
+        int problem_idx = -1;
         bool ready = false;
     };
     static std::unordered_map<int, CachedCollisionEnvironment> g_cc_env_by_device;
@@ -1755,26 +1757,22 @@ Result<T> generate_ik_solutions(
         int cc_device = 0;
         CUDA_OK(cudaGetDevice(&cc_device));
         auto& cached = g_cc_env_by_device[cc_device];
-        const std::string key = std::string(problem_set_name) + "#"
-                              + std::to_string(problem_idx) + "#json="
-                              + problems_json_text;
-
-        if (!cached.ready || cached.key != key) {
-            if (cached.ready) {
-                hjcd_env::free_env(cached.device_env);
-                cached.ready = false;
-            }
-
-            const nlohmann::json all_data = nlohmann::json::parse(problems_json_text);
-            const nlohmann::json problems_root = all_data.at("problems");
-            const nlohmann::json data = hjcd_env::select_problem_instance(
-                problems_root, problem_set_name, problem_idx);
+        const bool changed = cached.document.update(problems_json_text);
+        if (changed || !cached.ready || cached.problem_set != problem_set_name ||
+            cached.problem_idx != problem_idx) {
+            // Invalidate BEFORE selection/validation: a new document may fail here.
+            // Retained allocations remain owned and are released on replacement.
+            cached.ready = false;
+            const auto& data = cached.document.select(problem_set_name, problem_idx);
             if (data.contains("valid") && !bool(data["valid"]))
                 throw std::runtime_error("collision problem is marked invalid");
 
             const hjcd_env::HostEnv host_env = hjcd_env::problem_dict_to_env(data);
+            std::string selected_set(problem_set_name);
+            hjcd_env::free_env(cached.device_env);
             cached.device_env = hjcd_env::upload_env(host_env);
-            cached.key = key;
+            cached.problem_set = std::move(selected_set);
+            cached.problem_idx = problem_idx;
             cached.ready = true;
         }
 

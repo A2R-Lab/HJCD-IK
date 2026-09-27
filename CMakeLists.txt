@@ -62,7 +62,8 @@ endif()
 set(GRID_CODEGEN_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/scripts/codegen/generate_grid.py")
 set(GRID_CODEGEN_URDF   "${CMAKE_CURRENT_SOURCE_DIR}/csrc/urdf/panda.urdf")
 # Panda's collision meshes don't resolve on-disk, so the grid_collision spheres come from the
-# checked-in foam spherized URDF (the paper's 59-sphere model) rather than the mesh spherizer.
+# checked-in foam spherized URDF rather than the mesh spherizer. Fixed-link poses come from
+# the kinematic URDF (+/-40 mm fingers), not the legacy paper model (+/-65 mm fingers).
 set(GRID_CODEGEN_SPHERIZED "${CMAKE_CURRENT_SOURCE_DIR}/external/foam/assets/panda/smaller_panda_spherized.urdf")
 
 if(HJCDIK_AUTO_CODEGEN)

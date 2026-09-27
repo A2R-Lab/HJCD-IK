@@ -100,8 +100,8 @@ def main():
             collision_spec_from_urdf, multi_tier_collision_spec_from_urdf, build_sphere_tiers)
         if args.spherized_urdf:
             # Read spheres directly from pre-spherized (foam) URDF(s); bind to the robot's GRiD frames.
-            # Used when the kinematic URDF's collision meshes don't resolve (Panda) -- gives the exact
-            # baked sphere model (e.g. Panda's 59-sphere paper model) rather than re-spherizing.
+            # Avoid re-spherizing missing meshes (Panda). Fixed-link poses come from the
+            # kinematic URDF, so a different gripper opening changes the placed sphere model.
             sph_paths = [p.strip() for p in str(args.spherized_urdf).split(",") if p.strip()]
             for p in sph_paths:
                 sp = Path(p)

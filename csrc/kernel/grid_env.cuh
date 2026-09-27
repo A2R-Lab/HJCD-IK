@@ -23,6 +23,7 @@
 #include <cuda_runtime.h>
 #include "kernel/util.h"
 #include "kernel/cuda_memory.h"
+#include "kernel/problem_document.h"
 #include <nlohmann/json.hpp>
 
 // The grid_collision primitives (Sphere/Capsule/Cuboid/Environment) exist only when grid.cuh was
@@ -219,15 +220,6 @@ inline HostEnv problem_dict_to_env(const json& problem) {
     }
 
     return env;
-}
-
-inline json select_problem_instance(const json& problems_root,
-                                     const std::string& problem_set_name, int problem_idx) {
-    const auto& pset = problems_root.at(problem_set_name);
-    if (!pset.is_array()) throw std::runtime_error("problem set is not an array");
-    if (problem_idx < 0 || problem_idx >= (int)pset.size())
-        throw std::runtime_error("problem_idx out of range");
-    return pset[problem_idx];
 }
 
 // Device-side handles for one uploaded environment (freed together).

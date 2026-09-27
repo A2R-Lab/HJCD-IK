@@ -27,5 +27,34 @@ Dimensions, radii, and lengths must be positive finite numbers; poses use meters
 as capsules. Guarantees are relative to the generated sphere model, which excludes the
 fixed Panda base geometry.
 
+Scene caching
+-------------
+
+The solver retains one parsed problem document and one uploaded environment per CUDA
+device and precision specialization. Repeated text is compared byte-for-byte without
+allocating a combined key; changing only the selected scene reuses the parsed document.
+Changing the JSON contents invalidates the uploaded scene, even with the same set/index.
+Invalid input and failed uploads cannot silently reuse stale geometry. Access is serialized
+by the solver lock. The cache is bounded by the last document, not the number of scenes.
+
+The convenience API still converts/compares the JSON text on each call. Passing a compact
+document containing only the needed scenes avoids needless input handling; adjust
+``problem_idx`` to that document's indexing. Performance should be measured separately
+for scene changes and repeated solves in one scene.
+
+Default Panda geometry
+----------------------
+
+The compiled Panda retains fixed finger-joint origins at y = +/-40 mm in the hand frame.
+Foam supplies sphere-local centers and radii; the kinematic URDF supplies fixed-link
+transforms. The historical paper reference instead has +/-65 mm finger origins, shifting
+four finger spheres by 25 mm. These are explicitly different models, not a GRiD FK defect.
+
+``benchmark/panda_collision.py`` defaults to ``model="paper"`` for historical cross-solver
+comparisons. Use ``model="hjcd"`` for the current URDF-derived geometry. Both CPU helpers
+check environment collisions only; their boolean result does not certify self-collision
+freedom or reproduce the compiled self-pair exclusion policy. The legacy reference and
+production geometry are intentionally unchanged.
+
 .. doxygenfile:: grid_env.cuh
    :project: hjcdik

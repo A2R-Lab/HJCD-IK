@@ -74,7 +74,7 @@ def test_collision_free_runs_and_solves(monkeypatch):
             problems_json_text=text, problem_set_name=set_name, problem_idx=i)
         world = mb_instance_to_world_dict(problems[set_name][i])
         for q in np.asarray(out["joint_config"]):
-            assert panda_config_collision_free(q, world), (
+            assert panda_config_collision_free(q, world, model="hjcd"), (
                 f"hard collision mode returned a colliding configuration for {set_name}[{i}]")
         if out["count"] > 0:
             pe = float(np.min(np.array(out["pos_errors"], dtype=float)))
@@ -165,3 +165,29 @@ def test_collision_cache_includes_environment_contents(monkeypatch):
         _goal7(base), problems_json_text=json.dumps({"problems": {"same-key": [clear]}}), **kwargs)
     assert first["count"] == 0
     assert second["count"] > 0
+
+
+@pytest.mark.parametrize("precision", [0, 1])
+def test_document_switch_and_failed_scene_selection_do_not_reuse_geometry(precision):
+    base = json.loads(MB_PATH.read_text())["problems"]["box_panda"][0]
+    clear = dict(base, obstacles={})
+    blocked = dict(base, obstacles={"cuboid": {"all": {
+        "dims": [4, 4, 4], "pose": [0, 0, 0, 1, 0, 0, 0]}}})
+    old = json.dumps({"problems": {"switch": [clear]}})
+    new = json.dumps({"problems": {"switch": [blocked, dict(clear, valid=False), clear]}})
+    kwargs = dict(batch_size=512, num_solutions=1, collision_free=True,
+                  problem_set_name="switch", refine_fp64=precision, collision_mode="hard")
+    target = _goal7(base)
+    assert hjcdik.generate_solutions(target, problems_json_text=old, **kwargs)["count"] == 1
+    # The new document parses, but selection fails. Its index 0 must NOT inherit
+    # the old uploaded clear environment on the next request.
+    with pytest.raises(RuntimeError, match="marked invalid"):
+        hjcdik.generate_solutions(target, problems_json_text=new, problem_idx=1, **kwargs)
+    assert hjcdik.generate_solutions(target, problems_json_text=new, **kwargs)["count"] == 0
+    assert hjcdik.generate_solutions(target, problems_json_text=new, problem_idx=2, **kwargs)["count"] == 1
+    with pytest.raises(RuntimeError, match="out of range"):
+        hjcdik.generate_solutions(target, problems_json_text=new, problem_idx=9, **kwargs)
+    assert hjcdik.generate_solutions(target, problems_json_text=new, **kwargs)["count"] == 0
+    with pytest.raises(RuntimeError, match="parse_error"):
+        hjcdik.generate_solutions(target, problems_json_text="{broken", **kwargs)
+    assert hjcdik.generate_solutions(target, problems_json_text=old, **kwargs)["count"] == 1
