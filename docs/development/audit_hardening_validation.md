@@ -2,7 +2,8 @@
 
 Implementation checkpoint: `516b988`; signed receipt commit: `c6e134b`.
 The feature branch includes `main` through `9dd1ea2` (funding acknowledgement).
-This is a review record, not a new paper-results table or performance claim.
+This is a review record with bounded before/after measurements, not a new
+paper-results table or a cross-hardware performance claim.
 
 ## Scope and compatibility
 
@@ -47,7 +48,8 @@ SHA256 is `3f6c65fd9e8e91c7ae50ee072215f45d4717edc8fe11a399ebc84e07922a802d`.
 
 Environment: Linux, RTX 5090, CUDA compiler 13.2.86, GCC 13.3, Python 3.12.
 The release wheel was compiled independently without diagnostic CUDA flags.
-Correctness/compilation ran on a shared machine; no performance timings were taken.
+Correctness/compilation ran on a shared machine. Separate authorized quiet-window
+runtime campaigns completed afterward; see the measured scope below.
 
 - **140 tests passed** on the editable build, independent archive-built release
   wheel, and an extracted Git-free source archive. Three expected fixed-base URDF
@@ -75,15 +77,80 @@ Correctness/compilation ran on a shared machine; no performance timings were tak
   Git discovery can otherwise pick up the enclosing repository's HEAD.
 - Exact CI site assembly and strict Doxygen/Sphinx build passed. Checked **790
   local links/assets across 14 rendered pages**, with no broken references.
-  All research landing assets and published paper figures are unchanged. Automated
-  browser preview was unavailable in this environment; visual review is not claimed.
-- Whole-branch whitespace check passed. No dependency checkout edits were retained;
+  All research landing assets and published paper figures are unchanged. Isolated
+  headless Chrome screenshots of the docs homepage (desktop) and upgrade guide
+  (desktop/mobile) were subsequently inspected. This is a sampled visual review,
+  not exhaustive browser or accessibility coverage.
+- Whole-branch whitespace check passed with `core.whitespace=cr-at-eol` to respect
+  the existing CRLF source files. No dependency checkout edits were retained;
   the user's unrelated untracked timing driver was not modified or committed.
 
 Only Python-suite outcomes are certified by the receipt; native, sanitizer,
 packaging and docs checks above are additional evidence. Earlier audit checkpoints
 also exercised 12/18-DoF models and broader sanitizers; those are not presented as
 fresh executions against these latest pins.
+
+## Completed runtime gate
+
+The first matched-release campaign compared pre-audit `4ccb09b`, audited `2b746a1`
+and checked-GRiD `209be95` on the same RTX 5090. Its 22,464 measured calls all found
+an independently checked solution. Across 16 open-world cases (Panda/24 DoF,
+batches 128/2000, one/four outputs, both precisions), median paired-round
+`209be95`/pre-audit changes ranged from -1.54% to +2.03%, essentially neutral.
+It exposed a repeatable full-document collision-input penalty, motivating the
+document-cache follow-up. These are historical endpoint results, not fresh
+24-DoF timings of the final pins.
+
+The follow-up compared frozen `209be95` against implementation `516b988`, unchanged
+through `cc71978`, on 2026-09-27 04:30:21–04:33:08 UTC. All 60 workers completed:
+**7,680/7,680 timed calls solved**, 28,416 returned configurations, no independent
+environment-collision or joint-limit failures, and no observed foreign GPU compute
+processes. The same Python 3.12.3 / NumPy 2.5.1 runtime served both release builds.
+
+| Workload | Baseline → latest median ms | Paired-round median changes |
+| --- | --- | --- |
+| Open, one solution, fp64 | 1.2869 → 1.2857 | -0.28% … +0.89% |
+| Open, four solutions, fp32 | 1.4649 → 1.4684 | -0.08% … +0.52% |
+| Hard, full JSON, repeated scene | 2.8542 → 2.4419 | -14.93% … -13.71% |
+| Hard, full JSON, changing scene | 34.3388 → 2.4531 | -92.92% … -92.82% |
+| Hard, compact JSON, repeated scene | 2.1395 → 2.1106 | -1.51% … -1.09% |
+| Hard, compact JSON, changing scene | 2.9849 → 2.1170 | -29.29% … -28.96% |
+
+The `both` policy showed the same pattern; full results, p95 values, exact harness,
+inputs/provenance and interpretation are in the
+[frozen timing evidence](evidence/targeted_timing_2026-09-27/README.md).
+Positive changes mean slower. Aggregated medians and paired-round ratios are
+different statistics; do not derive one from the other.
+
+This closes the bounded cache/latest-pin runtime gate: open controls remained
+within 1% and collision-input handling improved. The roughly 14x full-document
+scene-switch improvement is **host document caching, not a 14x faster GPU IK
+kernel**. Only 32 frozen targets/scenes repeated at batch 2000 and W=1 were used;
+collision cases requested four solutions with fp32 refinement. The follow-up
+oracle checks environment collisions, not independent self-collision correctness.
+Cold initialization was excluded from warmed timings and recorded separately.
+Sampling contention guards cannot exclude interference between observations.
+
+## Final host-only review
+
+On 2026-09-27, a fresh fetch still placed `origin/main` at integrated `9dd1ea2`.
+Review of the aggregate branch changes covered shared-state synchronization and
+ownership, collision cache failure/invalidation paths, Python/native/CLI contracts,
+supported codegen models, setup/build duplication, packaging and CI/deployment
+scope. No new merge-blocking defect was identified in that review; it is not a
+claim of exhaustive verification or an independent second reviewer's approval.
+
+With the GPU hidden, **33 host regression tests passed** (codegen, benchmark setup,
+geometry identity, proof policy, statistics summary and native document cache),
+with three expected fixed-base inertia warnings. The frozen campaign's **14
+synthetic harness tests passed**. Saved raw outputs independently reproduced all
+ten paired comparisons, medians/p95, quality totals and the archived checksums.
+No timing, CUDA compilation or GPU execution was performed for this closeout.
+
+Only developer evidence changed after `cc71978`; implementation, tested user
+docs/examples and dependency pins remain identical to the signed and measured
+checkpoint. Preserve the user-owned untracked timing driver; use a clean checkout
+for receipt verification and source packaging.
 
 ## Reproduce the principal checks
 
@@ -116,13 +183,11 @@ rewriting history. PR docs checks build only; deployment is restricted to `main`
 
 ## Remaining gates
 
-1. **Authorized quiet-window targeted runtime A/B** of the latest release wheel
-   against frozen pre-cache-fix evidence: full/compact JSON, repeated/changing
-   scenes, open-world control, matching quality checks and runtime dependencies.
-2. Review the mega PR and verify remote CI on its actual merge candidate. No push,
+1. Review the mega PR and verify remote CI on its actual merge candidate. No push,
    PR publication or merge is implied by this local validation record.
-3. A visual preview remains advisable before publishing the docs. The landing
-   content is intentionally unchanged for IROS week.
+2. Preserve the receipt's recorded ancestor (or regenerate after a history rewrite),
+   then check main CI, installation and docs deployment after an authorized merge.
+   The landing content is intentionally unchanged for IROS week.
 
 Clean/incremental build-speed measurements, a paper-protocol comparison, competitor
 and MMD reruns, other architectures/toolchains and physical robot testing remain
