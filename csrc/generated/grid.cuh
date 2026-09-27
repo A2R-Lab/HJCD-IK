@@ -246,9 +246,9 @@ namespace grid {
     enum gridDataKind { GRID_DATA_ALL = 0, GRID_DATA_DYNAMICS = 1, GRID_DATA_KINEMATICS = 2 };
     enum gridSharedTier { GRID_SHARED_FULL = 0, GRID_SPILL_DA_DF_OUTPUT = 1, GRID_SPILL_DV_DA_DF_OUTPUT = 2 };
     // Time integrator family selected by integrator kernels at compile time.
-    // EULER / SEMI_IMPLICIT_EULER / TRAPEZOIDAL are single-stage; MIDPOINT / RK3 / RK4
+    // EULER / SEMI_IMPLICIT_EULER / CONSTANT_ACCELERATION are single-stage; MIDPOINT / TRAPEZOIDAL / RK4
     // are multi-stage (driven inline from integrator_inner). TRAPEZOIDAL = 5 (NOT MIDPOINT=2).
-    enum class IntegratorType { EULER = 0, SEMI_IMPLICIT_EULER = 1, MIDPOINT = 2, RK3 = 3, RK4 = 4, TRAPEZOIDAL = 5 };
+    enum class IntegratorType { EULER = 0, SEMI_IMPLICIT_EULER = 1, MIDPOINT = 2, RK4 = 3, TRAPEZOIDAL = 4, CONSTANT_ACCELERATION = 5 };
 
     #ifndef GRID_CUDA_ENABLE_L2_PERSISTING
     #define GRID_CUDA_ENABLE_L2_PERSISTING 0
@@ -795,7 +795,7 @@ namespace grid {
 
     // Vendored from GLASS at codegen time (nested in this namespace).
     // Source repository: git@github.com:A2R-Lab/GLASS.git
-    // Pinned commit: e83b0861fcc274989a89a8f7e63bb6f19445e5c0
+    // Pinned commit: 8ce68a29bceb30c7764c9391d517a182d061697d
     namespace glass {
 
     // BEGIN GLASS src/base/barrier.cuh
@@ -14399,7 +14399,8 @@ namespace grid_plant {
     // [grid_plant] ee_pos_gradient skipped: requires 'end_effector_pose_gradient' — not generated.
     // [grid_plant] ee_pos_cost skipped: requires both 'end_effector_pose' and 'end_effector_pose_gradient' (grid::end_effector_pose[_gradient]_device) — not generated.
     // [grid_plant] tracking_cost preset skipped: requires ee_pos_cost (both 'end_effector_pose' and 'end_effector_pose_gradient').
-    // [grid_plant] com_cost/momentum_cost skipped: require grid::com_device/ccrba_device (need 'com'+'ccrba').
+    // [grid_plant] com_cost skipped: requires 'com'+'ccrba'.
+    // [grid_plant] momentum_cost skipped: requires 'dccrba' for the full tangent-state Jacobian.
     /**
      * quadratic_state_cost_kernel: value + gradient + GN-diag hessian per timestep
      *
