@@ -59,6 +59,9 @@ Correctness/compilation ran on a shared machine; no performance timings were tak
   and 24-DoF builds. C++ front ends compiled with warnings-as-errors.
 - **Collision + initialization-failure Memcheck: 31 passed, zero errors.**
   Native 24-DoF Memcheck also reported zero errors.
+- Focused Racecheck covered partial blocks, both precisions, early-stop and hard/both
+  collision paths: **zero errors and zero warnings**. Synccheck on both partial-block
+  precision cases: **2 passed, zero errors**.
 - Independent no-collision Fetch and 24-DoF wheels: four sampled targets, both
   precisions, W=1/3/4/16, 96 returned rows per model. FK, finite values, limits,
   output-error units and header identity checked. Maximum FK position differences
