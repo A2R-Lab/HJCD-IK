@@ -90,4 +90,7 @@ the default ``"hard"`` is explicit and ignores that variable.
 
    targets = sample_targets(num_targets=10, seed=0)
    out = generate_solutions(targets[0], batch_size=2000, num_solutions=4)
-   print(out["count"], out["pos_errors"].min())
+   print(out["count"], "candidates")
+   if out["count"]:
+       print("best position error (mm):", out["pos_errors"].min())
+       print("best orientation error (rad):", out["ori_errors"].min())

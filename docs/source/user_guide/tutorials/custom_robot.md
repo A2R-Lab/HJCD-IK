@@ -2,6 +2,10 @@
 
 HJCD-IK's kinematics are generated from a URDF by GRiD into `csrc/generated/grid.cuh`.
 
+Install the codegen dependencies first: `python -m pip install -e '.[codegen]'`.
+Each wheel contains one robot model; switching a Python variable or URDF filename at
+runtime does not change the compiled solver. Check `hjcdik.build_info()` after rebuilding.
+
 ## Regenerate `grid.cuh`
 ```bash
 python scripts/codegen/generate_grid.py path/to/robot.urdf -t <ee_target_frame>
@@ -38,8 +42,9 @@ ctest --test-dir "$model_dir/build" --output-on-failure
 ```
 
 `HJCDIK_GRID_HEADER` must point to a generated file named `grid.cuh`. Each build directory
-selects its own robot; use different directories for different models. Automatic codegen remains
-the default Panda workflow, so generate custom headers explicitly.
+selects its own robot; use different directories for different models. Automatic codegen is
+an opt-in (`HJCDIK_AUTO_CODEGEN=ON`) restricted to the default Panda workflow; generate
+custom headers explicitly. Ordinary builds use the committed header without regeneration.
 
 For a Python wheel, pass the same option through scikit-build-core and select a separate build directory:
 

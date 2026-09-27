@@ -8,7 +8,7 @@ canonical contributor entry points are the repository's `CLAUDE.md` (architectur
 
 ## Before you start
 
-- Initialize submodules: `git submodule update --init --recursive`.
+- Initialize required pinned submodules: `bash scripts/setup/bootstrap.sh`.
 - Set up a dev environment (venv, deps, codegen, build, **and the docs toolchain**) with
   `./scripts/setup/setup_dev.sh`.
 
@@ -69,7 +69,7 @@ docs/development/     un-published support docs (agent_debugging_guide, STARTUP_
 ./scripts/setup/setup_dev.sh        # installs the docs toolchain into .venv (+ doxygen via apt)
 source .venv/bin/activate
 
-cd docs && make all                 # docs only → docs/build/html/index.html
+make -C docs all                    # docs only → docs/build/html/index.html
 #   — or —
 ./scripts/build_site.sh             # full site → _site/ (landing at /, docs under /docs/)
 ```
@@ -90,6 +90,21 @@ cd docs && make all                 # docs only → docs/build/html/index.html
 
 Deployment is **automatic**: any push to `main` touching `docs/**`, `csrc/**`, or
 `examples/**` triggers `.github/workflows/gh-pages.yml`, which runs `scripts/build_site.sh` and publishes
-`_site/` to GitHub Pages. No manual regeneration — edit, commit to `main`, and the site rebuilds. (Force a
-rebuild from the Actions tab via `workflow_dispatch`.) Requirements: **Settings → Pages → Source** must be
-**"GitHub Actions"**, and the workflow only runs on `main`.
+`_site/` to GitHub Pages. Pull requests build the site without deploying. Merge reviewed changes
+to `main` to publish (or dispatch the workflow on `main`). Requirements:
+**Settings → Pages → Source** must be **"GitHub Actions"**. Landing-page assets under
+`docs/landing/` and published paper figures/tables need not change when updating `/docs/`.
+
+### Release checks
+
+Run the full tests, example/quickstart tests, header freshness check, native CTest checks,
+and strict docs build after the final edits. Validate a wheel built from the source archive
+in a separate environment. Record a fresh signed GPU proof from a clean checkout after
+committing the test manifest. The manifest binds implementation, dependencies, examples,
+and executable documentation. Do not remove user files just to obtain a clean recording tree.
+
+The proof accepts an ancestor commit only while its source fingerprint still matches.
+Preserve that ancestor with a merge commit, or regenerate the proof after a rebase/squash;
+never assume a pre-rewrite receipt remains valid. Verify the final merge candidate and
+check dependency commits are published. GPU tests remain local/signed until a self-hosted
+runner is available; a docs build or signature check is not a new GPU test execution.

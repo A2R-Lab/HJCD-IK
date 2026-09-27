@@ -3,7 +3,7 @@
 min_schema: 3
 allow_dirty: false
 max_age_days: 30
-required_fingerprint_paths: [csrc, hjcdik, tests, benchmark, scripts, CMakeLists.txt, pyproject.toml, .gitmodules, external]
+required_fingerprint_paths: [csrc, hjcdik, tests, benchmark, scripts, examples, docs/source, README.md, CMakeLists.txt, pyproject.toml, .gitmodules, external]
 required_fingerprint_extra_paths: []
 required_fingerprint_excluded_paths: [gpu-proof.json]
 required_test_manifest: tests/gpu-proof-tests.txt

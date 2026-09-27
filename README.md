@@ -23,7 +23,7 @@ more robot configurations for a target end-effector pose.
 Clone the repository:
 
 ```bash
-git clone --recurse-submodules https://github.com/A2R-Lab/HJCD-IK.git
+git clone https://github.com/A2R-Lab/HJCD-IK.git
 cd HJCD-IK
 ```
 
@@ -103,6 +103,11 @@ print("position errors:", result["pos_errors"])
 print("orientation errors:", result["ori_errors"])
 ```
 
+Each call solves **one target**. `batch_size` is the number of candidate configurations,
+not the number of target poses. A wheel contains one compiled robot; use `build_info()`
+to confirm its identity. See [upgrading and verified scope](docs/source/user_guide/upgrading.md)
+for changes to collision defaults, native ownership, and error handling.
+
 Target poses use:
 
 ```text
@@ -178,7 +183,7 @@ When adding or renaming tests, regenerate and commit the proof manifest before r
 python scripts/setup/update_gpu_proof_manifest.py
 ```
 
-The GPU-proof policy binds the full test list, solver sources, build/codegen scripts, and dependency
+The GPU-proof policy binds the full test list, solver sources, executable docs/examples, build/codegen scripts, and dependency
 gitlinks. A scoped `pytest -k ...` run is useful for diagnosis but cannot certify the full suite.
 
 Run one test file:
@@ -372,7 +377,11 @@ Then rebuild:
 python -m pip install -e . --no-build-isolation
 ```
 
-HJCD-IK supports revolute, prismatic, and fixed joints.
+HJCD-IK supports fixed-base serial chains with 1–32 independent revolute or continuous
+joints rotating around local +Z; fixed joints may connect links and the tool frame.
+Prismatic, mimic, branched, floating-base, and other-axis models are rejected.
+GRiD supports more robot classes than this solver. See the
+[custom-robot guide](docs/source/user_guide/tutorials/custom_robot.md).
 
 ### Collision checking for a custom robot
 

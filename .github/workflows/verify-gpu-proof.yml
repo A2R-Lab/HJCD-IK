@@ -6,8 +6,8 @@ name: Verify GPU Proof
 # correctness gate merges without paying for a GPU CI runner — the receipt is
 # produced locally on a real GPU by scripts/setup/run_gpu_proof.sh.
 #
-# HJCD-IK has no CPU-only test lane (every test drives the CUDA kernel), so this is
-# the whole CI: verify the receipt.
+# The full suite includes host/codegen/example contracts as well as CUDA tests.
+# This job verifies their locally produced receipt; it does not execute GPU tests.
 
 on:
   push:

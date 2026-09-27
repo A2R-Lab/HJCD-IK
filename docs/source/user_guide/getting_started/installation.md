@@ -8,7 +8,7 @@ promising ones, with optional collision avoidance. Kinematics come from [GRiD](h
 
 ## Requirements
 
-- CUDA 12.x or 13.x toolkit (`nvcc`) and an NVIDIA GPU
+- Linux, a CUDA 12.x or 13.x toolkit (`nvcc`), and an NVIDIA GPU
 - CMake ≥ 3.24, a C++17 host compiler
 - Python ≥ 3.9
 - System header library: **nlohmann-json** (the collision environment parser includes it)
@@ -24,9 +24,12 @@ On other platforms install `nlohmann-json` via your package manager.
 ## Build
 
 ```bash
-git clone --recursive https://github.com/A2R-Lab/HJCD-IK
+git clone https://github.com/A2R-Lab/HJCD-IK
 cd HJCD-IK
-# or, if already cloned:  git submodule update --init --recursive
+bash scripts/setup/bootstrap.sh      # only the required pinned submodules
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
 python -m pip install -e .
 ```
 
@@ -69,9 +72,16 @@ out = generate_solutions(
     num_solutions=4,     # distinct solutions to return
 )
 print("returned:", out["count"])
-print("best position error:", out["pos_errors"].min())
+if out["count"]:
+    print("best position error (mm):", out["pos_errors"].min())
+    print("best orientation error (rad):", out["ori_errors"].min())
 print("joint configs shape:", out["joint_config"].shape)
 ```
+
+`batch_size` counts candidate configurations for one target, not independent targets.
+Targets/returned poses use meters and `wxyz` quaternions; returned errors use millimeters
+and radians. Check both errors against your application's tolerances, even when `count > 0`.
+The result arrays have `count` rows, not necessarily `num_solutions` rows.
 
 For collision-free solving, pass `collision_free=True` with a MotionBenchMaker problem set — see the
 {doc}`../benchmarks/results` page (runnable examples + benchmarks). To target a different robot or

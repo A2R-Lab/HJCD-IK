@@ -30,6 +30,7 @@ codegen = [
   "sympy>=1.7.1",
   "beautifulsoup4>=4.9.3",
   "lxml>=4.2.1",
+  "trimesh>=4",               # optional mesh-to-sphere custom-robot codegen
 ]
 # Lightweight tooling + PyRoki's pure-python friends that pip CAN resolve. The solver stacks
 # themselves (PyRoki, cuRobo) and their JAX-CUDA / torch deps are NOT plain-PyPI installs — run
@@ -84,7 +85,7 @@ github_username = "plancherb1"     # org remotes (A2R-Lab) carry no SSH keys —
 required_marker = "gpu_proof"
 # The verifier permits ancestor commits, so fingerprints must cover implementation as well
 # as tests. pytest-gpu-proof >=0.4 records submodule gitlinks in its v2 source manifest.
-fingerprint_paths = ["csrc", "hjcdik", "tests", "benchmark", "scripts", "CMakeLists.txt", "pyproject.toml", ".gitmodules", "external"]
+fingerprint_paths = ["csrc", "hjcdik", "tests", "benchmark", "scripts", "examples", "docs/source", "README.md", "CMakeLists.txt", "pyproject.toml", ".gitmodules", "external"]
 fingerprint_excluded_paths = ["gpu-proof.json"]
 max_age_days = 30
 require_gpu = true

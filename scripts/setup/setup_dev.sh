@@ -53,7 +53,7 @@ echo "[setup] (2/4) venv + deps ..."
 pip install -q --upgrade pip
 # Install codegen and test dependencies before regeneration; the editable build happens after codegen.
 # Keep this explicit to avoid building once against the committed header and immediately rebuilding.
-pip install -q numpy sympy beautifulsoup4 lxml pytest scipy pytest-gpu-proof pyyaml
+pip install -q numpy sympy beautifulsoup4 lxml trimesh pytest scipy 'pytest-gpu-proof>=0.4.0' pyyaml
 # Docs toolchain (Sphinx + Breathe + pydata theme) so `make -C docs all` builds the site in this venv.
 pip install -q -r docs/requirements.txt
 

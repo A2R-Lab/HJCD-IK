@@ -30,6 +30,12 @@ tests/test_api.py::test_target_values_must_be_finite[-inf]
 tests/test_api.py::test_target_values_must_be_finite[inf]
 tests/test_api.py::test_target_values_must_be_finite[nan]
 tests/test_api.py::test_zero_quaternion_is_rejected
+tests/test_benchmark_setup.py::test_benchmark_codegen_failure_propagates
+tests/test_benchmark_setup.py::test_benchmark_codegen_skip_and_custom_target
+tests/test_benchmark_setup.py::test_benchmark_delegates_to_canonical_codegen[False]
+tests/test_benchmark_setup.py::test_benchmark_delegates_to_canonical_codegen[True]
+tests/test_benchmark_setup.py::test_paper_workflow_selects_collision_builds_without_running_benchmarks[False]
+tests/test_benchmark_setup.py::test_paper_workflow_selects_collision_builds_without_running_benchmarks[True]
 tests/test_codegen.py::test_explicit_glass_provenance_is_archive_reproducible
 tests/test_codegen.py::test_failed_codegen_preserves_previous_header[flags0-fixed-base serial chain]
 tests/test_codegen.py::test_failed_codegen_preserves_previous_header[flags1-grid namespace]
@@ -68,6 +74,17 @@ tests/test_collision_model.py::test_obstacle_at_each_compiled_finger_distinguish
 tests/test_collision_model.py::test_paper_default_is_preserved_and_openings_are_distinct
 tests/test_collision_model.py::test_result_sidecar_records_validation_model_and_compiled_header
 tests/test_collision_model.py::test_unknown_model_is_rejected
+tests/test_examples.py::test_documented_quickstarts[README.md-## Quick Start]
+tests/test_examples.py::test_documented_quickstarts[docs/source/api_reference/python.rst-.. code-block:: python]
+tests/test_examples.py::test_documented_quickstarts[docs/source/index.rst-Quick start]
+tests/test_examples.py::test_documented_quickstarts[docs/source/user_guide/getting_started/installation.md-## Quickstart]
+tests/test_examples.py::test_documented_quickstarts[docs/source/user_guide/upgrading.md-For example,]
+tests/test_examples.py::test_examples_handle_no_candidates[01_open_world_solve]
+tests/test_examples.py::test_examples_handle_no_candidates[02_collision_free_solve]
+tests/test_examples.py::test_examples_handle_no_candidates[03_batch_sweep]
+tests/test_examples.py::test_examples_run_from_another_directory[01_open_world_solve]
+tests/test_examples.py::test_examples_run_from_another_directory[02_collision_free_solve]
+tests/test_examples.py::test_examples_run_from_another_directory[03_batch_sweep]
 tests/test_fk_equivalence.py::test_cp_deterministic_for_fixed_seed
 tests/test_fk_equivalence.py::test_cp_generated_poses_finite_and_normalized
 tests/test_fk_equivalence.py::test_cp_q_matches_direct_cuda_transcription

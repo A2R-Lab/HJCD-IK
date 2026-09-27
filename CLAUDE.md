@@ -28,7 +28,8 @@ barriers. Two phases (`csrc/kernel/hjcd_kernel.cu`):
 
 Forward kinematics produces the **world-frame joint transforms** `s_jointXforms[16·jid]` (4×4 each); the EE
 pose error is computed as a **quaternion** error (`mat_to_quat` / `quat_err_rotvec`). For Panda: `N = 7`
-joints, `EE_IDX = 7`, `FLANGE_IDX = 8`, `NX = 9` stored frames.
+joints. Target indices and transform counts are generated constants; the default
+`panda_grasptarget_hand` build currently has `grid::EE_FIXED_FRAME_IDX = 10`.
 
 ## Key files
 
@@ -100,7 +101,7 @@ out = generate_solutions(targets[0], batch_size=2000, num_solutions=4)
 
 ## Integration — re-based on GRiD/GLASS (merged to `main`, 2026-07-11)
 
-HJCD-IK is re-based onto the latest GRiD (`modernizing-tests`) + GLASS (`main`) for modularity and
+HJCD-IK integrates pinned GRiD (`modernizing-tests`) + GLASS (`main`) revisions for modularity and
 upstreamable performance. The bespoke Panda-only FK (`X_warp` / `X_single_thread`) was replaced by GRiD's
 stock warp FK (`grid::ee_pose_inner_warp`), and the hand-rolled math (`mat4_mul`, warp reduce, warp Cholesky)
 moved onto GLASS's `glass::warp::` sub-namespace. The end-effector frame is now **per-robot** (codegen
