@@ -5,6 +5,30 @@ The feature branch includes `main` through `9dd1ea2` (funding acknowledgement).
 This is a review record with bounded before/after measurements, not a new
 paper-results table or a cross-hardware performance claim.
 
+## GRiD main integration — 2026-10-01
+
+The final integration follows GRiD's merged `main`, superseding the September 27
+dependency identities below. `.gitmodules` now tracks `main` rather than
+`modernizing-tests`; bootstrap still checks out the exact committed pin.
+
+- GRiD: `0a14c0f1d6957687d606cc9d3dde6f6bce004233`.
+- Nested URDFParser: `07dee119204be9578bc64f54475bca93f7e13988`.
+- Nested RBDReference: `595e4a3cfafae74d5b248e08d13dc667d625c6b9`.
+- Top/nested GLASS and foam pins are unchanged.
+
+Panda collision-enabled, Fetch and 24-DoF no-collision headers regenerated under
+these pins are **byte-identical** to the previously validated headers. GRiD's
+collision helper sources and HJCD's compiled solver/GLASS inputs are unchanged.
+The newer upstream dynamics fixes concern floating/mimic models outside HJCD's
+supported fixed-base model. The parser now raises informative errors for malformed
+input rather than returning `None`; valid bundled models retain their output.
+
+The full suite passed again: **140 tests**, three expected fixed-base inertia
+warnings; native API/CLI **2/2 passed**, using the existing validated release
+binaries. No recompilation or additional performance measurement is necessary for
+identical compiled inputs. A new signed receipt must bind this dependency update
+before merge; the September receipt alone does not cover the new gitlink.
+
 ## Scope and compatibility
 
 The branch hardens collision filtering/cache identity, CUDA error handling and
