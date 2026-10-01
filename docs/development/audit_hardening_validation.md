@@ -26,8 +26,8 @@ input rather than returning `None`; valid bundled models retain their output.
 The full suite passed again: **140 tests**, three expected fixed-base inertia
 warnings; native API/CLI **2/2 passed**, using the existing validated release
 binaries. No recompilation or additional performance measurement is necessary for
-identical compiled inputs. A new signed receipt must bind this dependency update
-before merge; the September receipt alone does not cover the new gitlink.
+identical compiled inputs. A fresh signed 140-test receipt now binds the dependency
+update at `175479f`; the September receipt is superseded for this new gitlink.
 
 ## Scope and compatibility
 
