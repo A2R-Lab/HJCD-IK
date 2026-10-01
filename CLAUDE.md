@@ -101,7 +101,7 @@ out = generate_solutions(targets[0], batch_size=2000, num_solutions=4)
 
 ## Integration — re-based on GRiD/GLASS (merged to `main`, 2026-07-11)
 
-HJCD-IK integrates pinned GRiD (`modernizing-tests`) + GLASS (`main`) revisions for modularity and
+HJCD-IK integrates pinned GRiD (`main`) + GLASS (`main`) revisions for modularity and
 upstreamable performance. The bespoke Panda-only FK (`X_warp` / `X_single_thread`) was replaced by GRiD's
 stock warp FK (`grid::ee_pose_inner_warp`), and the hand-rolled math (`mat4_mul`, warp reduce, warp Cholesky)
 moved onto GLASS's `glass::warp::` sub-namespace. The end-effector frame is now **per-robot** (codegen
