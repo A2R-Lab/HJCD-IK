@@ -3,7 +3,8 @@ HJCD-IK
 
 **Hybrid Jacobian Coordinate Descent Inverse Kinematics** — a GPU-accelerated, *batched* inverse
 kinematics solver that generates many candidate solutions in parallel for a 6-DOF end-effector target,
-with optional collision avoidance. One CUDA block per IK problem, one candidate per warp.
+with optional collision avoidance. Each call solves one target: coarse search uses one block
+per candidate, then Levenberg–Marquardt refinement uses one warp per candidate.
 
 Built on `GRiD <https://github.com/A2R-Lab/GRiD>`_ (robot kinematics codegen) and
 `GLASS <https://github.com/A2R-Lab/GLASS>`_ (single-block / warp-scoped CUDA linear algebra).
@@ -59,7 +60,10 @@ Quick start
 
    target = sample_targets(num_targets=1, seed=0)[0]   # [x, y, z, qw, qx, qy, qz]
    out = generate_solutions(target, batch_size=2000, num_solutions=4)
-   print(out["count"], "solutions; best position error:", out["pos_errors"].min())
+   print(out["count"], "candidates")
+   if out["count"]:
+       print("best position error (mm):", out["pos_errors"].min())
+       print("best orientation error (rad):", out["ori_errors"].min())
 
 .. toctree::
    :hidden:
@@ -67,6 +71,7 @@ Quick start
 
    user_guide/getting_started/installation
    user_guide/tutorials/custom_robot
+   user_guide/upgrading
 
 .. toctree::
    :hidden:

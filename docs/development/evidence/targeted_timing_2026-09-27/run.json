@@ -1,0 +1,227 @@
+{
+  "start": "2026-09-27T04:30:21.362086+00:00",
+  "status": "complete",
+  "settings": {
+    "check": false,
+    "run": true,
+    "worker": false,
+    "inspect": false,
+    "minutes": 30,
+    "rounds": 3,
+    "targets": 32,
+    "repeats": 4,
+    "max_cpu_busy": 0.2,
+    "label": null,
+    "case": null,
+    "round": 0,
+    "output": null
+  },
+  "endpoints": {
+    "baseline": {
+      "site": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/timing-prebuild-2026-09-26/current-panda/site",
+      "commit": "209be95",
+      "module_hash": "764540a93c3c812b4a6365113e418074fb6f09f93195eb35f60a1b2269702cff",
+      "header_hash": "2e4a7433cc72f001bfdb452ca9b31f5ce3b019adf9e0a9f4894ea14fb6a800ef"
+    },
+    "latest": {
+      "site": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/premerge-2026-09-27/timing-site",
+      "commit": "516b988",
+      "module_hash": "aa5a9ff7d673dcd4ac82d4e6ca97ad7297d484a55b6c1679c5dc21735672d430",
+      "header_hash": "3f6c65fd9e8e91c7ae50ee072215f45d4717edc8fe11a399ebc84e07922a802d"
+    }
+  },
+  "inputs": {
+    "panda.json": "f122146a74d01322a5fc6bb7a4175ef762438c1b8ceda1687691094c73b4e095",
+    "mb_problems.json": "69a3eae85e68d8cf696280e12407ac870b887b59a2913b52c4214524bc55dc94"
+  },
+  "oracle": {
+    "benchmark/gen_targets.py": "093bedcee45b240d500188747878ca77c0eec9db6f2698c3ba6ea04a30fc16f7",
+    "benchmark/panda_collision.py": "55a5dc7e64f3cb16252d7fc9d5cc2f88459b97d45bac02244269a30c54d62d10",
+    "benchmark/panda_model.py": "33704dcef13bc53bb15fb84c42d5ac2c32bada24abbde76b61e17d780a1b649f",
+    "benchmark/collision_check.py": "e268a78fa75304e7d5e2af92b5360c1b111ab1ee14db1740d8958f2b11514685",
+    "benchmark/reference/panda_collision_model.cuh": "c1cc0653acf8d24fed163c623c599dec2dc8bb8ee12ed372ed09bfeba745fe7b",
+    "csrc/urdf/panda.urdf": "90bb0a412eb12a3af0abb9d5d0f06be3dbbe1a72806b0416dd9769992cb35079",
+    "external/foam/assets/panda/smaller_panda_spherized.urdf": "f90e26dcce184014335ce013f62a563425d8b82ba5fecf8a71480a5e0722853e"
+  },
+  "cases": [
+    {
+      "name": "open-s1-fp64",
+      "mode": "open",
+      "document": "none",
+      "order": "switch",
+      "solutions": 1,
+      "precision": 1
+    },
+    {
+      "name": "open-s4-fp32",
+      "mode": "open",
+      "document": "none",
+      "order": "switch",
+      "solutions": 4,
+      "precision": 0
+    },
+    {
+      "name": "hard-full-repeat",
+      "mode": "hard",
+      "document": "full",
+      "order": "repeat",
+      "solutions": 4,
+      "precision": 0
+    },
+    {
+      "name": "hard-full-switch",
+      "mode": "hard",
+      "document": "full",
+      "order": "switch",
+      "solutions": 4,
+      "precision": 0
+    },
+    {
+      "name": "hard-compact-repeat",
+      "mode": "hard",
+      "document": "compact",
+      "order": "repeat",
+      "solutions": 4,
+      "precision": 0
+    },
+    {
+      "name": "hard-compact-switch",
+      "mode": "hard",
+      "document": "compact",
+      "order": "switch",
+      "solutions": 4,
+      "precision": 0
+    },
+    {
+      "name": "both-full-repeat",
+      "mode": "both",
+      "document": "full",
+      "order": "repeat",
+      "solutions": 4,
+      "precision": 0
+    },
+    {
+      "name": "both-full-switch",
+      "mode": "both",
+      "document": "full",
+      "order": "switch",
+      "solutions": 4,
+      "precision": 0
+    },
+    {
+      "name": "both-compact-repeat",
+      "mode": "both",
+      "document": "compact",
+      "order": "repeat",
+      "solutions": 4,
+      "precision": 0
+    },
+    {
+      "name": "both-compact-switch",
+      "mode": "both",
+      "document": "compact",
+      "order": "switch",
+      "solutions": 4,
+      "precision": 0
+    }
+  ],
+  "completed": [
+    "r00-open-s1-fp64-baseline",
+    "r00-open-s1-fp64-latest",
+    "r00-open-s4-fp32-latest",
+    "r00-open-s4-fp32-baseline",
+    "r00-hard-full-repeat-baseline",
+    "r00-hard-full-repeat-latest",
+    "r00-hard-full-switch-latest",
+    "r00-hard-full-switch-baseline",
+    "r00-hard-compact-repeat-baseline",
+    "r00-hard-compact-repeat-latest",
+    "r00-hard-compact-switch-latest",
+    "r00-hard-compact-switch-baseline",
+    "r00-both-full-repeat-baseline",
+    "r00-both-full-repeat-latest",
+    "r00-both-full-switch-latest",
+    "r00-both-full-switch-baseline",
+    "r00-both-compact-repeat-baseline",
+    "r00-both-compact-repeat-latest",
+    "r00-both-compact-switch-latest",
+    "r00-both-compact-switch-baseline",
+    "r01-open-s1-fp64-latest",
+    "r01-open-s1-fp64-baseline",
+    "r01-open-s4-fp32-baseline",
+    "r01-open-s4-fp32-latest",
+    "r01-hard-full-repeat-latest",
+    "r01-hard-full-repeat-baseline",
+    "r01-hard-full-switch-baseline",
+    "r01-hard-full-switch-latest",
+    "r01-hard-compact-repeat-latest",
+    "r01-hard-compact-repeat-baseline",
+    "r01-hard-compact-switch-baseline",
+    "r01-hard-compact-switch-latest",
+    "r01-both-full-repeat-latest",
+    "r01-both-full-repeat-baseline",
+    "r01-both-full-switch-baseline",
+    "r01-both-full-switch-latest",
+    "r01-both-compact-repeat-latest",
+    "r01-both-compact-repeat-baseline",
+    "r01-both-compact-switch-baseline",
+    "r01-both-compact-switch-latest",
+    "r02-open-s1-fp64-baseline",
+    "r02-open-s1-fp64-latest",
+    "r02-open-s4-fp32-latest",
+    "r02-open-s4-fp32-baseline",
+    "r02-hard-full-repeat-baseline",
+    "r02-hard-full-repeat-latest",
+    "r02-hard-full-switch-latest",
+    "r02-hard-full-switch-baseline",
+    "r02-hard-compact-repeat-baseline",
+    "r02-hard-compact-repeat-latest",
+    "r02-hard-compact-switch-latest",
+    "r02-hard-compact-switch-baseline",
+    "r02-both-full-repeat-baseline",
+    "r02-both-full-repeat-latest",
+    "r02-both-full-switch-latest",
+    "r02-both-full-switch-baseline",
+    "r02-both-compact-repeat-baseline",
+    "r02-both-compact-repeat-latest",
+    "r02-both-compact-switch-latest",
+    "r02-both-compact-switch-baseline"
+  ],
+  "harness_sha256": "aedebc54e6ee8e3d19901a783c019280d0dd8bfc20f4f8160490733b0407f2a4",
+  "launcher_sha256": "8b619862830851f6a4ee7f13cdb4547f4ebb09b395ab991448307ac63eb7ded1",
+  "solver_environment": {
+    "OPENBLAS_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "HJCD_LM_WARPS": "1",
+    "HJCD_LM_EPS_POS": "1e-8",
+    "HJCD_LM_EPS_ORI": "1e-8"
+  },
+  "imports": {
+    "baseline": {
+      "module": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/timing-prebuild-2026-09-26/current-panda/site/hjcdik/_hjcdik.cpython-312-x86_64-linux-gnu.so",
+      "numpy": "2.5.1",
+      "build": {
+        "num_joints": 7,
+        "collision_enabled": true,
+        "grid_header_sha256": "2e4a7433cc72f001bfdb452ca9b31f5ce3b019adf9e0a9f4894ea14fb6a800ef",
+        "cuda_compiler_version": "13.2.86"
+      },
+      "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+      "wrapper_hash": "4b792e511cdbad8d10ae9b80529bedf85dee5cd66c7c3ef14781faccf6e6246f"
+    },
+    "latest": {
+      "module": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/premerge-2026-09-27/timing-site/hjcdik/_hjcdik.cpython-312-x86_64-linux-gnu.so",
+      "numpy": "2.5.1",
+      "build": {
+        "num_joints": 7,
+        "collision_enabled": true,
+        "grid_header_sha256": "3f6c65fd9e8e91c7ae50ee072215f45d4717edc8fe11a399ebc84e07922a802d",
+        "cuda_compiler_version": "13.2.86"
+      },
+      "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+      "wrapper_hash": "4b792e511cdbad8d10ae9b80529bedf85dee5cd66c7c3ef14781faccf6e6246f"
+    }
+  },
+  "hardware": "GPU-bf781ab0-9632-4b9a-497b-c3b846aae70c, NVIDIA GeForce RTX 5090, 615.71.09",
+  "finished": "2026-09-27T04:33:08.842096+00:00"
+}

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-shot local dev setup for HJCD-IK: submodules (on our branches), a project
+# One-shot local dev setup for HJCD-IK: pinned submodules, a project
 # venv, codegen, and an editable build — so the whole pipeline runs against our
 # own copy of GRiD/GLASS.
 #
@@ -8,7 +8,7 @@
 # Sets up everything needed to build the extension AND the docs site (Sphinx + Doxygen).
 #
 # Env overrides:
-#   GLASS_LOCAL       sibling GLASS checkout to overlay our branch from (default ~/Desktop/GLASS)
+#   GLASS_LOCAL       optional sibling GLASS checkout to overlay (unset by default)
 #   GLASS_BRANCH      GLASS branch to use (default main)
 #   PYTHON            python interpreter (default python3)
 #   SKIP_APT=1        skip the system (apt) deps step
@@ -16,35 +16,31 @@
 #   SKIP_BUILD=1      set up env + codegen but skip the editable build
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-ROOT="$(pwd)"
-
-GLASS_LOCAL="${GLASS_LOCAL:-$HOME/Desktop/GLASS}"
+GLASS_LOCAL="${GLASS_LOCAL:-}"
 GLASS_BRANCH="${GLASS_BRANCH:-main}"
 PYTHON="${PYTHON:-python3}"
+"$PYTHON" -c 'import sys; sys.exit("Development setup requires Python 3.11 or newer") if sys.version_info < (3, 11) else None'
 
-# System (C++/CUDA) build dependencies. The build needs the CUDA toolkit (nvcc) plus two
-# header libraries: Eigen3 and nlohmann-json (the collision env parser includes it).
+# System (C++/CUDA) build dependencies. The build needs the CUDA toolkit (nvcc) and
+# nlohmann-json headers for the collision environment parser.
 # Set SKIP_APT=1 to skip the apt step (e.g. on non-Debian systems — install the equivalents
-# manually: cuda-toolkit, libeigen3-dev, nlohmann-json3-dev).
+# manually: cuda-toolkit, nlohmann-json3-dev).
 if [ "${SKIP_APT:-0}" != "1" ] && command -v apt-get >/dev/null 2>&1; then
-  echo "[setup] (0/4) system deps (Eigen3, nlohmann-json, Doxygen) via apt ..."
-  sudo apt-get install -y --no-install-recommends libeigen3-dev nlohmann-json3-dev doxygen \
-    || echo "[setup] WARNING: apt install failed; install libeigen3-dev + nlohmann-json3-dev + doxygen manually"
+  echo "[setup] (0/4) system deps (nlohmann-json, Doxygen) via apt ..."
+  sudo apt-get install -y --no-install-recommends nlohmann-json3-dev doxygen \
+    || echo "[setup] WARNING: apt install failed; install nlohmann-json3-dev + doxygen manually"
 else
-  echo "[setup] (0/4) skipping apt; ensure these are installed: cuda-toolkit, libeigen3-dev, nlohmann-json3-dev, doxygen (for docs)"
+  echo "[setup] (0/4) skipping apt; ensure these are installed: cuda-toolkit, nlohmann-json3-dev, doxygen (for docs)"
 fi
 
 if [ "${SKIP_SUBMODULES:-0}" != "1" ]; then
   echo "[setup] (1/4) submodules ..."
-  bash scripts/setup/bootstrap.sh                       # external/GRiD + nested GRiDCodeGenerator/URDFParser
-  git submodule update --init external/GLASS
-  # Overlay our local GLASS branch for dev (so we build against our warp primitives).
-  if [ -e "$GLASS_LOCAL/.git" ]; then
+  bash scripts/setup/bootstrap.sh
+  # Explicit opt-in only: normal setup must reproduce the repository's committed pins.
+  if [ -n "$GLASS_LOCAL" ] && [ -e "$GLASS_LOCAL/.git" ]; then
     echo "[setup] overlaying GLASS '$GLASS_BRANCH' from $GLASS_LOCAL"
-    git -C external/GLASS remote add local "$GLASS_LOCAL" 2>/dev/null || true
-    if git -C external/GLASS fetch -q local "$GLASS_BRANCH"; then
-      git -C external/GLASS checkout -q "$GLASS_BRANCH" || git -C external/GLASS checkout -q FETCH_HEAD
-    fi
+    git -C external/GLASS fetch -q "$GLASS_LOCAL" "$GLASS_BRANCH"
+    git -C external/GLASS checkout -q --detach FETCH_HEAD
   fi
 else
   echo "[setup] (1/4) skipping submodules (SKIP_SUBMODULES=1) — using current checkout"
@@ -55,14 +51,15 @@ echo "[setup] (2/4) venv + deps ..."
 # shellcheck disable=SC1091
 . .venv/bin/activate
 pip install -q --upgrade pip
-# Codegen (GRiD) needs numpy/sympy/bs4/lxml; tests need pytest/scipy — mirrors pyproject
-# `dependencies` + the `[dev]` extra. (Kept explicit so codegen at step 3 works before the build.)
-pip install -q numpy sympy beautifulsoup4 lxml pytest scipy
+# Install codegen and test dependencies before regeneration; the editable build happens after codegen.
+# Keep this explicit to avoid building once against the committed header and immediately rebuilding.
+pip install -q numpy sympy beautifulsoup4 lxml trimesh pytest scipy 'pytest-gpu-proof>=0.4.0' pyyaml
 # Docs toolchain (Sphinx + Breathe + pydata theme) so `make -C docs all` builds the site in this venv.
 pip install -q -r docs/requirements.txt
 
 echo "[setup] (3/4) generate grid.cuh ..."
-python scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_grasptarget_hand
+python scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_grasptarget_hand \
+  --collision --spherized-urdf external/foam/assets/panda/smaller_panda_spherized.urdf
 
 if [ "${SKIP_BUILD:-0}" = "1" ]; then
   echo "[setup] SKIP_BUILD=1 — skipping editable build."

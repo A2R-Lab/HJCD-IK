@@ -1,14 +1,15 @@
 # HJCD-IK agent debugging guide
 
 Hard-won, HJCD-IK-specific institutional knowledge. **Read before changing the kernel, codegen, or robot
-config.** HJCD-IK is a batched GPU IK solver: one CUDA block per problem, warp-per-candidate, warp-scoped
-math throughout. Companion docs: [`CLAUDE.md`](../CLAUDE.md), [`STARTUP_PROMPT.md`](STARTUP_PROMPT.md),
-[`HANDOFF.md`](HANDOFF.md).
+config.** Coarse search has one candidate per block and shares candidate state across warps;
+LM refinement has one independent candidate per warp. Their synchronization scopes are intentionally different.
+Companion docs: [`CLAUDE.md`](../../CLAUDE.md), [`STARTUP_PROMPT.md`](STARTUP_PROMPT.md).
+Local session handoffs live under `docs/open-tasks/` (ignored by Git).
 
 ## 0. Validation checklist (before committing)
 
 1. **Regenerate `grid.cuh` and rebuild** if the URDF or EE target changed:
-   `python scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_grasptarget_hand` then
+   `python scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_grasptarget_hand --collision --spherized-urdf external/foam/assets/panda/smaller_panda_spherized.urdf` then
    `python -m pip install -e .`. Stale `grid.cuh` = silently wrong FK/Jacobian.
 2. **`FLANGE_IDX` / target agreement** across `grid.cuh`, `csrc/kernel/hjcd_kernel.cu`, and any benchmark problem.
 3. **Build clean** and import: `python -c "import hjcdik; print(hjcdik.num_joints())"`.
@@ -34,10 +35,11 @@ kernels → off by the flange offset). When validating FK, compare against a Pyt
 
 ### 1c. Warp-vs-block sync in the solver loop
 **Symptom:** diverges erratically; results differ by block/batch size.
-**Cause:** the solver is single-warp in places and multi-warp in others; the `SYNC()` macro picks
-`__syncwarp()` vs `__syncthreads()` by block size. Mixing them wrong races the Jacobian/solve steps.
-**Fix:** every cross-lane/cross-warp dependency needs the right barrier; warp-only sections use `__syncwarp(mask)`.
-Use `compute-sanitizer --tool racecheck` when available.
+**Cause:** coarse candidate state is block-shared, but LM candidates and coarse pair-evaluation
+scratch are warp-local. A warp barrier cannot publish data across warps, and block barriers inside
+independently diverging LM iterations can deadlock (including partially populated final blocks).
+**Fix:** use block barriers for shared coarse candidate state; LM's `SYNC()` is always
+`__syncwarp(mask)`. Use `compute-sanitizer --tool racecheck`, not only numerical comparisons.
 
 ### 1d. Robot constants hardcoded
 **Symptom:** wrong sizes / OOB after swapping robots.
@@ -53,11 +55,24 @@ is a 19-DOF robot; Panda regenerates to `NUM_JOINTS=7`.
 ### 1f. Collision geometry mismatch
 **Symptom:** free targets flagged in-collision (or vice versa).
 **Cause:** the baked collision spheres don't match the robot — `grid.cuh` was generated without
-`--collision` (no `grid_collision` namespace → collision-free requests are ignored, see the
+`--collision` (no `grid_collision` namespace → the Python API rejects collision-free requests; see the
 `HJCD_HAS_COLLISION` guard), or the spherization source is wrong (Panda needs the foam
 `--spherized-urdf`, not on-disk meshes).
 **Fix:** regenerate with `--collision` (and, for Panda, `--spherized-urdf …/smaller_panda_spherized.urdf`);
 or run without `--collision-free`.
+
+### 1g. Scratch reuse and stop-flag read/write overlap
+**Symptom:** numerical tests and memcheck pass, but Racecheck reports shared-memory WAR hazards.
+**Cause:** a shuffle reduction exchanges registers; it is not a shared-memory fence. Lane 0 must not
+overwrite per-warp anchor FK scratch until all lanes finish reading the prior anchor. Similarly, a
+block-shared stop flag must not be overwritten while another warp is still making its previous exit decision.
+In LM's final output, every lane must finish reading the shared restore condition before lane 0 overwrites
+the error used by that condition; the non-restoring path also needs a warp fence.
+**Fix:** fence anchor-buffer reuse with `__syncwarp`; publish each coarse stop decision once and reuse
+that stable value until the next synchronized update. Do not add block barriers to warp-local LM math.
+Build an isolated diagnostic wheel with `-Ccmake.define.CMAKE_CUDA_FLAGS=-lineinfo` to obtain source lines.
+A useful regression target is `tests/test_multiwarp.py::test_partial_last_block_no_crash` under
+`compute-sanitizer --tool racecheck --error-exitcode=1`; require zero warnings as well as zero errors.
 
 ## 2. Debugging methodology
 - **Shrink:** `--num-targets 1 --batches "1"`, print inputs/outputs, check the numbers are sane.
@@ -134,6 +149,17 @@ Full data: [`open-tasks/multiwarp_timing_result.md`](open-tasks/multiwarp_timing
   shortens `lm_tuner`; at high DoF where `coarse_search` dominates, a looser tol buys ~1.05× *and* craters
   accuracy (11–140 mm — it returns coarse-quality solutions). Keep tight 1e-8 unless you've confirmed via
   nsys that the LM loop is the bottleneck for your DoF/num_solutions.
+
+### Statistics output comparisons and coarse early-stop
+
+Requesting multiple solutions disables LM early-stop, not coarse early-stop. Coarse
+blocks still publish a first-success flag, so scheduling (including sanitizer
+instrumentation) can change the candidate pool and returned joint configurations
+between otherwise identical solves. A test requiring identical arrays with and
+without statistics should use one coarse block and multiple outputs, removing
+inter-block early-stop while retaining the strict numerical comparison. Larger-batch
+tests should check solution quality, collision policy and statistics consistency,
+not exact candidate identity.
 
 ## 6. Lessons log
 *(Append new bug classes / tricks here as they emerge — keep this guide the single source of truth.)*

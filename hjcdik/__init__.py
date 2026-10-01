@@ -13,4 +13,18 @@ if os.name == "nt":
         if os.path.isdir(conda_bin):
             os.add_dll_directory(conda_bin)
 
-from ._hjcdik import generate_solutions, sample_targets, num_joints
+from ._hjcdik import (
+    build_info,
+    collision_enabled,
+    generate_solutions,
+    num_joints,
+    sample_targets,
+)
+
+__all__ = [
+    "build_info",
+    "collision_enabled",
+    "generate_solutions",
+    "num_joints",
+    "sample_targets",
+]

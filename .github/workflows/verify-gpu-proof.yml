@@ -1,13 +1,13 @@
 name: Verify GPU Proof
 
 # CPU-only CI, no GPU, no secrets. Validates the committed gpu-proof.json receipt
-# (signature via github.com/{signer}.keys, code fingerprint over tests/, commit SHA,
+# (signature via github.com/{signer}.keys, implementation + test + gitlink fingerprint, ancestry,
 # freshness, and the allow_dirty:false policy). This is what lets HJCD-IK's CUDA
 # correctness gate merges without paying for a GPU CI runner — the receipt is
 # produced locally on a real GPU by scripts/setup/run_gpu_proof.sh.
 #
-# HJCD-IK has no CPU-only test lane (every test drives the CUDA kernel), so this is
-# the whole CI: verify the receipt.
+# The full suite includes host/codegen/example contracts as well as CUDA tests.
+# This job verifies their locally produced receipt; it does not execute GPU tests.
 
 on:
   push:
@@ -30,7 +30,7 @@ jobs:
       - name: Install pytest-gpu-proof
         # From PyPI (was a vendored submodule). pyyaml is needed to read the YAML policy below —
         # pytest-gpu-proof imports it on demand and does not declare it as a dependency.
-        run: pip install pyyaml pytest-gpu-proof
+        run: pip install pyyaml 'pytest-gpu-proof>=0.4.0'
 
       - name: Verify receipt
         # gpu-proof.json is committed by whoever ran scripts/setup/run_gpu_proof.sh

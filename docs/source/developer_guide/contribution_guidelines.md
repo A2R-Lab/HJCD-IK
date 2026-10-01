@@ -8,7 +8,7 @@ canonical contributor entry points are the repository's `CLAUDE.md` (architectur
 
 ## Before you start
 
-- Initialize submodules: `git submodule update --init --recursive`.
+- Initialize required pinned submodules: `bash scripts/setup/bootstrap.sh`.
 - Set up a dev environment (venv, deps, codegen, build, **and the docs toolchain**) with
   `./scripts/setup/setup_dev.sh`.
 
@@ -23,16 +23,23 @@ canonical contributor entry points are the repository's `CLAUDE.md` (architectur
 - **Never hand-edit `csrc/generated/grid.cuh`.** It is GRiD codegen output. Regenerate it with
   `python scripts/codegen/generate_grid.py <urdf> -t <target>` and rebuild — see
   {doc}`../user_guide/tutorials/custom_robot`.
-- **Keep the math warp-scoped.** The solver is warp-per-candidate; use warp primitives
-  (`__shfl_*_sync` / `__syncwarp`, `grid::ee_pose_inner_warp`, `glass::warp::`), not block-scoped,
-  cooperative-groups, or vendor paths. See {doc}`../user_guide/concepts/hjcd_algorithm`.
+- **Keep LM math warp-scoped.** LM refinement is warp-per-candidate; use warp primitives
+  (`__shfl_*_sync` / `__syncwarp`, `grid::ee_pose_inner_warp`, `glass::warp::`) for its math.
+  Coarse search is candidate-per-block: its per-warp scratch needs warp fences and its shared
+  candidate state needs block barriers. See {doc}`../user_guide/concepts/hjcd_algorithm`.
 - **No regressions.** Run `python benchmark/hjcd_ik_bench.py --skip-grid-codegen` before/after kernel
   changes and compare to the committed baseline. Isolate timing runs (no concurrent GPU load).
 
 ## Tests
 
-- `pytest tests/` — regression (solved-rate / position–orientation error vs. the committed baseline) plus
-  FK-equivalence checks.
+- `pytest tests/` — numerical regression, independent FK, collision policy, Python API, codegen,
+  and signed-receipt policy checks. Install `.[dev,codegen]` and use the default collision-enabled Panda.
+- Native API and CLI tests are separate CTest checks (not claimed as outcomes in the Python receipt).
+  Configure with `-DHJCDIK_BUILD_NATIVE_TESTS=ON`; see
+  {doc}`../user_guide/getting_started/installation`. They require Python and a CUDA GPU; malformed-input
+  cases explicitly hide the GPU to check validation order.
+- For synchronization changes, also use Compute Sanitizer's Racecheck and Synccheck. Passing
+  numerical tests or Memcheck alone does not establish shared-memory ordering correctness.
 
 ## Editing the docs
 
@@ -62,7 +69,7 @@ docs/development/     un-published support docs (agent_debugging_guide, STARTUP_
 ./scripts/setup/setup_dev.sh        # installs the docs toolchain into .venv (+ doxygen via apt)
 source .venv/bin/activate
 
-cd docs && make all                 # docs only → docs/build/html/index.html
+make -C docs all                    # docs only → docs/build/html/index.html
 #   — or —
 ./scripts/build_site.sh             # full site → _site/ (landing at /, docs under /docs/)
 ```
@@ -83,6 +90,21 @@ cd docs && make all                 # docs only → docs/build/html/index.html
 
 Deployment is **automatic**: any push to `main` touching `docs/**`, `csrc/**`, or
 `examples/**` triggers `.github/workflows/gh-pages.yml`, which runs `scripts/build_site.sh` and publishes
-`_site/` to GitHub Pages. No manual regeneration — edit, commit to `main`, and the site rebuilds. (Force a
-rebuild from the Actions tab via `workflow_dispatch`.) Requirements: **Settings → Pages → Source** must be
-**"GitHub Actions"**, and the workflow only runs on `main`.
+`_site/` to GitHub Pages. Pull requests build the site without deploying. Merge reviewed changes
+to `main` to publish (or dispatch the workflow on `main`). Requirements:
+**Settings → Pages → Source** must be **"GitHub Actions"**. Landing-page assets under
+`docs/landing/` and published paper figures/tables need not change when updating `/docs/`.
+
+### Release checks
+
+Run the full tests, example/quickstart tests, header freshness check, native CTest checks,
+and strict docs build after the final edits. Validate a wheel built from the source archive
+in a separate environment. Record a fresh signed GPU proof from a clean checkout after
+committing the test manifest. The manifest binds implementation, dependencies, examples,
+and executable documentation. Do not remove user files just to obtain a clean recording tree.
+
+The proof accepts an ancestor commit only while its source fingerprint still matches.
+Preserve that ancestor with a merge commit, or regenerate the proof after a rebase/squash;
+never assume a pre-rewrite receipt remains valid. Verify the final merge candidate and
+check dependency commits are published. GPU tests remain local/signed until a self-hosted
+runner is available; a docs build or signature check is not a new GPU test execution.

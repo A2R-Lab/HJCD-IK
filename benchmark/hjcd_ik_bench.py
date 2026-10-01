@@ -179,43 +179,26 @@ def _load_filtered_targets(path):
     return targets, pidxs
 
 # GRiD codegen
-def run_grid_codegen(urdf, skip, fixed_target_name=""):
+def run_grid_codegen(urdf, skip, fixed_target_name="", *, collision=False):
+    """Use the same validated, atomic codegen entry point as setup/custom builds."""
     if skip:
         print("[GRiD] skipping URDF codegen...")
         return False
 
-    try:
-        from GRiD.URDFParser import URDFParser
-        from GRiD.GRiDCodeGenerator import GRiDCodeGenerator
-    except Exception as e:
-        raise RuntimeError(
-            "Failed to import GRiD URDFParser/GRiDCodeGenerator. "
-            "Check that ROOT/external/GRiD is present and on sys.path."
-        ) from e
+    import subprocess
 
-    urdf = urdf if urdf.is_absolute() else (ROOT / urdf).resolve()
-    print(f"[GRiD] parsing {urdf}")
-    robot = URDFParser().parse(str(urdf))
-    codegen = GRiDCodeGenerator(robot, False, True)
-
-    out_dir = ROOT / "external" / "GRiD"
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    cwd = os.getcwd()
-    os.chdir(out_dir)
-    try:
-        if fixed_target_name:
-            print(f"[GRiD] generating code with fixed target: {fixed_target_name}")
-            codegen.gen_all_code(
-                include_homogenous_transforms=True,
-                fixed_target_name=fixed_target_name,
-            )
-        else:
-            codegen.gen_all_code(include_homogenous_transforms=True)
-    finally:
-        os.chdir(cwd)
-
-    print("[GRiD] codegen done!")
+    urdf = (ROOT / urdf).resolve()
+    command = [sys.executable, str(ROOT / "scripts/codegen/generate_grid.py"), str(urdf)]
+    if fixed_target_name:
+        command += ["-t", fixed_target_name]
+    elif urdf != (ROOT / "csrc/urdf/panda.urdf").resolve():
+        raise ValueError("--grid-target is required when generating a custom robot")
+    if collision:
+        command.append("--collision")
+        if urdf == (ROOT / "csrc/urdf/panda.urdf").resolve():
+            command += ["--spherized-urdf",
+                        str(ROOT / "external/foam/assets/panda/smaller_panda_spherized.urdf")]
+    subprocess.run(command, cwd=ROOT, check=True)
     return True
 
 def rebuild_against_current_header():
@@ -310,7 +293,7 @@ def main() -> None:
 
     ap.add_argument("--skip-grid-codegen", action="store_true", help="Skip URDF parse/codegen step for GRiD.")
     ap.add_argument( "--urdf", type=str, default=str(ROOT / "csrc" / "urdf" / "panda.urdf"), help="URDF used for GRiD codegen.")
-    ap.add_argument("--grid-target", type=str, default="", help="Optional GRiD fixed kinematic target name, e.g. panda_grasptarget_hand.")
+    ap.add_argument("--grid-target", type=str, default="", help="Fixed target joint; defaults to panda_grasptarget_hand for Panda, required for custom codegen.")
     ap.add_argument("--yaml-out", type=str, default="results.yml",help="YAML output file name.")
     ap.add_argument("--batches",type=_parse_batches,default=_parse_batches("1,10,100,1000,2000"), help="Batch sizes (comma/space separated).")
     ap.add_argument("--num-solutions", type=int, default=1,help="Number of returned solutions per target.")
@@ -321,6 +304,12 @@ def main() -> None:
 
     # Collision-free (RoboMetrics)
     ap.add_argument("--collision-free", action="store_true",help="Enable collision-free solutions.")
+    ap.add_argument("--collision-validation-model", choices=("paper", "hjcd"), default="paper",
+                    help="Post-hoc Panda environment geometry: paper (historical +/-65 mm fingers) "
+                         "or hjcd (current URDF +/-40 mm fingers). Does not change solver geometry.")
+    ap.add_argument("--collision-mode", choices=("hard", "soft", "both"),
+                    default=os.environ.get("HJCD_CC_MODE", "hard"),
+                    help="Collision policy (default: hard; HJCD_CC_MODE remains a benchmark compatibility fallback).")
     ap.add_argument( "--problems-json", type=str, default=str(ROOT / "tests" / "mb_problems.json"),help="Path to problems JSON (e.g., mb_problems.json).")
     ap.add_argument("--problem-set", type=str, default="box_panda",help="Problem set name in JSON (paper Table II scene).")
     ap.add_argument("--problem-idx", type=int, default=-1,help="If >=0, run only this problem index; if -1 run all.")
@@ -357,6 +346,7 @@ def main() -> None:
         Path(args.urdf),
         args.skip_grid_codegen,
         args.grid_target,
+        collision=args.collision_free,
     )
     if did_codegen:
         rebuild_against_current_header()
@@ -374,9 +364,11 @@ def main() -> None:
     world_by_pidx: Dict[int, dict] = {}   # pidx -> world_dict for post-hoc collision validation (Panda only)
 
     if args.collision_free:
-        # Post-hoc collision validation uses the SAME shared 59-sphere Panda model as the baselines
-        # (benchmark/panda_collision.py) — apples-to-apples with baseline_bench's pyroki/curobo columns.
+        # Preserve the historical paper-model comparison by default. The explicit
+        # hjcd option instead checks the current URDF-bound geometry; neither checks self collision.
         from panda_collision import panda_config_collision_free, mb_instance_to_world_dict
+        from panda_model import collision_model_metadata, write_collision_model_metadata
+        print("[collision validation]", collision_model_metadata(args.collision_validation_model))
         problems_text = _load_text(Path(args.problems_json))
         D = json.loads(problems_text)
         P = num_problems(D, args.problem_set)
@@ -441,6 +433,7 @@ def main() -> None:
                 target, batch_size=Bd, num_solutions=K,
                 collision_free=args.collision_free, problems_json_text=problems_text,
                 problem_set_name=args.problem_set, problem_idx=eff_pidx,
+                collision_mode=args.collision_mode,
             )
             jc = res.get("joint_config")
             if jc is None:
@@ -480,6 +473,7 @@ def main() -> None:
                 problem_set_name=args.problem_set,
                 problem_idx=eff_pidx,
                 write_stats=False,
+                collision_mode=args.collision_mode,
             )
 
             # Timed run
@@ -493,6 +487,7 @@ def main() -> None:
                 problem_set_name=args.problem_set,
                 problem_idx=eff_pidx,
                 write_stats=args.write_stats,
+                collision_mode=args.collision_mode,
             )
             dt_ms = (time.perf_counter() - t0) * 1e3
 
@@ -512,7 +507,8 @@ def main() -> None:
                 y_pos.append(float(pos_err[r]))
                 y_ori.append(float(ori_err[r]))
                 if world_dict is not None and jc is not None and r < len(jc):
-                    y_cfree.append(bool(panda_config_collision_free(jc[r], world_dict)))
+                    y_cfree.append(bool(panda_config_collision_free(
+                        jc[r], world_dict, model=args.collision_validation_model)))
                 else:
                     y_cfree.append(None)
 
@@ -554,12 +550,18 @@ def main() -> None:
         if not csv_path.is_absolute():
             csv_path = (ROOT / csv_path).resolve()
         write_csv_summary(csv_path, args.solver, y_batch, y_time_ms, y_pos, y_ori, y_cfree)
+        if args.collision_free:
+            write_collision_model_metadata(csv_path, args.collision_validation_model,
+                                           build=hjcdik.build_info())
         print(f"[OK] wrote CSV summary {csv_path}")
 
     out_path = Path(args.yaml_out)
     if not out_path.is_absolute():
         out_path = (ROOT / out_path).resolve()
     write_yaml_flat(out_path, y_batch, y_time_ms, y_pos, y_ori, y_cfree)
+    if args.collision_free:
+        write_collision_model_metadata(out_path, args.collision_validation_model,
+                                       build=hjcdik.build_info())
     print(f"\n[OK] wrote {out_path} with {len(targets) * S * len(batches)} entries "
           f"({len(targets)} targets x {len(batches)} batches x {S} solutions each).")
 

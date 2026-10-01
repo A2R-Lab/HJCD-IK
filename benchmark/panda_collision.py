@@ -1,6 +1,8 @@
-"""Place the shared 59-sphere Panda model in the world frame at a joint config q, and decide whether that
-config is collision-free against a MotionBenchMaker world. Used to validate *any* solver's returned q for
-the Table II collision column with one consistent geometry (the paper's own model).
+"""Place an explicitly selected Panda sphere model in the world at configuration q.
+
+The default "paper" model preserves the shared historical Table II geometry.
+Use model="hjcd" to validate the compiled default Panda geometry (different fixed
+finger opening). These helpers check environment collisions, NOT self collisions.
 
 The FK here replicates pRRTC's `fk<Panda>` (benchmark/reference/panda_collision_model.cuh) exactly: T_i = T_{i-1} @ fixed[i] @ R(q_{i-1})
 for i=1..7, spheres placed by the transform of the joint they attach to. It is cross-validated against the
@@ -12,7 +14,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from panda_model import SPHERES, SPHERE_TO_JOINT, FIXED_TRANSFORMS, JOINT_TYPES, N_JOINTS
+from panda_model import panda_sphere_model, FIXED_TRANSFORMS, JOINT_TYPES, N_JOINTS
 from collision_check import config_is_collision_free
 
 # pRRTC joint-type codes (benchmark/reference/panda_collision_model.cuh): 0/1/2 = prism x/y/z, 3/4/5 = rot x/y/z.
@@ -48,24 +50,28 @@ def panda_link_transforms(q) -> list[np.ndarray]:
     return Ts
 
 
-def panda_spheres_world(q) -> np.ndarray:
-    """(N_SPHERES, 4) collision spheres [x, y, z, radius] in the world frame at config q."""
+def panda_spheres_world(q, *, model="paper") -> np.ndarray:
+    """(N_SPHERES, 4) world spheres [x, y, z, radius] for the selected geometry."""
+    spheres, anchors = panda_sphere_model(model)
     Ts = panda_link_transforms(q)
-    out = np.empty((len(SPHERES), 4))
-    for s, (x, y, z, r) in enumerate(SPHERES):
-        p = Ts[int(SPHERE_TO_JOINT[s])] @ np.array([x, y, z, 1.0])
+    out = np.empty((len(spheres), 4))
+    for s, (x, y, z, r) in enumerate(spheres):
+        p = Ts[int(anchors[s])] @ np.array([x, y, z, 1.0])
         out[s, :3] = p[:3]
         out[s, 3] = r
     return out
 
 
-def panda_config_collision_free(q, world_dict, exclude_base: bool = True, margin: float = 0.0) -> bool:
-    """True iff the Panda at config q is collision-free against `world_dict`.
-    `exclude_base=True` drops the base-link spheres (SPHERE_TO_JOINT==0), matching the HJCD kernel, which
-    skips them because the base is bolted to the pedestal and 'always contacts' it."""
-    spheres = panda_spheres_world(q)
+def panda_config_collision_free(q, world_dict, exclude_base: bool = True, margin: float = 0.0,
+                                *, model="paper") -> bool:
+    """Environment-only check for the selected geometry; touching is permitted.
+
+    exclude_base=True matches HJCD's base-contact policy. The paper default is
+    retained for cross-solver comparisons; implementation tests select "hjcd".
+    """
+    spheres = panda_spheres_world(q, model=model)
     if exclude_base:
-        spheres = spheres[SPHERE_TO_JOINT != 0]
+        spheres = spheres[panda_sphere_model(model)[1] != 0]
     return config_is_collision_free(spheres, world_dict, margin)
 
 

@@ -51,9 +51,10 @@ in the chosen problem set (the **Results** section below covers the benchmark ha
 Results
 -------
 
-HJCD-IK generates large batches of IK solutions in parallel and stays on or near the **accuracy–latency
-Pareto frontier** across every batch size and degree-of-freedom count, with order-of-magnitude gains over
-the GPU baselines cuRobo, PyRoki, and IKFlow, while returning the most diverse (lowest-MMD) solution set.
+In the published experiments below, HJCD-IK stayed on or near the **accuracy–latency
+Pareto frontier** across the evaluated batch sizes and degree-of-freedom counts, with
+order-of-magnitude gains in some comparisons and the lowest measured MMD.
+These are historical paper results, not new measurements of the current release.
 
 .. note::
 
@@ -336,19 +337,30 @@ Collision-free IK — Panda, box_panda (Table II)
 
 .. note::
 
-   **Collision-free validation (methodology).** The benchmark harness reports a
-   ``collision_free`` / ``success_both`` rate for every solver by validating each returned
-   configuration *post-hoc* against the **same** 59-sphere Panda collision model HJCD-IK
-   itself filters against (``benchmark/panda_collision.py``, sourced from the frozen paper model
-   ``benchmark/reference/panda_collision_model.cuh``). HJCD-IK's kernel now filters via GRiD's
-   URDF-driven ``grid_collision`` (the identical spheres, baked into ``grid.cuh`` from the foam
-   spherized URDF), so this independent numpy oracle stays a fair cross-check.
-   Because all solvers are judged by one shared geometry — not each tool's own collision
-   notion — the column is apples-to-apples, and the check is pure-numpy (no cuRobo dependency).
-   ``success_both`` is pose-success **and** collision-free. Regenerate with
+   **Collision-free validation (methodology).** The local benchmark tools validate returned
+   configurations *post-hoc* against the **legacy paper** 59-sphere Panda model
+   (``benchmark/panda_collision.py``, sourced from the frozen
+   ``benchmark/reference/panda_collision_model.cuh``). This is an environment-only check.
+   It is not identical to HJCD-IK's compiled URDF-driven model: the paper reference uses
+   +/-65 mm finger-joint origins, whereas the compiled kinematic URDF uses +/-40 mm.
+   Four finger-sphere centers consequently differ by 25 mm. Self-collision exclusions
+   also follow the generated topology rather than this environment-only oracle.
+   Shared geometry makes the environment predicate comparable, but does not make all
+   reported percentages equivalent: HJCD's collision column is per returned solution;
+   a baseline ``success_both`` combines pose success and collision freedom. Account
+   for missing outputs and align denominators/accuracy thresholds before making a
+   cross-solver success-rate table. The check is pure NumPy (no cuRobo dependency). Run
    ``benchmark/baseline_bench.py --mode {pyroki,curobo} --collision_free`` (per-run CSV/YAML land
    under the gitignored ``benchmark/results/``; the time/accuracy numbers above are the
    camera-ready values).
+
+   HJCD's harness preserves this comparison with ``--collision-validation-model paper``
+   (default). Select ``--collision-validation-model hjcd`` for an independent CPU check
+   of its current URDF-bound sphere geometry instead; this does not change the solver model.
+   Do not mix those rates in one cross-solver table. Collision CSV/YAML outputs also write
+   ``<output>.metadata.json`` with validation model, source hashes, finger origins, and
+   the compiled header identity. Historical result files without that sidecar retain
+   their original paper-model interpretation.
 
 DoF scalability — Panda variants, B = 1000 (Table III)
 ------------------------------------------------------
@@ -438,8 +450,9 @@ timings will differ — see the note at the top). The competitor baselines are o
 .. code-block:: bash
 
    ./scripts/setup/install_baselines.sh                 # optional: PyRoki, cuRobo, IKFlow, TRAC-IK (each skippable)
-   RUN_DOF=1 RUN_MMD=1 ./scripts/bench/run_paper_experiments.sh   # Tables I–IV + Pareto figures into benchmark/results/
-   # HJCD-IK only (no baselines):  SKIP_CUROBO=1 SKIP_PYROKI=1 SKIP_IKFLOW=1 ./scripts/bench/run_paper_experiments.sh
+   HJCD_REGEN=1 RUN_FETCH=1 RUN_DOF=1 RUN_MMD=1 ./scripts/bench/run_paper_experiments.sh
+   # HJCD-IK only (no baselines):
+   # HJCD_REGEN=1 SKIP_CUROBO=1 SKIP_PYROKI=1 SKIP_IKFLOW=1 ./scripts/bench/run_paper_experiments.sh
 
 The baselines (PyRoki / cuRobo v2 / IKFlow / TRAC-IK) install behind the optional ``baselines`` extra plus
 some git/source steps; ``scripts/setup/install_baselines.sh`` handles each (and documents the per-solver
@@ -456,9 +469,18 @@ comparison.
    python benchmark/hjcd_ik_bench.py --skip-grid-codegen --collision-free \
        --problems-json tests/mb_problems.json --problem-set box_panda --batches 1,10,100,1000
 
-The harness reports solved-rate, mean position / orientation error, and timing per batch size — the metrics
-``tests/test_regression.py`` asserts against a committed baseline. Isolate timing runs (no concurrent GPU
-load).
+The harness reports position/orientation errors and timing per batch size. The collision-free
+column is a per-returned-solution environment check, not a per-query success rate; zero-output
+queries must be counted separately when comparing success rates. ``tests/test_regression.py``
+checks candidate-return rate and accuracy against a recorded baseline, not runtime.
+Isolate timing runs (no concurrent GPU load).
+
+Current code has stricter collision filtering and explicit ``paper`` versus ``hjcd`` validation
+geometry; see :doc:`../upgrading`. Match target sets, EE frames, requested output count,
+precision, collision model/policy, and aggregation before comparing to the paper. Local
+regression timings on another GPU do not establish a new speedup over the published results.
+The paper harness rebuilds several robot/frame variants; after an interrupted run, restore
+the collision-enabled Panda header and rebuild before running the default tests/examples.
 
 Per-robot end-effector frame
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

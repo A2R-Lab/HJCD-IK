@@ -14,9 +14,8 @@ more robot configurations for a target end-effector pose.
 - NVIDIA GPU
 - CUDA Toolkit 12.x or 13.x
 - Python 3.9 or newer
-- CMake 3.23 or newer
+- CMake 3.24 or newer
 - GCC or Clang
-- Eigen3
 - nlohmann-json
 
 ## Installation
@@ -24,7 +23,7 @@ more robot configurations for a target end-effector pose.
 Clone the repository:
 
 ```bash
-git clone --recurse-submodules https://github.com/A2R-Lab/HJCD-IK.git
+git clone https://github.com/A2R-Lab/HJCD-IK.git
 cd HJCD-IK
 ```
 
@@ -36,8 +35,10 @@ chmod +x scripts/setup/setup_dev.sh
 source .venv/bin/activate
 ```
 
-The script initializes the required submodules, creates a virtual environment,
-installs dependencies, generates the robot model, and builds `hjcdik`.
+The script initializes the required submodules, creates a virtual environment, installs dependencies,
+regenerates the collision-enabled Panda model, and builds `hjcdik`.
+Development setup and signed GPU-proof tooling require Python 3.11 or newer; the base package
+supports Python 3.9 or newer.
 
 If needed, convert the shell scripts to Unix line endings:
 
@@ -52,7 +53,7 @@ python - <<'PY'
 import hjcdik
 
 print("hjcdik:", hjcdik.__file__)
-print("robot DoF:", hjcdik.num_joints())
+print("build/model:", hjcdik.build_info())
 PY
 ```
 
@@ -71,39 +72,17 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-Install dependencies:
+Install the build tools, then build the package and development dependencies against the committed,
+collision-enabled `grid.cuh`:
 
 ```bash
 python -m pip install --upgrade \
-  pip \
-  setuptools \
-  wheel \
-  cmake \
-  ninja \
-  scikit-build-core
-
-python -m pip install \
-  numpy \
-  scipy \
-  sympy \
-  beautifulsoup4 \
-  lxml \
-  pytest
+  pip setuptools wheel cmake ninja scikit-build-core pybind11
+python -m pip install -e ".[dev]" --no-build-isolation
 ```
 
-Generate the Panda model:
-
-```bash
-python scripts/codegen/generate_grid.py \
-  csrc/urdf/panda.urdf \
-  -t panda_grasptarget_hand
-```
-
-Build the package:
-
-```bash
-python -m pip install -e . --no-build-isolation
-```
+GRiD code generation is optional for the default Panda build. Install `.[codegen]` and use the
+collision-enabled command below only when changing the URDF or end-effector target.
 
 ## Quick Start
 
@@ -124,13 +103,21 @@ print("position errors:", result["pos_errors"])
 print("orientation errors:", result["ori_errors"])
 ```
 
+Each call solves **one target**. `batch_size` is the number of candidate configurations,
+not the number of target poses. A wheel contains one compiled robot; use `build_info()`
+to confirm its identity. See [upgrading and verified scope](docs/source/user_guide/upgrading.md)
+for changes to collision defaults, native ownership, and error handling.
+
 Target poses use:
 
 ```text
 [x, y, z, qw, qx, qy, qz]
 ```
 
-Position is in meters and quaternions use `wxyz` order.
+Target and returned pose positions are in meters; quaternions use `wxyz` order and are normalized on input.
+Returned `pos_errors` are in **millimeters** and `ori_errors` are in **radians**. Check these errors against
+your tolerances; the solver can return approximate candidates for unreachable targets. Collision filtering
+can return fewer solutions, including zero. See [the Python API](docs/source/api_reference/python.rst).
 
 ## Collision-Enabled Build
 
@@ -159,6 +146,16 @@ bash scripts/setup/rebuild.sh
 
 Note: the tests and collision-free example require a collision-enabled build.
 
+The default Panda model keeps fixed finger-joint origins at +/-40 mm in the hand frame.
+Foam supplies sphere shapes, but their placement uses this kinematic URDF. The frozen paper
+reference uses +/-65 mm finger origins and is deliberately retained for historical comparisons.
+The benchmark's `--collision-validation-model paper` (default) selects that legacy reference;
+`--collision-validation-model hjcd` selects an independent URDF-derived check of the current
+geometry. This flag changes only post-hoc validation, never the solver's compiled robot.
+Both checks are environment-only; the solver's hard/both modes additionally check self-collision.
+CSV/YAML collision results have a `.metadata.json` sidecar identifying the selected model,
+source hashes, finger origins, and compiled-header identity.
+
 ## Examples
 
 Run the included examples:
@@ -171,13 +168,23 @@ python examples/03_batch_sweep.py
 
 ## Tests
 
-For the full test suite, use the collision-enabled Panda build above.
+For the full test suite, use the collision-enabled Panda build above and install `.[dev,codegen]`.
+GPU-proof receipt generation and the one-shot development setup require Python 3.11 or newer.
 
 Run:
 
 ```bash
 python -m pytest tests/ -v
 ```
+
+When adding or renaming tests, regenerate and commit the proof manifest before recording a receipt:
+
+```bash
+python scripts/setup/update_gpu_proof_manifest.py
+```
+
+The GPU-proof policy binds the full test list, solver sources, executable docs/examples, build/codegen scripts, and dependency
+gitlinks. A scoped `pytest -k ...` run is useful for diagnosis but cannot certify the full suite.
 
 Run one test file:
 
@@ -244,16 +251,18 @@ python benchmark/hjcd_ik_bench.py \
   --batches "1,10,100,1000,2000"
 ```
 
-Collision modes are selected with `HJCD_CC_MODE`:
+Select the policy explicitly with `collision_mode="hard"`, `"soft"`, or `"both"`:
 
-```bash
-HJCD_CC_MODE=soft python benchmark/hjcd_ik_bench.py ...
-HJCD_CC_MODE=hard python benchmark/hjcd_ik_bench.py ...
-HJCD_CC_MODE=both python benchmark/hjcd_ik_bench.py ...
+```python
+result = hjcdik.generate_solutions(..., collision_free=True, collision_mode="hard")
 ```
 
-- `soft`: biases solutions away from environment collisions
-- `hard`: filters self- and environment-colliding solutions
+The benchmark also accepts `--collision-mode`; `HJCD_CC_MODE` remains a compatibility default for
+benchmark scripts.
+
+- `hard` (default): filters self- and environment-colliding solutions; the result may contain fewer
+  than `num_solutions`, including zero
+- `soft`: ranks solutions using an environment penetration cost but does not guarantee collision freedom
 - `both`: combines both modes
 
 ## Optional Baselines
@@ -368,7 +377,11 @@ Then rebuild:
 python -m pip install -e . --no-build-isolation
 ```
 
-HJCD-IK supports revolute, prismatic, and fixed joints.
+HJCD-IK supports fixed-base serial chains with 1–32 independent revolute or continuous
+joints rotating around local +Z; fixed joints may connect links and the tool frame.
+Prismatic, mimic, branched, floating-base, and other-axis models are rejected.
+GRiD supports more robot classes than this solver. See the
+[custom-robot guide](docs/source/user_guide/tutorials/custom_robot.md).
 
 ### Collision checking for a custom robot
 

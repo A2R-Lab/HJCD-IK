@@ -5,6 +5,7 @@
 #   make clean
 
 SPHINXBUILD ?= sphinx-build
+SPHINXOPTS  ?= -W --keep-going
 DOXYGEN     ?= doxygen
 SOURCEDIR    = source
 BUILDDIR     = build
@@ -23,5 +24,5 @@ help:
 	@$(SPHINXBUILD) -M help "$(SOURCEDIR)" "$(BUILDDIR)"
 
 # Catch-all: route any other target (e.g. `html`) to sphinx-build.
-%: Makefile
-	@$(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)"
+%:
+	@$(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS)

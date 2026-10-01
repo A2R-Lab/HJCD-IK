@@ -4,8 +4,8 @@
 # All solvers see the SAME open-world targets (benchmark/gen_targets.py) for a fair head-to-head.
 # Baselines are heavy and skippable; HJCD-IK always runs (it's the point). Output goes to OUT_DIR.
 #
-#   ./scripts/bench/run_paper_experiments.sh
-#   SKIP_CUROBO=1 SKIP_PYROKI=1 ./scripts/bench/run_paper_experiments.sh   # HJCD-IK only
+#   HJCD_REGEN=1 ./scripts/bench/run_paper_experiments.sh
+#   HJCD_REGEN=1 SKIP_CUROBO=1 SKIP_PYROKI=1 SKIP_IKFLOW=1 ./scripts/bench/run_paper_experiments.sh
 #
 # Env overrides:
 #   OUT_DIR     results dir                 (default: benchmark/results)
@@ -18,7 +18,7 @@
 # Prereqs: a built `hjcdik` (GPU) for HJCD; `scripts/setup/install_baselines.sh` for the baselines.
 # Coverage (all wired; opt-in flags): Table I open-world Panda (always) + Fetch (RUN_FETCH=1),
 #   Table II collision-free Panda (always), Table III DoF 7/12/18/24 (RUN_DOF=1), Table IV MMD (RUN_MMD=1).
-# Extra env: HJCD_REGEN=1 re-codegens+rebuilds HJCD per EE frame / DoF and restores the default build on exit
+# Extra env: HJCD_REGEN=1 re-codegens+rebuilds HJCD per EE frame / DoF and restores the default build on successful completion
 #   (heavy: GPU compiles); RUN_FETCH / RUN_DOF / RUN_MMD / DOF_BATCH select the optional tables.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -26,6 +26,12 @@ cd "$(dirname "$0")/../.."
 PY="${PYTHON:-}"
 if [ -z "$PY" ]; then
   if [ -x .venv/bin/python ]; then PY=".venv/bin/python"; else PY="python3"; fi
+fi
+# This workflow switches between panda_hand, grasptarget and optional robot variants.
+# Refuse to benchmark a stale or mismatched compiled model.
+if [ "${SKIP_HJCD:-0}" != "1" ] && [ "${HJCD_REGEN:-0}" != "1" ]; then
+  echo "ERROR: HJCD_REGEN=1 is required to rebuild the matching robot/frame for each paper workload." >&2
+  exit 2
 fi
 OUT_DIR="${OUT_DIR:-benchmark/results}"
 NUM_TARGETS="${NUM_TARGETS:-100}"
@@ -100,7 +106,9 @@ echo "=== [Table II] collision-free, Panda, $PROBLEM_SET ==="
 # every target is solved in the wrong frame (constant ~563 mm error).
 if [ "${HJCD_REGEN:-0}" = "1" ] && [ "${SKIP_HJCD:-0}" != "1" ]; then
   echo "--- regen HJCD-IK to panda_grasptarget_hand (MB problems are in this frame) ---"
-  "$PY" scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_grasptarget_hand && bash scripts/setup/rebuild.sh
+  "$PY" scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_grasptarget_hand \
+    --collision --spherized-urdf external/foam/assets/panda/smaller_panda_spherized.urdf
+  bash scripts/setup/rebuild.sh
 fi
 if [ "${SKIP_HJCD:-0}" != "1" ]; then
   echo "--- HJCD-IK ---"
@@ -187,7 +195,9 @@ echo "=== [tables + plots] merge per-solver CSVs ==="
 
 if [ "${HJCD_REGEN:-0}" = "1" ] && [ "${SKIP_HJCD:-0}" != "1" ]; then
   echo "=== restoring HJCD-IK to the default panda_grasptarget_hand build ==="
-  "$PY" scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_grasptarget_hand && bash scripts/setup/rebuild.sh
+  "$PY" scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_grasptarget_hand \
+    --collision --spherized-urdf external/foam/assets/panda/smaller_panda_spherized.urdf
+  bash scripts/setup/rebuild.sh
 fi
 
 echo "=== done. Outputs in $OUT_DIR/ ==="

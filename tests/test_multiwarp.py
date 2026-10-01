@@ -1,9 +1,10 @@
 """Multi-warp LM-refine correctness.
 
 The LM refine packs W independent candidates per block (one per warp), selected by the env knob
-`HJCD_LM_WARPS` (read per-call). Each warp's candidate is independent of W, so with early-stop OFF
-(num_solutions>=2) the per-candidate outputs must match the single-warp (W=1) baseline. Also guards the
-warp-vs-block sync trap (the #1 bug class) and the partial-last-block (`gp>=B`) early-return.
+`HJCD_LM_WARPS` (read per-call). Each warp's candidate is independent of W. Multiple outputs
+disable LM early-stop, but coarse search still has inter-block early-stop, so comparisons below
+check pose quality within tolerance rather than promising identical candidate sets. Also guards
+the warp-vs-block sync trap and the partial-last-block (`gp>=B`) early-return.
 
 Requires a CUDA GPU + built `hjcdik`; skips cleanly otherwise. Correctness-only (no timing) — safe to run
 under GPU contention.
@@ -47,7 +48,7 @@ def _solve_errs(targets, W, num_solutions=4, batch_size=2000):
 
 @pytest.mark.parametrize("W", [2, 4, 8])
 def test_multiwarp_matches_w1(W):
-    """W in {2,4,8} must match W=1 to fp-noise (num_solutions=4 => early-stop off => deterministic)."""
+    """W in {2,4,8} must match W=1 pose quality with LM early-stop disabled."""
     targets = hjcdik.sample_targets(num_targets=8, seed=0)
     ref = _solve_errs(targets, W=1)
     cur = _solve_errs(targets, W=W)
@@ -58,7 +59,7 @@ def test_multiwarp_matches_w1(W):
 
 
 def test_multiwarp_high_w_opt_in_smem():
-    """W=16 exceeds 48KB/block (fp64) -> opt-in dynamic shared via cudaFuncSetAttribute. Must still match."""
+    """A high requested W may require opt-in shared memory or a register-pressure downshift. It must still match."""
     targets = hjcdik.sample_targets(num_targets=6, seed=2)
     ref = _solve_errs(targets, W=1)
     cur = _solve_errs(targets, W=16)
@@ -66,13 +67,15 @@ def test_multiwarp_high_w_opt_in_smem():
         assert abs(p1 - p2) < 1e-3, f"W=16 pos err diff: {abs(p1-p2):.2e} mm"
 
 
-def test_partial_last_block_no_crash():
-    """Krep not a multiple of W => the last block has idle warps that must early-return cleanly (gp>=B).
-    A tiny batch makes Krep small and not 8-divisible; assert it still runs and solves."""
+@pytest.mark.parametrize("refine_fp64", [0, 1])
+def test_partial_last_block_no_crash(refine_fp64):
+    """The 16-repeat schedule is divisible by 8, so W=8 never covered a partial block.
+    W=3 leaves idle warps in the final block for this batch; check both compute types."""
     targets = hjcdik.sample_targets(num_targets=4, seed=3)
-    with warps(8):
+    with warps(3):
         for t in targets:
-            r = hjcdik.generate_solutions(t, batch_size=37, num_solutions=4)
+            r = hjcdik.generate_solutions(t, batch_size=37, num_solutions=4,
+                                         refine_fp64=refine_fp64)
             assert r["count"] > 0
             assert float(np.min(np.array(r["pos_errors"], dtype=float))) < 1.0  # sub-mm
 

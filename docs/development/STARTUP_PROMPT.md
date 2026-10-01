@@ -4,11 +4,12 @@ A 90-second primer for picking up work on **HJCD-IK**.
 
 **What it is:** a GPU-accelerated, batched inverse-kinematics solver — Hybrid Jacobian Coordinate Descent —
 that produces many candidate IK solutions in parallel for a 6-DOF EE target, with optional collision
-avoidance (Panda/Fetch). One CUDA block per problem; **warp-per-candidate**, warp-scoped math throughout.
+avoidance (Panda/Fetch). Coarse search uses one candidate per block; LM uses **one candidate per warp**.
+Coarse block-shared state needs block barriers; independent LM math stays warp-scoped.
 Built on GRiD (kinematics codegen) + GLASS (single-block/warp linear algebra).
 
 **Read in order:**
-1. [`CLAUDE.md`](../CLAUDE.md) — mental model, key files, build commands, discipline.
+1. [`CLAUDE.md`](../../CLAUDE.md) — mental model, key files, build commands, discipline.
 2. [`agent_debugging_guide.md`](agent_debugging_guide.md) — recurring traps (stale `grid.cuh`, `FLANGE_IDX`,
    warp/block sync, robot constants, submodules).
 3. `HANDOFF.md` — current status / open work. **This is a LOCAL, gitignored per-session handoff**
@@ -26,4 +27,4 @@ short single-line commits, no Co-Authored-By footer.
 
 **Build:** `git submodule update --init --recursive && python -m pip install -e .`
 
-**Now:** on branch `grid-glass-integration` re-basing onto latest GRiD/GLASS (see the local `HANDOFF.md` if present).
+Use `git status --short --branch` and the latest local handoff under `docs/open-tasks/` to establish the current working state.

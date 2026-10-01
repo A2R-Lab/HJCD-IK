@@ -15,6 +15,10 @@ print("target:", target)
 out = generate_solutions(target, batch_size=2000, num_solutions=4)
 
 print(f"returned {out['count']} solutions")
-print("joint configs shape:", out["joint_config"].shape)   # (num_solutions, DOF)
-print("best position error (m):   ", float(out["pos_errors"].min()))
-print("best orientation error (rad):", float(out["ori_errors"].min()))
+print("joint configs shape:", out["joint_config"].shape)   # (count, DOF)
+if out["count"]:
+    print("best position error (mm): ", float(out["pos_errors"].min()))
+    print("best orientation error (rad):", float(out["ori_errors"].min()))
+else:
+    print("No candidate was returned.")
+# A returned candidate is approximate: check BOTH errors against your tolerances.

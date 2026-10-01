@@ -44,7 +44,7 @@ __device__ __forceinline__ uint32_t make_seed(
 }
 
 // MATH HELPER FUNCTIONS
-// clamp-to-[-1,1] (acos/asin guards) now comes from GLASS: glass::clamp_unit
+// clamp-to-[-1,1] (acos/asin guards) now comes from GLASS: glass::block::clamp_unit
 // (robotics-ops wave, lie/angle.cuh; tier-free host+device).
 
 template<typename T>
@@ -68,32 +68,5 @@ void clamp_into_limits(const T* xbase, const T* step, T* xout, const double2* li
         const double2 L = limits[i];
         const T xi = xbase[i] + step[i];
         xout[i] = fmin(fmax(xi, (T)L.x), (T)L.y);
-    }
-}
-
-__device__ __forceinline__ float warp_sum(float v){
-#pragma unroll
-    for (int off=16; off>0; off>>=1) v += __shfl_down_sync(0xffffffff, v, off);
-    return v;
-}
-
-__device__ __forceinline__ double warp_sum(double v){
-#pragma unroll
-    for (int off=16; off>0; off>>=1) v += __shfl_down_sync(0xffffffff, v, off);
-    return v;
-}
-
-template<typename T>
-__device__ __forceinline__ T sqr(T x){ 
-    return x*x; 
-}
-
-template<typename T>
-__device__ __forceinline__ void warp_min_reduce_pair(T& e, int& j) {
-#pragma unroll
-    for (int off = 16; off > 0; off >>= 1) {
-        T   e2 = __shfl_down_sync(FULL_WARP_MASK, e, off);
-        int j2 = __shfl_down_sync(FULL_WARP_MASK, j, off);
-        if (e2 < e) { e = e2; j = j2; }
     }
 }

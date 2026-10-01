@@ -2,17 +2,13 @@
 requires = [
   "scikit-build-core>=0.9.0",
   "pybind11>=2.11",
-  "numpy>=1.17.4",
-  "sympy>=1.7.1",
-  "beautifulsoup4>=4.9.3",
-  "lxml>=4.2.1",
 ]
 build-backend = "scikit_build_core.build"
 
 [project]
 name = "hjcdik"
 version = "0.0.1"
-description = "Minimal Python bindings for hjcdik (C++/CUDA)"
+description = "GPU-parallel hierarchical joint-coordinate-descent inverse kinematics"
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [
@@ -22,17 +18,20 @@ authors = [
   { name = "Brian Plancher", email = "plancher@dartmouth.edu" },
 ]
 
-# REQUIRED runtime + codegen dependencies
+# Runtime dependency used by the Python array API. GRiD code generation is an explicit extra.
 dependencies = [
   "numpy>=1.17.4",
-  "sympy>=1.7.1",
-  "beautifulsoup4>=4.9.3",
-  "lxml>=4.2.1",
 ]
 
 # OPTIONAL extras. Base install stays lightweight (HJCD-IK needs none of these). The competitor
 # baselines are heavy and skippable — see docs/source/user_guide/benchmarks/results.rst.
 [project.optional-dependencies]
+codegen = [
+  "sympy>=1.7.1",
+  "beautifulsoup4>=4.9.3",
+  "lxml>=4.2.1",
+  "trimesh>=4",               # optional mesh-to-sphere custom-robot codegen
+]
 # Lightweight tooling + PyRoki's pure-python friends that pip CAN resolve. The solver stacks
 # themselves (PyRoki, cuRobo) and their JAX-CUDA / torch deps are NOT plain-PyPI installs — run
 # scripts/setup/install_baselines.sh, which installs this extra and then the git/source solvers.
@@ -50,21 +49,31 @@ plots = [
 dev = [
   "pytest>=7.0",
   "scipy>=1.7",
-  "pytest-gpu-proof>=0.1.0",   # signed GPU-proof receipt gen/verify (PyPI; was a submodule). Needs Python >=3.11.
+  "pytest-gpu-proof>=0.4.0; python_version >= '3.11'", # receipt generation requires Python >=3.11
   "pyyaml>=5.4",               # read the YAML policy (tests/gpu-proof-policy.yaml); pytest-gpu-proof doesn't pull it in
 ]
 
 [tool.scikit-build]
-cmake.version = ">=3.23"
+cmake.version = ">=3.24"
 build-dir = "build"
 # The committed csrc/generated/grid.cuh is the build default; regenerate it explicitly
 # with scripts/codegen/generate_grid.py (or build with -DHJCDIK_AUTO_CODEGEN=ON to regenerate here).
 cmake.define.HJCDIK_AUTO_CODEGEN = "OFF"
+# Keep build/codegen sources, licenses, tests, and pre-spherized URDFs. Upstream
+# mesh collections, benchmark suites, and showcase media are not needed to build hjcdik.
+sdist.exclude = [
+  "external/foam/assets/**/meshes/**",
+  "external/foam/assets/*.zip",
+  "external/foam/images/**",
+  "external/**/docs/**",
+  "external/**/test/**",
+  "docs/landing/**",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-  "gpu_proof: Test outcomes recorded in the signed pytest-gpu-proof receipt (auto-applied to the whole suite by tests/conftest.py; every HJCD-IK test drives the CUDA kernel).",
+  "gpu_proof: Full-suite outcomes recorded in the signed pytest-gpu-proof receipt (auto-applied by tests/conftest.py).",
 ]
 
 [tool.gpu_proof]
@@ -74,10 +83,9 @@ mode = "local"
 output = "gpu-proof.json"
 github_username = "plancherb1"     # org remotes (A2R-Lab) carry no SSH keys — sign as the keyholder
 required_marker = "gpu_proof"
-# Fingerprint the test harness only. The code under test — the CUDA kernel and the
-# GRiD/GLASS submodules — is pinned by the parent tree's commit + gitlinks, which the
-# fingerprinter cannot descend into; the verifier's commit-SHA check invalidates the
-# receipt on any kernel or pin change, forcing a re-run.
-fingerprint_paths = ["tests"]
+# The verifier permits ancestor commits, so fingerprints must cover implementation as well
+# as tests. pytest-gpu-proof >=0.4 records submodule gitlinks in its v2 source manifest.
+fingerprint_paths = ["csrc", "hjcdik", "tests", "benchmark", "scripts", "examples", "docs/source", "README.md", "CMakeLists.txt", "pyproject.toml", ".gitmodules", "external"]
+fingerprint_excluded_paths = ["gpu-proof.json"]
 max_age_days = 30
 require_gpu = true

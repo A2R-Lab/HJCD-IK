@@ -25,13 +25,18 @@ See [arXiv:2510.07514](https://arxiv.org/abs/2510.07514) for the full method and
 
 ## Batched execution & warp-locality
 
-HJCD-IK launches **one CUDA block per IK problem** and processes **one candidate per warp**
-(`warp_id = threadIdx.x >> 5`, `lane = threadIdx.x & 31`). This warp-locality is the core performance
-contract — a single block sweeps many candidates concurrently:
+Each call solves **one target**, exploring a batch of candidate configurations. Coarse search
+assigns **one candidate per CUDA block**; its warps cooperate on coordinate-pair trials.
+Refinement assigns **one candidate per warp**, optionally packing several independent
+candidates into a block (`warp_id = threadIdx.x >> 5`, `lane = threadIdx.x & 31`).
 
-- Forward kinematics, the Jacobian build, the reductions, and the normal-equations solve are all
-  **warp-scoped**, using `__shfl_*_sync` / `__syncwarp` rather than block-wide barriers.
-- The `SYNC()` macro selects `__syncwarp()` for single-warp blocks and `__syncthreads()` otherwise.
+- LM forward kinematics, Jacobian construction, reductions, and the normal-equations solve
+  stay warp-scoped. LM's `SYNC()` is a warp barrier even in multi-warp blocks: independent
+  candidates may diverge or finish at different times.
+- Coarse-search state shared across warps uses block barriers. Per-warp scratch reuse also
+  needs warp fences; register shuffles alone do not order shared-memory reads/writes.
+- Larger batches and different GPU scheduling can change the candidate pool. A seeded target
+  sequence does not promise bitwise-identical returned configurations across launches.
 
 When refactoring math onto GRiD/GLASS, keep it warp-scoped: use `grid::ee_pose_inner_warp` and the
 `glass::warp::` primitives — **not** block-scoped (`glass::`), cooperative-groups (`glass::cgrps::`), or
@@ -43,10 +48,14 @@ sizes.
 With `collision_free=True`, the refined candidates are scored against the environment *after* optimization
 (never on the hot solver loop) using GRiD's URDF-driven `grid_collision`. The robot is approximated by
 covering spheres baked into `grid.cuh` at codegen (`--collision`); obstacles (spheres / cuboids / cylinders)
-come from the problem set. `soft` mode (default) adds a penetration cost that biases selection; `hard` mode
-filters colliding candidates with `grid_collision::config_free` (self **and** environment); `both` combines
-them (env `HJCD_CC_MODE`).
+come from the problem set. `hard` mode (default) filters colliding candidates with
+`grid_collision::config_free` (self **and** environment), so a request can return fewer solutions than
+requested, including zero. `soft` adds a penetration cost for ranking experiments but does not guarantee
+collision freedom; `both` combines the two. Select the policy with the Python `collision_mode` argument;
+the benchmark also accepts `--collision-mode`.
 
-Because collision geometry is generated from the same URDF as the kinematics, adding a robot needs no
-hand-written collision code — see {doc}`../tutorials/custom_robot`. A `grid.cuh` built without `--collision`
-runs open-world (a `collision_free=True` request is ignored).
+Collision geometry is generated from URDF shapes or supplied pre-spherized geometry and bound to
+the kinematic robot's frames. Adding a supported robot needs no
+hand-written collision code — see {doc}`../tutorials/custom_robot`. Python rejects
+`collision_free=True` when `grid.cuh` was built without `--collision` instead of silently running
+open-world.

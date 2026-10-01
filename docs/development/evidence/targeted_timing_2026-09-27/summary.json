@@ -1,0 +1,316 @@
+{
+  "status": "complete",
+  "quality_failures": [],
+  "comparisons": [
+    {
+      "case": "both-compact-repeat",
+      "paired_rounds": [
+        0,
+        1,
+        2
+      ],
+      "delta_percent_by_round": [
+        -1.336739474112869,
+        -0.6940598376206419,
+        -1.045064178157773
+      ],
+      "stats": {
+        "baseline": {
+          "median": 2.1720435,
+          "p95": 3.06735735,
+          "solved": 384,
+          "calls": 384,
+          "zero_count": 0,
+          "invalid_environment_rows": 0
+        },
+        "latest": {
+          "median": 2.1491935,
+          "p95": 2.4926729499999998,
+          "solved": 384,
+          "calls": 384,
+          "zero_count": 0,
+          "invalid_environment_rows": 0
+        }
+      }
+    },
+    {
+      "case": "both-compact-switch",
+      "paired_rounds": [
+        0,
+        1,
+        2
+      ],
+      "delta_percent_by_round": [
+        -28.47171879901813,
+        -28.578289541686473,
+        -28.819295386009426
+      ],
+      "stats": {
+        "baseline": {
+          "median": 3.022046,
+          "p95": 3.38972335,
+          "solved": 384,
+          "calls": 384,
+          "zero_count": 0,
+          "invalid_environment_rows": 0
+        },
+        "latest": {
+          "median": 2.156089,
+          "p95": 2.4945973,
+          "solved": 384,
+          "calls": 384,
+          "zero_count": 0,
+          "invalid_environment_rows": 0
+        }
+      }
+    },
+    {
+      "case": "both-full-repeat",
+      "paired_rounds": [
+        0,
+        1,
+        2
+      ],
+      "delta_percent_by_round": [
+        -14.36936647389735,
+        -14.356289426958114,
+        -13.736099583909745
+      ],
+      "stats": {
+        "baseline": {
+          "median": 2.8927835,
+          "p95": 34.956400550000005,
+          "solved": 384,
+          "calls": 384,
+          "zero_count": 0,
+          "invalid_environment_rows": 0
+        },
+        "latest": {
+          "median": 2.48215,
+          "p95": 2.81428385,
+          "solved": 384,
+          "calls": 384,
+          "zero_count": 0,
+          "invalid_environment_rows": 0
+        }
+      }
+    },
+    {
+      "case": "both-full-switch",
+      "paired_rounds": [
+        0,
+        1,
+        2
+      ],
+      "delta_percent_by_round": [
+        -92.73919224053873,
+        -92.81968999008463,
+        -92.62215023154114
+      ],
+      "stats": {
+        "baseline": {
+          "median": 34.318461,
+          "p95": 35.70690995,
+          "solved": 384,
+          "calls": 384,
+          "zero_count": 0,
+          "invalid_environment_rows": 0
+        },
+        "latest": {
+          "median": 2.4928725,
+          "p95": 2.8264096000000003,
+          "solved": 384,
+          "calls": 384,
+          "zero_count": 0,
+          "invalid_environment_rows": 0
+        }
+      }
+    },
+    {
+      "case": "hard-compact-repeat",
+      "paired_rounds": [
+        0,
+        1,
+        2
+      ],
+      "delta_percent_by_round": [
+        -1.3474158649360857,
+        -1.093233598096821,
+        -1.5076103488316783
+      ],
+      "stats": {
+        "baseline": {
+          "median": 2.1394845,
+          "p95": 3.0210134,
+          "solved": 384,
+          "calls": 384,
+          "zero_count": 0,
+          "invalid_environment_rows": 0
+        },
+        "latest": {
+          "median": 2.110583,
+          "p95": 2.45477115,
+          "solved": 384,
+          "calls": 384,
+          "zero_count": 0,
+          "invalid_environment_rows": 0
+        }
+      }
+    },
+    {
+      "case": "hard-compact-switch",
+      "paired_rounds": [
+        0,
+        1,
+        2
+      ],
+      "delta_percent_by_round": [
+        -29.293120471241863,
+        -29.143728224311683,
+        -28.95958504285776
+      ],
+      "stats": {
+        "baseline": {
+          "median": 2.9849455000000003,
+          "p95": 3.32868805,
+          "solved": 384,
+          "calls": 384,
+          "zero_count": 0,
+          "invalid_environment_rows": 0
+        },
+        "latest": {
+          "median": 2.1170225,
+          "p95": 2.4619218000000003,
+          "solved": 384,
+          "calls": 384,
+          "zero_count": 0,
+          "invalid_environment_rows": 0
+        }
+      }
+    },
+    {
+      "case": "hard-full-repeat",
+      "paired_rounds": [
+        0,
+        1,
+        2
+      ],
+      "delta_percent_by_round": [
+        -14.931214487349909,
+        -14.675026503550626,
+        -13.710594291583057
+      ],
+      "stats": {
+        "baseline": {
+          "median": 2.8541705,
+          "p95": 34.7255755,
+          "solved": 384,
+          "calls": 384,
+          "zero_count": 0,
+          "invalid_environment_rows": 0
+        },
+        "latest": {
+          "median": 2.4419435,
+          "p95": 2.79699535,
+          "solved": 384,
+          "calls": 384,
+          "zero_count": 0,
+          "invalid_environment_rows": 0
+        }
+      }
+    },
+    {
+      "case": "hard-full-switch",
+      "paired_rounds": [
+        0,
+        1,
+        2
+      ],
+      "delta_percent_by_round": [
+        -92.91781348282692,
+        -92.83835042371638,
+        -92.82008459540924
+      ],
+      "stats": {
+        "baseline": {
+          "median": 34.338766,
+          "p95": 35.53634555,
+          "solved": 384,
+          "calls": 384,
+          "zero_count": 0,
+          "invalid_environment_rows": 0
+        },
+        "latest": {
+          "median": 2.4530564999999998,
+          "p95": 2.7801226,
+          "solved": 384,
+          "calls": 384,
+          "zero_count": 0,
+          "invalid_environment_rows": 0
+        }
+      }
+    },
+    {
+      "case": "open-s1-fp64",
+      "paired_rounds": [
+        0,
+        1,
+        2
+      ],
+      "delta_percent_by_round": [
+        0.8941258322990198,
+        -0.2754811281407976,
+        0.5389710983018547
+      ],
+      "stats": {
+        "baseline": {
+          "median": 1.2868975,
+          "p95": 9.011156449999996,
+          "solved": 384,
+          "calls": 384,
+          "zero_count": 0,
+          "invalid_environment_rows": 0
+        },
+        "latest": {
+          "median": 1.2857175,
+          "p95": 9.0127173,
+          "solved": 384,
+          "calls": 384,
+          "zero_count": 0,
+          "invalid_environment_rows": 0
+        }
+      }
+    },
+    {
+      "case": "open-s4-fp32",
+      "paired_rounds": [
+        0,
+        1,
+        2
+      ],
+      "delta_percent_by_round": [
+        0.303245238021832,
+        -0.08476012883539275,
+        0.5157479898488582
+      ],
+      "stats": {
+        "baseline": {
+          "median": 1.4648525000000001,
+          "p95": 1.84136745,
+          "solved": 384,
+          "calls": 384,
+          "zero_count": 0,
+          "invalid_environment_rows": 0
+        },
+        "latest": {
+          "median": 1.4683644999999999,
+          "p95": 1.8467038499999997,
+          "solved": 384,
+          "calls": 384,
+          "zero_count": 0,
+          "invalid_environment_rows": 0
+        }
+      }
+    }
+  ]
+}
