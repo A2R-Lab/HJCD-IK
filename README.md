@@ -257,8 +257,8 @@ Select the policy explicitly with `collision_mode="hard"`, `"soft"`, or `"both"`
 result = hjcdik.generate_solutions(..., collision_free=True, collision_mode="hard")
 ```
 
-The benchmark also accepts `--collision-mode`; `HJCD_CC_MODE` remains a compatibility default for
-benchmark scripts.
+The benchmark also accepts `--collision-mode`; `HJCD_CC_MODE` remains the default of that flag for
+benchmark scripts only (the Python API and native solver never read it).
 
 - `hard` (default): filters self- and environment-colliding solutions; the result may contain fewer
   than `num_solutions`, including zero

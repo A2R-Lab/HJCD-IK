@@ -2,7 +2,7 @@ from typing import Literal, Sequence, TypedDict
 
 import numpy as np
 
-CollisionMode = Literal["hard", "soft", "both", "auto"]
+CollisionMode = Literal["hard", "soft", "both"]
 
 
 class IKResult(TypedDict):

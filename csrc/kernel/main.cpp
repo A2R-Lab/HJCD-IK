@@ -17,9 +17,6 @@
 #include <unordered_set>
 #include <vector>
 
-extern "C" int grid_num_joints();
-void init_joint_limits_from_grid();
-
 struct Args {
     std::string mode = "single";   // "single" | "sweep" | "from_csv"
     int batch_size = 2000;
@@ -241,88 +238,50 @@ static void append_solution_vectors(
 }
 
 int main(int argc, char** argv) try {
-    const Args args_in = parse_args(argc, argv);
-    Args args = args_in;
+    const Args args = parse_args(argc, argv);
 
     // The native API lazily initializes and shares the model on the current CUDA device.
-    const grid::robotModel<double>* d_robotModel = nullptr;
-
     const int N = grid_num_joints();
     const int B = args.batch_size;
     int S = args.num_solutions;
 
     using clock = std::chrono::steady_clock;
 
-    std::vector<int>    y_batch;
-    std::vector<double> y_time;
-    std::vector<double> y_pos;
-    std::vector<double> y_ori;
-
-    if (args.mode == "single") {
-        uint64_t seed = 0ull;
-        auto targets = sample_random_target_poses<double>(d_robotModel, 1, seed);
-        if (targets.empty()) {
-            std::cerr << "Failed to sample target pose.\n";
-            return 1;
-        }
-        double target_pose[7];
-        for (int j = 0; j < 7; ++j) target_pose[j] = targets[0][j];
-
-        const auto t0 = clock::now();
-        auto res = generate_ik_solutions<double>(target_pose, d_robotModel, B, S);
-        const auto t1 = clock::now();
-        const double elapsed_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
-
-        append_solution_vectors(res.count, B, elapsed_ms, res.pos_errors, res.ori_errors,
-                                y_batch, y_time, y_pos, y_ori);
-
-        write_yaml_flat(args.yaml_out, y_batch, y_time, y_pos, y_ori);
-        std::cout << "[OK] wrote " << args.yaml_out
-                  << " with " << res.count << " solutions (single target).\n";
-
-        return 0;
-    }
-
-    if (args.mode == "sweep") {
-        const int T = args.num_targets;
-        uint64_t seed = 0ull;
-        auto targets = sample_random_target_poses<double>(d_robotModel, T, seed);
+    if (args.mode == "single" || args.mode == "sweep") {
+        // "single" is a one-target sweep.
+        const int T = args.mode == "single" ? 1 : args.num_targets;
+        auto targets = sample_random_target_poses<double>(nullptr, T, /*seed=*/0ull);
         if ((int)targets.size() < T) {
             std::cerr << "Failed to sample " << T << " target poses.\n";
             return 1;
         }
 
+        std::vector<int>    y_batch;
+        std::vector<double> y_time, y_pos, y_ori;
         y_batch.reserve((size_t)T * S);
         y_time.reserve((size_t)T * S);
         y_pos.reserve((size_t)T * S);
         y_ori.reserve((size_t)T * S);
 
-        std::size_t processed = 0;
         for (int t = 0; t < T; ++t) {
-            double target_pose[7];
-            for (int j = 0; j < 7; ++j) target_pose[j] = targets[t][j];
-
             const auto t0 = clock::now();
-            auto res = generate_ik_solutions<double>(target_pose, d_robotModel, B, /*NUM_SOLUTIONS=*/S);
+            auto res = generate_ik_solutions<double>(targets[t].data(), B, S);
             const auto t1 = clock::now();
             const double elapsed_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
             append_solution_vectors(res.count, B, elapsed_ms, res.pos_errors, res.ori_errors,
                                     y_batch, y_time, y_pos, y_ori);
-
-            processed++;
-            if ((processed % 50) == 0) {
-                std::cout << "[sweep] processed " << processed << " / " << T << " targets...\n";
-            }
+            if (((t + 1) % 50) == 0)
+                std::cout << "[sweep] processed " << (t + 1) << " / " << T << " targets...\n";
         }
 
         write_yaml_flat(args.yaml_out, y_batch, y_time, y_pos, y_ori);
-        std::cout << "[OK] wrote sweep results to " << args.yaml_out
+        std::cout << "[OK] wrote " << args.yaml_out
                   << " (" << y_batch.size() << " entries from " << T << " targets).\n";
         return 0;
     }
 
-    if (args.mode == "from_csv") {
+    {
         if (S != 50) {
             std::cerr << "[from_csv] INFO: overriding --num_solutions=" << S
                       << " → 50 for MMD sampling.\n";
@@ -358,7 +317,7 @@ int main(int argc, char** argv) try {
             double target_pose[7];
             for (int i = 0; i < 7; ++i) target_pose[i] = t.wxyz_pose[i];
 
-            auto res = generate_ik_solutions<double>(target_pose, d_robotModel, B, S);
+            auto res = generate_ik_solutions<double>(target_pose, B, S);
 
             for (int r = 0; r < res.count; ++r) {
                 const double* qrow = res.joint_config + (size_t)r * N;
@@ -380,9 +339,6 @@ int main(int argc, char** argv) try {
                   << " targets (q only).\n";
         return 0;
     }
-
-    std::cerr << "Unknown --mode=" << args.mode << " (use 'single', 'sweep', or 'from_csv').\n";
-    return 2;
 } catch (const std::exception& error) {
     std::cerr << "HJCD-IK: " << error.what() << '\n';
     return 1;

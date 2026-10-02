@@ -21,7 +21,8 @@ or guarantee that the returned candidate reaches the requested pose.
 
 Each selected problem must explicitly describe its obstacles. Use ``"obstacles": {}``
 for an empty environment (self-collision is still checked). Supported obstacle keys are
-``sphere``, ``cuboid``, ``cylinder``, and legacy ``box``; unknown keys are rejected.
+``sphere``, ``cuboid`` and ``cylinder``; unknown keys are rejected. Cuboids and cylinders
+take a ``pose``; spheres take a ``pose`` or a bare ``position``.
 Dimensions, radii, and lengths must be positive finite numbers; poses use meters and
 ``[x,y,z,qw,qx,qy,qz]`` with a nonzero quaternion. Cylinders are conservatively represented
 as capsules. Guarantees are relative to the generated sphere model, which excludes the

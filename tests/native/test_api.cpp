@@ -39,13 +39,13 @@ int main(int argc, char** argv) try {
 
     // Exercise native validation and lazy initialization, with no wrapper or GIL.
     try {
-        generate_ik_solutions<double>(nullptr, nullptr, 32);
+        generate_ik_solutions<double>(nullptr, 32);
         throw std::runtime_error("null target accepted");
     } catch (const std::invalid_argument&) {}
     auto targets = sample_random_target_poses<double>(nullptr, 2, 17);
     require(targets.size() == 2, "sampling failed");
 
-    auto result = generate_ik_solutions<double>(targets[0].data(), nullptr, 2000, 2);
+    auto result = generate_ik_solutions<double>(targets[0].data(), 2000, 2);
     check_result(result, targets[0], 2);
     auto* original = result.joint_config;
     Result<double> moved(std::move(result));
@@ -57,21 +57,21 @@ int main(int argc, char** argv) try {
 
     // Different native template instantiations must share the same solver lock.
     auto fp32 = std::async(std::launch::async, [target = targets[0]]() mutable {
-        return generate_ik_solutions<double, float>(target.data(), nullptr, 512);
+        return generate_ik_solutions<double, float>(target.data(), 512);
     });
     auto fp64 = std::async(std::launch::async, [target = targets[1]]() mutable {
-        return generate_ik_solutions<double>(target.data(), nullptr, 512);
+        return generate_ik_solutions<double>(target.data(), 512);
     });
     check_result(fp32.get(), targets[0], 1);
     check_result(fp64.get(), targets[1], 1);
 
     auto float_targets = sample_random_target_poses<float>(nullptr, 1, 19);
-    auto float_result = generate_ik_solutions<float>(float_targets[0].data(), nullptr, 512);
+    auto float_result = generate_ik_solutions<float>(float_targets[0].data(), 512);
     check_result(float_result, float_targets[0], 1);
     if (!grid_has_collision()) {
         bool rejected = false;
         try {
-            generate_ik_solutions<double>(targets[0].data(), nullptr, 32, 1, true,
+            generate_ik_solutions<double>(targets[0].data(), 32, 1, true,
                 "{\"problems\":{\"empty\":[{\"obstacles\":{}}]}}", "empty");
         } catch (const std::runtime_error&) { rejected = true; }
         require(rejected, "collision request accepted by a no-collision build");

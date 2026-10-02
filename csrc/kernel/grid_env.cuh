@@ -11,8 +11,7 @@
 //
 // Obstacle pose convention is MotionBenchMaker's: [x, y, z, qw, qx, qy, qz] (position + unit
 // quaternion). cuboid = {dims, pose}; cylinder = {radius, height|length, pose} (modeled as a
-// capsule, matching the old path); sphere = {radius, pose|position}. Legacy position +
-// orientation_euler_xyz forms are also accepted.
+// capsule); sphere = {radius, pose|position}.
 #include <array>
 #include <cmath>
 #include <limits>
@@ -71,19 +70,6 @@ inline void quat_to_basis(float qw, float qx, float qy, float qz,
     u[0] = 1.f - 2.f * (qy * qy + qz * qz); u[1] = 2.f * (qx * qy + qz * qw); u[2] = 2.f * (qx * qz - qy * qw);
     v[0] = 2.f * (qx * qy - qz * qw); v[1] = 1.f - 2.f * (qx * qx + qz * qz); v[2] = 2.f * (qy * qz + qx * qw);
     w[0] = 2.f * (qx * qz + qy * qw); w[1] = 2.f * (qy * qz - qx * qw); w[2] = 1.f - 2.f * (qx * qx + qy * qy);
-}
-
-// Intrinsic XYZ euler (rad) -> quaternion (w,x,y,z), then reuse quat_to_basis. Legacy path only.
-inline void euler_xyz_to_basis(float rx, float ry, float rz,
-                               float u[3], float v[3], float w[3]) {
-    const float cx = std::cos(rx * 0.5f), sx = std::sin(rx * 0.5f);
-    const float cy = std::cos(ry * 0.5f), sy = std::sin(ry * 0.5f);
-    const float cz = std::cos(rz * 0.5f), sz = std::sin(rz * 0.5f);
-    const float qw = cx * cy * cz + sx * sy * sz;
-    const float qx = sx * cy * cz - cx * sy * sz;
-    const float qy = cx * sy * cz + sx * cy * sz;
-    const float qz = cx * cy * sz - sx * sy * cz;
-    quat_to_basis(qw, qx, qy, qz, u, v, w);
 }
 
 inline std::array<float, 3> arr3(const json& a) {
@@ -156,8 +142,7 @@ inline HostEnv problem_dict_to_env(const json& problem) {
     if (!wrapped && root.empty())
         throw std::invalid_argument("collision problem must specify obstacles (use {} for an empty scene)");
     for (auto it = root.begin(); it != root.end(); ++it) {
-        if (it.key() != "sphere" && it.key() != "cuboid" &&
-            it.key() != "cylinder" && it.key() != "box")
+        if (it.key() != "sphere" && it.key() != "cuboid" && it.key() != "cylinder")
             throw std::invalid_argument("unsupported obstacle type: " + it.key());
     }
 
@@ -175,47 +160,19 @@ inline HostEnv problem_dict_to_env(const json& problem) {
     if (root.contains("cuboid")) {
         for_each_shape(root.at("cuboid"), [&](const json& o) {
             float c[3], u[3], v[3], w[3];
-            std::array<float, 3> half;
-            if (o.contains("pose")) {
-                pose_to_frame(o.at("pose"), c, u, v, w);
-                auto dims = dimensions(o.at("dims"));
-                half = {0.5f * dims[0], 0.5f * dims[1], 0.5f * dims[2]};
-            } else {
-                auto pos = arr3(o.at("position"));
-                auto rpy = arr3(o.at("orientation_euler_xyz"));
-                c[0] = pos[0]; c[1] = pos[1]; c[2] = pos[2];
-                euler_xyz_to_basis(rpy[0], rpy[1], rpy[2], u, v, w);
-                const json& ext = o.contains("half_extents") ? o.at("half_extents") : o.at("dims");
-                half = dimensions(ext);
-                if (!o.contains("half_extents")) { half[0] *= 0.5f; half[1] *= 0.5f; half[2] *= 0.5f; }
-            }
-            env.cuboids.push_back(make_cuboid(c, u, v, w, half.data()));
+            pose_to_frame(o.at("pose"), c, u, v, w);
+            const auto dims = dimensions(o.at("dims"));
+            const float half[3] = {0.5f * dims[0], 0.5f * dims[1], 0.5f * dims[2]};
+            env.cuboids.push_back(make_cuboid(c, u, v, w, half));
         });
     }
 
     if (root.contains("cylinder")) {
         for_each_shape(root.at("cylinder"), [&](const json& o) {
             float c[3], u[3], v[3], w[3];
-            if (o.contains("pose")) pose_to_frame(o.at("pose"), c, u, v, w);
-            else {
-                auto pos = arr3(o.at("position"));
-                auto rpy = arr3(o.at("orientation_euler_xyz"));
-                c[0] = pos[0]; c[1] = pos[1]; c[2] = pos[2];
-                euler_xyz_to_basis(rpy[0], rpy[1], rpy[2], u, v, w);
-            }
+            pose_to_frame(o.at("pose"), c, u, v, w);
             env.capsules.push_back(
                 make_cylinder_capsule(c, w, positive_number(o.at("radius")), cylinder_length(o)));
-        });
-    }
-
-    if (root.contains("box")) {  // legacy euler-only box schema
-        for_each_shape(root.at("box"), [&](const json& o) {
-            auto pos = arr3(o.at("position"));
-            auto rpy = arr3(o.at("orientation_euler_xyz"));
-            auto half = dimensions(o.at("half_extents"));
-            float c[3] = {pos[0], pos[1], pos[2]}, u[3], v[3], w[3];
-            euler_xyz_to_basis(rpy[0], rpy[1], rpy[2], u, v, w);
-            env.cuboids.push_back(make_cuboid(c, u, v, w, half.data()));
         });
     }
 

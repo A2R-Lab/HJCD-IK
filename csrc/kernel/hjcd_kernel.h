@@ -11,10 +11,7 @@
 
 namespace grid {
     template<typename T> struct robotModel;
-    template<typename T> robotModel<T>* init_robotModel();
 }
-
-#define PI 3.14159265358979323846
 
 /**
  * @brief Move-only owner of a native solve's row-major host buffers.
@@ -92,13 +89,12 @@ std::array<T, 7> normalized_target_pose(const T* pose) {
  *
  * Compiled instantiations are <double,double>, <double,float>, and <float,double>.
  * T controls I/O; RT controls LM compute precision; coarse search always uses float.
- * Calls serialize shared native state on the calling thread's current CUDA device.
- * Cached models require that context to remain alive; cudaDeviceReset is unsupported.
+ * Calls serialize shared native state on the calling thread's current CUDA device and use
+ * internally cached, precision-specific generated models. Cached models require that context
+ * to remain alive; cudaDeviceReset is unsupported.
  *
  * @param target_pose Nonnull seven-vector [x,y,z,qw,qx,qy,qz], meters and scalar-first
  * quaternion. Finite nonzero quaternions are normalized without mutating this input.
- * @param d_robotModel Retained for source compatibility; ignored. Precision-specific
- * internally cached generated models are used by the solver.
  * @param b_size Positive candidate count (not a target count), bounded by CUDA indexing.
  * @param num_solutions Positive maximum number of distinct candidates requested.
  * @param collision_free Enable post-solve collision processing; requires a collision build.
@@ -107,7 +103,7 @@ std::array<T, 7> normalized_target_pose(const T* pose) {
  * @param problem_idx Nonnegative index within the selected problem set.
  * @param write_stats Append diagnostics to ik_stats.csv; write failures throw.
  * @param collision_mode 0 = environment-only soft ranking, 1 = hard self/environment
- * filtering, 2 = both; -1 reads HJCD_CC_MODE (defaults to hard). Ignored in open-world solves.
+ * filtering (default), 2 = both. Ignored in open-world solves.
  * @return Owning result. Candidates may be approximate, fewer than requested, or empty.
  * Collision checks describe configurations, never paths.
  * @throws std::invalid_argument For invalid scalar/pose values.
@@ -117,7 +113,6 @@ std::array<T, 7> normalized_target_pose(const T* pose) {
 template<typename T, typename RT = double>
 Result<T> generate_ik_solutions(
     T* target_pose,
-    const grid::robotModel<T>* d_robotModel,
     int b_size,
     int num_solutions = 1,
     bool collision_free = false,
@@ -125,7 +120,7 @@ Result<T> generate_ik_solutions(
     const char* problem_set_name = nullptr,
     int problem_idx = 0,
     bool write_stats = false,
-    int collision_mode = -1
+    int collision_mode = 1
 );
 
 /**

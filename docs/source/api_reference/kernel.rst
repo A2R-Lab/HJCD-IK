@@ -17,9 +17,9 @@ initialization failures report the operation, roll back partial allocations best
 and never reset the CUDA context or terminate the process. This does not promise
 recovery after a context-invalidating CUDA error.
 
-A null model argument selects the internally cached model for sampling. The solver selects
-its own coarse/refine models by precision; its model argument is retained for source
-compatibility. Position errors are in millimeters and orientation errors in radians.
+A null model argument selects the internally cached model for sampling. The solver always
+uses its own internally cached coarse/refine models (one per precision) and takes no model
+argument. Position errors are in millimeters and orientation errors in radians.
 
 .. doxygenfile:: hjcd_kernel.h
    :project: hjcdik

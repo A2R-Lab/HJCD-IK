@@ -1,43 +1,13 @@
-#pragma once 
+#pragma once
 
-// Generated GRiD headers call this helper while defining template bodies.
-template<typename T>
-__device__ __forceinline__
-void mat4_mul(const T* A, const T* B, T* C) {
-    T tmp[16];
-
-    #pragma unroll
-    for (int c = 0; c < 4; ++c) {
-        #pragma unroll
-        for (int r = 0; r < 4; ++r) {
-            tmp[c * 4 + r] =
-                A[0 * 4 + r] * B[c * 4 + 0] +
-                A[1 * 4 + r] * B[c * 4 + 1] +
-                A[2 * 4 + r] * B[c * 4 + 2] +
-                A[3 * 4 + r] * B[c * 4 + 3];
-        }
-    }
-
-    #pragma unroll
-    for (int i = 0; i < 16; ++i) {
-        C[i] = tmp[i];
-    }
-}
-
+// Generated GRiD kinematics. Since the header is generated with vendor_glass=False
+// (scripts/codegen/generate_grid.py) it includes the top-level external/GLASS itself and
+// aliases `grid::glass` to `::glass`, so exactly ONE GLASS is compiled per translation unit.
 #include "grid.cuh"
-
-// External GLASS (full, with the glass::warp:: sub-namespace) at GLOBAL scope. GRiD now
-// vendors its own pinned GLASS isolated under grid::glass (see GRiDCodeGenerator
-// _lin_alg_helpers.py) AND namespaces its vendored macro guards (GRID_VENDORED_GLASS_*),
-// so this no longer ODR-clashes with grid.cuh's vendored copy.
 #include "glass.cuh"
 
 #ifndef WARP_SIZE
 #define WARP_SIZE 32
-#endif
-
-#ifndef UNREFINE
-#define UNREFINE 0
 #endif
 
 #ifndef FULL_WARP_MASK
@@ -51,13 +21,19 @@ void mat4_mul(const T* A, const T* B, T* C) {
 namespace hjcd {
     static constexpr int N = grid::NUM_JOINTS;            // actuated joints (7 for Panda)
     static_assert(N > 0 && N <= 32, "HJCD-IK requires 1 to 32 actuated joints");
-    static constexpr int XHOM = grid::XHOM_T_COUNT;       // full s_XmatsHom frame storage (16*num_frames)
     static constexpr int FLANGE_JID = N - 1;              // cumulative world transform of the last joint
     // Fixed EE-offset frame inside s_XmatsHom: the frame index where GRiD places the named EE target
     // (its end_effector_pose_inner_<target> epilogue chains s_Xhom[16*EE_FIXED_FRAME_IDX] onto joint
     // FLANGE_JID). This index is ROBOT-SPECIFIC and shifts with DoF, so it is resolved at codegen time
     // and injected into grid.cuh by scripts/codegen/generate_grid.py (Panda grasptarget=10, etc.) — never hardcode.
     static constexpr int GRASP_FIXED_IDX = grid::EE_FIXED_FRAME_IDX;
+}
+
+// 4x4 column-major homogeneous product C = A * B on one thread (C must not alias A or B).
+template<typename T>
+__device__ __forceinline__
+void mat4_mul(const T* __restrict__ A, const T* __restrict__ B, T* __restrict__ C) {
+    glass::thread::gemm<T, 4, 4, 4>(static_cast<T>(1), A, B, C);
 }
 
 // ---------------------------------------------------------------------------
@@ -68,7 +44,6 @@ namespace hjcd {
 // the fixed grasptarget tool offset. HJCD's solver reads the grasptarget world pose at
 // slot EE_IDX (== grid::NUM_JOINTS), so we append it here:
 //     s_jointX[16*ee_slot] = s_jointX[16*FLANGE_JID] * s_XmatsHom_fixed[16*GRASP_FIXED_IDX]
-// (T_lastjoint * X_fixed) — exactly the multiply the old bespoke X_warp/X_single_thread did.
 // ---------------------------------------------------------------------------
 
 // Warp-cooperative: must be entered by all 32 lanes of a single warp.
@@ -107,11 +82,9 @@ void ee_fk_thread(T* s_jointX, T* s_XmatsHom, T* s_q, int ee_slot, const T* s_fi
 // (a running 4x4 + one overridden local) — independent of DoF, so it scales to large robots
 // where a full per-candidate chain copy would not fit shared memory.
 //
-// BIT-IDENTICAL to a full thread FK of the candidate when the anchor was itself built by a
-// thread FK (same locals, same compose order; only joint jovr's local differs).
-// Assumes a SERIAL chain (parent(j) == j-1) — true for all current robots (Panda + DoF
-// variants + the Fetch arm). Tree/branched robots (humanoids) need the parent table and a
-// subtree walk (follow-up); the grid::update_XmatHom_joint primitive itself is general.
+// Assumes a SERIAL chain (parent(j) == j-1) — true for every robot codegen accepts
+// (generate_grid.py rejects branched models). Tree/branched robots need the parent table and
+// a subtree walk; the grid::update_XmatHom_joint primitive itself is general.
 template<typename T>
 __device__ __forceinline__
 void ee_fk_suffix_thread(T* out_ee16, const T* l_anchorX, const T* l_anchorLoc,
@@ -137,27 +110,24 @@ void ee_fk_suffix_thread(T* out_ee16, const T* l_anchorX, const T* l_anchorLoc,
     mat4_mul(W, &s_XmatsHom_full[16 * hjcd::GRASP_FIXED_IDX], out_ee16);
 }
 
+// Host-side refine schedule: how many coarse candidates are polished, and how many perturbed
+// copies of each are refined (the first copy of each group is kept unperturbed).
 struct RefineSchedule {
     int    top_k;
     int    repeats;
     double sigma_frac;
-    bool   keep_one;
 };
 
 inline RefineSchedule schedule_for_B(int B) {
     RefineSchedule s;
-    s.keep_one   = true;
-    s.sigma_frac = 0.1;
-    s.repeats    = 16;
-
+    s.repeats = 16;
     if (B <= 16) {
-        s.top_k     = B;
-        s.repeats   = 16;
-        s.sigma_frac= 0.25;
+        s.top_k      = B;
+        s.sigma_frac = 0.25;
     } else {
-        s.top_k = 16 + (int)((B - 1000)/1000 * 8);
+        s.top_k      = 16 + (int)((B - 1000)/1000 * 8);
+        s.sigma_frac = 0.1;
     }
-
     return s;
 }
 
@@ -170,4 +140,10 @@ struct HJCDSettings {
 
     // Refine phase settings
     static constexpr T lambda_init = static_cast<T>(5e-3);
+    static constexpr int lm_max_iters = 40;
+    // Convergence / early-stop tolerance (pos in m, ori in rad). 1e-8 m is far below the fp32
+    // representable floor at ~0.5 m coords, so fp32 refinement cannot early-stop at this default;
+    // HJCD_LM_EPS_POS / HJCD_LM_EPS_ORI override it for precision-appropriate sweeps.
+    static constexpr T lm_eps_pos = static_cast<T>(1e-8);
+    static constexpr T lm_eps_ori = static_cast<T>(1e-8);
 };

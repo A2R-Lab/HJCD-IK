@@ -5,21 +5,16 @@
 #include "kernel/device_utils.cuh"
 
 #include <cuda_runtime.h>
-#include <curand_kernel.h>
 
 #include <thrust/device_vector.h>
 #include <thrust/sort.h>
 #include <thrust/sequence.h>
 #include <thrust/execution_policy.h>
-#include <thrust/gather.h>
 #include <thrust/copy.h>
 
 #include <algorithm>
 #include <cmath>
-#include <iostream>
 #include <numeric>
-#include <random>
-#include <thread>
 #include <vector>
 #include <chrono>
 #include <fstream>
@@ -120,25 +115,6 @@ void init_joint_limits_from_grid()
 }
 
 template<typename T>
-__device__ void sample_joint_config(T* s_x, int local_problem, int global_problem) {
-    const int offset = local_problem * N;
-    const uint32_t base = 1337u;
-    uint32_t s = make_seed(base, global_problem, local_problem, threadIdx.x);
-
-#pragma unroll
-    for (int j = 0; j < N; ++j) {
-        uint32_t sj = wanghash(s ^ (uint32_t)j * 0x27d4eb2du);
-
-        float r = u01(sj);
-        float low = (float)c_joint_limits[j].x;
-        float hi = (float)c_joint_limits[j].y;
-
-        float v = fmaf(r, (hi - low), low);
-        s_x[offset + j] = (T)v;
-    }
-}
-
-template<typename T>
 __device__ void perturb_joint_config(T* s_x, int global_problem, T sigma_frac = (T)0.05) {
     const uint32_t base = 911u;
     uint32_t s = make_seed(base, global_problem, 0, threadIdx.x);
@@ -153,9 +129,7 @@ __device__ void perturb_joint_config(T* s_x, int global_problem, T sigma_frac = 
 
         float step = (float)sigma_frac * range * gauss01(sj);
 
-        float v = (float)s_x[j] + step;
-        v = fminf(hi, fmaxf(low, v));
-        s_x[j] = (T)v;
+        s_x[j] = (T)clamp_val<float>((float)s_x[j] + step, low, hi);
     }
 }
 
@@ -170,25 +144,6 @@ void mat_to_quat(const T* __restrict__ C, T* __restrict__ q) {
     glass::thread::rot_to_quat<T, glass::block::QuatLayout::wxyz, /*LDA=*/4>(C, q);
 }
 
-template<typename T>
-__device__ void multiply_quat(const T* r, const T* s, T* t) {
-    t[0] = r[0] * s[0] - r[1] * s[1] - r[2] * s[2] - r[3] * s[3];
-    t[1] = r[0] * s[1] + r[1] * s[0] - r[2] * s[3] + r[3] * s[2];
-    t[2] = r[0] * s[2] + r[1] * s[3] + r[2] * s[0] - r[3] * s[1];
-    t[3] = r[0] * s[3] - r[1] * s[2] + r[2] * s[1] + r[3] * s[0];
-}
-
-template<typename T>
-__device__ void normalize_quat(T* quat) {
-    T norm = sqrt(quat[0] * quat[0] + quat[1] * quat[1] + quat[2] * quat[2] + quat[3] * quat[3]);
-    if (norm > 1e-6f) {
-        quat[0] /= norm;
-        quat[1] /= norm;
-        quat[2] /= norm;
-        quat[3] /= norm;
-    }
-}
-
 // World-frame orientation residual w = log(q_goal ⊗ q_cur⁻¹), the rotation vector paired
 // with the world-frame geometric Jacobian. Thin alias over GLASS's frame-tagged quat_error
 // (R2 of the 2026-07-30 request wave). ⚠ OPERAND ORDER: GLASS pins WORLD as
@@ -201,36 +156,16 @@ __device__ __forceinline__ void quat_err_rotvec(const T* q_cur, const T* q_goal,
         q_goal, q_cur, w_err3);
 }
 
+// In-place unit-normalize a 3-vector (no-op for near-zero input).
 template<typename T>
-__device__ void normalize_vec3(T* vec) {
-    T norm = sqrt(vec[0] * vec[0] + vec[1] * vec[1] + vec[2] * vec[2]);
-    if (norm > 1e-6) {
-        vec[0] /= norm;
-        vec[1] /= norm;
-        vec[2] /= norm;
-    }
+__device__ __forceinline__ void normalize_vec3(T* vec) {
+    const T norm = glass::thread::nrm2<T, 3>(vec);
+    if (norm > 1e-6) { vec[0] /= norm; vec[1] /= norm; vec[2] /= norm; }
 }
 
-// Scalar orientation error = geodesic angle. glass::block::quat_angle is frame-invariant and folds
-// the double cover internally (no manual dot-sign flip needed).
-template<typename T>
-__device__ T compute_ori_err(const T* CjX, const T* q_goal) {
-    T qee[4];
-    mat_to_quat(&CjX[EE_IDX*16], qee);
-    return glass::block::quat_angle<T, glass::block::QuatLayout::wxyz>(qee, q_goal);
-}
-
-template<typename T>
-__device__ T compute_pos_err(const T* C, const T* target_pose) {
-    const T dx = C[EE_IDX * 16 + 12] - target_pose[0];
-    const T dy = C[EE_IDX * 16 + 13] - target_pose[1];
-    const T dz = C[EE_IDX * 16 + 14] - target_pose[2];
-    return sqrt(dx * dx + dy * dy + dz * dz);
-}
-
-// Variants taking a standalone 16-cell EE transform (offset 0) rather than a full chain
-// indexed at EE_IDX — used by the lane-parallel coarse candidates, which keep each
-// candidate's EE pose in a per-lane register buffer instead of a shared frame array.
+// Pose errors of a standalone 16-cell column-major EE transform (offset 0). The coarse
+// lane-parallel candidates keep each candidate's EE pose in a per-lane register buffer; the
+// chain-indexed overloads below just select slot EE_IDX of a full frame array.
 template<typename T>
 __device__ __forceinline__ T compute_pos_err_at(const T* ee16, const T* target_pose) {
     const T dx = ee16[12] - target_pose[0];
@@ -239,6 +174,8 @@ __device__ __forceinline__ T compute_pos_err_at(const T* ee16, const T* target_p
     return sqrt(dx * dx + dy * dy + dz * dz);
 }
 
+// Scalar orientation error = geodesic angle. glass::block::quat_angle is frame-invariant and folds
+// the double cover internally (no manual dot-sign flip needed).
 template<typename T>
 __device__ __forceinline__ T compute_ori_err_at(const T* ee16, const T* q_goal) {
     T qee[4];
@@ -246,9 +183,35 @@ __device__ __forceinline__ T compute_ori_err_at(const T* ee16, const T* q_goal) 
     return glass::block::quat_angle<T, glass::block::QuatLayout::wxyz>(qee, q_goal);
 }
 
+template<typename T>
+__device__ __forceinline__ T compute_pos_err(const T* C, const T* target_pose) {
+    return compute_pos_err_at(&C[EE_IDX * 16], target_pose);
+}
+
+template<typename T>
+__device__ __forceinline__ T compute_ori_err(const T* C, const T* q_goal) {
+    return compute_ori_err_at(&C[EE_IDX * 16], q_goal);
+}
+
+// Pack a 16-cell EE transform as [x, y, z, qw, qx, qy, qz] (rot_to_quat returns a unit quaternion).
+template<typename T>
+__device__ __forceinline__ void store_ee_pose7(const T* ee16, T* pose7) {
+    T q[4];
+    mat_to_quat(ee16, q);
+    pose7[0] = ee16[12]; pose7[1] = ee16[13]; pose7[2] = ee16[14];
+    pose7[3] = q[0]; pose7[4] = q[1]; pose7[5] = q[2]; pose7[6] = q[3];
+}
+
+// Greedy coordinate-descent step damping: 0.75..1.0 of the geometric angle, decaying with k.
+template<typename T>
+__device__ __forceinline__ T coarse_step(T theta, int k, int k_max) {
+    const T delta = 0.75 + 0.25 * (1.0 - T(k) / T(k_max));
+    return clamp_step_angle(theta * delta);
+}
+
 // SOLVE
 template<typename T>
-__device__ T solve_pos(const T* s_jointXforms, const T* pos, const T* target_pose_local, int joint, int k, int k_max, T delta_min = 0.35, T delta_max = 0.75) {
+__device__ T solve_pos(const T* s_jointXforms, const T* pos, const T* target_pose_local, int joint, int k, int k_max) {
     T joint_pos[3] = {
         s_jointXforms[joint * 16 + 12],
         s_jointXforms[joint * 16 + 13],
@@ -297,14 +260,12 @@ __device__ T solve_pos(const T* s_jointXforms, const T* pos, const T* target_pos
     if (sign < 0)
         theta = -theta;
 
-    T delta = 0.75 + 0.25 * (1.0 - T(k) / T(k_max));
-    T step = theta * delta;
-    step = clamp_step_angle(step);
-    return step;
+    return coarse_step(theta, k, k_max);
 }
 
 template<typename T>
 __device__ T solve_ori(const T* s_jointXforms, const T* q_t, int joint, int k, int k_max) {
+    using QL = glass::block::QuatLayout;
 
     T r[3] = {
         s_jointXforms[joint * 16 + 8],
@@ -313,58 +274,84 @@ __device__ T solve_ori(const T* s_jointXforms, const T* q_t, int joint, int k, i
     };
     normalize_vec3(r);
 
-    T q_ee[4];
+    // q_err = q_t (x) conj(q_ee): the rotation taking the current EE orientation to the target.
+    T q_ee[4], q_ee_inv[4], q_err[4];
     mat_to_quat(&s_jointXforms[EE_IDX * 16], q_ee);
-    normalize_quat(q_ee);
+    glass::thread::quat_conj<T, QL::wxyz>(q_ee, q_ee_inv);
+    glass::thread::quat_mul<T, QL::wxyz>(q_t, q_ee_inv, q_err);
+    glass::thread::quat_normalize<T, QL::wxyz>(q_err, q_err);
 
-    T q_ee_inv[4] = { q_ee[0], -q_ee[1], -q_ee[2], -q_ee[3] };
-    T q_err[4];
-    multiply_quat(q_t, q_ee_inv, q_err);
-    normalize_quat(q_err);
-
+    // Unsigned angle from |w|; the axis sign is folded into `sign` below via the joint axis.
     T theta = 2.0f * acos(glass::block::clamp_unit(fabs(q_err[0])));
-    T sin_h = sin(theta / 2.0f);
     T a[3] = { 1, 0, 0 };
-
     if (theta > 1e-3f) {
+        const T sin_h = sin(theta / 2.0f);
         a[0] = q_err[1] / sin_h;
         a[1] = q_err[2] / sin_h;
         a[2] = q_err[3] / sin_h;
-
-        T norm = sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
-        if (norm > 1e-6f) {
-            a[0] /= norm;
-            a[1] /= norm;
-            a[2] /= norm;
-        }
+        normalize_vec3(a);
     }
 
     T sign = a[0] * r[0] + a[1] * r[1] + a[2] * r[2];
     if (sign < 0)
         theta = -theta;
 
-    T delta = 0.75 + 0.25 * (1.0 - T(k) / T(k_max));
-    T step = theta * delta;
-    step = clamp_step_angle(step);
-    return step;
+    return coarse_step(theta, k, k_max);
 }
 
 // JACOBIAN TUNER
-__device__ __forceinline__ void upper_index_to_rc(int idx, int DIM, int& r, int& c) {
-    int acc = 0;
-    for (int rr = 0; rr < DIM; ++rr) {
-        int rowCount = DIM - rr;
-        if (idx < acc + rowCount) { r = rr; c = rr + (idx - acc); return; }
-        acc += rowCount;
-    }
-    r = c = 0;
+// Six-vector pose residual of EE transform Cn against target tp / unit q_goal:
+// r = [tp - p_ee ; log(q_goal (x) q_ee^-1)], the world-frame rotation vector paired with the
+// world-frame geometric Jacobian. (No cover fold needed: glass::quat_error returns the shortest path.)
+template<typename T>
+__device__ __forceinline__
+void ee_residual6(const T* Cn, const T* tp, const T* q_goal, T* r6) {
+    r6[0] = tp[0] - Cn[12];
+    r6[1] = tp[1] - Cn[13];
+    r6[2] = tp[2] - Cn[14];
+    T qee[4]; mat_to_quat(Cn, qee);
+    quat_err_rotvec(qee, q_goal, &r6[3]);
 }
 
 template<typename T>
-__device__ __forceinline__ T safe_normN(const T* v, int n) {
-    T s = (T)0; for (int i = 0; i < n; ++i) s += v[i] * v[i]; return sqrt(s);
+__device__ __forceinline__ T half_sq_norm6(const T* r6) {
+    return (T)0.5 * (r6[0]*r6[0] + r6[1]*r6[1] + r6[2]*r6[2] + r6[3]*r6[3] + r6[4]*r6[4] + r6[5]*r6[5]);
 }
 
+// Robust (Huber-like) per-row rescaling of an already row-normalised residual: rows whose
+// magnitude exceeds the clip (cp for position, growing with the position error; co for
+// orientation) are down-weighted by sqrt(clip/|r|). Returns the six sqrt-weights.
+template<typename T>
+__device__ __forceinline__
+void robust_row_weights(const T* r_scaled, T pos_err_m, T* w6) {
+    const T cp = fmax((T)1e-4, (T)5e-3 * (T)fmax((T)1, (T)1e3 * pos_err_m));
+    const T co = (T)0.5;
+#pragma unroll
+    for (int k = 0; k < 6; ++k) {
+        const T clip = (k < 3) ? cp : co;
+        const T a = fabs(r_scaled[k]);
+        const T w = (a <= clip) ? (T)1 : (clip / (a + (T)1e-30));
+        w6[k] = sqrt(w);
+    }
+}
+
+// Error-regime index 0..3 (coarse -> fine) shared by the LM trust-region / clip tables below.
+template<typename T>
+__device__ __forceinline__ int lm_regime(T pos_err_m, T ori_err_rad) {
+    if (pos_err_m > (T)1e-2 || ori_err_rad > (T)0.6)  return 0;
+    if (pos_err_m > (T)1e-3 || ori_err_rad > (T)0.25) return 1;
+    if (pos_err_m > (T)2e-4 || ori_err_rad > (T)0.08) return 2;
+    return 3;
+}
+
+template<typename T>
+__device__ __forceinline__ T lm_step_clip(T pos_err_m) {
+    return (pos_err_m > (T)1e-2) ? (T)0.30 :
+           (pos_err_m > (T)1e-3) ? (T)0.15 :
+           (pos_err_m > (T)2e-4) ? (T)0.08 : (T)0.03;
+}
+
+// Re-evaluate the row-scaled LM cost (and raw errors) of xcur in place: FK + residual.
 template<typename T>
 __device__ __forceinline__
 void recompute_cost_scaled(T* xcur,
@@ -374,18 +361,13 @@ void recompute_cost_scaled(T* xcur,
     T& cost_sq, T& pos_err_m, T& ori_err_rad)
 {
     ee_fk_thread<T>(s_jointX, s_XmatsHom, xcur, EE_IDX, s_XmatsHom);
-    const T* Cn = &s_jointX[EE_IDX * 16];
-    const T dx = tp[0] - Cn[12];
-    const T dy = tp[1] - Cn[13];
-    const T dz = tp[2] - Cn[14];
-    T qee[4]; mat_to_quat(Cn, qee);
-    // (no cover fold needed: glass::quat_error returns the shortest path for either sign)
-    T wv[3]; quat_err_rotvec(qee, q_goal, wv);
-    const T rt0 = row_s[0] * dx, rt1 = row_s[1] * dy, rt2 = row_s[2] * dz;
-    const T rt3 = row_s[3] * wv[0], rt4 = row_s[4] * wv[1], rt5 = row_s[5] * wv[2];
-    cost_sq = (T)0.5 * (rt0 * rt0 + rt1 * rt1 + rt2 * rt2 + rt3 * rt3 + rt4 * rt4 + rt5 * rt5);
-    pos_err_m = sqrt(dx * dx + dy * dy + dz * dz);
-    ori_err_rad = sqrt(wv[0] * wv[0] + wv[1] * wv[1] + wv[2] * wv[2]);
+    T r6[6];
+    ee_residual6(&s_jointX[EE_IDX * 16], tp, q_goal, r6);
+    pos_err_m   = glass::thread::nrm2<T, 3>(&r6[0]);
+    ori_err_rad = glass::thread::nrm2<T, 3>(&r6[3]);
+#pragma unroll
+    for (int k = 0; k < 6; ++k) r6[k] *= row_s[k];
+    cost_sq = half_sq_norm6(r6);
 }
 
 template<typename T>
@@ -416,7 +398,7 @@ __device__ bool try_dogleg_step(
     for (int i = 0; i < N; ++i) p_sd[i] = -alpha * gvec[i];
 
     // Trial step (GN)
-    T p_try[N], p_gn_norm = safe_normN(dq_gn, N);
+    T p_try[N], p_gn_norm = glass::thread::nrm2<T, N>(dq_gn);
     if (p_gn_norm <= R) {
 #pragma unroll
         for (int i = 0; i < N; ++i) p_try[i] = dq_gn[i];
@@ -469,12 +451,7 @@ __device__ bool try_coord_linesearch(
 #pragma unroll
     for (int i = 1; i < N; ++i) { T a = fabs(gvec[i]); if (a > gmax) { gmax = a; i_star = i; } }
 
-    const T clip =
-        (pos_err_m_hint > (T)1e-2) ? (T)0.30 :
-        (pos_err_m_hint > (T)1e-3) ? (T)0.15 :
-        (pos_err_m_hint > (T)2e-4) ? (T)0.08 : (T)0.03;
-
-    const T mag = clip;
+    const T mag = lm_step_clip(pos_err_m_hint);
     T best_cost = cost_sq, best_pos = pos_err_m, best_ori = ori_err_rad;
     T x_trial[N]; bool accepted = false;
 
@@ -482,8 +459,7 @@ __device__ bool try_coord_linesearch(
 #pragma unroll
         for (int j = 0; j < N; ++j) x_trial[j] = x_old[j];
         const double2 L = limits[i_star];
-        const T xi = x_old[i_star] + (T)sgn * mag;
-        x_trial[i_star] = fmin(fmax(xi, (T)L.x), (T)L.y);
+        x_trial[i_star] = clamp_val<T>(x_old[i_star] + (T)sgn * mag, (T)L.x, (T)L.y);
         T c, p, o; recompute_cost_scaled(x_trial, s_jointX, s_XmatsHom, row_s, tp, q_goal, c, p, o);
         if ((p <= pos_err_m + (T)1e-12) && (c + (T)1e-20 < best_cost)) {
             best_cost = c; best_pos = p; best_ori = o; accepted = true;
@@ -699,14 +675,7 @@ __device__ void solve_lm_batched(
         SYNC(); if (s_break) break;
 
         // Position and orientation residual
-        if (tid == 0) {
-            const T* Cn = &s_jointX[EE_IDX * 16];
-            T qee[4]; mat_to_quat(Cn, qee);
-            T wv[3]; quat_err_rotvec(qee, q_goal, wv);
-            const T dx = tp[0]-Cn[12], dy = tp[1]-Cn[13], dz = tp[2]-Cn[14];
-            r_scaled[0]=dx; r_scaled[1]=dy; r_scaled[2]=dz;
-            r_scaled[3]=wv[0]; r_scaled[4]=wv[1]; r_scaled[5]=wv[2];
-        }
+        if (tid == 0) ee_residual6(&s_jointX[EE_IDX * 16], tp, q_goal, r_scaled);
         SYNC();
 
         // Build J and row-norms (row_norm2 is per-warp, aliased from the scratch struct)
@@ -762,22 +731,11 @@ __device__ void solve_lm_batched(
             #pragma unroll
             for (int k=0;k<6;++k) r_scaled[k] *= row_s[k];
 
-            const T cp = fmax((T)1e-4, (T)5e-3 * (T)fmax((T)1, (T)1e3*pos_err_m));
-            const T co = (T)0.5;
+            // Robust row weights are folded into row_s so the same scaling applies to J.
+            T w6[6];
+            robust_row_weights(r_scaled, pos_err_m, w6);
             #pragma unroll
-            for (int k=0;k<3;++k){
-                const T a=fabs(r_scaled[k]);
-                const T w=(a<=cp)?(T)1:(cp/(a+(T)1e-30));
-                const T s=sqrt(w);
-                row_s[k]*=s; r_scaled[k]*=s;
-            }
-            #pragma unroll
-            for (int k=3;k<6;++k){
-                const T a=fabs(r_scaled[k]);
-                const T w=(a<=co)?(T)1:(co/(a+(T)1e-30));
-                const T s=sqrt(w);
-                row_s[k]*=s; r_scaled[k]*=s;
-            }
+            for (int k=0;k<6;++k){ row_s[k]*=w6[k]; r_scaled[k]*=w6[k]; }
 
             T w_ori = (pos_err_m > (T)1e-3) ? (T)0.5 :
                       (pos_err_m > (T)2e-4) ? (T)1.0 : (T)1.5;
@@ -785,30 +743,15 @@ __device__ void solve_lm_batched(
             row_s[3]*=s; row_s[4]*=s; row_s[5]*=s;
             r_scaled[3]*=s; r_scaled[4]*=s; r_scaled[5]*=s;
 
-            cost_sq = (T)0.5*(
-                r_scaled[0]*r_scaled[0]+r_scaled[1]*r_scaled[1]+r_scaled[2]*r_scaled[2]+
-                r_scaled[3]*r_scaled[3]+r_scaled[4]*r_scaled[4]+r_scaled[5]*r_scaled[5]);
+            cost_sq = half_sq_norm6(r_scaled);
         }
         SYNC();
 
-        // Apply row_s to J
+        // Apply row_s to J (diagA / gvec are produced by the normal-equation build below)
         if (tid < N) {
             const int i = tid;
 #pragma unroll
             for (int k=0;k<6;++k) J[k*N+i] *= row_s[k];
-        }
-
-        // Joint-limit column scaling + LM diag/prior
-        if (tid < N) {
-            const int i = tid;
-            const T col = (T)1.0;
-
-            #pragma unroll
-            for (int k=0;k<6;++k) J[k*N+i] *= col;
-
-            // Disable joint-center prior near limits
-            diagA[i] = (T)0;
-            gvec[i]  = (T)0;
         }
         SYNC();
 
@@ -817,20 +760,15 @@ __device__ void solve_lm_batched(
         SYNC();
 
         if (tid == 0) {
-            T R;
-            if      (pos_err_m > (T)1e-2 || ori_err_rad > (T)0.6)  R=(T)0.38;
-            else if (pos_err_m > (T)1e-3 || ori_err_rad > (T)0.25) R=(T)0.22;
-            else if (pos_err_m > (T)2e-4 || ori_err_rad > (T)0.08) R=(T)0.12;
-            else                                                   R=(T)0.05;
+            const T R_table[4] = { (T)0.38, (T)0.22, (T)0.12, (T)0.05 };
+            const T R = R_table[lm_regime(pos_err_m, ori_err_rad)];
 
-            T nrm=(T)0; for (int i=0;i<N;++i) nrm += dq[i]*dq[i]; nrm = sqrt(nrm);
+            const T nrm = glass::thread::nrm2<T, N>(dq);
             if (nrm > R) { T s = R/(nrm + (T)1e-18); for (int i=0;i<N;++i) dq[i]*=s; }
 
-            const T clip = (pos_err_m > (T)1e-2)?(T)0.30:
-                           (pos_err_m > (T)1e-3)?(T)0.15:
-                           (pos_err_m > (T)2e-4)?(T)0.08:(T)0.03;
+            const T clip = lm_step_clip(pos_err_m);
             for (int i=0;i<N;++i){
-                dq[i]=fmin(fmax(dq[i],-clip),clip);
+                dq[i]=clamp_val<T>(dq[i],-clip,clip);
                 x_old[i]=s_x[i];
             }
         }
@@ -848,8 +786,7 @@ __device__ void solve_lm_batched(
             if (tid == 0) {
                 for (int i=0;i<N;++i){
                     const double2 lim=c_joint_limits[i];
-                    const T xi= x_old[i] + a*dq[i];
-                    s_x[i] = fmin(fmax(xi,(T)lim.x),(T)lim.y);
+                    s_x[i] = clamp_val<T>(x_old[i] + a*dq[i], (T)lim.x, (T)lim.y);
                 }
             }
             SYNC();
@@ -858,30 +795,20 @@ __device__ void solve_lm_batched(
             SYNC();
 
             if (tid == 0) {
-                const T pos_new = compute_pos_err(s_jointX, tp);
-                const T ori_new = compute_ori_err(s_jointX, &tp[3]);
-
                 const T* Cn=&s_jointX[EE_IDX * 16];
-                T qee[4]; mat_to_quat(Cn, qee);
-                T wv[3]; quat_err_rotvec(qee, q_goal, wv);
-                T dx = tp[0]-Cn[12], dy = tp[1]-Cn[13], dz = tp[2]-Cn[14];
+                const T pos_new = compute_pos_err_at(Cn, tp);
+                const T ori_new = compute_ori_err_at(Cn, &tp[3]);
 
-                T rr[6] = { dx,dy,dz, wv[0],wv[1],wv[2] };
+                // Trial cost: row-scaled residual with a fresh robust re-weighting at the trial's
+                // own position error (on top of the weights already folded into row_s).
+                T rr[6], w6[6];
+                ee_residual6(Cn, tp, q_goal, rr);
 #pragma unroll
                 for (int k=0;k<6;++k) rr[k] *= row_s[k];
-
-                const T cp2 = fmax((T)1e-4, (T)5e-3 * (T)fmax((T)1, (T)1e3*pos_new));
-                const T co2 = (T)0.5;
+                robust_row_weights(rr, pos_new, w6);
 #pragma unroll
-                for (int k=0;k<3;++k){ 
-                    const T a2=fabs(rr[k]); const T w=(a2<=cp2)?(T)1:(cp2/(a2+(T)1e-30)); rr[k]*=sqrt(w); 
-                }
-#pragma unroll
-                for (int k=3;k<6;++k){ 
-                    const T a2=fabs(rr[k]); const T w=(a2<=co2)?(T)1:(co2/(a2+(T)1e-30)); rr[k]*=sqrt(w); 
-                }
-
-                T trial=(T)0.5*(rr[0]*rr[0]+rr[1]*rr[1]+rr[2]*rr[2]+rr[3]*rr[3]+rr[4]*rr[4]+rr[5]*rr[5]);
+                for (int k=0;k<6;++k) rr[k] *= w6[k];
+                const T trial = half_sq_norm6(rr);
 
                 const bool nonincreasing_pos = (pos_new <= pos_err_m + (T)1e-12);
                 const bool improves_cost     = (trial + (T)1e-20 < best_cost);
@@ -911,11 +838,8 @@ __device__ void solve_lm_batched(
                 prev_cost=cost_sq;
             } else {
                 // Dogleg + linesearch
-                T R;
-                if      (pos_err_m > (T)1e-2 || ori_err_rad > (T)0.6)  R=(T)0.45;
-                else if (pos_err_m > (T)1e-3 || ori_err_rad > (T)0.25) R=(T)0.28;
-                else if (pos_err_m > (T)2e-4 || ori_err_rad > (T)0.08) R=(T)0.10;
-                else                                                   R=(T)0.04;
+                const T R_table[4] = { (T)0.45, (T)0.28, (T)0.10, (T)0.04 };
+                const T R = R_table[lm_regime(pos_err_m, ori_err_rad)];
 
                 bool took = try_dogleg_step<T>(s_x, x_old, s_jointX, s_XmatsHom,
                                                row_s, tp, q_goal, R,
@@ -940,8 +864,7 @@ __device__ void solve_lm_batched(
                     uint32_t u = 0x9E3779B9u ^ (uint32_t)(i*0xC2B2AE35u);
                     T sgn = (T)((int)(u&1)?1:-1);
                     T kick = (T)0.005 * span * sgn;
-                    T xi = s_x[i] + kick;
-                    s_x[i] = fmin(fmax(xi,(T)L.x),(T)L.y);
+                    s_x[i] = clamp_val<T>(s_x[i] + kick, (T)L.x, (T)L.y);
                 }
                 ee_fk_thread<T>(s_jointX, s_XmatsHom, s_x, EE_IDX, s_XmatsHom);
                 pos_err_m   = compute_pos_err(s_jointX,tp);
@@ -984,10 +907,7 @@ WRITE_OUT:
         pos_err_m   = compute_pos_err(s_jointX, tp);
         ori_err_rad = compute_ori_err(s_jointX, &tp[3]);
 
-        const T* Cn = &s_jointX[EE_IDX * 16];
-        T q_out[4]; mat_to_quat(Cn, q_out);
-        pose[gp*7+0]=Cn[12]; pose[gp*7+1]=Cn[13]; pose[gp*7+2]=Cn[14];
-        pose[gp*7+3]=q_out[0]; pose[gp*7+4]=q_out[1]; pose[gp*7+5]=q_out[2]; pose[gp*7+6]=q_out[3];
+        store_ee_pose7(&s_jointX[EE_IDX * 16], &pose[gp*7]);
         pos_error[gp] = pos_err_m * (T)1000.0;
         ori_error[gp] = ori_err_rad;
         for (int i=0;i<N;++i) x[gp*N+i] = s_x[i];
@@ -1014,7 +934,6 @@ __global__ void coarse_search(
     const int warps_per_block = max(1, (int)(blockDim.x >> 5));
 
     if (!x || !pose || !targetsB || !pos_errors || !ori_errors || !d_robotModel) return;
-    if (warps_per_block == 0) return;
 
     // Two per-warp scratch blocks: l_tmp (anchor-p locals) and l_C1 (anchor-p world chain).
     // The anchor FK (cand_p) is computed ONCE per anchor; every candidate j then recomputes
@@ -1073,14 +992,7 @@ __global__ void coarse_search(
     if (tid == 0) {
         s_glob_pos_err = compute_pos_err(s_jointXforms, target_pose_local);
         s_glob_ori_err = compute_ori_err(s_jointXforms, q_t);
-
-        T q_ee[4];
-        mat_to_quat(&s_jointXforms[EE_IDX * 16], q_ee);
-        normalize_quat(q_ee);
-        s_pose[0] = s_jointXforms[EE_IDX * 16 + 12];
-        s_pose[1] = s_jointXforms[EE_IDX * 16 + 13];
-        s_pose[2] = s_jointXforms[EE_IDX * 16 + 14];
-        s_pose[3] = q_ee[0]; s_pose[4] = q_ee[1]; s_pose[5] = q_ee[2]; s_pose[6] = q_ee[3];
+        store_ee_pose7(&s_jointXforms[EE_IDX * 16], s_pose);
     }
     __syncthreads();
 
@@ -1097,17 +1009,7 @@ __global__ void coarse_search(
         __syncthreads();
 
         if (tid == 0) {
-            T q_ee[4];
-            mat_to_quat(&s_jointXforms[EE_IDX * 16], q_ee);
-            normalize_quat(q_ee);
-            s_pose[0] = s_jointXforms[EE_IDX * 16 + 12];
-            s_pose[1] = s_jointXforms[EE_IDX * 16 + 13];
-            s_pose[2] = s_jointXforms[EE_IDX * 16 + 14];
-            s_pose[3] = q_ee[0]; s_pose[4] = q_ee[1]; s_pose[5] = q_ee[2]; s_pose[6] = q_ee[3];
-        }
-        __syncthreads();
-
-        if (tid == 0) {
+            store_ee_pose7(&s_jointXforms[EE_IDX * 16], s_pose);
             const T pos_gate = (T)10e-4;
             s_allow_ori = (s_glob_pos_err < pos_gate) ? 1 : 0;
         }
@@ -1257,24 +1159,15 @@ __global__ void coarse_search(
         if (tid == 0) {
             s_glob_pos_err = compute_pos_err(s_jointXforms, target_pose_local);
             s_glob_ori_err = compute_ori_err(s_jointXforms, q_t);
-
-            T q_ee[4];
-            mat_to_quat(&s_jointXforms[EE_IDX * 16], q_ee);
-            normalize_quat(q_ee);
-            s_pose[0] = s_jointXforms[EE_IDX * 16 + 12];
-            s_pose[1] = s_jointXforms[EE_IDX * 16 + 13];
-            s_pose[2] = s_jointXforms[EE_IDX * 16 + 14];
-            s_pose[3] = q_ee[0]; s_pose[4] = q_ee[1]; s_pose[5] = q_ee[2]; s_pose[6] = q_ee[3];
+            store_ee_pose7(&s_jointXforms[EE_IDX * 16], s_pose);
 
             for (int jj = 0; jj < N; ++jj) {
                 s_pos_err[jj] = s_glob_pos_err;
                 s_ori_err[jj] = s_glob_ori_err;
             }
 
-            if (stop_on_first && s_glob_pos_err < HJCDSettings<T>::epsilon && s_glob_ori_err < HJCDSettings<T>::nu) {
-                int old = atomicCAS(&g_stop, 0, 1);
-                if (old == 0) { __threadfence(); g_winner = gp; }
-            }
+            if (stop_on_first && s_glob_pos_err < HJCDSettings<T>::epsilon && s_glob_ori_err < HJCDSettings<T>::nu)
+                atomicCAS(&g_stop, 0, 1);
         }
         __syncthreads();
 
@@ -1341,16 +1234,16 @@ __global__ void gather_rows_kernel(const T* __restrict__ xsrc,
     }
 }
 
+// EE pose [x,y,z,qw,qx,qy,qz] of each of B joint configurations (one block per config).
 template <typename T>
 __global__ void forward_kinematics_kernel(
     const T* __restrict__ q,
     T* __restrict__ ee_pose7,
-    T* __restrict__ all_link_T,
     const grid::robotModel<T>* __restrict__ RM,
     const int B)
 {
     const int b = blockIdx.x;
-    if (!q || !RM || b >= B) return;
+    if (!q || !ee_pose7 || !RM || b >= B) return;
 
     __shared__ T s_q[N];
     __shared__ T s_XmatsHom[grid::XHOM_T_COUNT];
@@ -1366,25 +1259,7 @@ __global__ void forward_kinematics_kernel(
 
     if (threadIdx.x == 0) {
         ee_fk_thread<T>(s_jointX, s_XmatsHom, s_q, EE_IDX, s_XmatsHom);
-
-        if (ee_pose7) {
-            const T* Cee = &s_jointX[EE_IDX * 16];
-            T qee[4];
-            mat_to_quat(Cee, qee);
-            ee_pose7[(size_t)b * 7 + 0] = Cee[12];
-            ee_pose7[(size_t)b * 7 + 1] = Cee[13];
-            ee_pose7[(size_t)b * 7 + 2] = Cee[14];
-            ee_pose7[(size_t)b * 7 + 3] = qee[0];
-            ee_pose7[(size_t)b * 7 + 4] = qee[1];
-            ee_pose7[(size_t)b * 7 + 5] = qee[2];
-            ee_pose7[(size_t)b * 7 + 6] = qee[3];
-        }
-
-        if (all_link_T) {
-            T* out = &all_link_T[(size_t)b * (NX * 16)];
-#pragma unroll
-            for (int i = 0; i < NX * 16; ++i) out[i] = s_jointX[i];
-        }
+        store_ee_pose7(&s_jointX[EE_IDX * 16], &ee_pose7[(size_t)b * 7]);
     }
 }
 
@@ -1480,9 +1355,7 @@ sample_random_target_poses(const grid::robotModel<T>* d_robotModel,
     const int threads = 32;
     const int blocks  = num_configs;
 
-    forward_kinematics_kernel<T><<<blocks, threads>>>(
-        d_q, d_pose7, nullptr, d_robotModel, num_configs
-    );
+    forward_kinematics_kernel<T><<<blocks, threads>>>(d_q, d_pose7, d_robotModel, num_configs);
     CUDA_OK(cudaGetLastError());
     CUDA_OK(cudaDeviceSynchronize());
 
@@ -1499,19 +1372,15 @@ sample_random_target_poses(const grid::robotModel<T>* d_robotModel,
     return out;
 }
 
+// Candidate ranking score (lower is better): position error in mm plus a heavy penalty on
+// orientation error beyond a small target. Shared by the device coarse top-K ranking and the
+// host final selection so both stages rank candidates identically.
 template<typename T>
-__global__ void gather_rows_generic(
-    const T* __restrict__ src,
-    const int* __restrict__ idx,
-    T* __restrict__ dst,
-    int K, int C)
-{
-    int r = blockIdx.x;
-    if (r >= K) return;
-    int src_row = idx[r];
-    for (int j = threadIdx.x; j < C; j += blockDim.x) {
-        dst[r * C + j] = src[src_row * C + j];
-    }
+__host__ __device__ __forceinline__ T rank_score(T pos_err_mm, T ori_err_rad) {
+    constexpr T ORI_TARGET_RAD = (T)1.1e-4;
+    constexpr T ORI_OUTLIER_W  = (T)1e4;
+    const T ori_excess = ori_err_rad - ORI_TARGET_RAD;
+    return pos_err_mm + ORI_OUTLIER_W * (ori_excess > (T)0 ? ori_excess : (T)0);
 }
 
 template<typename T>
@@ -1522,11 +1391,7 @@ __global__ void build_scores_kernel(const T* __restrict__ pos_err_mm,
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= B) return;
-
-    const T ORI_TARGET_RAD = (T)1.1e-4;
-    const T ORI_OUTLIER_W  = (T)1e4;
-    const T ori_excess = fmax((T)0, ori_err_rad[i] - ORI_TARGET_RAD);
-    scores[i] = pos_err_mm[i] + ORI_OUTLIER_W * ori_excess;
+    scores[i] = rank_score(pos_err_mm[i], ori_err_rad[i]);
 }
 
 template<typename T>
@@ -1545,17 +1410,6 @@ __global__ void replicate_rows_kernel(const T* __restrict__ src,
 }
 
 template<typename T>
-__global__ void replicate_target7_kernel(const T* __restrict__ target7,
-    T* __restrict__ out,
-    int R)
-{
-    int r = blockIdx.x;
-    if (r >= R) return;
-    for (int k = threadIdx.x; k < 7; k += blockDim.x)
-        out[r * 7 + k] = target7[k];
-}
-
-template<typename T>
 __global__ void perturb_rows_kernel(T* __restrict__ X,
     int R,
     T sigma_frac,
@@ -1571,20 +1425,9 @@ __global__ void perturb_rows_kernel(T* __restrict__ X,
     uint32_t s = (uint32_t)(seed ^ (uint64_t)r * 0x9E3779B97F4A7C15ull);
     for (int j = threadIdx.x; j < N; j += blockDim.x) {
         uint32_t sj = wanghash(s ^ (uint32_t)j * 0xC2B2AE35u);
-
-        float u1 = fmaxf(u01(sj), 1e-7f);
-        float u2 = u01(sj);
-        float g = sqrtf(-2.0f * logf(u1)) * cosf(6.28318530718f * u2);
-
         const double2 L = c_joint_limits[j];
-        float range = (float)(L.y - L.x);
-        float step = (float)sigma_frac * range * g;
-
-        T v = X[r * N + j] + (T)step;
-
-        if (v < (T)L.x) v = (T)L.x;
-        if (v > (T)L.y) v = (T)L.y;
-        X[r * N + j] = v;
+        const float step = (float)sigma_frac * (float)(L.y - L.x) * gauss01(sj);
+        X[r * N + j] = clamp_val<T>(X[r * N + j] + (T)step, (T)L.x, (T)L.y);
     }
 }
 
@@ -1597,16 +1440,16 @@ __global__ void cast_array(const Src* __restrict__ in,
 }
 
 #if defined(HJCD_HAS_COLLISION)
-// Threads per block for the collision-scoring kernel (power of two for the reduction).
+// Threads per block for the collision kernels.
 static constexpr int CC_TPB = 128;
 #endif
 
 // Soft environment-collision penetration cost (mm) for a batch of candidate configs, scored via
 // grid_collision AFTER optimization (never on the hot solver path). One block per config,
-// thread-count-invariant. Places the URDF-driven sphere model at q via the W1b batched extractor
-// and reduces the per-sphere signed clearance to the same measure the old pRRTC path used:
+// thread-count-invariant. Places the URDF-driven sphere model at q via the batched extractor and
+// reduces the per-sphere signed clearance:
 //   cost_mm[i] = 1000 * sum_sphere max(0, -d_sphere)          (d = nearest signed clearance, m)
-// Base-link spheres are already dropped at codegen (anchor < 0), matching the old pedestal skip.
+// Base-link spheres are already dropped at codegen (anchor < 0).
 // Requires dynamic smem = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<float>() for the FK
 // extractor (TIER_SHARED => nullptr workspace).
 //
@@ -1647,17 +1490,14 @@ __global__ void score_environment_costs(
     }
     red[tid] = local;
     __syncthreads();
-    for (int stride = blockDim.x >> 1; stride > 0; stride >>= 1) {
-        if (tid < stride) red[tid] += red[tid + stride];
-        __syncthreads();
-    }
+    glass::block::reduce<float>((uint32_t)blockDim.x, red);   // red[0] = block sum
     if (tid == 0) cost_mm[i] = red[0];
 }
 
-// Hard collision constraint (comparison to the soft cost): per candidate config, one block, write
-// valid[i] = grid_collision::config_free (SELF + environment; note the soft path is env-only). The
-// boolean is thread-invariant, so lane 0 publishes it. Same dynamic-smem contract as
-// score_environment_costs. Selected via HJCD_CC_MODE=hard|both (see generate_ik_solutions).
+// Hard collision constraint: per candidate config, one block, write valid[i] =
+// grid_collision::config_free (SELF + environment; note the soft path is env-only). The boolean is
+// thread-invariant, so lane 0 publishes it. Same dynamic-smem contract as score_environment_costs.
+// Selected by collision_mode = hard | both (see generate_ik_solutions).
 __global__ void mark_collisions(
     const double* __restrict__ q_in,                 // K x N
     int K,
@@ -1684,10 +1524,50 @@ __global__ void mark_collisions(
 }
 #endif  // HJCD_HAS_COLLISION
 
-const double ENV_COLLISION_COST_W = 1.5;
-const double ORI_TARGET_RAD = 1.1e-4;
-const double ORI_OUTLIER_W  = 7000.0;
+const double ENV_COLLISION_COST_W = 1.5;   // soft-mode weight of the penetration cost in the rank
 const float  CC_SPHERE_MARGIN_MM = 0.0f;   // env-collision margin (mm) for the coll-free tally
+
+namespace {
+
+// Clear the cross-block early-stop flag before each solver stage.
+void reset_stop_flag() {
+    const int zero = 0;
+    CUDA_OK(cudaMemcpyToSymbol(g_stop, &zero, sizeof(int)));
+}
+
+// Upload the 7-vector target in precision T and replicate it R times (one row per candidate).
+template<typename T>
+T* upload_replicated_target(hjcd::DeviceAllocations& allocations, const double* target_pose, int R) {
+    T h_target7[7];
+    for (int i = 0; i < 7; ++i) h_target7[i] = static_cast<T>(target_pose[i]);
+    T* d_target7 = nullptr;
+    T* d_targets = nullptr;
+    allocations.allocate(d_target7, sizeof(T) * 7);
+    allocations.allocate(d_targets, sizeof(T) * 7 * (size_t)R);
+    CUDA_OK(cudaMemcpy(d_target7, h_target7, sizeof(T) * 7, cudaMemcpyHostToDevice));
+    replicate_rows_kernel<T><<<1, 32>>>(d_target7, d_targets, /*K=*/1, /*C=*/7, /*rep=*/R);
+    CUDA_OK(cudaGetLastError());
+    CUDA_OK(cudaDeviceSynchronize());
+    return d_targets;
+}
+
+// Convert a device array to another scalar type (no-op alias when the types match).
+template<typename Dst, typename Src>
+Dst* device_cast(hjcd::DeviceAllocations& allocations, Src* src, size_t n) {
+    if constexpr (std::is_same_v<Dst, Src>) {
+        return src;
+    } else {
+        Dst* dst = nullptr;
+        allocations.allocate(dst, sizeof(Dst) * n);
+        const int tpb = 256;
+        cast_array<Dst, Src><<<(int)((n + tpb - 1) / tpb), tpb>>>(src, dst, n);
+        CUDA_OK(cudaGetLastError());
+        CUDA_OK(cudaDeviceSynchronize());
+        return dst;
+    }
+}
+
+}  // namespace
 
 // RT = LM-refine compute precision (the user-facing speed/accuracy knob). RT=double is the
 // full-fp64 default; RT=float runs FK/Jacobian/residual/line-search in fp32 (~2.4x cheaper FK,
@@ -1696,7 +1576,6 @@ const float  CC_SPHERE_MARGIN_MM = 0.0f;   // env-collision margin (mm) for the 
 template<typename T, typename RT>
 Result<T> generate_ik_solutions(
     T* target_pose,
-    const grid::robotModel<T>* d_robotModel,
     int b_size,
     int num_solutions,
     bool collision_free,
@@ -1713,13 +1592,12 @@ Result<T> generate_ik_solutions(
         throw std::invalid_argument("batch_size must be positive and fit CUDA indexing");
     if (num_solutions <= 0)
         throw std::invalid_argument("num_solutions must be positive");
-    if (collision_mode < -1 || collision_mode > 2)
-        throw std::invalid_argument("invalid collision mode");
+    if (collision_mode < 0 || collision_mode > 2)
+        throw std::invalid_argument("invalid collision mode (0 = soft, 1 = hard, 2 = both)");
     if (problem_idx < 0) throw std::invalid_argument("problem_idx must be non-negative");
-    auto normalized_target = normalized_target_pose(target_pose);
-    target_pose = normalized_target.data();
-    // Kept for native source compatibility; each solver stage uses its precision-specific cache.
-    (void)d_robotModel;
+    const auto normalized_target = normalized_target_pose(target_pose);
+    double target_pose64[7];
+    for (int i = 0; i < 7; ++i) target_pose64[i] = static_cast<double>(normalized_target[i]);
     init_joint_limits_from_grid();
     int device = 0;
     CUDA_OK(cudaGetDevice(&device));
@@ -1734,8 +1612,7 @@ Result<T> generate_ik_solutions(
     // Collision environment (grid_collision). Cache exact problem contents and the fp32 robot model
     // per CUDA device. Collision requests fail explicitly when their scene is unusable; they never
     // degrade silently to an open-world solve. The path exists only in --collision-generated headers.
-    bool have_env = false;
-    bool stop_on_first = 1;
+    const bool stop_on_first = true;   // coarse blocks stop once any block hits the coarse tolerance
 
 #if defined(HJCD_HAS_COLLISION)
     struct CachedCollisionEnvironment {
@@ -1778,7 +1655,6 @@ Result<T> generate_ik_solutions(
 
         cc_env = cached.device_env.env;
         d_robotModel_cc = cached_robot_model<float>();
-        have_env = true;
     }
 #else
     if (collision_free)
@@ -1786,8 +1662,7 @@ Result<T> generate_ik_solutions(
             "collision-free solving requires grid.cuh generated with --collision");
 #endif  // HJCD_HAS_COLLISION
 
-    if (!collision_free) have_env = false;
-    const bool do_cc = collision_free && have_env;
+    const bool do_cc = collision_free;
 
     // Coarse phase precision
     using TC = float;
@@ -1799,23 +1674,11 @@ Result<T> generate_ik_solutions(
     const auto* d_robotModel_f = cached_robot_model<TC>();
 
     TC *d_x_c=nullptr, *d_pose_c=nullptr, *d_pos_mm_c=nullptr, *d_ori_r_c=nullptr;
-    TC *d_target7_c=nullptr, *d_targets_coarse_c=nullptr;
 
     allocations.allocate(d_x_c, sizeof(TC) * num_elems_x);
     allocations.allocate(d_pose_c, sizeof(TC) * num_elems_p7);
     allocations.allocate(d_pos_mm_c, sizeof(TC) * B);
     allocations.allocate(d_ori_r_c, sizeof(TC) * B);
-    allocations.allocate(d_target7_c, sizeof(TC) * 7);
-
-    // copy target pose -> float (for coarse phase only)
-    {
-        TC h_target7f[7];
-        for (int i=0; i<7; ++i)
-            h_target7f[i] = (TC)target_pose[i];
-        CUDA_OK(cudaMemcpy(d_target7_c, h_target7f,
-                           sizeof(TC) * 7,
-                           cudaMemcpyHostToDevice));
-    }
 
     // init errors to +inf
     {
@@ -1824,23 +1687,9 @@ Result<T> generate_ik_solutions(
         thrust::fill(o, o + B, std::numeric_limits<TC>::infinity());
     }
 
-    // replicate target7 -> B (float coarse targets)
-    allocations.allocate(d_targets_coarse_c, sizeof(TC) * (size_t)B * 7);
-    {
-        const int blocks=B, tpb=32;
-        replicate_target7_kernel<TC><<<blocks, tpb>>>(
-            d_target7_c, d_targets_coarse_c, B);
-        CUDA_OK(cudaGetLastError());
-        CUDA_OK(cudaDeviceSynchronize());
-    }
-
-    // reset global stop flags
-    {
-        int zero=0, neg1=-1;
-        CUDA_OK(cudaMemcpyToSymbol(g_stop,   &zero, sizeof(int)));
-        CUDA_OK(cudaMemcpyToSymbol(g_winner, &neg1, sizeof(int)));
-        CUDA_OK(cudaGetLastError());
-    }
+    // float coarse targets, one row per candidate block
+    TC* d_targets_coarse_c = upload_replicated_target<TC>(allocations, target_pose64, B);
+    reset_stop_flag();
 
     // COARSE SEARCH
     {
@@ -1921,7 +1770,6 @@ Result<T> generate_ik_solutions(
     const auto top_k_req = static_cast<long long>(sch.top_k) * std::max(1, num_solutions / 2);
     const int repeats = sch.repeats;
     const double sigma_frac = sch.sigma_frac;
-    const bool keep_one = sch.keep_one;
 
     // score: pos + ori error (float)
     TC* d_scores_c = nullptr;
@@ -1973,7 +1821,7 @@ Result<T> generate_ik_solutions(
     {
         const int blocks = Krep, tpb = 128;
         perturb_rows_kernel<TC><<<blocks, tpb>>>(
-            d_x_rep_c, Krep, (TC)sigma_frac, 0xC0FFEEull, repeats, keep_one);
+            d_x_rep_c, Krep, (TC)sigma_frac, 0xC0FFEEull, repeats, /*skip_first_in_group=*/true);
         CUDA_OK(cudaGetLastError());
     }
 
@@ -1982,56 +1830,23 @@ Result<T> generate_ik_solutions(
     // JACOBIAN LM TUNER — runs in the refine precision RT (double by default; float = the
     // fp32 speed knob). The Cholesky solve follows RT as well.
     // (Array names keep the "64" suffix for continuity; their element type is RT.)
-    RT *dx64=nullptr, *dtgt64=nullptr, *dpose64=nullptr;
-    RT *dposmm64=nullptr, *dori64=nullptr;
+    RT *dpose64=nullptr, *dposmm64=nullptr, *dori64=nullptr;
     const size_t KrepN = (size_t)Krep * N;
     const size_t Krep7 = (size_t)Krep * 7;
 
-    allocations.allocate(dx64, sizeof(RT) * KrepN);
-    allocations.allocate(dtgt64, sizeof(RT) * Krep7);
     allocations.allocate(dpose64, sizeof(RT) * Krep7);
     allocations.allocate(dposmm64, sizeof(RT) * Krep);
     allocations.allocate(dori64, sizeof(RT) * Krep);
 
-    // cast coarse float -> RT
-    {
-        const int tpb = 256;
-        int gpb = (int)((KrepN + tpb - 1) / tpb);
-        cast_array<RT, TC><<<gpb, tpb>>>(d_x_rep_c, dx64, KrepN);
-        CUDA_OK(cudaGetLastError());
-        CUDA_OK(cudaDeviceSynchronize());
-    }
-
-    // build RT targets
-    RT h_target7d[7];
-    for (int i = 0; i < 7; ++i)
-        h_target7d[i] = static_cast<RT>(target_pose[i]);
-
-    RT* d_target7_d = nullptr;
-    allocations.allocate(d_target7_d, sizeof(RT) * 7);
-    CUDA_OK(cudaMemcpy(d_target7_d, h_target7d,
-                       sizeof(RT) * 7,
-                       cudaMemcpyHostToDevice));
-
-    {
-        const int blocks = Krep;
-        const int tpb    = 32;
-        replicate_target7_kernel<RT><<<blocks, tpb>>>(
-            d_target7_d, dtgt64, Krep);
-        CUDA_OK(cudaGetLastError());
-        CUDA_OK(cudaDeviceSynchronize());
-    }
+    RT* dx64 = device_cast<RT>(allocations, d_x_rep_c, KrepN);          // coarse float -> RT
+    RT* dtgt64 = upload_replicated_target<RT>(allocations, target_pose64, Krep);
 
     const auto* d_robotModel_rt = cached_robot_model<RT>();
-    {
-        int zero = 0, neg1 = -1;
-        CUDA_OK(cudaMemcpyToSymbol(g_stop,   &zero, sizeof(int)));
-        CUDA_OK(cudaMemcpyToSymbol(g_winner, &neg1, sizeof(int)));
-    }
+    reset_stop_flag();
 
     {
-        const int max_iters = 40;
-        int stop_on_first_lm  = (num_solutions > 1) ? 0 : 1;
+        const int max_iters = HJCDSettings<RT>::lm_max_iters;
+        const int stop_on_first_lm = (num_solutions > 1) ? 0 : 1;
 
         // Multi-warp LM: W independent candidates per block (one per warp). grid=ceil(Krep/W),
         // block=32*W, dynamic shared = W * sizeof(LMWarpScratch<RT>) (opt-in >48KB).
@@ -2065,10 +1880,9 @@ Result<T> generate_ik_solutions(
         if (!lm_resources_fit())
             throw std::runtime_error("LM kernel does not fit device per-block resource limits");
 
-        // Convergence / early-stop tolerance (pos in m, ori in rad). Default 1e-8 m is far below the
-        // fp32 representable floor at ~0.5 m coords, so fp32 can't early-stop and grinds all iters at
-        // num_solutions=1 -> env knobs let us sweep a precision-appropriate looser tol.
-        RT eps_pos = (RT)1e-8, eps_ori = (RT)1e-8;
+        // Convergence / early-stop tolerance (see HJCDSettings); the env knobs let perf sweeps try
+        // a precision-appropriate looser tolerance for fp32 refinement.
+        RT eps_pos = HJCDSettings<RT>::lm_eps_pos, eps_ori = HJCDSettings<RT>::lm_eps_ori;
         if (const char* e = std::getenv("HJCD_LM_EPS_POS")) { double v = std::atof(e); if (v > 0) eps_pos = (RT)v; }
         if (const char* e = std::getenv("HJCD_LM_EPS_ORI")) { double v = std::atof(e); if (v > 0) eps_ori = (RT)v; }
 
@@ -2085,7 +1899,7 @@ Result<T> generate_ik_solutions(
             }
             lm_tuner<RT><<<grid_lm, TPB_lm, lm_smem>>>(
                 dx64, dpose64, dtgt64, dposmm64, dori64, d_robotModel_rt,
-                eps_pos, eps_ori, (RT)5e-3, max_iters, Krep, stop_on_first_lm
+                eps_pos, eps_ori, HJCDSettings<RT>::lambda_init, max_iters, Krep, stop_on_first_lm
             );
             cudaError_t launch_err = cudaGetLastError();
             if (launch_err == cudaSuccess) break;
@@ -2098,21 +1912,11 @@ Result<T> generate_ik_solutions(
         CUDA_OK(cudaDeviceSynchronize());
     }
 
-    // Collision scoring mode (comparison knob, env HJCD_CC_MODE): "hard" (default) filters
-    // colliding candidates outright; "soft" = penetration cost that only biases selection;
-    // "both" = soft cost + hard filter. Strict filtering makes collision_free=True truthful.
-    int cc_mode = collision_mode;  // -1=legacy env/default, 0=soft, 1=hard, 2=both
-    if (cc_mode < 0) {
-        cc_mode = 1;
-        const char* e = std::getenv("HJCD_CC_MODE");
-        if (!e) e = "hard";
-        std::string m(e);
-        if (m == "soft") cc_mode = 0;
-        else if (m == "hard") cc_mode = 1;
-        else if (m == "both") cc_mode = 2;
-    }
-    const bool use_soft = do_cc && (cc_mode == 0 || cc_mode == 2);
-    const bool use_hard = do_cc && (cc_mode == 1 || cc_mode == 2);
+    // Collision policy: "hard" (1, default) filters colliding candidates outright; "soft" (0) is a
+    // penetration cost that only biases selection; "both" (2) = soft cost + hard filter. Strict
+    // filtering is what makes collision_free=True truthful.
+    const bool use_soft = do_cc && (collision_mode == 0 || collision_mode == 2);
+    const bool use_hard = do_cc && (collision_mode == 1 || collision_mode == 2);
 
     // Host collision buffers are needed only for the requested check, not open-world solves.
     std::vector<float> h_env_cost_refined(use_soft ? Krep : 0);
@@ -2121,152 +1925,103 @@ Result<T> generate_ik_solutions(
     std::vector<unsigned char> h_valid_coarse(use_hard ? B : 0);
 
 #if defined(HJCD_HAS_COLLISION)
-    float* d_env_cost_refined = nullptr;
-    float* d_env_cost_coarse = nullptr;
-    unsigned char* d_valid_refined = nullptr;
-    unsigned char* d_valid_coarse = nullptr;
-    double* dx_coarse64 = nullptr;
     if (do_cc) {
-        allocations.allocate(dx_coarse64, sizeof(double) * num_elems_x);
-        {
-            const int tpb = 256;
-            const int gpb = (int)((num_elems_x + tpb - 1) / tpb);
-            cast_array<double, TC><<<gpb, tpb>>>(d_x_c, dx_coarse64, num_elems_x);
-            CUDA_OK(cudaGetLastError());
-            CUDA_OK(cudaDeviceSynchronize());
-        }
+        // Both collision kernels read double q: the coarse pool (float) is cast; the refined pool
+        // is reused in place when RT == double.
+        double* dq_coarse = device_cast<double>(allocations, d_x_c, num_elems_x);
+        double* dq_ref    = device_cast<double>(allocations, dx64, KrepN);
         // Dynamic smem for the multi_target FK extractor (shared by both collision kernels).
         const size_t cc_smem = grid::MULTI_TARGET_POSITION_DYNAMIC_SHARED_MEM_BYTES<float>();
 
-        // Refined q as double (both collision kernels read double). Reuse dx64 when RT==double.
-        double* dq_ref = nullptr;
-        if constexpr (std::is_same_v<RT, double>) {
-            dq_ref = dx64;
-        } else {
-            allocations.allocate(dq_ref, sizeof(double) * KrepN);
-            cast_array<double, RT><<<(int)((KrepN + 255) / 256), 256>>>(dx64, dq_ref, KrepN);
-            CUDA_OK(cudaGetLastError());
-            CUDA_OK(cudaDeviceSynchronize());
-        }
-
-        if (use_soft) {
-            allocations.allocate(d_env_cost_refined, sizeof(float) * (size_t)Krep);
-            allocations.allocate(d_env_cost_coarse, sizeof(float) * (size_t)B);
-            CUDA_OK(cudaFuncSetAttribute((const void*)score_environment_costs,
+        // Run one per-config collision kernel over the refined pool and the coarse pool, and read
+        // both result arrays back to the host.
+        auto score_pools = [&](auto kernel, auto& h_refined, auto& h_coarse) {
+            using Out = typename std::decay_t<decltype(h_refined)>::value_type;
+            Out* d_refined = nullptr;
+            Out* d_coarse = nullptr;
+            allocations.allocate(d_refined, sizeof(Out) * (size_t)Krep);
+            allocations.allocate(d_coarse, sizeof(Out) * (size_t)B);
+            CUDA_OK(cudaFuncSetAttribute((const void*)kernel,
                                          cudaFuncAttributeMaxDynamicSharedMemorySize, (int)cc_smem));
-            score_environment_costs<<<Krep, CC_TPB, cc_smem>>>(
-                dq_ref, Krep, d_env_cost_refined, d_robotModel_cc, cc_env);
-            score_environment_costs<<<B, CC_TPB, cc_smem>>>(
-                dx_coarse64, B, d_env_cost_coarse, d_robotModel_cc, cc_env);
+            kernel<<<Krep, CC_TPB, cc_smem>>>(dq_ref, Krep, d_refined, d_robotModel_cc, cc_env);
+            kernel<<<B, CC_TPB, cc_smem>>>(dq_coarse, B, d_coarse, d_robotModel_cc, cc_env);
             CUDA_OK(cudaGetLastError());
             CUDA_OK(cudaDeviceSynchronize());
-            CUDA_OK(cudaMemcpy(h_env_cost_refined.data(), d_env_cost_refined,
-                               sizeof(float) * (size_t)Krep, cudaMemcpyDeviceToHost));
-            CUDA_OK(cudaMemcpy(h_env_cost_coarse.data(), d_env_cost_coarse,
-                               sizeof(float) * (size_t)B, cudaMemcpyDeviceToHost));
-        }
-
-        if (use_hard) {
-            allocations.allocate(d_valid_refined, sizeof(unsigned char) * (size_t)Krep);
-            allocations.allocate(d_valid_coarse, sizeof(unsigned char) * (size_t)B);
-            CUDA_OK(cudaFuncSetAttribute((const void*)mark_collisions,
-                                         cudaFuncAttributeMaxDynamicSharedMemorySize, (int)cc_smem));
-            mark_collisions<<<Krep, CC_TPB, cc_smem>>>(
-                dq_ref, Krep, d_valid_refined, d_robotModel_cc, cc_env);
-            mark_collisions<<<B, CC_TPB, cc_smem>>>(
-                dx_coarse64, B, d_valid_coarse, d_robotModel_cc, cc_env);
-            CUDA_OK(cudaGetLastError());
-            CUDA_OK(cudaDeviceSynchronize());
-            CUDA_OK(cudaMemcpy(h_valid_refined.data(), d_valid_refined,
-                               sizeof(unsigned char) * (size_t)Krep, cudaMemcpyDeviceToHost));
-            CUDA_OK(cudaMemcpy(h_valid_coarse.data(), d_valid_coarse,
-                               sizeof(unsigned char) * (size_t)B, cudaMemcpyDeviceToHost));
-        }
-
+            CUDA_OK(cudaMemcpy(h_refined.data(), d_refined, sizeof(Out) * (size_t)Krep, cudaMemcpyDeviceToHost));
+            CUDA_OK(cudaMemcpy(h_coarse.data(), d_coarse, sizeof(Out) * (size_t)B, cudaMemcpyDeviceToHost));
+        };
+        if (use_soft) score_pools(score_environment_costs, h_env_cost_refined, h_env_cost_coarse);
+        if (use_hard) score_pools(mark_collisions, h_valid_refined, h_valid_coarse);
     }
 #endif  // HJCD_HAS_COLLISION
 
     // Read the RT device results back into double host buffers (downstream stays fp64).
     std::vector<double> h_posmm64(Krep), h_orir64(Krep);
     std::vector<double> h_pose64(Krep7), h_x64(KrepN);
-    if constexpr (std::is_same_v<RT, double>) {
-        CUDA_OK(cudaMemcpy(h_posmm64.data(), dposmm64, sizeof(double)*Krep,  cudaMemcpyDeviceToHost));
-        CUDA_OK(cudaMemcpy(h_orir64 .data(), dori64,   sizeof(double)*Krep,  cudaMemcpyDeviceToHost));
-        CUDA_OK(cudaMemcpy(h_pose64 .data(), dpose64,  sizeof(double)*Krep7, cudaMemcpyDeviceToHost));
-        CUDA_OK(cudaMemcpy(h_x64    .data(), dx64,      sizeof(double)*KrepN, cudaMemcpyDeviceToHost));
-    } else {
-        std::vector<RT> t_posmm(Krep), t_orir(Krep), t_pose(Krep7), t_x(KrepN);
-        CUDA_OK(cudaMemcpy(t_posmm.data(), dposmm64, sizeof(RT)*Krep,  cudaMemcpyDeviceToHost));
-        CUDA_OK(cudaMemcpy(t_orir .data(), dori64,   sizeof(RT)*Krep,  cudaMemcpyDeviceToHost));
-        CUDA_OK(cudaMemcpy(t_pose .data(), dpose64,  sizeof(RT)*Krep7, cudaMemcpyDeviceToHost));
-        CUDA_OK(cudaMemcpy(t_x    .data(), dx64,      sizeof(RT)*KrepN, cudaMemcpyDeviceToHost));
-        std::copy(t_posmm.begin(), t_posmm.end(), h_posmm64.begin());
-        std::copy(t_orir .begin(), t_orir .end(), h_orir64 .begin());
-        std::copy(t_pose .begin(), t_pose .end(), h_pose64 .begin());
-        std::copy(t_x    .begin(), t_x    .end(), h_x64    .begin());
+    {
+        auto readback = [&](std::vector<double>& host, const RT* device, size_t n) {
+            if constexpr (std::is_same_v<RT, double>) {
+                CUDA_OK(cudaMemcpy(host.data(), device, sizeof(double) * n, cudaMemcpyDeviceToHost));
+            } else {
+                std::vector<RT> tmp(n);
+                CUDA_OK(cudaMemcpy(tmp.data(), device, sizeof(RT) * n, cudaMemcpyDeviceToHost));
+                std::copy(tmp.begin(), tmp.end(), host.begin());
+            }
+        };
+        readback(h_posmm64, dposmm64, Krep);
+        readback(h_orir64,  dori64,   Krep);
+        readback(h_pose64,  dpose64,  Krep7);
+        readback(h_x64,     dx64,     KrepN);
     }
 
-    // GET SOLUTIONS
+    // GET SOLUTIONS. Candidates are addressed by a signed index: idx >= 0 is refined row idx,
+    // idx < 0 is coarse row (-1 - idx). The refined pool is preferred; the coarse pool only tops
+    // up when fewer than S_target distinct, valid refined candidates exist.
     const int S_target = std::min(num_solutions, Krep + B);
-    auto score_ref = [&](int i)->double {
-        const double ori_excess = std::max(0.0, h_orir64[i] - ORI_TARGET_RAD);
-        double s = h_posmm64[i] + ORI_OUTLIER_W * ori_excess;
-        if (use_soft) s += ENV_COLLISION_COST_W * (double)h_env_cost_refined[i];
-        return std::isfinite(s) ? s : std::numeric_limits<double>::infinity();
-    };
-
-    std::vector<int> order(Krep);
-    std::iota(order.begin(), order.end(), 0);
-    std::sort(order.begin(), order.end(),
-              [&](int a, int b){ return score_ref(a) < score_ref(b); });
-
-    const T DUP_TOL = (T)1e-7;
+    auto coarse_row = [](int idx) { return -1 - idx; };
+    auto pos_mm   = [&](int idx)->double { return idx >= 0 ? h_posmm64[idx] : (double)h_pos_mm_coarse_f[coarse_row(idx)]; };
+    auto ori_rad  = [&](int idx)->double { return idx >= 0 ? h_orir64[idx]  : (double)h_ori_rad_coarse_f[coarse_row(idx)]; };
+    auto env_cost = [&](int idx)->float  { return idx >= 0 ? h_env_cost_refined[idx] : h_env_cost_coarse[coarse_row(idx)]; };
+    auto is_valid = [&](int idx)->bool   { return idx >= 0 ? bool(h_valid_refined[idx]) : bool(h_valid_coarse[coarse_row(idx)]); };
     auto joint_value = [&](int idx, int joint)->double {
         return idx >= 0 ? h_x64[(size_t)idx * N + joint]
-                        : h_x_coarse_f[(size_t)(-1 - idx) * N + joint];
+                        : h_x_coarse_f[(size_t)coarse_row(idx) * N + joint];
     };
+    auto score = [&](int idx)->double {
+        double s = rank_score(pos_mm(idx), ori_rad(idx));
+        if (use_soft) s += ENV_COLLISION_COST_W * (double)env_cost(idx);
+        return std::isfinite(s) ? s : std::numeric_limits<double>::infinity();
+    };
+    const double DUP_TOL = 1e-7;
     auto is_dup = [&](int ia, int ib)->bool {
         for (int j = 0; j < N; ++j)
-            if (std::fabs(joint_value(ia, j) - joint_value(ib, j)) > (double)DUP_TOL)
+            if (std::fabs(joint_value(ia, j) - joint_value(ib, j)) > DUP_TOL)
                 return false;
         return true;
     };
 
-    auto score_coarse = [&](int i)->double {
-        const double ori_excess = std::max(0.0, (double)h_ori_rad_coarse_f[i] - ORI_TARGET_RAD);
-        double s = (double)h_pos_mm_coarse_f[i] + ORI_OUTLIER_W * ori_excess;
-        if (use_soft) s += ENV_COLLISION_COST_W * (double)h_env_cost_coarse[i];
-        return std::isfinite(s) ? s : std::numeric_limits<double>::infinity();
-    };
-
     std::vector<int> chosen;
     chosen.reserve(S_target);
-    for (int idx : order) {
-        if (!std::isfinite(score_ref(idx)) || (use_hard && !h_valid_refined[idx])) continue;
-        bool dup = false;
-        for (int c : chosen) {
-            if (is_dup(idx, c)) { dup = true; break; }
-        }
-        if (!dup) {
-            chosen.push_back(idx);
+    // Append the best-scoring, valid, non-duplicate candidates of one pool until S_target is reached.
+    auto select_from = [&](std::vector<int> pool) {
+        std::sort(pool.begin(), pool.end(), [&](int a, int b){ return score(a) < score(b); });
+        for (int idx : pool) {
             if ((int)chosen.size() == S_target) break;
-        }
-    }
-
-    if ((int)chosen.size() < S_target) {
-        std::vector<int> order_coarse(B);
-        std::iota(order_coarse.begin(), order_coarse.end(), 0);
-        std::sort(order_coarse.begin(), order_coarse.end(),
-                [&](int a, int b){ return score_coarse(a) < score_coarse(b); });
-
-        for (int cidx : order_coarse) {
-            if (!std::isfinite(score_coarse(cidx)) || (use_hard && !h_valid_coarse[cidx])) continue;
-            const int idx = -1 - cidx;
+            if (!std::isfinite(score(idx)) || (use_hard && !is_valid(idx))) continue;
             if (std::any_of(chosen.begin(), chosen.end(),
                             [&](int previous) { return is_dup(idx, previous); })) continue;
             chosen.push_back(idx);
-            if ((int)chosen.size() == S_target) break;
         }
+    };
+    {
+        std::vector<int> refined(Krep);
+        std::iota(refined.begin(), refined.end(), 0);
+        select_from(std::move(refined));
+    }
+    if ((int)chosen.size() < S_target) {
+        std::vector<int> coarse(B);
+        for (int c = 0; c < B; ++c) coarse[c] = -1 - c;
+        select_from(std::move(coarse));
     }
 
     if (write_stats) {
@@ -2276,11 +2031,10 @@ Result<T> generate_ik_solutions(
         auto accurate = [&](double pos, double ori) {
             return pos < POS_THR_MM && ori < ORI_THR_RAD;
         };
-        auto collision_clear = [&](int index, bool refined) {
+        auto collision_clear = [&](int idx) {
             if (!do_cc) return false;
-            if (use_hard) return bool(refined ? h_valid_refined[index] : h_valid_coarse[index]);
-            const float cost = refined ? h_env_cost_refined[index] : h_env_cost_coarse[index];
-            return use_soft && cost <= CC_SPHERE_MARGIN_MM;
+            if (use_hard) return is_valid(idx);
+            return use_soft && env_cost(idx) <= CC_SPHERE_MARGIN_MM;
         };
 
         int n_ik_good_ref = 0, n_coll_free_ref = 0, n_feasible_ref = 0, n_ik_lost = 0;
@@ -2288,7 +2042,7 @@ Result<T> generate_ik_solutions(
         double env_cost_mean = 0;
         for (int i = 0; i < Krep; ++i) {
             const bool ik_good = accurate(h_posmm64[i], h_orir64[i]);
-            const bool coll_free = collision_clear(i, true);
+            const bool coll_free = collision_clear(i);
             n_ik_good_ref += ik_good;
             n_coll_free_ref += coll_free;
             n_feasible_ref += ik_good && coll_free;
@@ -2304,16 +2058,12 @@ Result<T> generate_ik_solutions(
         const int n_cc_in_refined = Krep - n_coll_free_ref;
         int n_cc_in_coarse = 0;
         if (do_cc)
-            for (int i = 0; i < B; ++i) n_cc_in_coarse += !collision_clear(i, false);
+            for (int c = 0; c < B; ++c) n_cc_in_coarse += !collision_clear(-1 - c);
 
         int n_out_ik = 0, n_out_cf = 0, n_out_feasible = 0;
-        for (int index : chosen) {
-            const bool refined = index >= 0;
-            const int row = refined ? index : -1 - index;
-            const bool ik_good = accurate(
-                refined ? h_posmm64[row] : h_pos_mm_coarse_f[row],
-                refined ? h_orir64[row] : h_ori_rad_coarse_f[row]);
-            const bool coll_free = collision_clear(row, refined);
+        for (int idx : chosen) {
+            const bool ik_good = accurate(pos_mm(idx), ori_rad(idx));
+            const bool coll_free = collision_clear(idx);
             n_out_ik += ik_good;
             n_out_cf += coll_free;
             n_out_feasible += ik_good && coll_free;
@@ -2363,27 +2113,14 @@ Result<T> generate_ik_solutions(
     result.count = S;
 
     for (int r = 0; r < S; ++r) {
-        int idx = chosen[r];
-        if (idx >= 0) {
-            result.pos_errors[r] = (T)h_posmm64[idx];
-            result.ori_errors[r] = (T)h_orir64[idx];
-            for (int k = 0; k < 7; ++k)
-                result.pose[r * 7 + k] =
-                    (T)h_pose64[(size_t)idx * 7 + k];
-            for (int j = 0; j < N; ++j)
-                result.joint_config[(size_t)r * N + j] =
-                    (T)h_x64[(size_t)idx * N + j];
-        } else {
-            int cidx = -1 - idx; // from coarse
-            result.pos_errors[r] = (T)h_pos_mm_coarse_f[cidx];
-            result.ori_errors[r] = (T)h_ori_rad_coarse_f[cidx];
-            for (int k = 0; k < 7; ++k)
-                result.pose[r * 7 + k] =
-                    (T)h_pose_coarse_f[(size_t)cidx * 7 + k];
-            for (int j = 0; j < N; ++j)
-                result.joint_config[(size_t)r * N + j] =
-                    (T)h_x_coarse_f[(size_t)cidx * N + j];
-        }
+        const int idx = chosen[r];
+        result.pos_errors[r] = (T)pos_mm(idx);
+        result.ori_errors[r] = (T)ori_rad(idx);
+        for (int k = 0; k < 7; ++k)
+            result.pose[r * 7 + k] = idx >= 0 ? (T)h_pose64[(size_t)idx * 7 + k]
+                                              : (T)h_pose_coarse_f[(size_t)coarse_row(idx) * 7 + k];
+        for (int j = 0; j < N; ++j)
+            result.joint_config[(size_t)r * N + j] = (T)joint_value(idx, j);
     }
 
     allocations.clear();
@@ -2396,7 +2133,6 @@ Result<T> generate_ik_solutions(
 
 template Result<double> generate_ik_solutions<double>(   // RT=double (full fp64, default)
     double* target_pose,
-    const grid::robotModel<double>* d_robotModel,
     int b_size,
     int num_solutions,
     bool collision_free,
@@ -2409,7 +2145,6 @@ template Result<double> generate_ik_solutions<double>(   // RT=double (full fp64
 
 template Result<double> generate_ik_solutions<double, float>(   // RT=float (fp32 refine knob)
     double* target_pose,
-    const grid::robotModel<double>* d_robotModel,
     int b_size,
     int num_solutions,
     bool collision_free,
@@ -2422,7 +2157,6 @@ template Result<double> generate_ik_solutions<double, float>(   // RT=float (fp3
 
 template Result<float> generate_ik_solutions<float>(
     float* target_pose,
-    const grid::robotModel<float>* d_robotModel,
     int b_size,
     int num_solutions,
     bool collision_free,

@@ -1,7 +1,6 @@
 #include "hjcd_settings.h"
 
 __device__ int g_stop = 0;
-__device__ int g_winner = -1;
 
 __device__ __forceinline__ int read_stop() {
     return atomicAdd(&g_stop, 0);
@@ -16,10 +15,6 @@ __device__ __forceinline__ uint32_t wanghash(uint32_t a) {
 __device__ __forceinline__ float u01(uint32_t& s) {
     s = wanghash(s);
     return (s & 0x00FFFFFFu) * (1.0f / 16777216.0f);   // [0,1)
-}
-
-__device__ __forceinline__ float u11(uint32_t& s) {
-    return 2.0f * u01(s) - 1.0f;
 }
 
 __device__ __forceinline__ float gauss01(uint32_t& s) {

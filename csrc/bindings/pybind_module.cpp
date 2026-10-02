@@ -17,11 +17,10 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
                                int refine_fp64,
                                bool write_stats,
                                const std::string& collision_mode) {
-  if (batch_size <= 0) throw py::value_error("batch_size must be positive");
-  if (num_solutions <= 0) throw py::value_error("num_solutions must be positive");
+  // Size/index validation lives in the native layer (std::invalid_argument -> ValueError);
+  // only the Python-specific arguments are checked here.
   if (refine_fp64 < -1 || refine_fp64 > 1)
     throw py::value_error("refine_fp64 must be -1 (auto), 0 (fp32), or 1 (fp64)");
-  if (problem_idx < 0) throw py::value_error("problem_idx must be non-negative");
   if (collision_free && problems_json_text.empty())
     throw py::value_error("collision_free=True requires problems_json_text");
   if (collision_free && problem_set_name.empty())
@@ -29,12 +28,11 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
   if (collision_free && !grid_has_collision())
     throw py::value_error("collision_free=True requires a collision-enabled grid.cuh build");
 
-  int collision_mode_code = -1;
+  int collision_mode_code = 1;
   if (collision_mode == "soft") collision_mode_code = 0;
   else if (collision_mode == "hard") collision_mode_code = 1;
   else if (collision_mode == "both") collision_mode_code = 2;
-  else if (collision_mode != "auto")
-    throw py::value_error("collision_mode must be one of: hard, soft, both, auto");
+  else throw py::value_error("collision_mode must be one of: hard, soft, both");
 
   auto tp = target_pose;  // The native boundary validates and normalizes before touching CUDA.
 
@@ -45,7 +43,7 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
   //   -1 = AUTO (default): pick by regime. num_solutions==1 uses early-stop and is LATENCY-bound
   //        where fp32 is ~1.2x slower -> fp64; num_solutions>=2 runs every candidate to convergence
   //        and is THROUGHPUT-bound where fp32 is 5-7x faster (5090 1/64 fp64) -> fp32.
-  //        (measured 2026-06-18; see docs/open-tasks/multiwarp_timing_result.md.)
+  //        (measured 2026-06-18 on an RTX 5090; see docs/development/agent_debugging_guide.md §5.)
   //    1 = force fp64 (RT=double, sub-micron).   0 = force fp32 (RT=float, faster, ~fp32 accuracy).
   // Either way I/O stays double, and the Cholesky solve precision follows the compute type.
   const bool use_fp64 = (refine_fp64 < 0) ? (num_solutions <= 1) : (refine_fp64 != 0);
@@ -54,10 +52,10 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
     py::gil_scoped_release release;
     res = use_fp64
         ? generate_ik_solutions<double, double>(
-              tp.data(), nullptr, batch_size, num_solutions, collision_free, json_cstr, set_cstr,
+              tp.data(), batch_size, num_solutions, collision_free, json_cstr, set_cstr,
               problem_idx, write_stats, collision_mode_code)
         : generate_ik_solutions<double, float>(
-              tp.data(), nullptr, batch_size, num_solutions, collision_free, json_cstr, set_cstr,
+              tp.data(), batch_size, num_solutions, collision_free, json_cstr, set_cstr,
               problem_idx, write_stats, collision_mode_code);
   }
 
@@ -128,9 +126,9 @@ collision_free=True requires a collision-enabled build plus
 problems_json_text, problem_set_name, and a nonnegative problem_idx.
 collision_mode='hard' filters self/environment collisions against the
 compiled sphere model; 'soft' only ranks by penetration and does NOT
-guarantee collision freedom; 'both' ranks and filters. 'auto' uses the
-legacy HJCD_CC_MODE environment variable. These modes apply only when
-collision_free=True, and do not check the path to a returned configuration.
+guarantee collision freedom; 'both' ranks and filters. These modes apply
+only when collision_free=True, and do not check the path to a returned
+configuration.
 
 refine_fp64=-1 chooses fp64 for one requested solution, otherwise fp32;
 1 forces fp64 and 0 forces fp32. I/O remains float64. write_stats=True

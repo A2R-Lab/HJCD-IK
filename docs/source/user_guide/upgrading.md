@@ -9,12 +9,13 @@ they are not benchmark measurements of every subsequent code revision.
 | Area | Current contract / migration |
 | --- | --- |
 | Collision policy | Python defaults to explicit `collision_mode="hard"`: filter self/environment collisions. `soft` ranks environment penetration but does not promise collision freedom; `both` ranks and filters. |
-| Environment variable | Python ignores `HJCD_CC_MODE` unless `collision_mode="auto"`. The benchmark CLI retains that variable as its compatibility default; pass `--collision-mode hard` for reproducible runs. |
+| Environment variable | Neither the Python API nor the native solver reads `HJCD_CC_MODE` any more (the former `collision_mode="auto"` is gone). The benchmark CLI alone keeps that variable as the default of its `--collision-mode` flag; pass the flag explicitly for reproducible runs. |
 | Returned count | Read `count`, and use arrays of shape `(count, ...)`. Filtering and duplicate removal may return fewer candidates than requested, including zero. |
 | Pose/units | Targets and returned pose positions are meters; quaternions are `wxyz`. Position errors are **millimeters**, orientation errors **radians**. Finite nonzero target quaternions are normalized. |
 | Success | Check both errors for the **same candidate**. A nonempty result is not a pose-accuracy certificate; collision checks certify neither a trajectory nor mesh-level safety. |
 | Invalid input | Invalid sizes, poses, unsupported scenes and unavailable collision builds raise exceptions. Requests never silently fall back to open-world solving. Use `"obstacles": {}` for an explicit empty environment. |
 | Native ownership | `Result<T>` is move-only and owns its host buffers. Remove manual `delete[]` calls; keep the result alive while reading its pointers. Recompile native callers against the new header. |
+| Native signature | `generate_ik_solutions(target, batch, ...)` no longer takes the ignored `d_robotModel` argument; drop that `nullptr` from native callers. `collision_mode` is `0` (soft), `1` (hard, default) or `2` (both). Obstacle JSON must use `pose`; the legacy Euler `box`/`orientation_euler_xyz` forms are rejected. |
 | CUDA failures | Checked runtime/model initialization failures raise exceptions, with best-effort cleanup. A context-invalidating CUDA error may still require restarting the process. |
 | Concurrency | Python releases the GIL; native sampling/solving serialize shared state. This is safe concurrent calling, not concurrent GPU solve execution. Keep the CUDA context alive; `cudaDeviceReset` invalidates caches. |
 | Statistics | Unmeasured collision/feasibility fields use `-1`, not a fabricated zero. The summary tool excludes these values. Do not combine soft and hard/both rows as one collision-success metric. |
