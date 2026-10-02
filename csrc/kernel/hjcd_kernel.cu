@@ -1409,6 +1409,16 @@ __global__ void replicate_rows_kernel(const T* __restrict__ src,
     }
 }
 
+// out[r*7 + k] = target7[k] for r < R, one thread per output element (flat over R*7).
+template<typename T>
+__global__ void replicate_target7_kernel(const T* __restrict__ target7,
+    T* __restrict__ out,
+    int R)
+{
+    const size_t i = (size_t)blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < (size_t)R * 7) out[i] = target7[i % 7];
+}
+
 template<typename T>
 __global__ void perturb_rows_kernel(T* __restrict__ X,
     int R,
@@ -1545,7 +1555,8 @@ T* upload_replicated_target(hjcd::DeviceAllocations& allocations, const double* 
     allocations.allocate(d_target7, sizeof(T) * 7);
     allocations.allocate(d_targets, sizeof(T) * 7 * (size_t)R);
     CUDA_OK(cudaMemcpy(d_target7, h_target7, sizeof(T) * 7, cudaMemcpyHostToDevice));
-    replicate_rows_kernel<T><<<1, 32>>>(d_target7, d_targets, /*K=*/1, /*C=*/7, /*rep=*/R);
+    const int tpb = 256;
+    replicate_target7_kernel<T><<<(int)(((size_t)R * 7 + tpb - 1) / tpb), tpb>>>(d_target7, d_targets, R);
     CUDA_OK(cudaGetLastError());
     CUDA_OK(cudaDeviceSynchronize());
     return d_targets;
