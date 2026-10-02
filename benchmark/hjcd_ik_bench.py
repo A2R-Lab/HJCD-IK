@@ -428,7 +428,8 @@ def main() -> None:
         Bd = int(args.mmd_batch)
         per_target = []
         for ti, target in enumerate(targets):
-            eff_pidx = int(problem_indices[ti]) if (args.collision_free and problem_indices[ti] is not None) else -1
+            # problem_idx is ignored in open-world solves but must be non-negative.
+            eff_pidx = int(problem_indices[ti]) if (args.collision_free and problem_indices[ti] is not None) else 0
             res = hjcdik.generate_solutions(
                 target, batch_size=Bd, num_solutions=K,
                 collision_free=args.collision_free, problems_json_text=problems_text,
@@ -459,9 +460,9 @@ def main() -> None:
                 elif args.problem_idx is not None and args.problem_idx >= 0:
                     eff_pidx = int(args.problem_idx)
                 else:
-                    eff_pidx = 0 
+                    eff_pidx = 0
             else:
-                eff_pidx = -1 
+                eff_pidx = 0  # ignored in open-world solves, but the API requires a non-negative index
 
             # Warmup
             _ = hjcdik.generate_solutions(
