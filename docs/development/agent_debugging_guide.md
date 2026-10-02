@@ -4,7 +4,7 @@ Hard-won, HJCD-IK-specific institutional knowledge. **Read before changing the k
 config.** Coarse search has one candidate per block and shares candidate state across warps;
 LM refinement has one independent candidate per warp. Their synchronization scopes are intentionally different.
 Companion docs: [`CLAUDE.md`](../../CLAUDE.md), [`STARTUP_PROMPT.md`](STARTUP_PROMPT.md).
-Local session handoffs live under `docs/open-tasks/` (ignored by Git).
+The running roadmap / open-work list is `docs/open-tasks/TODO.md` (local, ignored by Git).
 
 ## 0. Validation checklist (before committing)
 
@@ -47,10 +47,15 @@ independently diverging LM iterations can deadlock (including partially populate
 is a 19-DOF robot; Panda regenerates to `NUM_JOINTS=7`.
 **Fix:** read counts from the generated `grid::` symbols; never hardcode.
 
-### 1e. Submodule not initialized
-**Symptom:** CMake can't find GRiD/GLASS; codegen script missing.
-**Fix:** `git submodule update --init --recursive`. Note `external/GRiD` is the codegen source and
-`external/GLASS` provides the warp linear-algebra primitives.
+### 1e. Submodule not initialized / GLASS pin drift
+**Symptom:** CMake can't find GRiD/GLASS; codegen script missing; or `grid.cuh` fails to compile with
+unknown `glass::` symbols.
+**Cause:** `external/GRiD` is the codegen source and `external/GLASS` provides the linear-algebra
+primitives. Since the header is generated with `vendor_glass=False`, `grid.cuh` includes the
+**top-level** `external/GLASS` instead of vendoring its own copy, so GRiD's nested GLASS pin and
+`external/GLASS` must agree.
+**Fix:** `bash scripts/setup/bootstrap.sh` (pins all three submodules). After bumping either pin,
+regenerate with `scripts/codegen/generate_grid.py` and run `scripts/codegen/check_grid_cuh_fresh.py`.
 
 ### 1f. Collision geometry mismatch
 **Symptom:** free targets flagged in-collision (or vice versa).
@@ -95,8 +100,9 @@ HJCD-IK's speed comes from warp-per-candidate parallelism. When refactoring math
   primitive can't match, and refine the upstream primitive instead of regressing HJCD.
 
 ## 5. Performance learnings (measured on RTX 5090 sm_120, CUDA 13)
-Full data: [`open-tasks/multiwarp_timing_result.md`](open-tasks/multiwarp_timing_result.md),
-[`open-tasks/perf_attribution_2026-06-16.md`](open-tasks/perf_attribution_2026-06-16.md).
+The raw multi-warp / perf-attribution sweeps (June 2026) were local notes and are not tracked; the
+tracked timing evidence is `docs/development/evidence/targeted_timing_2026-09-27/` and the
+audit record `docs/development/audit_hardening_validation.md`.
 
 - **⚠️ STALE-BINARY TRAP (the #1 perf-methodology bug — it invalidated an entire timing/correctness pass):**
   `ninja -C build` rebuilds `build/_hjcdik*.so`, but Python imports the **editable-install copy** under
@@ -137,14 +143,13 @@ Full data: [`open-tasks/multiwarp_timing_result.md`](open-tasks/multiwarp_timing
 - **⚠️ nsys-SPLIT before attributing a high-DoF / scaling cost to a kernel.** When 24-DoF was ~13× slower
   than 7-DoF, the "obvious" suspect was the fp64 O(DoF³) warp-Cholesky in `lm_tuner` — **wrong.** A
   fp32-vs-fp64 A/B (fp32 came out *slower* at every DoF) refuted it, and the per-kernel nsys split
-  (`scripts/perf/dof_scaling_ab.sh --nsys`) showed `coarse_search` is **88%** of the 24-DoF wall and scales
-  ~O(N³), while `lm_tuner` only grows 2.5×. Root cause: the greedy candidate loop (`hjcd_kernel.cu:1231-
-  1289`) runs O(N³) work **serialized on `lane==0`** (the FK scratch `l_C`/`l_tmp` is per-warp, so 31/32
-  lanes idle) with **two full O(N) `ee_fk_thread` chains per candidate** — the suffix/partial-FK recompute
-  that was deferred during the GRiD-FK migration. *Lesson: a kernel's name and the most-numerically-scary
-  line are not evidence; split the wall by kernel (nsys `cuda_gpu_kern_sum`) and A/B the suspected lever
-  before believing a cause. The fix for a warp kernel that scales badly is almost always restoring
-  warp-parallelism (here: parallelize the inner loop + partial FK), not changing precision.*
+  (`scripts/perf/dof_scaling_ab.sh --nsys`) showed `coarse_search` was **88%** of the 24-DoF wall and scaled
+  ~O(N³), while `lm_tuner` only grew 2.5×. Root cause (since fixed): the greedy candidate loop ran O(N³)
+  work **serialized on `lane==0`** with **two full O(N) `ee_fk_thread` chains per candidate**. The fix is
+  the current lane-parallel sweep + `ee_fk_suffix_thread` (recompute only the suffix from the perturbed
+  joint). *Lesson: a kernel's name and the most-numerically-scary line are not evidence; split the wall by
+  kernel (nsys `cuda_gpu_kern_sum`) and A/B the suspected lever before believing a cause. The fix for a
+  warp kernel that scales badly is almost always restoring warp-parallelism, not changing precision.*
 - **Tolerance is a per-regime lever, and looser tol can be a trap.** The LM early-stop (`:796/802`) only
   shortens `lm_tuner`; at high DoF where `coarse_search` dominates, a looser tol buys ~1.05× *and* craters
   accuracy (11–140 mm — it returns coarse-quality solutions). Keep tight 1e-8 unless you've confirmed via
@@ -163,3 +168,15 @@ not exact candidate identity.
 
 ## 6. Lessons log
 *(Append new bug classes / tricks here as they emerge — keep this guide the single source of truth.)*
+
+- **Bit-identical refactors vs. tuned numerics (2026-10).** The LM loop applies robust row weights
+  twice on a trial step: once folded into `row_s` at the iteration start, and again (fresh, at the
+  trial's own position error) when scoring the backtracking trial — while the dogleg / coordinate
+  fallbacks score with `row_s` only. This asymmetry is part of the tuned paper behaviour and was kept
+  verbatim in the 2026-10 tidy-up; `robust_row_weights` / `ee_residual6` just name the shared pieces.
+  Changing it is a numerics experiment that needs the GPU regression + a paper-protocol rerun, not a cleanup.
+- **A change under `csrc/` cannot be "done" without a GPU.** The CPU-only CI only verifies the signed
+  `gpu-proof.json`, whose fingerprint covers `csrc/`, `tests/`, `docs/source/`, scripts and the submodule
+  gitlinks. Compile-only checks (`nvcc -c`, available via the `nvidia-cuda-nvcc` pip wheel without a GPU)
+  catch syntax and template errors, but every such change still needs `pytest tests` + a re-recorded
+  receipt on a real GPU before merge.

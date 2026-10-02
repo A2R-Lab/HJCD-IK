@@ -9,6 +9,8 @@ solutions in parallel for a 6-DOF end-effector target, with optional collision a
 > **Before changing the kernel or codegen, read [`docs/development/agent_debugging_guide.md`](docs/development/agent_debugging_guide.md).**
 > It is the runbook for HJCD-IK's recurring traps: stale `grid.cuh`, `FLANGE_IDX`/target mismatch,
 > warp-vs-block sync in the solver loop, and submodule init.
+> **The user-facing API contract is [`docs/source/user_guide/upgrading.md`](docs/source/user_guide/upgrading.md)**
+> (hard collision filtering by default, `count` may be zero, errors raise, native `Result<T>` is move-only).
 
 ## Mental model
 
@@ -35,13 +37,18 @@ joints. Target indices and transform counts are generated constants; the default
 
 | Path | What it is |
 |---|---|
-| `csrc/kernel/hjcd_kernel.cu` | The solver: block-cooperative coarse search + warp-scoped LM refine. **The file you'll edit most.** |
-| `csrc/kernel/hjcd_settings.h` | `HJCDSettings<T>`, `mat4_mul`, FK helpers (`ee_fk_warp`/`ee_fk_thread`/`ee_fk_suffix_thread`), `#include "grid.cuh"`, `N`/`FLANGE_JID`/`GRASP_FIXED_IDX`. |
-| `csrc/generated/grid.cuh` | **Generated** GRiD kinematics header (FK, robot model). Do **not** hand-edit. |
-| `external/GRiD/` | Submodule: GRiD codegen (emits `grid.cuh` from a URDF). |
-| `external/GLASS/` | Submodule: GLASS single-block / warp linear algebra. |
-| `csrc/kernel/grid_env.cuh` | Parses a MotionBenchMaker problem JSON → `grid_collision::Environment` (device obstacle set) for the collision-scoring kernel. |
-| `csrc/bindings/pybind_module.cpp` | Python bindings → `generate_solutions`, `sample_targets`, `num_joints`. |
+| `csrc/kernel/hjcd_kernel.cu` | The solver: block-cooperative coarse search + warp-scoped LM refine + host orchestration (`generate_ik_solutions`). **The file you'll edit most.** |
+| `csrc/kernel/hjcd_settings.h` | `HJCDSettings<T>` (coarse/LM tolerances, `lambda_init`), `mat4_mul`, FK helpers (`ee_fk_warp`/`ee_fk_thread`/`ee_fk_suffix_thread`), `#include "grid.cuh"`, `N`/`FLANGE_JID`/`GRASP_FIXED_IDX`. |
+| `csrc/kernel/hjcd_kernel.h` | Native host API: move-only `Result<T>`, `generate_ik_solutions<T,RT>(target, batch, ...)`, `sample_random_target_poses`. |
+| `csrc/kernel/main.cpp` | Native CLI (`single`/`sweep`/`from_csv`), open-world only; CTest-covered by `tests/native/`. |
+| `csrc/generated/grid.cuh` | **Generated** GRiD kinematics + collision header. Do **not** hand-edit. Generated with `vendor_glass=False`, so it `#include "glass.cuh"`s the top-level GLASS instead of vendoring a copy (~6k lines, was ~15k). |
+| `external/GRiD/` | Submodule: GRiD codegen (emits `grid.cuh` from a URDF). Its nested GLASS pin must equal `external/GLASS`. |
+| `external/GLASS/` | Submodule: GLASS single-block / warp / thread linear algebra (`glass::warp::`, `glass::thread::`, `glass::block::`). |
+| `external/foam/` | Submodule: pre-spherized Panda collision URDF (`assets/panda/smaller_panda_spherized.urdf`). |
+| `csrc/kernel/grid_env.cuh` | Parses a MotionBenchMaker problem JSON → `grid_collision::Environment` (device obstacle set) for the collision kernels; `problem_document.h` caches the parsed document. |
+| `csrc/bindings/pybind_module.cpp` | Python bindings → `generate_solutions`, `sample_targets`, `num_joints`, `collision_enabled`, `build_info`. `hjcdik/__init__.pyi` is the typed stub. |
+| `tests/` | pytest suite (API contracts, FK equivalence, collision policy, codegen, stats, regression vs `baseline_metrics.json`); `tests/native/` = CTest native API + CLI contracts. `gpu-proof-tests.txt` is the signed-receipt manifest. |
+| `gpu-proof.json` | Signed pytest-gpu-proof receipt of the last full GPU run; verified by CPU-only CI. |
 | `benchmark/hjcd_ik_bench.py` | HJCD-IK benchmark harness: solved-rate, position/orientation error, timing. |
 | `benchmark/baseline_bench.py` | Competitor baselines (PyRoki/cuRobo, `--mode`); optional, see `docs/source/user_guide/benchmarks/results.rst`. |
 | `benchmark/baseline_ikflow.py` | IKFlow baseline (standalone, torch); same CSV/MMD-dump schema. |
@@ -63,13 +70,26 @@ python benchmark/hjcd_ik_bench.py --skip-grid-codegen   # run the solver
 ```
 
 `./scripts/setup/setup_dev.sh` does all of the above (system deps + pinned submodules + venv + codegen + build).
+`scripts/setup/bootstrap.sh` alone pins the three submodules (GRiD, GLASS, foam) at the committed revisions.
+
+**Testing and the GPU-proof gate.** `python -m pytest tests` needs a CUDA GPU and the collision-enabled Panda
+build. There is no GPU CI runner: `.github/workflows/verify-gpu-proof.yml` only verifies the committed, signed
+`gpu-proof.json` receipt, whose fingerprint covers `csrc/`, `hjcdik/`, `tests/`, `benchmark/`, `scripts/`,
+`examples/`, `docs/source/`, the build files and the submodule gitlinks. **Any change to those paths makes the
+receipt stale**: run the full suite and `scripts/setup/run_gpu_proof.sh` on a GPU (Python ≥ 3.11) and commit the
+new receipt, after `scripts/setup/update_gpu_proof_manifest.py` if test IDs changed. A compile-only check without a
+GPU is possible with the `nvidia-cuda-nvcc` pip wheel (`nvcc -c csrc/kernel/hjcd_kernel.cu -arch=sm_80 ...`).
+Native checks: `cmake -S . -B build-native -DBUILD_PYTHON=OFF -DHJCDIK_BUILD_NATIVE_TESTS=ON && cmake --build
+build-native && ctest --test-dir build-native`. `hjcdik.build_info()` reports the compiled header's SHA-256 so a
+stale install or wrong-robot wheel can be detected without initializing CUDA.
 
 Python API:
 ```python
 from hjcdik import generate_solutions, sample_targets, num_joints
 targets = sample_targets(num_targets=10, seed=0)         # list of [x,y,z, qw,qx,qy,qz]
 out = generate_solutions(targets[0], batch_size=2000, num_solutions=4)
-# out = {joint_config, pose, pos_errors, ori_errors, count}
+# out = {joint_config, pose, pos_errors, ori_errors, count}; count may be < num_solutions (even 0)
+# pos_errors are mm, ori_errors are rad; refine_fp64=-1 (default) = fp64 for one solution, fp32 for several
 ```
 
 ## Conventions / discipline
@@ -91,23 +111,44 @@ out = generate_solutions(targets[0], batch_size=2000, num_solutions=4)
   collision for supported fixed-base serial arms with no hand-written per-robot header.
 - **Collision policy.** Python exposes `collision_mode="hard"|"soft"|"both"`; `hard` is the
   default and strictly excludes colliding candidates (self **+** environment). `soft` is a penetration-cost
-  ranking mode and does not guarantee collision freedom; `both` ranks and filters. `HJCD_CC_MODE` remains
-  only as the benchmark compatibility fallback (`collision_mode="auto"`). All three are post-solve, off the hot warp loop.
+  ranking mode and does not guarantee collision freedom; `both` ranks and filters. Neither the API nor the
+  native solver reads `HJCD_CC_MODE`; only the benchmark CLI keeps it as the default of `--collision-mode`.
+  All three are post-solve, off the hot warp loop. Obstacle JSON uses `pose` (`[x,y,z,qw,qx,qy,qz]`); the legacy
+  Euler `box` schema is gone.
 - **`FLANGE_IDX` discipline.** The fixed EE target (`panda_grasptarget_hand`) and its index must agree across
   codegen, the kernel, and any benchmark problem. A mismatch silently solves to the wrong frame.
 - **Warp-locality is the performance contract.** New math must stay warp-scoped (`__shfl_*_sync`, `__syncwarp`).
   Do not drop the solver onto block-scoped primitives.
+- **Prefer GLASS/GRiD primitives over hand-rolled math.** Quaternion ops, norms, 4x4 products, reductions and the
+  normal-equation solve all come from `glass::thread::` / `glass::warp::` / `glass::block::`; the hand-rolled
+  helpers that remain (`solve_pos`/`solve_ori`, `ee_residual6`, `robust_row_weights`, `rank_score`) are HJCD-specific.
+  Generic kernels that outgrow HJCD belong upstream (kinematics → GRiD, linear algebra → GLASS).
+- **Tidy-ups must be numerics-preserving unless validated on a GPU.** The LM cost path has deliberate asymmetries
+  (see the debugging guide §6); refactor by naming shared pieces, not by "fixing" them.
 - **Short, single-line commit messages; no `Co-Authored-By` footer.**
 
-## Integration — re-based on GRiD/GLASS (merged to `main`, 2026-07-11)
+## History — where the code came from
 
-HJCD-IK integrates pinned GRiD (`main`) + GLASS (`main`) revisions for modularity and
-upstreamable performance. The bespoke Panda-only FK (`X_warp` / `X_single_thread`) was replaced by GRiD's
-stock warp FK (`grid::ee_pose_inner_warp`), and the hand-rolled math (`mat4_mul`, warp reduce, warp Cholesky)
-moved onto GLASS's `glass::warp::` sub-namespace. The end-effector frame is now **per-robot** (codegen
-resolves `grid::EE_FIXED_FRAME_IDX` from the named target and injects it; `hjcd_settings.h` consumes it) —
-see [`docs/source/user_guide/benchmarks/results.rst`](docs/source/user_guide/benchmarks/results.rst)
+**2026-07 — re-based on GRiD/GLASS (PR #2).** The bespoke Panda-only FK (`X_warp` / `X_single_thread`) was
+replaced by GRiD's stock warp FK (`grid::ee_pose_inner_warp`), and the hand-rolled math (4x4 products, warp
+reduce, warp Cholesky, quaternion error) moved onto GLASS's `glass::warp::` / `glass::thread::` tiers. The
+end-effector frame is **per-robot** (codegen resolves `grid::EE_FIXED_FRAME_IDX` from the named target and
+injects it; `hjcd_settings.h` consumes it) — see
+[`docs/source/user_guide/benchmarks/results.rst`](docs/source/user_guide/benchmarks/results.rst)
 for the per-robot EE map + how to regenerate the paper sweeps.
+
+**2026-09/10 — audit hardening (PR #3).** Strict `hard` collision filtering became the default; the native API
+got a move-only `Result<T>`, checked CUDA/GRiD initialization that raises instead of aborting, a solver lock, and
+a per-device parsed-document + environment cache (scene switches ~14x faster on the host, kernel unchanged).
+The build compiles the CUDA core once (`hjcdik_core`) for both front ends; native CTest + CLI contract tests,
+`build_info()`, the typed stub and the signed GPU-proof manifest were added. Full record:
+[`docs/development/audit_hardening_validation.md`](docs/development/audit_hardening_validation.md).
+
+**2026-10 — de-vendored GLASS + tidy-up.** `grid.cuh` is generated with `vendor_glass=False` (one GLASS per
+translation unit, header ~6k lines instead of ~15k). Dead helpers, duplicate host logic, the ignored native
+`d_robotModel` argument, the `HJCD_CC_MODE` / `"auto"` shim and the legacy Euler obstacle schema were removed;
+the device and host candidate ranking now share one `rank_score` (the host previously used a different
+orientation weight).
 
 **Collision migrated to `grid_collision`.** The former bespoke pRRTC stack (`csrc/collision/` +
 `csrc/robots/{panda,fetch}.cuh`) is gone; collision is now GRiD's URDF-driven `grid_collision` baked into
@@ -122,13 +163,30 @@ Both Python oracles check environment collisions only, not the kernel's self-col
 The collision code path is compiled in only when `grid.cuh` was generated with `--collision` — codegen emits
 a `#define HJCD_HAS_COLLISION 1` sentinel and the kernel + `grid_env.cuh` guard all `grid_collision::` use on
 it. A no-collision header (e.g. the DoF-scaling regens, or any BYO-URDF built without `--collision`) still
-compiles and runs open-world; the Python API rejects a collision-free request in that build. **Timing (2026-07-10, RTX
-5090) confirms no regression** from the migration: open-world B=2000 ≈ 1.86 ms (matches pre-migration), and
-the collision-free leg reports a per-mode `soft`/`hard` column (`scripts/perf/run_all_timing_sweeps.sh`).
+compiles and runs open-world; the Python API rejects a collision-free request in that build.
+
+**Performance status.** Published numbers are the camera-ready paper's (RTX 4060) and live in
+`docs/source/user_guide/benchmarks/results.rst`; they have **not** been re-run end to end on the current code.
+The tracked post-migration evidence is the audit timing gate
+(`docs/development/evidence/targeted_timing_2026-09-27/`, RTX 5090: open-world B=2000 ≈ 1.3 ms fp64, kernel
+within 1% before/after the audit). `scripts/bench/run_paper_experiments.sh` (with `HJCD_REGEN=1`) regenerates the
+paper protocol; `scripts/perf/run_all_timing_sweeps.sh` is the HJCD-only timing capture.
 
 > **Build/test gotcha:** `ninja -C build` does NOT update the imported `.so` (it's the editable copy in
 > site-packages). Always rebuild with **`scripts/setup/rebuild.sh`** (or `pip install -e . --no-build-isolation`).
 
-**Detailed working state lives in local, untracked notes** (`docs/HANDOFF.md` + `docs/open-tasks/`, gitignored —
-they're agent scratch, not project artifacts). Tracked project docs: this file, `docs/development/agent_debugging_guide.md`,
-`docs/source/user_guide/benchmarks/results.rst`, and the sphinx docs.
+## What next
+
+The running roadmap is `docs/open-tasks/TODO.md` (local, gitignored agent scratch — recreate it from this list
+if missing). Tracked project docs: this file, `docs/development/agent_debugging_guide.md`,
+`docs/development/STARTUP_PROMPT.md`, `docs/source/user_guide/upgrading.md`,
+`docs/source/user_guide/benchmarks/results.rst`, and the sphinx docs. In priority order:
+
+1. **Re-record the GPU proof** after any `csrc/`/`tests/`/docs change (see *Testing and the GPU-proof gate*).
+2. **Rerun the paper protocol on the current pins** (`HJCD_REGEN=1 RUN_FETCH=1 RUN_DOF=1 RUN_MMD=1
+   scripts/bench/run_paper_experiments.sh`) and record it as dated evidence under `docs/development/evidence/`.
+3. **Collision-free regression test** over `tests/mb_problems.json` (still a TODO in `tests/test_regression.py`).
+4. **Upstream candidates:** grasptarget-offset FK (`ee_fk_warp`/`ee_fk_thread`/`ee_fk_suffix_thread`) and the
+   batched pose-7 FK kernel → GRiD; the warp dogleg step and a `gn_step` variant that exposes diag(A)/g → GLASS.
+5. **Branched-chain support** in `ee_fk_suffix_thread` (needs the parent table; the GRiD primitive is general).
+6. **Self-hosted GPU runner** so `.github/workflows/test.yml` can leave manual-only mode.
