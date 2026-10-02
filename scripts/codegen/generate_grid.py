@@ -144,9 +144,15 @@ def main():
 
 
 def emit_header(codegen, args, out, collision_spec):
+    # vendor_glass=False: the generated kinematics consume the top-level external/GLASS
+    # (`#include "glass.cuh"` + `namespace glass = ::glass;`) instead of inlining a second,
+    # pinned GLASS snapshot under grid::glass. HJCD-IK already links that GLASS, so this keeps
+    # ONE GLASS per translation unit and drops ~9k vendored lines from grid.cuh. The nested
+    # GRiD GLASS pin must match external/GLASS (bootstrap.sh checks the gitlinks).
     codegen.gen_all_code(
         codegen_profile=args.profile,
         glass_revision=args.glass_revision,
+        vendor_glass=False,
         include_homogenous_transforms=True,
         fixed_target_name=args.fixed_target_name,
         output_path=str(out),

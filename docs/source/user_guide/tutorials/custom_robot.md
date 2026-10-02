@@ -72,6 +72,10 @@ python scripts/codegen/generate_grid.py path/to/robot.urdf -t <ee_target> --coll
   joints, each rotating around its local +Z axis. Fixed joints may connect the links and tool frame.
   GRiD supports more general robots, but this solver's geometric Jacobian and suffix FK do not;
   codegen rejects floating bases, branches, mimic joints, prismatic joints, and other joint axes.
+- The generated header does **not** vendor its own copy of GLASS: `generate_grid.py` runs GRiD with
+  `vendor_glass=False`, so `grid.cuh` includes the top-level `external/GLASS` (one GLASS per translation
+  unit, ~9k fewer generated lines). GRiD's nested GLASS pin must therefore match `external/GLASS`;
+  `scripts/setup/bootstrap.sh` initializes both at the committed revisions.
 - The default codegen profile emits kinematics and optional collision only. Use `--profile all`
   only when the generated header is also needed by an external dynamics consumer.
 - Without `--collision` the build runs open-world; the Python API rejects `collision_free=True`
