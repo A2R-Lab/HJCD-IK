@@ -50,6 +50,7 @@ joints. Target indices and transform counts are generated constants; the default
 | `tests/` | pytest suite (API contracts, FK equivalence, collision policy, codegen, stats, regression vs `baseline_metrics.json`); `tests/native/` = CTest native API + CLI contracts. `gpu-proof-tests.txt` is the signed-receipt manifest. |
 | `gpu-proof.json` | Signed pytest-gpu-proof receipt of the last full GPU run; verified by CPU-only CI. |
 | `benchmark/hjcd_ik_bench.py` | HJCD-IK benchmark harness: solved-rate, position/orientation error, timing. |
+| `scripts/perf/timing_driver.py` | Neutral A/B latency driver: run once per endpoint venv, alternating rounds; see `docs/development/evidence/timing_gate_2026-10-02/`. |
 | `benchmark/baseline_bench.py` | Competitor baselines (PyRoki/cuRobo, `--mode`); optional, see `docs/source/user_guide/benchmarks/results.rst`. |
 | `benchmark/baseline_ikflow.py` | IKFlow baseline (standalone, torch); same CSV/MMD-dump schema. |
 | `benchmark/check_ee_frames.py` | Gated smoke test: do all solvers agree on the EE (panda_hand) frame? |
@@ -166,11 +167,16 @@ it. A no-collision header (e.g. the DoF-scaling regens, or any BYO-URDF built wi
 compiles and runs open-world; the Python API rejects a collision-free request in that build.
 
 **Performance status.** Published numbers are the camera-ready paper's (RTX 4060) and live in
-`docs/source/user_guide/benchmarks/results.rst`; they have **not** been re-run end to end on the current code.
-The tracked post-migration evidence is the audit timing gate
-(`docs/development/evidence/targeted_timing_2026-09-27/`, RTX 5090: open-world B=2000 ≈ 1.3 ms fp64, kernel
-within 1% before/after the audit). `scripts/bench/run_paper_experiments.sh` (with `HJCD_REGEN=1`) regenerates the
-paper protocol; `scripts/perf/run_all_timing_sweeps.sh` is the HJCD-only timing capture.
+`docs/source/user_guide/benchmarks/results.rst`; the competitor columns have **not** been re-run on the current
+code (no baselines installed here). Tracked evidence on the RTX 5090: the audit timing gate
+(`docs/development/evidence/targeted_timing_2026-09-27/`, open-world B=2000 ≈ 1.3 ms fp64, kernel within 1%
+before/after the audit) and the de-vendoring gate + HJCD-only paper rerun
+(`docs/development/evidence/timing_gate_2026-10-02/`: landed code 0.1–1% faster than the previous main in all 18
+A/B cells up to B=32000; Panda open-world 1.67–1.74 ms at B=100–2000, box_panda collision-free 1.9–2.3 ms, DoF
+7/12/18/24 at B=1000 = 1.85/1.95/2.42/3.01 ms). `scripts/bench/run_paper_experiments.sh` (with `HJCD_REGEN=1`)
+regenerates the paper protocol (~4.5 min HJCD-only, mostly rebuilds); `scripts/perf/timing_driver.py` is the
+neutral two-endpoint A/B driver (alternate rounds, compare paired per-round medians);
+`scripts/perf/run_all_timing_sweeps.sh` is the HJCD-only timing capture.
 
 > **Build/test gotcha:** `ninja -C build` does NOT update the imported `.so` (it's the editable copy in
 > site-packages). Always rebuild with **`scripts/setup/rebuild.sh`** (or `pip install -e . --no-build-isolation`).
@@ -183,8 +189,10 @@ if missing). Tracked project docs: this file, `docs/development/agent_debugging_
 `docs/source/user_guide/benchmarks/results.rst`, and the sphinx docs. In priority order:
 
 1. **Re-record the GPU proof** after any `csrc/`/`tests/`/docs change (see *Testing and the GPU-proof gate*).
-2. **Rerun the paper protocol on the current pins** (`HJCD_REGEN=1 RUN_FETCH=1 RUN_DOF=1 RUN_MMD=1
-   scripts/bench/run_paper_experiments.sh`) and record it as dated evidence under `docs/development/evidence/`.
+2. **Rerun the paper protocol WITH the competitor baselines** (`scripts/setup/install_baselines.sh`, then
+   `HJCD_REGEN=1 RUN_FETCH=1 RUN_DOF=1 RUN_MMD=1 scripts/bench/run_paper_experiments.sh`) and record it as dated
+   evidence under `docs/development/evidence/`. The HJCD-only columns were re-run 2026-10-02 (see above); Table IV
+   (MMD) still needs TRAC-IK ground truth.
 3. **Collision-free regression test** over `tests/mb_problems.json` (still a TODO in `tests/test_regression.py`).
 4. **Upstream candidates:** grasptarget-offset FK (`ee_fk_warp`/`ee_fk_thread`/`ee_fk_suffix_thread`) and the
    batched pose-7 FK kernel → GRiD; the warp dogleg step and a `gn_step` variant that exposes diag(A)/g → GLASS.

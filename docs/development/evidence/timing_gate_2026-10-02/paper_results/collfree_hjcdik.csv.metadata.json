@@ -1,0 +1,19 @@
+{
+  "collision_validation": {
+    "model": "paper",
+    "scope": "environment-only; non-base spheres",
+    "finger_joint_origin_y_m": [
+      0.065,
+      -0.065
+    ],
+    "source_sha256": {
+      "benchmark/reference/panda_collision_model.cuh": "c1cc0653acf8d24fed163c623c599dec2dc8bb8ee12ed372ed09bfeba745fe7b"
+    }
+  },
+  "solver_build": {
+    "num_joints": 7,
+    "collision_enabled": true,
+    "grid_header_sha256": "62f1c5253dc7663997f120cfc96ee78e95769a8fb62ddeec677bb0d1644544c0",
+    "cuda_compiler_version": "13.2.86"
+  }
+}
