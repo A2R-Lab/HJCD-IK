@@ -18,6 +18,7 @@ they are not benchmark measurements of every subsequent code revision.
 | Native signature | `generate_ik_solutions(target, batch, ...)` no longer takes the ignored `d_robotModel` argument; drop that `nullptr` from native callers. `collision_mode` is `0` (soft), `1` (hard, default) or `2` (both). Obstacle JSON must use `pose`; the legacy Euler `box`/`orientation_euler_xyz` forms are rejected. |
 | CUDA failures | Checked runtime/model initialization failures raise exceptions, with best-effort cleanup. A context-invalidating CUDA error may still require restarting the process. |
 | Concurrency | Python releases the GIL; native sampling/solving serialize shared state. This is safe concurrent calling, not concurrent GPU solve execution. Keep the CUDA context alive; `cudaDeviceReset` invalidates caches. |
+| Determinism | Candidate identity is not run-to-run stable: identical calls may return different, equally valid candidates (the coarse search and single-solution refinement stop on a cross-block flag). Aggregate over targets or pin tolerances, never a specific configuration. |
 | Statistics | Unmeasured collision/feasibility fields use `-1`, not a fabricated zero. The summary tool excludes these values. Do not combine soft and hard/both rows as one collision-success metric. |
 
 The Python result dictionary and float64 I/O remain unchanged. `refine_fp64=-1`

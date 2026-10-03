@@ -11,9 +11,9 @@ name: Verify GPU Proof
 
 on:
   push:
-    branches: [main, grid-glass-integration]
+    branches: [main]
   pull_request:
-    branches: [main, grid-glass-integration]
+    branches: [main]
 
 jobs:
   verify-receipt:

@@ -117,14 +117,23 @@ inline void for_each_shape(const json& collection, Fn&& fn) {
     } else if (collection.is_object()) {
         for (auto it = collection.begin(); it != collection.end(); ++it) fn(it.value());
     } else {
-        throw std::runtime_error("expected shape collection to be an array or object");
+        throw std::invalid_argument("expected shape collection to be an array or object");
     }
 }
 
 inline float cylinder_length(const json& obj) {
     if (obj.contains("height")) return positive_number(obj.at("height"));
     if (obj.contains("length")) return positive_number(obj.at("length"));
-    throw std::runtime_error("cylinder obstacle is missing height/length");
+    throw std::invalid_argument("cylinder obstacle is missing height/length");
+}
+
+// Required field of a shape object; a missing key is a schema error (ValueError at the Python
+// boundary), not an internal failure. Names the shape so legacy forms (e.g. a cuboid with
+// position + orientation_euler_xyz and no pose) get a pointed message.
+inline const json& field(const json& shape, const char* key, const char* shape_name) {
+    if (!shape.is_object() || !shape.contains(key))
+        throw std::invalid_argument(std::string(shape_name) + " obstacle requires '" + key + "'");
+    return shape.at(key);
 }
 
 }  // namespace detail
@@ -152,16 +161,16 @@ inline HostEnv problem_dict_to_env(const json& problem) {
             if (o.contains("pose")) {
                 float u[3], v[3], w[3];
                 pose_to_frame(o.at("pose"), p.data(), u, v, w);
-            } else p = arr3(o.at("position"));
-            env.spheres.push_back(gc::Sphere<float>{p[0], p[1], p[2], positive_number(o.at("radius"))});
+            } else p = arr3(field(o, "position", "sphere"));
+            env.spheres.push_back(gc::Sphere<float>{p[0], p[1], p[2], positive_number(field(o, "radius", "sphere"))});
         });
     }
 
     if (root.contains("cuboid")) {
         for_each_shape(root.at("cuboid"), [&](const json& o) {
             float c[3], u[3], v[3], w[3];
-            pose_to_frame(o.at("pose"), c, u, v, w);
-            const auto dims = dimensions(o.at("dims"));
+            pose_to_frame(field(o, "pose", "cuboid"), c, u, v, w);
+            const auto dims = dimensions(field(o, "dims", "cuboid"));
             const float half[3] = {0.5f * dims[0], 0.5f * dims[1], 0.5f * dims[2]};
             env.cuboids.push_back(make_cuboid(c, u, v, w, half));
         });
@@ -170,9 +179,9 @@ inline HostEnv problem_dict_to_env(const json& problem) {
     if (root.contains("cylinder")) {
         for_each_shape(root.at("cylinder"), [&](const json& o) {
             float c[3], u[3], v[3], w[3];
-            pose_to_frame(o.at("pose"), c, u, v, w);
+            pose_to_frame(field(o, "pose", "cylinder"), c, u, v, w);
             env.capsules.push_back(
-                make_cylinder_capsule(c, w, positive_number(o.at("radius")), cylinder_length(o)));
+                make_cylinder_capsule(c, w, positive_number(field(o, "radius", "cylinder")), cylinder_length(o)));
         });
     }
 

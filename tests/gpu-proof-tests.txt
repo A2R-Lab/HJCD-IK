@@ -1,6 +1,9 @@
 tests/test_api.py::test_build_metadata_matches_header_without_a_visible_gpu
 tests/test_api.py::test_collision_arguments_are_required
-tests/test_api.py::test_collision_mode_is_validated
+tests/test_api.py::test_collision_mode_is_validated[HARD]
+tests/test_api.py::test_collision_mode_is_validated[]
+tests/test_api.py::test_collision_mode_is_validated[auto]
+tests/test_api.py::test_collision_mode_is_validated[invalid]
 tests/test_api.py::test_extreme_finite_quaternions_normalize_safely[1e+300]
 tests/test_api.py::test_extreme_finite_quaternions_normalize_safely[1e-300]
 tests/test_api.py::test_gpu_entry_points_are_thread_safe
@@ -36,6 +39,8 @@ tests/test_benchmark_setup.py::test_benchmark_delegates_to_canonical_codegen[Fal
 tests/test_benchmark_setup.py::test_benchmark_delegates_to_canonical_codegen[True]
 tests/test_benchmark_setup.py::test_paper_workflow_selects_collision_builds_without_running_benchmarks[False]
 tests/test_benchmark_setup.py::test_paper_workflow_selects_collision_builds_without_running_benchmarks[True]
+tests/test_benchmark_smoke.py::test_collision_free_harness_runs
+tests/test_benchmark_smoke.py::test_open_world_harness_runs
 tests/test_codegen.py::test_explicit_glass_provenance_is_archive_reproducible
 tests/test_codegen.py::test_failed_codegen_preserves_previous_header[flags0-fixed-base serial chain]
 tests/test_codegen.py::test_failed_codegen_preserves_previous_header[flags1-grid namespace]
@@ -55,6 +60,12 @@ tests/test_collision.py::test_hard_mode_returns_no_solution_when_every_candidate
 tests/test_collision.py::test_invalid_collision_problem_is_rejected
 tests/test_collision.py::test_malformed_collision_geometry_is_rejected[None-obstacles must be an object]
 tests/test_collision.py::test_malformed_collision_geometry_is_rejected[obstacles1-obstacles must be an object]
+tests/test_collision.py::test_malformed_collision_geometry_is_rejected[obstacles10-unsupported obstacle type]
+tests/test_collision.py::test_malformed_collision_geometry_is_rejected[obstacles11-cuboid obstacle requires 'pose']
+tests/test_collision.py::test_malformed_collision_geometry_is_rejected[obstacles12-cylinder obstacle requires 'pose']
+tests/test_collision.py::test_malformed_collision_geometry_is_rejected[obstacles13-cuboid obstacle requires 'dims']
+tests/test_collision.py::test_malformed_collision_geometry_is_rejected[obstacles14-sphere obstacle requires 'position']
+tests/test_collision.py::test_malformed_collision_geometry_is_rejected[obstacles15-missing height/length]
 tests/test_collision.py::test_malformed_collision_geometry_is_rejected[obstacles2-unsupported obstacle type]
 tests/test_collision.py::test_malformed_collision_geometry_is_rejected[obstacles3-unsupported obstacle type]
 tests/test_collision.py::test_malformed_collision_geometry_is_rejected[obstacles4-positive]
@@ -124,6 +135,7 @@ tests/test_precision.py::test_default_arg_is_auto
 tests/test_precision.py::test_fp32_refine_accuracy
 tests/test_precision.py::test_fp64_refine_accuracy
 tests/test_problem_document.py::test_exact_document_cache_and_failure_recovery
+tests/test_regression.py::test_no_collision_free_regression_vs_baseline
 tests/test_regression.py::test_no_regression_vs_baseline
 tests/test_regression.py::test_solver_runs_and_returns_solutions
 tests/test_stats.py::test_both_mode_counts_include_self_collisions_with_empty_environment

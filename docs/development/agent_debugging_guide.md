@@ -150,7 +150,7 @@ audit record `docs/development/audit_hardening_validation.md`.
   joint). *Lesson: a kernel's name and the most-numerically-scary line are not evidence; split the wall by
   kernel (nsys `cuda_gpu_kern_sum`) and A/B the suspected lever before believing a cause. The fix for a
   warp kernel that scales badly is almost always restoring warp-parallelism, not changing precision.*
-- **Tolerance is a per-regime lever, and looser tol can be a trap.** The LM early-stop (`:796/802`) only
+- **Tolerance is a per-regime lever, and looser tol can be a trap.** The LM early-stop (`eps_pos`/`eps_ori` in `solve_lm_batched`; env `HJCD_LM_EPS_POS/ORI`) only
   shortens `lm_tuner`; at high DoF where `coarse_search` dominates, a looser tol buys ~1.05× *and* craters
   accuracy (11–140 mm — it returns coarse-quality solutions). Keep tight 1e-8 unless you've confirmed via
   nsys that the LM loop is the bottleneck for your DoF/num_solutions.
@@ -168,6 +168,13 @@ not exact candidate identity.
 
 ## 6. Lessons log
 *(Append new bug classes / tricks here as they emerge — keep this guide the single source of truth.)*
+
+- **Candidate identity is not run-to-run stable, by design (ruled 2026-10-02).** Coarse blocks race on the
+  cross-block early-stop flag (`g_stop`), and the LM refine does the same when one solution is requested, so
+  two identical calls can return different (equally valid) candidates. Accepted behaviour: do not add a
+  deterministic mode. Consequences: compare builds statistically (returned counts, error distributions,
+  `scripts/bench/capture_baseline.py` aggregates), never bitwise; regression tests use slack bands over many
+  targets; do not write tests that pin a specific returned configuration.
 
 - **Bit-identical refactors vs. tuned numerics (2026-10).** The LM loop applies robust row weights
   twice on a trial step: once folded into `row_s` at the iteration start, and again (fresh, at the

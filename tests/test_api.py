@@ -42,10 +42,12 @@ def test_zero_quaternion_is_rejected():
         hjcdik.generate_solutions([0, 0, 0, 0, 0, 0, 0])
 
 
-def test_collision_mode_is_validated():
+@pytest.mark.parametrize("mode", ["invalid", "auto", "HARD", ""])
+def test_collision_mode_is_validated(mode):
+    # "auto" (the former HJCD_CC_MODE environment shim) is deliberately not accepted any more.
     target = [0, 0, 0, 1, 0, 0, 0]
     with pytest.raises(ValueError, match="collision_mode"):
-        hjcdik.generate_solutions(target, collision_mode="invalid")
+        hjcdik.generate_solutions(target, collision_mode=mode)
 
 
 def test_collision_arguments_are_required():

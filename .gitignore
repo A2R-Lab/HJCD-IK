@@ -48,7 +48,9 @@ __pycache__/
 
 # ---- Generated files ----
 results.yml
+results.yml.metadata.json
 *.csv
+*.csv.metadata.json
 
 # ---- OS / Editor ----
 .DS_Store

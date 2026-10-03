@@ -126,6 +126,9 @@ out = generate_solutions(targets[0], batch_size=2000, num_solutions=4)
   Generic kernels that outgrow HJCD belong upstream (kinematics → GRiD, linear algebra → GLASS).
 - **Tidy-ups must be numerics-preserving unless validated on a GPU.** The LM cost path has deliberate asymmetries
   (see the debugging guide §6); refactor by naming shared pieces, not by "fixing" them.
+- **Non-determinism is accepted.** Candidate identity is not run-to-run stable (cross-block early-stop race);
+  compare builds and write regression tests statistically (`scripts/bench/capture_baseline.py` suites, slack
+  bands), never by pinning a returned configuration. Ruled 2026-10-02; no deterministic mode is planned.
 - **Short, single-line commit messages; no `Co-Authored-By` footer.**
 
 ## History — where the code came from
@@ -193,7 +196,11 @@ if missing). Tracked project docs: this file, `docs/development/agent_debugging_
    `HJCD_REGEN=1 RUN_FETCH=1 RUN_DOF=1 RUN_MMD=1 scripts/bench/run_paper_experiments.sh`) and record it as dated
    evidence under `docs/development/evidence/`. The HJCD-only columns were re-run 2026-10-02 (see above); Table IV
    (MMD) still needs TRAC-IK ground truth.
-3. **Collision-free regression test** over `tests/mb_problems.json` (still a TODO in `tests/test_regression.py`).
+3. **Collision-free accuracy on the non-box MotionBenchMaker sets.** The regression baseline
+   (`tests/baseline_metrics.json`, `collision_free_mb`) records an accurate-rate of 47/64: `cage_panda` 0/8,
+   `table_pick_panda` 5/8, `table_under_pick_panda` 3/8, `bookshelf_tall_panda` 7/8 at B=2000 under `hard`
+   filtering, while the box/bookshelf sets are 8/8. Decide whether those goals are reachable collision-free
+   under the compiled 40 mm finger model or whether the solver under-serves them.
 4. **Upstream candidates:** grasptarget-offset FK (`ee_fk_warp`/`ee_fk_thread`/`ee_fk_suffix_thread`) and the
    batched pose-7 FK kernel → GRiD; the warp dogleg step and a `gn_step` variant that exposes diag(A)/g → GLASS.
 5. **Branched-chain support** in `ee_fk_suffix_thread` (needs the parent table; the GRiD primitive is general).

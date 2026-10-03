@@ -33,6 +33,15 @@ from panda_collision import mb_instance_to_world_dict, panda_config_collision_fr
     ({"cuboid": [{"dims": [1, 0, 1], "pose": [0, 0, 0, 1, 0, 0, 0]}]}, "positive"),
     ({"cuboid": [{"dims": [1, 1, 1], "pose": [0, 0, 0, 0, 0, 0, 0]}]}, "quaternion"),
     ({"cylinder": [{"radius": 1, "height": -1, "pose": [0, 0, 0, 1, 0, 0, 0]}]}, "positive"),
+    # Legacy Euler forms (pre-2026-10 `box` schema / position + orientation_euler_xyz) are gone: `pose` only.
+    ({"box": [{"position": [0, 0, 0], "orientation_euler_xyz": [0, 0, 0], "half_extents": [1, 1, 1]}]},
+     "unsupported obstacle type"),
+    ({"cuboid": [{"position": [0, 0, 0], "orientation_euler_xyz": [0, 0, 0], "dims": [1, 1, 1]}]},
+     "cuboid obstacle requires 'pose'"),
+    ({"cylinder": [{"radius": 0.1, "height": 0.2}]}, "cylinder obstacle requires 'pose'"),
+    ({"cuboid": [{"pose": [0, 0, 0, 1, 0, 0, 0]}]}, "cuboid obstacle requires 'dims'"),
+    ({"sphere": [{"radius": 0.1}]}, "sphere obstacle requires 'position'"),
+    ({"cylinder": [{"radius": 0.1, "pose": [0, 0, 0, 1, 0, 0, 0]}]}, "missing height/length"),
 ])
 def test_malformed_collision_geometry_is_rejected(obstacles, match):
     text = json.dumps({"problems": {"malformed": [{"obstacles": obstacles}]}})
