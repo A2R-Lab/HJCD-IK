@@ -64,12 +64,14 @@ fi
 if [ "${SKIP_PYROKI:-0}" != "1" ]; then
   echo "--- PyRoki ---"
   "$PY" benchmark/baseline_bench.py --mode pyroki --goal_file "$TGT.yml" \
-    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name open
+    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name open \
+    || echo "(PyRoki Table I skipped — solver error; column left blank, run continues)"
 fi
 if [ "${SKIP_CUROBO:-0}" != "1" ]; then
   echo "--- cuRobo ---"
   "$PY" benchmark/baseline_bench.py --mode curobo --goal_file "$TGT.yml" \
-    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name open
+    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name open \
+    || echo "(cuRobo Table I skipped — solver error; column left blank, run continues)"
 fi
 if [ "${SKIP_IKFLOW:-0}" != "1" ]; then
   echo "--- IKFlow ---"
@@ -89,10 +91,12 @@ if [ "${RUN_FETCH:-0}" = "1" ]; then
   fi
   [ "${SKIP_PYROKI:-0}" = "1" ] || "$PY" benchmark/baseline_bench.py --mode pyroki --goal_file "$FTGT.yml" \
     --robot-urdf csrc/urdf/fetch.urdf --ee-link ee_link --base-link arm_mount_link \
-    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name fetch_open
+    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name fetch_open \
+    || echo "(PyRoki Fetch skipped — solver error; column left blank, run continues)"
   [ "${SKIP_CUROBO:-0}" = "1" ] || "$PY" benchmark/baseline_bench.py --mode curobo --goal_file "$FTGT.yml" \
     --robot-urdf csrc/urdf/fetch.urdf --ee-link ee_link --base-link arm_mount_link \
-    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name fetch_open
+    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name fetch_open \
+    || echo "(cuRobo Fetch skipped — solver error; column left blank, run continues)"
   [ "${SKIP_IKFLOW:-0}" = "1" ] || "$PY" benchmark/baseline_ikflow.py --goal_file "$FTGT.yml" \
     --model fetch_full_temp_nsc_tpm --seed_list "$BATCHES" --csv-out "$OUT_DIR/fetch_open_ikflow.csv" || echo "(IKFlow fetch skipped)"
   "$PY" benchmark/make_tables.py $OUT_DIR/fetch_open_*.csv --title "Fetch open-world (Table I)" \
@@ -124,7 +128,8 @@ if [ "${SKIP_PYROKI:-0}" != "1" ]; then
   MB_JSON_PATH="$MB_JSON" "$PY" benchmark/baseline_bench.py --mode pyroki --collision_free \
     --mb-target cylinder --ee-link panda_hand_tcp --collision-validation-model hjcd \
     --problem_set "$PROBLEM_SET" --num_instances "$NUM_TARGETS" \
-    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name collfree_paper
+    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name collfree_paper \
+    || echo "(PyRoki Table II-paper skipped — solver error; column left blank, run continues)"
 fi
 if [ "${SKIP_CUROBO:-0}" != "1" ]; then
   echo "--- cuRobo ---"
@@ -162,7 +167,8 @@ for set in $MB_SETS; do
   [ "${SKIP_PYROKI:-0}" = "1" ] || MB_JSON_PATH="$MB_JSON" "$PY" benchmark/baseline_bench.py --mode pyroki --collision_free \
     --mb-target goal --ee-link panda_hand --collision-validation-model hjcd \
     --problem_set "$set" --num_instances "$NUM_TARGETS" \
-    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name "collfree_hand_${set}"
+    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name "collfree_hand_${set}" \
+    || echo "(PyRoki Table II-dataset $set skipped — solver error; column left blank, run continues)"
   [ "${SKIP_CUROBO:-0}" = "1" ] || MB_JSON_PATH="$MB_JSON" "$PY" benchmark/baseline_bench.py --mode curobo --collision_free \
     --mb-target goal --collision-validation-model hjcd \
     --problem_set "$set" --num_instances "$NUM_TARGETS" \
@@ -187,7 +193,8 @@ if [ "${RUN_DOF:-0}" = "1" ]; then
         --batches "$DOF_B" --num-solutions 1 --solver hjcdik --csv-out "$OUT_DIR/dof${d}_hjcdik.csv"
     fi
     [ "${SKIP_PYROKI:-0}" = "1" ] || "$PY" benchmark/baseline_bench.py --mode pyroki --goal_file "$dtgt.yml" \
-      --robot-urdf "$urdf" --ee-link panda_hand --base-link panda_link0 --seed_list "$DOF_B" --save_path "$OUT_DIR" --file_name "dof${d}"
+      --robot-urdf "$urdf" --ee-link panda_hand --base-link panda_link0 --seed_list "$DOF_B" --save_path "$OUT_DIR" --file_name "dof${d}" \
+      || echo "(PyRoki DoF=$d skipped — solver error; run continues)"
     [ "${SKIP_CUROBO:-0}" = "1" ] || "$PY" benchmark/baseline_bench.py --mode curobo --goal_file "$dtgt.yml" \
       --robot-urdf "$urdf" --ee-link panda_hand --base-link panda_link0 --seed_list "$DOF_B" --save_path "$OUT_DIR" --file_name "dof${d}" \
       || echo "(cuRobo DoF=$d skipped — solver error; run continues)"
@@ -208,7 +215,8 @@ if [ "${RUN_MMD:-0}" = "1" ]; then
       --filtered-targets "$TGT.json" --solver hjcdik --mmd-dump "$DUMPS/hjcdik.json" \
       --mmd-batch 2000 --solutions-count 50
   [ "${SKIP_PYROKI:-0}" = "1" ] || "$PY" benchmark/baseline_bench.py --mode pyroki \
-      --goal_file "$TGT.yml" --mmd_dump "$DUMPS/pyroki.json" --solutions_seed 2000 --solutions_k 50
+      --goal_file "$TGT.yml" --mmd_dump "$DUMPS/pyroki.json" --solutions_seed 2000 --solutions_k 50 \
+      || echo "(PyRoki MMD dump skipped — solver error; run continues)"
   [ "${SKIP_CUROBO:-0}" = "1" ] || "$PY" benchmark/baseline_bench.py --mode curobo \
       --goal_file "$TGT.yml" --mmd_dump "$DUMPS/curobo.json" --solutions_seed 2000 --solutions_k 50 \
       || echo "(cuRobo MMD dump skipped — solver error; run continues)"

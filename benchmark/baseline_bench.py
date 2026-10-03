@@ -1141,24 +1141,44 @@ if __name__ == "__main__":
         print(f"  {goal_dataset.shape[0]} goals loaded")
 
         if args.mode == "curobo":
+            def _open_world_solver(num_seeds, use_cuda_graph):
+                if args.robot_urdf:
+                    return make_curobo_solver_from_urdf(
+                        args.robot_urdf, args.base_link, args.ee_link,
+                        high_precision=args.high_precision, use_cuda_graph=use_cuda_graph, num_seeds=num_seeds)
+                world_dict = {}  # open-world: cuRobo v2 solver ignores the world when collision_free=False
+                return make_curobo_solver_from_world_dict(
+                    robot_file=robot_file, world_dict=world_dict,
+                    collision_free=False, high_precision=args.high_precision,
+                    use_cuda_graph=use_cuda_graph, num_seeds=num_seeds)
+
             for num_seeds in seed_list:
                 print(f"  curobo num_seeds: {num_seeds}")
-                if args.robot_urdf:
-                    ik_solver, tensor_args = make_curobo_solver_from_urdf(
-                        args.robot_urdf, args.base_link, args.ee_link,
-                        high_precision=args.high_precision, use_cuda_graph=args.use_cuda_graph, num_seeds=num_seeds)
-                else:
-                    world_dict = {}  # open-world: cuRobo v2 solver ignores the world when collision_free=False
-                    ik_solver, tensor_args = make_curobo_solver_from_world_dict(
-                        robot_file=robot_file, world_dict=world_dict,
-                        collision_free=False, high_precision=args.high_precision,
-                        use_cuda_graph=args.use_cuda_graph, num_seeds=num_seeds,
-                    )
-                warmup_curobo_solver(ik_solver, tensor_args, goal_dataset[0], repeat=2)
+                ik_solver, tensor_args = _open_world_solver(num_seeds, args.use_cuda_graph)
+                try:
+                    warmup_curobo_solver(ik_solver, tensor_args, goal_dataset[0], repeat=2)
+                except (RuntimeError, torch.AcceleratorError) as graph_err:
+                    # CUDA-graph capture can fail when the allocator has to grow during capture (seen for
+                    # Fetch at 2000 seeds: cudaErrorStreamCaptureInvalidated). Retry this seed count
+                    # without graph capture rather than losing the whole campaign; the row is flagged.
+                    if "Capture" not in str(graph_err) and "capture" not in str(graph_err):
+                        raise
+                    print(f"  curobo num_seeds={num_seeds}: CUDA graph capture failed ({type(graph_err).__name__}); "
+                          "retrying this seed count with use_cuda_graph=False")
+                    del ik_solver
+                    gc.collect(); torch.cuda.empty_cache()
+                    ik_solver, tensor_args = _open_world_solver(num_seeds, False)
+                    warmup_curobo_solver(ik_solver, tensor_args, goal_dataset[0], repeat=2)
                 for idx, goal7 in enumerate(goal_dataset):
                     dt_s, succ_pct, pos98, ori98, _, _, _ = run_curobo_on_goal_batch(ik_solver, goal7[None, :], tensor_args)
                     record_row(problem_idx=idx, num_seeds=num_seeds, solver_name="curobo",
                                time_ms=dt_s * 1000.0, pos_err_mm=pos98 * 1000.0, ori_err_rad=ori98, succ_pct=succ_pct)
+                # Free this seed count's solver (and its captured graph) before building the next one, as the
+                # Table II loop does: accumulated solvers fragment the graph memory pool and a later capture
+                # then needs a disallowed cudaMalloc -> cudaErrorStreamCaptureInvalidated.
+                del ik_solver
+                gc.collect()
+                torch.cuda.empty_cache()
         else:
             # custom URDF (DoF variants) -> build a matching PyRoki beam + FK; else the panda_hand default.
             if args.robot_urdf:
