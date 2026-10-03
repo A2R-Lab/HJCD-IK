@@ -829,8 +829,8 @@ def _curobo_panda_with_tool(ee_link):
     if ee_link == "panda_hand":
         return "franka.yml"
     import yaml
-    from curobo.util_file import get_assets_path, get_robot_configs_path, join_path, load_yaml
-    cfg = load_yaml(join_path(get_robot_configs_path(), "franka.yml"))
+    from curobo.content import get_assets_path, get_robot_configs_path
+    cfg = yaml.safe_load(open(os.path.join(str(get_robot_configs_path()), "franka.yml")))
     kin = cfg["robot_cfg"]["kinematics"]
     # offset of the requested frame relative to panda_hand, from OUR URDF (e.g. panda_grasptarget: 0.105 m)
     ours = ET.parse(str(Path(__file__).resolve().parents[1] / "csrc" / "urdf" / "panda.urdf")).getroot()
@@ -840,7 +840,7 @@ def _curobo_panda_with_tool(ee_link):
             origin = j.find("origin")
     if origin is None:
         raise ValueError(f"{ee_link} is not a fixed child of panda_hand in csrc/urdf/panda.urdf")
-    src_urdf = join_path(get_assets_path(), kin["urdf_path"])
+    src_urdf = os.path.join(str(get_assets_path()), kin["urdf_path"])
     tree = ET.parse(src_urdf); root = tree.getroot()
     link = ET.SubElement(root, "link", name=ee_link)
     joint = ET.SubElement(root, "joint", name=f"{ee_link}_fixed_joint", type="fixed")
