@@ -88,9 +88,18 @@ def test_paper_workflow_selects_collision_builds_without_running_benchmarks(tmp_
     assert run.returncode == 0, run.stdout + run.stderr
     commands = [json.loads(line) for line in log.read_text().splitlines()]
     generated = [cmd for cmd in commands if cmd[0] == "scripts/codegen/generate_grid.py"]
-    assert len(generated) == 3  # open-world, collision scene, restored default
-    assert generated[0][-1] == "panda_hand_joint"
+    # open-world (hand), Table II paper protocol (TCP + collision), Table II dataset protocol
+    # (hand + collision), restored default (TCP + collision).
+    assert len(generated) == 4
+    assert generated[0][-1] == "panda_hand_joint" and "--collision" not in generated[0]
+    frames = [cmd[cmd.index("-t") + 1] for cmd in generated[1:]]
+    assert frames == ["panda_grasptarget_hand", "panda_hand_joint", "panda_grasptarget_hand"]
     for cmd in generated[1:]:
-        assert "panda_grasptarget_hand" in cmd and "--collision" in cmd
+        assert "--collision" in cmd
         assert cmd[-2:] == ["--spherized-urdf",
                            "external/foam/assets/panda/smaller_panda_spherized.urdf"]
+    # The two Table II passes use the matching target protocol on the HJCD harness.
+    bench = [cmd for cmd in commands if cmd[0] == "benchmark/hjcd_ik_bench.py" and "--collision-free" in cmd]
+    modes = [cmd[cmd.index("--target-mode") + 1] for cmd in bench]
+    assert modes == ["cylinder", "goal"]
+    assert all("hjcd" == cmd[cmd.index("--collision-validation-model") + 1] for cmd in bench)

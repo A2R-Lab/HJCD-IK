@@ -118,6 +118,8 @@ if [ "${SKIP_IKFLOW:-0}" != "1" ]; then
   "$PY" -m pip install torch    # no-op if cuRobo stage already installed it
   "$PY" -m pip install ikflow \
     || echo "[install_baselines] WARNING: ikflow install failed (see docs/source/user_guide/benchmarks/results.rst); Tables I/IV IKFlow column will be absent."
+  # ikflow/jkinpylib import pkg_resources, which setuptools>=81 removed (2026): pin below it.
+  "$PY" -m pip install "setuptools<81"
   if ! ls benchmark/assets/ikflow/weights/*.pkl >/dev/null 2>&1; then
     echo "[install_baselines] NOTE: no IKFlow weights in benchmark/assets/ikflow/weights/ — add the co-author's .pkl there for offline load."
   fi

@@ -196,11 +196,17 @@ if missing). Tracked project docs: this file, `docs/development/agent_debugging_
    `HJCD_REGEN=1 RUN_FETCH=1 RUN_DOF=1 RUN_MMD=1 scripts/bench/run_paper_experiments.sh`) and record it as dated
    evidence under `docs/development/evidence/`. The HJCD-only columns were re-run 2026-10-02 (see above); Table IV
    (MMD) still needs TRAC-IK ground truth.
-3. **Collision-free accuracy on the non-box MotionBenchMaker sets.** The regression baseline
-   (`tests/baseline_metrics.json`, `collision_free_mb`) records an accurate-rate of 47/64: `cage_panda` 0/8,
-   `table_pick_panda` 5/8, `table_under_pick_panda` 3/8, `bookshelf_tall_panda` 7/8 at B=2000 under `hard`
-   filtering, while the box/bookshelf sets are 8/8. Decide whether those goals are reachable collision-free
-   under the compiled 40 mm finger model or whether the solver under-serves them.
+3. **Two collision-scene protocols (ruled 2026-10-03).** MotionBenchMaker goals are `panda_hand` poses (the
+   dataset's `goal_ik` puts `panda_hand` on them; the TCP is 105 mm further out). The paper's Table II used the
+   *cylinder-snapped* target with the TCP frame, which is physically consistent for cylinder-grasp scenes
+   (box, bookshelf, table) but not for `cage_panda` (no cylinders) or `box_panda_flipped` (goal 38 cm from
+   any cylinder). `run_paper_experiments.sh` therefore runs Table II twice: the **paper protocol** on
+   `box_panda` for continuity (`--target-mode cylinder`, TCP builds) and the **dataset protocol** on every set
+   (`--target-mode goal`, `panda_hand` builds, `RUN_HARD=1`), all solvers validated by the same `hjcd` sphere
+   oracle. The dataset protocol is the harder, honest benchmark: with the default TCP build and raw goals
+   the accurate-rate over 64 problems was 47/64 (cage 0/8); at `panda_hand` it is 60/64 and the remaining
+   misses are found at B=16000. Robustness work (informed second round, collision-aware refinement) is future
+   work alongside floating-base support.
 4. **Upstream candidates:** grasptarget-offset FK (`ee_fk_warp`/`ee_fk_thread`/`ee_fk_suffix_thread`) and the
    batched pose-7 FK kernel → GRiD; the warp dogleg step and a `gn_step` variant that exposes diag(A)/g → GLASS.
 5. **Branched-chain support** in `ee_fk_suffix_thread` (needs the parent table; the GRiD primitive is general).

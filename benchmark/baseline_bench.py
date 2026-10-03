@@ -155,6 +155,29 @@ def associate_goal_to_closest_cylinder(inst: dict, eps: float = 1e-4):
 
     return best
 
+# Collision-scene target protocol, set from --mb-target: "goal" = the MotionBenchMaker goal_pose as
+# posed (it is a panda_hand pose: the dataset's goal_ik solutions put panda_hand there), "cylinder" =
+# the paper's Table II protocol (xy snapped to the closest cylinder, z/orientation from goal_pose),
+# which is physically meaningful only for the TCP frame (panda_hand_tcp / panda_grasptarget) and only
+# in cylinder-grasp scenes. Scenes without cylinders always use the goal pose.
+MB_TARGET_MODE = "goal"
+# Collision oracle geometry for the collision_free column, set from --collision-validation-model.
+COLLISION_VALIDATION_MODEL = "hjcd"
+
+
+def mb_instance_to_goal(inst: dict):
+    gp = inst["goal_pose"]
+    return (np.array(gp["quaternion_wxyz"], dtype=np.float32),
+            np.array(gp["position_xyz"], dtype=np.float32))
+
+
+def mb_instance_to_target(inst: dict):
+    """Table II target under the selected protocol (see MB_TARGET_MODE)."""
+    if MB_TARGET_MODE == "cylinder" and _cylinders_list(inst):
+        return mb_instance_to_cylinder_goal(inst, eps=1e-4, rot_sign=+1)
+    return mb_instance_to_goal(inst)
+
+
 def mb_instance_to_cylinder_goal(inst: dict, eps: float = 1e-4, rot_sign: int = +1):
     cyl = associate_goal_to_closest_cylinder(inst, eps=eps)
 
@@ -206,9 +229,9 @@ def mb_instance_to_goal(inst: dict):
 
 
 def _collision_free_or_unknown(robot_file: str, world_dict: dict, q_torch) -> "bool | None":
-    """Validate an externally-supplied solution q against world_dict using the SHARED 59-sphere Panda model
-    (benchmark/panda_collision.py) — solver-agnostic and cuRobo-free, so every solver's Table II column is
-    measured with the same geometry (apples-to-apples; the paper's own collision model). Returns None
+    """Validate an externally-supplied solution q against world_dict using the SHARED Panda sphere model
+    (benchmark/panda_collision.py, geometry = COLLISION_VALIDATION_MODEL) — solver-agnostic and cuRobo-free,
+    so every solver's Table II column is measured with the same geometry (apples-to-apples). Returns None
     ('unknown' -> blank column) only for non-Panda robots, which have no shared sphere model yet (see
     docs/open-tasks/multi_robot_byo_urdf_plan_*)."""
     try:
@@ -220,7 +243,7 @@ def _collision_free_or_unknown(robot_file: str, world_dict: dict, q_torch) -> "b
     if not is_panda:
         return None
     from panda_collision import panda_config_collision_free
-    return bool(panda_config_collision_free(q, world_dict))
+    return bool(panda_config_collision_free(q, world_dict, model=COLLISION_VALIDATION_MODEL))
 
 def newton_raphson(f, x, iters):
     """Use the Newton-Raphson method to find a root of the given function."""
@@ -518,14 +541,14 @@ def make_batched_pyroki_ik(num_seeds_init: int, beam: PyrokiIkBeamHelper = None)
     return jax.jit(jax.vmap(solve_fn))
     
     
-def eval_one_mb_instance(robot_file: str, inst: dict, batched_ik_fn):
+def eval_one_mb_instance(robot_file: str, inst: dict, batched_ik_fn, batched_fk_fn=None):
     # thresholds
     position_threshold = 0.005
     rotation_threshold = 0.05
 
     world_dict = mb_instance_to_world_dict(inst)
     #target_wxyz, target_pos = mb_instance_to_goal(inst)
-    target_wxyz, target_pos = mb_instance_to_cylinder_goal(inst, eps=1e-4, rot_sign=+1)
+    target_wxyz, target_pos = mb_instance_to_target(inst)
 
     target_wxyz_jax = jnp.asarray(target_wxyz[None, :])
     target_pos_jax  = jnp.asarray(target_pos[None, :])
@@ -538,7 +561,7 @@ def eval_one_mb_instance(robot_file: str, inst: dict, batched_ik_fn):
     jax.block_until_ready(sol_jax)
     dt_ms = (time.time() - t0) * 1000.0
 
-    fk = batched_fk(sol_jax)
+    fk = (batched_fk_fn or batched_fk)(sol_jax)
     fk_wxyz = np.array(fk[0, 0:4])
     fk_pos  = np.array(fk[0, 4:7])
 
@@ -558,7 +581,7 @@ def eval_one_mb_instance(robot_file: str, inst: dict, batched_ik_fn):
 def print_one_solution(robot_file: str, inst: dict, batched_ik_fn, idx: int):
     world_dict = mb_instance_to_world_dict(inst)
     #target_wxyz, target_pos = mb_instance_to_goal(inst)
-    target_wxyz, target_pos = mb_instance_to_cylinder_goal(inst, eps=1e-4, rot_sign=+1)
+    target_wxyz, target_pos = mb_instance_to_target(inst)
 
     target_wxyz_jax = jnp.asarray(target_wxyz[None, :])
     target_pos_jax  = jnp.asarray(target_pos[None, :])
@@ -904,9 +927,19 @@ if __name__ == "__main__":
                         help="Custom URDF for the open-world run (DoF variants). Default: built-in panda.")
     parser.add_argument("--base-link", type=str, default="panda_link0")
     parser.add_argument("--ee-link", type=str, default="panda_hand",
-                        help="EE link for the custom-URDF run (shared-target frame).")
+                        help="EE link: custom-URDF runs (shared-target frame) and the PyRoki/cuRobo collision-free "
+                             "frame (panda_hand = dataset frame; panda_hand_tcp / panda_grasptarget = TCP).")
+    parser.add_argument("--mb-target", choices=("goal", "cylinder"), default="goal",
+                        help="Collision-scene target: 'goal' = MotionBenchMaker goal_pose as posed (panda_hand frame; "
+                             "default), 'cylinder' = paper Table II protocol (xy of the closest cylinder; pair with the "
+                             "TCP frame). Scenes without cylinders always use goal.")
+    parser.add_argument("--collision-validation-model", choices=("paper", "hjcd"), default="hjcd",
+                        help="Sphere geometry of the shared collision oracle for the collision_free column "
+                             "(hjcd = URDF-derived 40 mm fingers, paper = historical 65 mm).")
 
     args = parser.parse_args()
+    MB_TARGET_MODE = args.mb_target
+    COLLISION_VALIDATION_MODEL = args.collision_validation_model
 
     if args.mode == "curobo" and not _HAS_CUROBO:
         raise SystemExit(
@@ -1035,11 +1068,11 @@ if __name__ == "__main__":
                     robot_urdf=args.robot_urdf, base_link=args.base_link, ee_link=args.ee_link,
                 )
                 # Warm up (and capture the graph) once on the first instance's scene + goal.
-                wx0, wp0 = mb_instance_to_cylinder_goal(instances[0], eps=1e-4, rot_sign=+1)
+                wx0, wp0 = mb_instance_to_target(instances[0])
                 warmup_curobo_solver(ik_solver, tensor_args, np.concatenate([wp0, wx0]), repeat=3)
                 for idx, inst in enumerate(instances):
                     ik_solver.update_world(_world_dict_to_scene(mb_instance_to_world_dict(inst)))
-                    target_wxyz, target_pos = mb_instance_to_cylinder_goal(inst, eps=1e-4, rot_sign=+1)
+                    target_wxyz, target_pos = mb_instance_to_target(inst)
                     goal7 = np.concatenate([target_pos, target_wxyz])
                     dt_s, succ_pct, pos98, ori98, sols, pos_errs, ori_errs = run_curobo_on_goal_batch(ik_solver, goal7[None, :], tensor_args)
                     # Validate cuRobo's best-returned q with the SAME shared-model validator as pyroki (fair column).
@@ -1065,17 +1098,23 @@ if __name__ == "__main__":
                 gc.collect()
                 torch.cuda.empty_cache()
         else:
+            # PyRoki solves for the link named by --ee-link: panda_hand (dataset frame) or the TCP
+            # (panda_hand_tcp; "panda_grasptarget" is accepted as an alias — PyRoki's description has no such
+            # link, and its TCP sits 103.4 mm from the hand vs our grasptarget's 105 mm).
+            mb_hand = (args.ee_link == "panda_hand")
+            mb_beam, mb_fk = (ik_beam_hand, batched_fk_hand) if mb_hand else (ik_beam, batched_fk)
+            print(f"  pyroki collision-free EE frame: {'panda_hand' if mb_hand else 'panda_hand_tcp'}")
             for num_seeds_init in seed_list:
                 print(f"  pyroki num_seeds_init: {num_seeds_init}")
-                batched_ik_fn = make_batched_pyroki_ik(num_seeds_init)
-                wxyz0, pos0 = mb_instance_to_cylinder_goal(instances[0], eps=1e-4, rot_sign=+1)
+                batched_ik_fn = make_batched_pyroki_ik(num_seeds_init, beam=mb_beam)
+                wxyz0, pos0 = mb_instance_to_target(instances[0])
                 jax.block_until_ready(batched_ik_fn(jnp.asarray(wxyz0[None, :]), jnp.asarray(pos0[None, :])))
                 if args.print_idx >= 0:
                     if args.print_idx >= len(instances):
                         raise ValueError(f"--print_idx {args.print_idx} out of range (0..{len(instances)-1})")
                     print_one_solution(robot_file, instances[args.print_idx], batched_ik_fn, args.print_idx)
                 for idx, inst in enumerate(instances):
-                    dt_ms, pe, oe, ps, cs = eval_one_mb_instance(robot_file, inst, batched_ik_fn)
+                    dt_ms, pe, oe, ps, cs = eval_one_mb_instance(robot_file, inst, batched_ik_fn, batched_fk_fn=mb_fk)
                     record_row(problem_idx=idx, num_seeds=num_seeds_init, solver_name="pyroki",
                                time_ms=dt_ms, pos_err_mm=pe * 1000.0, ori_err_rad=oe,
                                succ_pct=100.0 if ps else 0.0, collision_free=cs)

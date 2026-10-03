@@ -17,7 +17,8 @@
 #
 # Prereqs: a built `hjcdik` (GPU) for HJCD; `scripts/setup/install_baselines.sh` for the baselines.
 # Coverage (all wired; opt-in flags): Table I open-world Panda (always) + Fetch (RUN_FETCH=1),
-#   Table II collision-free Panda (always), Table III DoF 7/12/18/24 (RUN_DOF=1), Table IV MMD (RUN_MMD=1).
+#   Table II collision-free Panda: paper protocol on PROBLEM_SET + dataset protocol (panda_hand, goal_pose) on
+#   MB_SETS (default PROBLEM_SET; RUN_HARD=1 = every set), Table III DoF 7/12/18/24 (RUN_DOF=1), Table IV MMD (RUN_MMD=1).
 # Extra env: HJCD_REGEN=1 re-codegens+rebuilds HJCD per EE frame / DoF and restores the default build on successful completion
 #   (heavy: GPU compiles); RUN_FETCH / RUN_DOF / RUN_MMD / DOF_BATCH select the optional tables.
 set -euo pipefail
@@ -100,36 +101,78 @@ if [ "${RUN_FETCH:-0}" = "1" ]; then
     --title "Fetch open-world" --annotate-batch || true
 fi
 
-echo "=== [Table II] collision-free, Panda, $PROBLEM_SET ==="
-# The MotionBenchMaker problems are posed in the panda_grasptarget_hand EE frame, NOT the panda_hand
-# open-world frame. Table I's HJCD_REGEN leaves HJCD on panda_hand, so re-pin to grasptarget here or
-# every target is solved in the wrong frame (constant ~563 mm error).
+echo "=== [Table II-paper] collision-free, Panda, $PROBLEM_SET — paper protocol ==="
+# Paper protocol (camera-ready Table II): the target is the closest cylinder's xy with goal_pose's z and
+# orientation, solved for the TCP (HJCD panda_grasptarget_hand; cuRobo panda_grasptarget; PyRoki
+# panda_hand_tcp, 103.4 mm vs our 105 mm). Physically consistent for cylinder-grasp scenes such as
+# box_panda, kept for continuity with the published numbers. Every solver's collision_free column is
+# validated by the same URDF-derived ("hjcd") sphere oracle.
 if [ "${HJCD_REGEN:-0}" = "1" ] && [ "${SKIP_HJCD:-0}" != "1" ]; then
-  echo "--- regen HJCD-IK to panda_grasptarget_hand (MB problems are in this frame) ---"
+  echo "--- regen HJCD-IK to panda_grasptarget_hand + collision (paper-protocol TCP frame) ---"
   "$PY" scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_grasptarget_hand \
     --collision --spherized-urdf external/foam/assets/panda/smaller_panda_spherized.urdf
   bash scripts/setup/rebuild.sh
 fi
 if [ "${SKIP_HJCD:-0}" != "1" ]; then
   echo "--- HJCD-IK ---"
-  "$PY" benchmark/hjcd_ik_bench.py --skip-grid-codegen --collision-free \
-    --problems-json "$MB_JSON" --problem-set "$PROBLEM_SET" \
-    --batches "$BATCHES" --num-solutions 1 --solver hjcdik --csv-out "$OUT_DIR/collfree_hjcdik.csv"
+  "$PY" benchmark/hjcd_ik_bench.py --skip-grid-codegen --collision-free --target-mode cylinder \
+    --collision-validation-model hjcd --problems-json "$MB_JSON" --problem-set "$PROBLEM_SET" \
+    --batches "$BATCHES" --num-solutions 1 --solver hjcdik --csv-out "$OUT_DIR/collfree_paper_hjcdik.csv"
 fi
 if [ "${SKIP_PYROKI:-0}" != "1" ]; then
   echo "--- PyRoki ---"
   MB_JSON_PATH="$MB_JSON" "$PY" benchmark/baseline_bench.py --mode pyroki --collision_free \
+    --mb-target cylinder --ee-link panda_hand_tcp --collision-validation-model hjcd \
     --problem_set "$PROBLEM_SET" --num_instances "$NUM_TARGETS" \
-    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name collfree
+    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name collfree_paper
 fi
 if [ "${SKIP_CUROBO:-0}" != "1" ]; then
   echo "--- cuRobo ---"
   MB_JSON_PATH="$MB_JSON" "$PY" benchmark/baseline_bench.py --mode curobo --collision_free \
+    --mb-target cylinder --collision-validation-model hjcd \
     --problem_set "$PROBLEM_SET" --num_instances "$NUM_TARGETS" \
     --robot-urdf csrc/urdf/panda.urdf --base-link panda_link0 --ee-link panda_grasptarget \
-    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name collfree \
-    || echo "(cuRobo Table II skipped — solver error; column left blank, run continues)"
+    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name collfree_paper \
+    || echo "(cuRobo Table II-paper skipped — solver error; column left blank, run continues)"
 fi
+
+# Dataset protocol: the MotionBenchMaker goal_pose exactly as posed. Those goals are panda_hand poses
+# (the dataset's goal_ik solutions put panda_hand on them, 105 mm from the TCP), so every solver is
+# pointed at panda_hand and no target snapping is applied. This is the only protocol that is valid on
+# every set: cage_panda has no cylinders and box_panda_flipped's goal is 38 cm from any cylinder.
+# MB_SETS (default: $PROBLEM_SET) selects the sets; RUN_HARD=1 runs every set in the problem file.
+MB_SETS="${MB_SETS:-$PROBLEM_SET}"
+if [ "${RUN_HARD:-0}" = "1" ]; then
+  MB_SETS="$("$PY" -c "import json,sys; print(' '.join(sorted(json.load(open(sys.argv[1]))['problems'])))" "$MB_JSON")"
+fi
+echo "=== [Table II-dataset] collision-free, Panda, panda_hand frame, goal_pose as posed: $MB_SETS ==="
+if [ "${HJCD_REGEN:-0}" = "1" ] && [ "${SKIP_HJCD:-0}" != "1" ]; then
+  echo "--- regen HJCD-IK to panda_hand_joint + collision (dataset frame) ---"
+  "$PY" scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_hand_joint \
+    --collision --spherized-urdf external/foam/assets/panda/smaller_panda_spherized.urdf
+  bash scripts/setup/rebuild.sh
+fi
+for set in $MB_SETS; do
+  echo "--- set $set ---"
+  if [ "${SKIP_HJCD:-0}" != "1" ]; then
+    "$PY" benchmark/hjcd_ik_bench.py --skip-grid-codegen --collision-free --target-mode goal \
+      --collision-validation-model hjcd --problems-json "$MB_JSON" --problem-set "$set" \
+      --batches "$BATCHES" --num-solutions 1 --solver hjcdik --csv-out "$OUT_DIR/collfree_hand_${set}_hjcdik.csv"
+  fi
+  [ "${SKIP_PYROKI:-0}" = "1" ] || MB_JSON_PATH="$MB_JSON" "$PY" benchmark/baseline_bench.py --mode pyroki --collision_free \
+    --mb-target goal --ee-link panda_hand --collision-validation-model hjcd \
+    --problem_set "$set" --num_instances "$NUM_TARGETS" \
+    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name "collfree_hand_${set}"
+  [ "${SKIP_CUROBO:-0}" = "1" ] || MB_JSON_PATH="$MB_JSON" "$PY" benchmark/baseline_bench.py --mode curobo --collision_free \
+    --mb-target goal --collision-validation-model hjcd \
+    --problem_set "$set" --num_instances "$NUM_TARGETS" \
+    --robot-urdf csrc/urdf/panda.urdf --base-link panda_link0 --ee-link panda_hand \
+    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name "collfree_hand_${set}" \
+    || echo "(cuRobo Table II-dataset $set skipped — solver error; column left blank, run continues)"
+  "$PY" benchmark/make_tables.py $OUT_DIR/collfree_hand_${set}_*.csv \
+    --title "Panda collision-free, $set (dataset protocol: panda_hand, goal_pose)" \
+    --out "$OUT_DIR/table_collfree_hand_${set}.md" || true
+done
 
 if [ "${RUN_DOF:-0}" = "1" ]; then
   echo "=== [Table III] DoF scalability (open-world, B=${DOF_BATCH:-1000}, panda_hand frame) ==="
@@ -186,12 +229,14 @@ echo "=== [tables + plots] merge per-solver CSVs ==="
 # Unquoted globs so they expand; missing matplotlib only skips the plots (tables are stdlib-only).
 "$PY" benchmark/make_tables.py $OUT_DIR/open_*.csv --title "Panda open-world (Table I)" \
   --out "$OUT_DIR/table_open.md" || true
-"$PY" benchmark/make_tables.py $OUT_DIR/collfree_*.csv --title "Panda collision-free (Table II)" \
+"$PY" benchmark/make_tables.py $OUT_DIR/collfree_paper_*.csv --title "Panda collision-free, $PROBLEM_SET (Table II, paper protocol)" \
   --out "$OUT_DIR/table_collfree.md" || true
 "$PY" benchmark/plot_pareto.py $OUT_DIR/open_*.csv --out "$OUT_DIR/pareto_open.png" \
   --title "Panda open-world" --annotate-batch || echo "(open plot skipped — pip install -e '.[plots]')"
-"$PY" benchmark/plot_pareto.py $OUT_DIR/collfree_*.csv --out "$OUT_DIR/pareto_collfree.png" \
-  --title "Panda collision-free" --annotate-batch || true
+"$PY" benchmark/plot_pareto.py $OUT_DIR/collfree_paper_*.csv --out "$OUT_DIR/pareto_collfree.png" \
+  --title "Panda collision-free (paper protocol)" --annotate-batch || true
+"$PY" benchmark/plot_pareto.py $OUT_DIR/collfree_hand_${PROBLEM_SET}_*.csv --out "$OUT_DIR/pareto_collfree_hand.png" \
+  --title "Panda collision-free, $PROBLEM_SET (dataset protocol)" --annotate-batch || true
 
 if [ "${HJCD_REGEN:-0}" = "1" ] && [ "${SKIP_HJCD:-0}" != "1" ]; then
   echo "=== restoring HJCD-IK to the default panda_grasptarget_hand build ==="

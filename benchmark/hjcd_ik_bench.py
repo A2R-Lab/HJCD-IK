@@ -314,7 +314,11 @@ def main() -> None:
     ap.add_argument("--problem-set", type=str, default="box_panda",help="Problem set name in JSON (paper Table II scene).")
     ap.add_argument("--problem-idx", type=int, default=-1,help="If >=0, run only this problem index; if -1 run all.")
 
-    ap.add_argument("--assoc-eps", type=float, default=1e-4,help="Axis-coincidence epsilon for association (meters).")
+    ap.add_argument("--target-mode", choices=("goal", "cylinder"), default="goal",
+                    help="Collision-scene target: 'goal' = the MotionBenchMaker goal_pose as posed (panda_hand frame; "
+                         "default), 'cylinder' = the paper's Table II protocol (xy of the closest cylinder, z/orientation "
+                         "from goal_pose; pair with the panda_grasptarget_hand build). Scenes without cylinders always use goal.")
+    ap.add_argument("--assoc-eps", type=float, default=1e-4,help="Axis-coincidence epsilon for cylinder association (meters).")
 
     ap.add_argument("--filtered-targets", type=str, default="",help="JSON of explicit targets; xyz is used for association.")
     ap.add_argument("--max-targets", type=int, default=0,help="If >0, cap number of loaded targets (quick tests).")
@@ -384,12 +388,14 @@ def main() -> None:
             inst = _get_instance(D, args.problem_set, pidx)
 
             goal = goal_pose_wxyz(inst)
-            ref_xyz = (goal[0], goal[1], goal[2])
-
-            #targets.append(build_target_cylinder_pose(inst, ref_xyz, eps=float(args.assoc_eps)))
-            if has_any_cylinders(inst):
-                targets.append(build_target_cylinder_pose(inst, ref_xyz, eps=float(args.assoc_eps)))
+            if args.target_mode == "cylinder" and has_any_cylinders(inst):
+                # Paper Table II protocol: xy snapped to the closest cylinder (the object), z and
+                # orientation from goal_pose; physically meaningful only with the TCP (grasptarget)
+                # build and only for cylinder-grasp scenes.
+                targets.append(build_target_cylinder_pose(inst, goal[:3], eps=float(args.assoc_eps)))
             else:
+                # Dataset protocol: the MotionBenchMaker goal_pose itself, which is posed for the
+                # panda_hand frame (its goal_ik solutions put panda_hand there). Use a panda_hand build.
                 targets.append(build_target_from_goal_pose(inst))
             problem_indices.append(pidx)
             world_by_pidx[pidx] = mb_instance_to_world_dict(inst)
