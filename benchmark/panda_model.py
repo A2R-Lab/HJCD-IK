@@ -70,6 +70,38 @@ _KINEMATIC_URDF = _ROOT / "csrc/urdf/panda.urdf"
 _SPHERE_URDF = _ROOT / "external/foam/assets/panda/smaller_panda_spherized.urdf"
 
 
+def _link_spheres_to_joint_frames(link_spheres: dict):
+    """{link: [(x, y, z, r), ...]} in URDF link frames -> (spheres (S,4), anchors (S,)) in the actuated-joint
+    frames the numpy FK uses (fixed suffix transforms folded in). Kinematics from the kinematic URDF, so any
+    sphere source (foam, cuRobo, ...) is placed on the same chain."""
+    from gen_targets import _parse_joints, _chain_to_target, _fk
+
+    joints = _parse_joints(_KINEMATIC_URDF)
+    by_child = {joint["child"]: name for name, joint in joints.items()}
+    root_links = {j["parent"] for j in joints.values()} - set(by_child)
+    spheres, anchors = [], []
+    for name, link_list in link_spheres.items():
+        if not link_list:
+            continue
+        if name in root_links:
+            chain = []
+        elif name in by_child:
+            chain = _chain_to_target(joints, by_child[name])
+        else:
+            raise ValueError(f"sphere link {name!r} is not in {_KINEMATIC_URDF.name}")
+        active = [i for i, j in enumerate(chain) if j["type"] != "fixed"]
+        suffix = chain[active[-1] + 1:] if active else chain
+        fixed = _fk(suffix, [])
+        for x, y, z, r in link_list:
+            center = fixed @ np.array([x, y, z, 1.0])
+            spheres.append([*center[:3], float(r)])
+            anchors.append(len(active))
+    data, mapping = np.asarray(spheres), np.asarray(anchors, dtype=int)
+    data.setflags(write=False)
+    mapping.setflags(write=False)
+    return data, mapping
+
+
 @lru_cache(maxsize=1)
 def load_hjcd_spheres():
     """Sphere offsets in actuated Panda frames, from URDF inputs, never generated code.
@@ -78,35 +110,35 @@ def load_hjcd_spheres():
     radii come from foam. This deliberately retains HJCD's existing gripper opening.
     Includes the base sphere so callers can choose their base-contact policy.
     """
-    from gen_targets import _parse_joints, _chain_to_target, _fk
-
-    joints = _parse_joints(_KINEMATIC_URDF)
-    by_child = {joint["child"]: name for name, joint in joints.items()}
-    root_links = {j["parent"] for j in joints.values()} - set(by_child)
-    spheres, anchors = [], []
+    link_spheres = {}
     for link in ET.parse(_SPHERE_URDF).getroot().findall("link"):
-        name = link.get("name")
-        if name in root_links:
-            chain = []
-        else:
-            chain = _chain_to_target(joints, by_child[name])
-        active = [i for i, j in enumerate(chain) if j["type"] != "fixed"]
-        suffix = chain[active[-1] + 1:] if active else chain
-        fixed = _fk(suffix, [])
+        out = []
         for collision in link.findall("collision"):
             sphere = collision.find("geometry/sphere")
             if sphere is None:
-                raise ValueError(f"expected pre-spherized geometry on {name}")
+                raise ValueError(f"expected pre-spherized geometry on {link.get('name')}")
             origin = collision.find("origin")
-            xyz = np.fromstring(origin.get("xyz", "0 0 0") if origin is not None
-                                else "0 0 0", sep=" ")
-            center = fixed @ np.r_[xyz, 1.0]
-            spheres.append([*center[:3], float(sphere.get("radius"))])
-            anchors.append(len(active))
-    data, mapping = np.asarray(spheres), np.asarray(anchors, dtype=int)
-    data.setflags(write=False)
-    mapping.setflags(write=False)
-    return data, mapping
+            xyz = np.fromstring(origin.get("xyz", "0 0 0") if origin is not None else "0 0 0", sep=" ")
+            out.append((*xyz, float(sphere.get("radius"))))
+        link_spheres[link.get("name")] = out
+    return _link_spheres_to_joint_frames(link_spheres)
+
+
+def curobo_franka_yml_path() -> Path:
+    """cuRobo's bundled Panda robot config (its collision spheres live in it). Needs cuRobo installed."""
+    from curobo.content import get_robot_configs_path
+    return Path(get_robot_configs_path()) / "franka.yml"
+
+
+@lru_cache(maxsize=1)
+def load_curobo_spheres():
+    """cuRobo's bundled Panda sphere model (61 spheres, `franka.yml`, fingers locked at 0.04 like ours),
+    placed on OUR kinematic chain. Lets a cuRobo-model oracle judge any solver's configuration."""
+    import yaml
+    cfg = yaml.safe_load(open(curobo_franka_yml_path()))["robot_cfg"]["kinematics"]
+    link_spheres = {link: [(*[float(c) for c in sp["center"]], float(sp["radius"])) for sp in sps]
+                    for link, sps in cfg["collision_spheres"].items() if link != "attached_object"}
+    return _link_spheres_to_joint_frames(link_spheres)
 
 
 def panda_sphere_model(model="paper"):
@@ -115,13 +147,16 @@ def panda_sphere_model(model="paper"):
         return SPHERES, SPHERE_TO_JOINT
     if model == "hjcd":
         return load_hjcd_spheres()
-    raise ValueError("collision model must be 'paper' or 'hjcd'")
+    if model == "curobo":
+        return load_curobo_spheres()
+    raise ValueError("collision model must be 'paper', 'hjcd' or 'curobo'")
 
 
 def collision_model_metadata(model="paper"):
     """Identify the chosen validation geometry in benchmark result sidecars."""
     panda_sphere_model(model)  # reject typos before writing metadata
-    paths = [_CUH] if model == "paper" else [_KINEMATIC_URDF, _SPHERE_URDF]
+    paths = {"paper": lambda: [_CUH], "hjcd": lambda: [_KINEMATIC_URDF, _SPHERE_URDF],
+             "curobo": lambda: [_KINEMATIC_URDF, curobo_franka_yml_path()]}[model]()
     return {
         "model": model,
         "scope": "environment-only; non-base spheres",
@@ -129,8 +164,8 @@ def collision_model_metadata(model="paper"):
             [float(j.find("origin").get("xyz").split()[1])
              for j in ET.parse(_KINEMATIC_URDF).getroot().findall("joint")
              if j.get("name") in ("panda_finger_joint1", "panda_finger_joint2")],
-        "source_sha256": {str(p.relative_to(_ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
-                          for p in paths},
+        "source_sha256": {(str(p.relative_to(_ROOT)) if p.is_relative_to(_ROOT) else p.name):
+                          hashlib.sha256(p.read_bytes()).hexdigest() for p in paths},
     }
 
 

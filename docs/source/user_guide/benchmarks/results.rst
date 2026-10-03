@@ -448,7 +448,9 @@ Rerun on the current code — RTX 5090, 2026-10-03
    latest competitor versions (cuRobo v2 ``main``, PyRoki ``main``, IKFlow 0.0.8) on an RTX 5090 with
    CUDA 13. It does not replace the camera-ready tables above and must not be mixed with them: different
    GPU, different cuRobo generation, and — for the collision scenes — a corrected evaluation protocol.
-   Full raw data, logs and caveats: ``docs/development/evidence/paper_rerun_2026-10-03/``.
+   Full raw data, logs and caveats: ``docs/development/evidence/paper_rerun_2026-10-03/`` (latency
+   campaign) and ``docs/development/evidence/fairness_hardsets_2026-10-03/`` (collision judges, clearance
+   ladder, new sets).
 
 **What changed in the protocol.** The MotionBenchMaker goals are ``panda_hand`` poses (the dataset's own IK
 solutions put ``panda_hand`` on them; the TCP is 105 mm further along the approach axis). The paper's
@@ -456,8 +458,10 @@ Table II snapped the target onto the grasped cylinder and solved for the TCP, wh
 for cylinder-grasp scenes such as ``box_panda`` but is undefined for scenes without a cylinder near the goal.
 The rerun therefore reports two protocols: the **paper protocol** on ``box_panda`` for continuity, and the
 **dataset protocol** (``panda_hand`` frame, ``goal_pose`` exactly as posed, every solver at the same frame)
-on all eight MotionBenchMaker sets. Every solver's collision-free column is judged by the same independent
-NumPy sphere oracle (URDF-derived ``hjcd`` geometry).
+on all eight MotionBenchMaker sets (plus ``kitchen`` and ``table_bars`` below). Collision claims are scored
+on the stored configurations by independent judges — the true-geometry mesh as the headline, sphere models
+and the convex-hull meshes alongside (see *All MotionBenchMaker sets* below); the ``collision_free`` column
+of the raw CSVs is the shared ``hjcd`` sphere oracle.
 
 Open-world, Panda (100 Halton targets, ``panda_hand``): time in ms, position error in mm.
 
@@ -544,12 +548,19 @@ Collision-free, ``box_panda``, both protocols (time ms / position error mm at B 
      - 2.51 / 2.1e-3
      - 7.73 / 1.1e-4
 
-**The harder sets (new; dataset protocol, B = 2000, 100 problems each).** Success means the returned
-configuration both reaches the pose (< 5 mm, < 0.05 rad) *and* is collision-free. Two judges are shown:
-the shared sphere oracle (HJCD-IK's own URDF-derived model) and an independent **mesh** oracle (the
-``panda_description`` collision meshes checked with FCL, 1 mm touch tolerance). cuRobo v2 runs with its
-collision spheres and the scene; PyRoki's path is plain IK with no obstacle term, so its column is the
-oracle filtering unconstrained solutions.
+**All MotionBenchMaker sets, every solver collision-constrained (dataset protocol, B = 2000, 100 problems
+each).** Success means the returned configuration both reaches the pose (< 5 mm, < 0.05 rad) *and* is
+collision-free. Three judges score the *stored* configurations (``benchmark/score_collision_oracles.py``):
+the headline is the **true geometry** (the ``panda_description`` *visual* meshes under FCL, obstacles shrunk
+by 1 mm so touching is permitted); beside it, in small type, the solver's **own sphere model** (foam's 58
+spheres for HJCD-IK and PyRoki, cuRobo's 61 for cuRobo) and the **convex hull** judge (the stock
+``panda_description`` *collision* meshes, which are convex hulls — MoveIt's and MotionBenchMaker's own
+geometry; link 5's hull is 50 % larger than the link). PyRoki now runs PyRoki's world- and self-collision
+costs on the foam spheres (its URDF capsule model is 16–70 mm too coarse for these gaps); cuRobo runs its
+bundled sphere model; "HJCD-IK / cuRobo spheres" is HJCD-IK compiled on cuRobo's sphere model instead of
+foam's (``benchmark/make_curobo_sphere_urdf.py``), a controlled experiment that separates the collision
+model from the search. ``kitchen`` and ``table_bars`` are MotionBenchMaker scenes exported from the public
+dataset (``benchmark/mbm_export.py``; mesh furniture decomposed exactly into boxes and cylinders), new here.
 
 .. list-table::
    :header-rows: 2
@@ -558,87 +569,150 @@ oracle filtering unconstrained solutions.
    * - Set
      - HJCD-IK
      -
+     - HJCD-IK / cuRobo spheres
+     -
      - cuRobo v2
      -
      - PyRoki
      -
    * -
-     - spheres
-     - mesh
-     - spheres
-     - mesh
-     - spheres
-     - mesh
+     - true mesh
+     - own / hull
+     - true mesh
+     - own / hull
+     - true mesh
+     - own / hull
+     - true mesh
+     - own / hull
    * - bookshelf_small
+     - 99
+     - 100 / 94
      - **100**
-     - **94**
-     - 96
-     - 93
-     - 88
-     - 89
+     - 100 / 97
+     - 98
+     - 98 / 93
+     - **100**
+     - 100 / 98
    * - bookshelf_tall
      - **100**
-     - 98
-     - 99
-     - 98
-     - 98
-     - 98
+     - 100 / 98
+     - **100**
+     - 100 / 99
+     - **100**
+     - 100 / 98
+     - **100**
+     - 100 / 100
    * - bookshelf_thin
      - **100**
+     - 100 / 100
      - **100**
+     - 100 / 100
      - **100**
+     - 100 / 100
      - **100**
-     - **100**
-     - **100**
+     - 100 / 100
    * - box
      - **100**
+     - 100 / 100
      - **100**
+     - 100 / 100
      - **100**
+     - 100 / 100
      - **100**
-     - 98
-     - 98
+     - 100 / 100
    * - box_flipped
      - **100**
+     - 100 / 100
      - **100**
+     - 100 / 100
      - **100**
+     - 100 / 100
      - **100**
-     - 99
-     - **100**
+     - 100 / 100
    * - cage
-     - 97
-     - **77**
-     - **99**
-     - 74
-     - 83
-     - 73
+     - 96
+     - 97 / 78
+     - 96
+     - 97 / 81
+     - **100**
+     - 100 / 77
+     - **100**
+     - 100 / 80
    * - table_pick
-     - **95**
-     - 90
-     - 93
-     - **95**
-     - 45
-     - 44
-   * - table_under_pick
-     - **95**
-     - **95**
-     - 90
      - 94
-     - 41
-     - 40
+     - 95 / 90
+     - 94
+     - 96 / 91
+     - 99
+     - 100 / 95
+     - **100**
+     - 100 / 98
+   * - table_under_pick
+     - 95
+     - 95 / 95
+     - 92
+     - 95 / 92
+     - 98
+     - 100 / 95
+     - **100**
+     - 100 / 100
+   * - kitchen
+     - 99
+     - 99 / 99
+     - **100**
+     - 100 / 100
+     - 99
+     - 100 / 99
+     - 99
+     - 99 / 99
+   * - table_bars
+     - **100**
+     - 100 / 72
+     - 96
+     - 100 / 69
+     - **100**
+     - 100 / 33
+     - **100**
+     - 100 / 71
 
-With both solvers collision-constrained, HJCD-IK and cuRobo v2 are within a few points of each other on
-every set under either judge, at similar latency (2.3–2.6 ms vs 2.4–2.5 ms); the mesh oracle lowers both in
-the cage, where the hand's sphere models under-cover the meshes against the bars. HJCD-IK's remaining misses
-are reachable (they solve at B = 16000); finding them at B = 2000 — e.g. an informed second round seeded by
-the collision outcome of the first — is future work. The full per-set and per-oracle tables, the stored
-configurations and the scoring script (``benchmark/score_collision_oracles.py``) are in the evidence directory.
+Under the true geometry every collision-constrained solver is within a few points of the others on every
+set: HJCD-IK 94–100 %, cuRobo 98–100 %, PyRoki 99–100 % (B = 2000). The judge matters more than the solver
+at this clearance: the convex-hull judge lowers the ``cage`` to 77–81 % for all three and ``table_bars``
+to 33–72 %, because the hulls bulge where the links are concave and the arm reaches past a thin shelf
+there. A sphere model, in turn, under-covers the hull by up to 58 mm (foam) / 65 mm (cuRobo) on link 5
+while covering the true link; that is why a "mesh oracle" must say which mesh.
+
+**Clearance ladder (new).** To see where the solvers separate, every cuboid of the three tightest sets is
+grown by *D* on each face (``benchmark/make_clearance_ladder.py``), keeping only problems for which at
+least one of the dataset's own ``goal_ik`` solutions is still free under the hull judge (so every kept
+problem is known-feasible). Success under the true-geometry judge vs *D*, B = 100 (solid) and 2000
+(dashed):
+
+.. figure:: /_static/rerun_2026-10-03/clearance_ladder.png
+   :width: 100%
+
+   Success (pose reached and collision-free under the visual meshes, 1 mm) against the clearance reduction
+   *D*. Kept problems per level: cage 99 / 100 / 75 / 28; table_pick 100 / 100 / 99 / 95 / 87 / 65;
+   table_under_pick 100 / 100 / 100 / 92 / 86 / 62 (D = 0 / 0.5 / 1 / 1.5 / 2 / 3 cm).
+
+In the ``cage``, HJCD-IK and PyRoki (foam spheres) fall to 52–59 % at *D* = 1 cm and 0 % at 1.5 cm while
+cuRobo holds 95 %. That is the sphere model, not the search: at *D* = 1.5 cm foam's spheres accept **0 %**
+of the dataset's own hull-feasible ``goal_ik`` (cuRobo's accept 68 %), and HJCD-IK compiled on cuRobo's
+spheres holds 91 % and 82–89 % at *D* = 1 and 1.5 cm — the same as cuRobo. On the table sets a residual
+8–12 point gap to cuRobo and PyRoki remains with identical spheres (e.g. table_pick *D* = 2 cm: 80 vs 92 %):
+HJCD-IK filters collisions after the solve, the other two optimise a collision cost inside the solve.
+Closing that gap (an informed second round seeded by the first round's collision outcome, or a
+collision-aware refinement) is the open solver item. Everything in this section is correctness only and
+was collected on a shared GPU; the latency columns for the new sets and the collision-aware PyRoki follow
+in the next quiet-window campaign.
 
 .. note::
 
-   An earlier version of this section (same day) showed cuRobo at 37–45% on the table sets. That was a
-   harness defect, not cuRobo: the robot built from our mesh-less URDF carried no collision spheres, so
-   cuRobo's collision-free IK was unconstrained. The numbers above use cuRobo's bundled, sphere-equipped
-   Panda re-targeted to the evaluation frame.
+   Two earlier versions of this section (same day) differ from the above. The first showed cuRobo at
+   37–45 % on the table sets: a harness defect (the robot built from our mesh-less URDF carried no
+   collision spheres, so cuRobo's collision-free IK was unconstrained). The second showed PyRoki at
+   40–45 % there with plain IK and used the convex-hull meshes as "the mesh oracle" (cage 73–77 %); PyRoki
+   is now collision-constrained and the true-geometry judge is the headline.
 
 Reproducing these results
 -------------------------

@@ -103,3 +103,9 @@ def test_paper_workflow_selects_collision_builds_without_running_benchmarks(tmp_
     modes = [cmd[cmd.index("--target-mode") + 1] for cmd in bench]
     assert modes == ["cylinder", "goal"]
     assert all("hjcd" == cmd[cmd.index("--collision-validation-model") + 1] for cmd in bench)
+    # Every Table II solve stores its configurations for offline multi-oracle re-scoring, per protocol.
+    dumps = [cmd[cmd.index("--configs-out") + 1] for cmd in bench]
+    assert [Path(d).parent.name for d in dumps] == ["configs_collfree_paper", "configs_collfree_hand"]
+    scored = [cmd for cmd in commands if cmd[0] == "benchmark/score_collision_oracles.py"]
+    assert [Path(cmd[cmd.index("--out") + 1]).name for cmd in scored] == \
+        ["table_oracles_collfree_paper.md", "table_oracles_collfree_hand.md"]

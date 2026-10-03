@@ -30,20 +30,24 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("dumps", nargs="+", help="JSON-lines configuration dumps")
     ap.add_argument("--problems", required=True, help="mb_problems.json")
-    ap.add_argument("--mesh-tols-mm", default="1,5", help="mesh oracle touch tolerances to report (mm)")
+    ap.add_argument("--mesh-tols-mm", default="1,5", help="mesh judges' touch tolerances to report (mm; obstacles shrunk)")
+    ap.add_argument("--mesh-geometries", default="hull,visual",
+                    help="which Panda meshes judge: hull = franka collision hulls (MoveIt's), visual = true shape")
     ap.add_argument("--out", default="", help="write the markdown table here as well as stdout")
+    ap.add_argument("--json-out", default="", help="also write the rows as JSON (for plot_clearance_ladder.py etc.)")
     args = ap.parse_args()
 
     problems = json.load(open(args.problems))["problems"]
     worlds = {}
-    oracles = make_oracles(("hjcd", "paper"))
-    mesh = None
-    try:
-        mesh = MeshOracle()
-    except ImportError as e:
-        print(f"[score] mesh oracle unavailable ({e})")
-    mesh_tols = [float(t) for t in args.mesh_tols_mm.split(",")] if mesh else []
-    columns = list(oracles) + [f"mesh<={t:g}mm" for t in mesh_tols]
+    oracles = make_oracles(("hjcd", "paper", "curobo"))
+    meshes = {}
+    for g in [g for g in args.mesh_geometries.split(",") if g]:
+        try:
+            meshes[g] = MeshOracle(geometry=g)
+        except ImportError as e:
+            print(f"[score] {g} mesh oracle unavailable ({e})")
+    mesh_tols = [float(t) for t in args.mesh_tols_mm.split(",")] if meshes else []
+    columns = list(oracles) + [f"{g}<={t:g}mm" for g in meshes for t in mesh_tols]
 
     records = [json.loads(line) for f in args.dumps for line in open(f) if line.strip()]
     groups = defaultdict(list)
@@ -67,10 +71,9 @@ def main():
             if not ok:
                 continue
             verdicts = {c: bool(f(q, w)) for c, f in oracles.items()}
-            if mesh:
-                depth = mesh.max_penetration(q, w)
+            for g, mo in meshes.items():
                 for t in mesh_tols:
-                    verdicts[f"mesh<={t:g}mm"] = depth <= t * 1e-3
+                    verdicts[f"{g}<={t:g}mm"] = mo.collision_free(q, w, tol_m=t * 1e-3)
             for c, v in verdicts.items():
                 free[c] += v
             unanimous += all(verdicts.values())
@@ -85,11 +88,18 @@ def main():
                      + " | ".join(pct(free[c]) for c in columns) + f" | {pct(unanimous)} |")
     lines.append("")
     lines.append(f"_pose ok = pos < {POS_OK_MM:g} mm and ori < {ORI_OK_RAD:g} rad on the solver's own report; oracles ignore the "
-                 "base link, check environment obstacles only, touching permitted; `all oracles` = every column agrees free._")
+                 "base link and check environment obstacles only; sphere columns permit touching, mesh columns shrink every "
+                 "obstacle by the stated tolerance (hull = franka collision hulls, MoveIt's geometry; visual = true link shape); "
+                 "`all oracles` = every column agrees free._")
     text = "\n".join(lines)
     print(text)
     if args.out:
         Path(args.out).write_text(text + "\n")
+    if args.json_out:
+        Path(args.json_out).write_text(json.dumps([
+            {"problem_set": pset, "solver": solver, "batch": batch, "n": n, "pose_ok": pose_ok,
+             "pose_and_free": free, "all_oracles": unanimous}
+            for pset, solver, batch, n, pose_ok, free, unanimous in rows], indent=1) + "\n")
 
 
 if __name__ == "__main__":

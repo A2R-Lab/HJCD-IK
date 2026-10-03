@@ -187,3 +187,24 @@ not exact candidate identity.
   gitlinks. Compile-only checks (`nvcc -c`, available via the `nvidia-cuda-nvcc` pip wheel without a GPU)
   catch syntax and template errors, but every such change still needs `pytest tests` + a re-recorded
   receipt on a real GPU before merge.
+- **Collision benchmarking is a comparison of collision MODELS first, solvers second (2026-10-03).** Things
+  that bit us, with the fix in parentheses: (a) cuRobo's `RobotBuilder` robot from a mesh-less URDF has NO
+  spheres → "collision-free" IK silently unconstrained (use the bundled `franka.yml` re-targeted);
+  (b) PyRoki's IK example has no obstacle term and its URDF capsule model is 16-70 mm too coarse for the
+  MotionBenchMaker gaps (feed it the foam spheres via `RobotCollision.from_sphere_decomposition`,
+  `--pyroki-collision on`); (c) `panda_description`'s *collision* meshes are convex hulls (link5's is 50 %
+  larger than the link) — a "mesh oracle" built on them is MoveIt's conservative geometry, not ground truth;
+  the *visual* meshes are (`MeshOracle(geometry="visual")`); (d) every sphere model under-covers the hulls
+  and over-covers the true link somewhere, so thin obstacles (table_bars) flip verdicts between judges —
+  always report several judges (`benchmark/score_collision_oracles.py`) and say which one is the headline;
+  (e) on the clearance ladder the foam spheres accept 0 % of the dataset's own hull-feasible `goal_ik` at
+  cage −1.5 cm vs 68 % for cuRobo's spheres: when a solver "fails" a tight scene, first check whether its
+  own model admits ANY solution (`benchmark/make_curobo_sphere_urdf.py` builds HJCD on cuRobo's spheres to
+  separate model from search). (f) `MeshOracle` once cached worlds by `id(world_dict)`; transient dicts reuse
+  ids → stale geometry for a different problem. Cache by content.
+- **MotionBenchMaker problems are reproducible from the public dataset.** `tests/mb_problems.json` is exactly
+  MBM's `problems/download.sh panda` YAML (scene primitives in the panda_link0 frame, xyzw→wxyz, plus a robot
+  stand under the base; verified bit-for-bit on cage). `benchmark/mbm_export.py` converts any MBM folder,
+  including the mesh scenes (kitchen, table_bars) by exact rectilinear box decomposition / prism→cylinder.
+  `goal_pose` of an exported set is FK(request joint goal) at panda_hand (MBM's own IK tolerance puts the
+  request goal up to 14 mm from its pose query, so the dataset's pose and our FK differ by that much).

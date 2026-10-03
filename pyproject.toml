@@ -42,6 +42,9 @@ baselines = [
   "jaxlie>=1.4",                # SE3/SO3 pose-error metrics (PyRoki path)
   "yourdfpy>=0.0.56",           # URDF load (PyRoki path)
   "robot_descriptions>=1.10",   # panda_description (PyRoki path)
+  "trimesh>=4",                 # mesh collision oracles + MotionBenchMaker mesh export (benchmark/collision_oracles.py)
+  "python-fcl>=0.7",            # FCL backend for the mesh oracles
+  "rtree>=1.0",                 # trimesh point containment (mbm_export rectilinear decomposition)
 ]
 plots = [
   "matplotlib>=3.5",   # benchmark/plot_pareto.py (Figs 4/5). make_tables.py needs nothing extra.

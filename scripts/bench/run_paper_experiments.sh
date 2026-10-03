@@ -41,6 +41,11 @@ PROBLEM_SET="${PROBLEM_SET:-box_panda}"
 MB_JSON="$(pwd)/tests/mb_problems.json"
 TGT="$(pwd)/benchmark/targets/panda_open"
 mkdir -p "$OUT_DIR" "$(dirname "$TGT")"
+# Every Table II solve appends its returned configuration here (one JSON line per problem x batch), so the
+# collision claims can be re-scored offline under independent oracles (benchmark/score_collision_oracles.py).
+CFG_PAPER="$OUT_DIR/configs_collfree_paper"; CFG_HAND="$OUT_DIR/configs_collfree_hand"
+mkdir -p "$CFG_PAPER" "$CFG_HAND"
+for f in "$CFG_PAPER"/*.jsonl "$CFG_HAND"/*.jsonl; do [ -e "$f" ] && : > "$f"; done   # the dumps append
 
 echo "=== [0] shared open-world targets (neutral Halton, panda_hand frame) ==="
 # Match HJCD's internal sample_targets sequence for the Panda Table I targets.
@@ -121,14 +126,15 @@ if [ "${SKIP_HJCD:-0}" != "1" ]; then
   echo "--- HJCD-IK ---"
   "$PY" benchmark/hjcd_ik_bench.py --skip-grid-codegen --collision-free --target-mode cylinder \
     --collision-validation-model hjcd --problems-json "$MB_JSON" --problem-set "$PROBLEM_SET" \
-    --batches "$BATCHES" --num-solutions 1 --solver hjcdik --csv-out "$OUT_DIR/collfree_paper_hjcdik.csv"
+    --batches "$BATCHES" --num-solutions 1 --solver hjcdik --csv-out "$OUT_DIR/collfree_paper_hjcdik.csv" \
+    --configs-out "$CFG_PAPER/hjcdik.jsonl"
 fi
 if [ "${SKIP_PYROKI:-0}" != "1" ]; then
   echo "--- PyRoki ---"
   MB_JSON_PATH="$MB_JSON" "$PY" benchmark/baseline_bench.py --mode pyroki --collision_free \
     --mb-target cylinder --ee-link panda_hand_tcp --collision-validation-model hjcd \
     --problem_set "$PROBLEM_SET" --num_instances "$NUM_TARGETS" \
-    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name collfree_paper \
+    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name collfree_paper --configs_out "$CFG_PAPER/pyroki.jsonl" \
     || echo "(PyRoki Table II-paper skipped — solver error; column left blank, run continues)"
 fi
 if [ "${SKIP_CUROBO:-0}" != "1" ]; then
@@ -137,7 +143,7 @@ if [ "${SKIP_CUROBO:-0}" != "1" ]; then
     --mb-target cylinder --collision-validation-model hjcd \
     --problem_set "$PROBLEM_SET" --num_instances "$NUM_TARGETS" \
     --robot-urdf csrc/urdf/panda.urdf --base-link panda_link0 --ee-link panda_grasptarget \
-    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name collfree_paper \
+    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name collfree_paper --configs_out "$CFG_PAPER/curobo.jsonl" \
     || echo "(cuRobo Table II-paper skipped — solver error; column left blank, run continues)"
 fi
 
@@ -162,18 +168,19 @@ for set in $MB_SETS; do
   if [ "${SKIP_HJCD:-0}" != "1" ]; then
     "$PY" benchmark/hjcd_ik_bench.py --skip-grid-codegen --collision-free --target-mode goal \
       --collision-validation-model hjcd --problems-json "$MB_JSON" --problem-set "$set" \
-      --batches "$BATCHES" --num-solutions 1 --solver hjcdik --csv-out "$OUT_DIR/collfree_hand_${set}_hjcdik.csv"
+      --batches "$BATCHES" --num-solutions 1 --solver hjcdik --csv-out "$OUT_DIR/collfree_hand_${set}_hjcdik.csv" \
+      --configs-out "$CFG_HAND/hjcdik.jsonl"
   fi
   [ "${SKIP_PYROKI:-0}" = "1" ] || MB_JSON_PATH="$MB_JSON" "$PY" benchmark/baseline_bench.py --mode pyroki --collision_free \
     --mb-target goal --ee-link panda_hand --collision-validation-model hjcd \
     --problem_set "$set" --num_instances "$NUM_TARGETS" \
-    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name "collfree_hand_${set}" \
+    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name "collfree_hand_${set}" --configs_out "$CFG_HAND/pyroki.jsonl" \
     || echo "(PyRoki Table II-dataset $set skipped — solver error; column left blank, run continues)"
   [ "${SKIP_CUROBO:-0}" = "1" ] || MB_JSON_PATH="$MB_JSON" "$PY" benchmark/baseline_bench.py --mode curobo --collision_free \
     --mb-target goal --collision-validation-model hjcd \
     --problem_set "$set" --num_instances "$NUM_TARGETS" \
     --robot-urdf csrc/urdf/panda.urdf --base-link panda_link0 --ee-link panda_hand \
-    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name "collfree_hand_${set}" \
+    --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name "collfree_hand_${set}" --configs_out "$CFG_HAND/curobo.jsonl" \
     || echo "(cuRobo Table II-dataset $set skipped — solver error; column left blank, run continues)"
   # Explicit per-solver files: a `collfree_hand_${set}_*` glob would also match e.g. box_panda_flipped.
   "$PY" benchmark/make_tables.py $(ls $OUT_DIR/collfree_hand_${set}_{hjcdik,pyroki,curobo}.csv 2>/dev/null) \
@@ -246,6 +253,12 @@ echo "=== [tables + plots] merge per-solver CSVs ==="
   --title "Panda collision-free (paper protocol)" --annotate-batch || true
 "$PY" benchmark/plot_pareto.py $(ls $OUT_DIR/collfree_hand_${PROBLEM_SET}_{hjcdik,pyroki,curobo}.csv 2>/dev/null) --out "$OUT_DIR/pareto_collfree_hand.png" \
   --title "Panda collision-free, $PROBLEM_SET (dataset protocol)" --annotate-batch || true
+# Independent judges of the stored configurations: sphere oracles + FCL mesh (needs python-fcl; skipped otherwise).
+for proto in paper hand; do
+  cfg="$OUT_DIR/configs_collfree_${proto}"
+  "$PY" benchmark/score_collision_oracles.py "$cfg"/*.jsonl --problems "$MB_JSON" \
+    --out "$OUT_DIR/table_oracles_collfree_${proto}.md" > /dev/null || echo "(oracle scoring for $proto skipped)"
+done
 
 if [ "${HJCD_REGEN:-0}" = "1" ] && [ "${SKIP_HJCD:-0}" != "1" ]; then
   echo "=== restoring HJCD-IK to the default panda_grasptarget_hand build ==="

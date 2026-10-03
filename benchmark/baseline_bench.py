@@ -267,22 +267,90 @@ def roberts_sequence(num_points, dim, root):
     return x
 
 
+# PyRoki collision-aware IK (Table II, dataset protocol). PyRoki's own URDF capsule model
+# (RobotCollision.from_urdf) is far too coarse for these scenes: the dataset's collision-free goal_ik
+# configurations violate it by 16-70 mm on the cage/table sets (probe 2026-10-03). PyRoki therefore gets the
+# same foam sphere decomposition HJCD compiles, through PyRoki's own `from_sphere_decomposition` constructor
+# — same geometry as HJCD's `hjcd` oracle, fingers fixed open (PYROKI_FINGER_OPEN_M = foam's finger origins).
+PYROKI_FINGER_OPEN_M = 0.04
+PYROKI_WORLD_MARGIN_M = 0.01       # activation distance of the smoothed collision cost
+PYROKI_WORLD_WEIGHT = 20.0
+PYROKI_SELF_MARGIN_M = 0.005
+PYROKI_SELF_WEIGHT = 10.0
+_FOAM_PANDA_SPHERES = Path(__file__).resolve().parents[1] / "external/foam/assets/panda/smaller_panda_spherized.urdf"
+
+
+def _panda_description_fingers_fixed(open_m: float = PYROKI_FINGER_OPEN_M) -> yourdfpy.URDF:
+    """robot_descriptions' Panda with the prismatic finger joints turned into fixed joints at `open_m`
+    (the opening shifts the finger frames along the joint axis; the hand/TCP kinematics are untouched)."""
+    urdf0 = load_robot_description("panda_description")
+    xml_tree = urdf0.write_xml()
+    for joint in xml_tree.findall('.//joint[@type="prismatic"]'):
+        axis, origin = joint.find("axis"), joint.find("origin")
+        ax = np.fromstring(axis.get("xyz") if axis is not None else "0 0 1", sep=" ")
+        xyz = np.fromstring(origin.get("xyz", "0 0 0") if origin is not None else "0 0 0", sep=" ")
+        if origin is None:
+            origin = ET.SubElement(joint, "origin")
+            origin.set("rpy", "0 0 0")
+        origin.set("xyz", " ".join(f"{v:.6f}" for v in xyz + open_m * ax))
+        joint.set("type", "fixed")
+        for tag in ("axis", "limit", "dynamics"):
+            child = joint.find(tag)
+            if child is not None:
+                joint.remove(child)
+    # keep the original filename handler so collision meshes stay resolvable (PyRoki's capsule fallback)
+    return yourdfpy.URDF.load(StringIO(ET.tostring(xml_tree.getroot(), encoding="unicode")),
+                              filename_handler=urdf0._filename_handler)
+
+
+def foam_panda_sphere_decomposition(sphere_urdf=_FOAM_PANDA_SPHERES) -> dict:
+    """{link: {"centers": [[x,y,z],..], "radii": [r,..]}} in link-local frames, straight from the foam URDF."""
+    out = {}
+    for link in ET.parse(sphere_urdf).getroot().findall("link"):
+        centers, radii = [], []
+        for collision in link.findall("collision"):
+            sphere = collision.find("geometry/sphere")
+            if sphere is None:
+                continue
+            origin = collision.find("origin")
+            centers.append(np.fromstring(origin.get("xyz", "0 0 0") if origin is not None else "0 0 0",
+                                         sep=" ").tolist())
+            radii.append(float(sphere.get("radius")))
+        if centers:
+            out[link.get("name")] = {"centers": centers, "radii": radii}
+    return out
+
+
+def mb_world_to_pyroki_geoms(world_dict: dict):
+    """MotionBenchMaker world_dict -> (pyroki Box batch | None, pyroki Capsule batch | None). Cylinders become
+    capsules of the same radius and height (the hemispherical caps add one radius beyond each flat face: the
+    dataset's cylinders are r = 1 cm grasp objects and r = 5 cm table legs, so this is conservative by <= 1 cm
+    where the hand can reach). PyRoki has no cylinder primitive."""
+    from pyroki.collision import Box, Capsule
+    boxes = list(world_dict.get("cuboid", {}).values())
+    cyls = list(world_dict.get("cylinder", {}).values())
+    box_geom = cap_geom = None
+    if boxes:
+        box_geom = Box.from_extent(jnp.asarray([b["dims"] for b in boxes], dtype=jnp.float32),
+                                   position=jnp.asarray([b["pose"][:3] for b in boxes], dtype=jnp.float32),
+                                   wxyz=jnp.asarray([b["pose"][3:7] for b in boxes], dtype=jnp.float32))
+    if cyls:
+        cap_geom = Capsule.from_radius_height(jnp.asarray([c["radius"] for c in cyls], dtype=jnp.float32),
+                                              jnp.asarray([c["height"] for c in cyls], dtype=jnp.float32),
+                                              position=jnp.asarray([c["pose"][:3] for c in cyls], dtype=jnp.float32),
+                                              wxyz=jnp.asarray([c["pose"][3:7] for c in cyls], dtype=jnp.float32))
+    return box_geom, cap_geom
+
+
 class PyrokiIkBeamHelper:
-    def __init__(self, ee_link_name: str = "panda_hand_tcp", urdf_path: str | None = None):
+    def __init__(self, ee_link_name: str = "panda_hand_tcp", urdf_path: str | None = None,
+                 collision: bool = False):
         # urdf_path != None -> load a custom URDF (e.g. the chained DoF variants for Table III);
-        # default = the built-in 7-DoF panda (prismatic fingers fixed, as the original harness did).
+        # default = the built-in 7-DoF panda with the prismatic fingers fixed open.
         if urdf_path is not None:
             urdf = yourdfpy.URDF.load(urdf_path)
         else:
-            urdf = load_robot_description("panda_description")
-            xml_tree = urdf.write_xml()
-            for joint in xml_tree.findall('.//joint[@type="prismatic"]'):
-                joint.set("type", "fixed")
-                for tag in ("axis", "limit", "dynamics"):
-                    child = joint.find(tag)
-                    if child is not None:
-                        joint.remove(child)
-            urdf = yourdfpy.URDF.load(StringIO(ET.tostring(xml_tree.getroot(), encoding="unicode")))
+            urdf = _panda_description_fingers_fixed()
         assert urdf.validate()
 
         # yourdfpy => pyroki
@@ -293,6 +361,33 @@ class PyrokiIkBeamHelper:
         exp = robot.joints.num_actuated_joints
         self.root = newton_raphson(lambda x: x ** (exp + 1) - x - 1, 1.0, 10_000)
         self.target_link_index = target_link_index
+
+        # Optional collision model: foam spheres (HJCD's geometry) via PyRoki's sphere constructor. World-
+        # collision residuals of the base link's spheres are weighted to zero (HJCD's base-contact policy and
+        # the Python oracles ignore the base); self-collision keeps every pair PyRoki derives.
+        self.robot_coll = None
+        if collision:
+            from pyroki.collision import RobotCollision
+            dec = foam_panda_sphere_decomposition()
+            dec = {k: v for k, v in dec.items() if k in robot.links.names}
+            self.robot_coll = RobotCollision.from_sphere_decomposition(dec, urdf)
+            geom_link = np.asarray(self.robot_coll._geom_to_link_idx)
+            base_idx = robot.links.names.index("panda_link0") if "panda_link0" in robot.links.names else -1
+            self.world_weight = jnp.asarray(np.where(geom_link == base_idx, 0.0, PYROKI_WORLD_WEIGHT),
+                                            dtype=jnp.float32)[:, None]
+            print(f"  pyroki collision model: {len(geom_link)} foam spheres on {len(dec)} links, "
+                  f"{len(self.robot_coll.active_idx_i)} self pairs, world margin {PYROKI_WORLD_MARGIN_M} m")
+
+    def _collision_factors(self, joint_var, world_boxes, world_capsules):
+        if self.robot_coll is None:
+            return []
+        factors = [pk.costs.self_collision_cost(self.robot, self.robot_coll, joint_var,
+                                                margin=PYROKI_SELF_MARGIN_M, weight=PYROKI_SELF_WEIGHT)]
+        for geom in (world_boxes, world_capsules):
+            if geom is not None:
+                factors.append(pk.costs.world_collision_cost(self.robot, self.robot_coll, joint_var, geom,
+                                                             margin=PYROKI_WORLD_MARGIN_M, weight=self.world_weight))
+        return factors
 
     def solve_ik(self, target_wxyz: jax.Array, target_position: jax.Array) -> jax.Array:
         num_seeds_init: int = 64
@@ -382,8 +477,10 @@ class PyrokiIkBeamHelper:
         num_seeds_final: int = 4,
         total_steps: int = 16,
         init_steps: int = 6,
+        world_boxes=None,
+        world_capsules=None,
     ) -> jax.Array:
-        robot = self.robot  
+        robot = self.robot
 
         def solve_one(
             initial_q: jax.Array, lambda_initial: float | jax.Array, max_iters: int
@@ -401,7 +498,7 @@ class PyrokiIkBeamHelper:
                     ori_weight=5.0,
                 ),
                 pk.costs.limit_cost(robot, joint_var, weight=50.0),
-            ]
+            ] + self._collision_factors(joint_var, world_boxes, world_capsules)
             sol, summary = (
                 jaxls.LeastSquaresProblem(factors, [joint_var])
                 .analyze()
@@ -536,12 +633,26 @@ batched_fk_hand = jax.jit(jax.vmap(ik_beam_hand.forward_kinematics))
 from functools import partial
 
 def make_batched_pyroki_ik(num_seeds_init: int, beam: PyrokiIkBeamHelper = None):
+    """jit(vmap) over targets. The returned function takes (wxyz[B,4], pos[B,3]) and, for a collision-aware
+    beam, the scene geometry as two extra un-vmapped arguments (boxes, capsules) — the obstacle COUNTS are
+    static per compile, their poses/dims are traced, so one compile serves a whole problem set."""
     beam = beam or ik_beam
     solve_fn = partial(beam.solve_ik_param, num_seeds_init=num_seeds_init)
-    return jax.jit(jax.vmap(solve_fn))
-    
-    
-def eval_one_mb_instance(robot_file: str, inst: dict, batched_ik_fn, batched_fk_fn=None):
+    if beam.robot_coll is None:
+        return jax.jit(jax.vmap(solve_fn))
+    return jax.jit(jax.vmap(lambda wxyz, pos, boxes, caps: solve_fn(wxyz, pos, world_boxes=boxes, world_capsules=caps),
+                            in_axes=(0, 0, None, None)))
+
+
+def _pyroki_ik_call(batched_ik_fn, wxyz_jax, pos_jax, world_dict=None):
+    """Call a make_batched_pyroki_ik function with or without scene geometry (collision-aware beams only)."""
+    if world_dict is None:
+        return batched_ik_fn(wxyz_jax, pos_jax)
+    boxes, caps = mb_world_to_pyroki_geoms(world_dict)
+    return batched_ik_fn(wxyz_jax, pos_jax, boxes, caps)
+
+
+def eval_one_mb_instance(robot_file: str, inst: dict, batched_ik_fn, batched_fk_fn=None, collision_aware=False):
     # thresholds
     position_threshold = 0.005
     rotation_threshold = 0.05
@@ -552,12 +663,13 @@ def eval_one_mb_instance(robot_file: str, inst: dict, batched_ik_fn, batched_fk_
 
     target_wxyz_jax = jnp.asarray(target_wxyz[None, :])
     target_pos_jax  = jnp.asarray(target_pos[None, :])
+    scene = world_dict if collision_aware else None
 
     # warm compile seed count
-    jax.block_until_ready(batched_ik_fn(target_wxyz_jax, target_pos_jax))
+    jax.block_until_ready(_pyroki_ik_call(batched_ik_fn, target_wxyz_jax, target_pos_jax, scene))
 
     t0 = time.time()
-    sol_jax = batched_ik_fn(target_wxyz_jax, target_pos_jax)
+    sol_jax = _pyroki_ik_call(batched_ik_fn, target_wxyz_jax, target_pos_jax, scene)
     jax.block_until_ready(sol_jax)
     dt_ms = (time.time() - t0) * 1000.0
 
@@ -578,19 +690,20 @@ def eval_one_mb_instance(robot_file: str, inst: dict, batched_ik_fn, batched_fk_
 
     return dt_ms, pos_err, ori_err, pose_success, collision_free, np.asarray(sol_jax).reshape(-1)
 
-def print_one_solution(robot_file: str, inst: dict, batched_ik_fn, idx: int):
+def print_one_solution(robot_file: str, inst: dict, batched_ik_fn, idx: int, collision_aware=False):
     world_dict = mb_instance_to_world_dict(inst)
     #target_wxyz, target_pos = mb_instance_to_goal(inst)
     target_wxyz, target_pos = mb_instance_to_target(inst)
 
     target_wxyz_jax = jnp.asarray(target_wxyz[None, :])
     target_pos_jax  = jnp.asarray(target_pos[None, :])
+    scene = world_dict if collision_aware else None
 
     # compile/warm
-    jax.block_until_ready(batched_ik_fn(target_wxyz_jax, target_pos_jax))
+    jax.block_until_ready(_pyroki_ik_call(batched_ik_fn, target_wxyz_jax, target_pos_jax, scene))
 
     t0 = time.time()
-    sol_jax = batched_ik_fn(target_wxyz_jax, target_pos_jax)
+    sol_jax = _pyroki_ik_call(batched_ik_fn, target_wxyz_jax, target_pos_jax, scene)
     jax.block_until_ready(sol_jax)
     dt_ms = (time.time() - t0) * 1000.0
 
@@ -978,9 +1091,13 @@ if __name__ == "__main__":
     parser.add_argument("--configs_out", type=str, default="",
                         help="Collision-free mode: append one JSON line per (problem, seed count) with the returned "
                              "configuration, for offline re-scoring under other collision oracles.")
-    parser.add_argument("--collision-validation-model", choices=("paper", "hjcd"), default="hjcd",
+    parser.add_argument("--collision-validation-model", choices=("paper", "hjcd", "curobo"), default="hjcd",
                         help="Sphere geometry of the shared collision oracle for the collision_free column "
                              "(hjcd = URDF-derived 40 mm fingers, paper = historical 65 mm).")
+    parser.add_argument("--pyroki-collision", choices=("on", "off"), default="on",
+                        help="PyRoki collision-free mode: 'on' (default) adds PyRoki's world + self collision costs on "
+                             "the foam sphere model (the geometry HJCD compiles); 'off' = plain IK validated by the "
+                             "oracle only (the pre-2026-10 behaviour, NOT a collision-constrained solver).")
 
     args = parser.parse_args()
     MB_TARGET_MODE = args.mb_target
@@ -1158,19 +1275,30 @@ if __name__ == "__main__":
             # (panda_hand_tcp; "panda_grasptarget" is accepted as an alias — PyRoki's description has no such
             # link, and its TCP sits 103.4 mm from the hand vs our grasptarget's 105 mm).
             mb_hand = (args.ee_link == "panda_hand")
-            mb_beam, mb_fk = (ik_beam_hand, batched_fk_hand) if mb_hand else (ik_beam, batched_fk)
-            print(f"  pyroki collision-free EE frame: {'panda_hand' if mb_hand else 'panda_hand_tcp'}")
+            coll_aware = (args.pyroki_collision == "on")
+            if coll_aware:
+                # Collision-aware beam: PyRoki's own collision costs on the foam spheres (see PYROKI_* above).
+                # Built per run (the collision model is cheap); the un-constrained beams stay module-level.
+                mb_beam = PyrokiIkBeamHelper("panda_hand" if mb_hand else "panda_hand_tcp", collision=True)
+                mb_fk = batched_fk_hand if mb_hand else batched_fk
+            else:
+                mb_beam, mb_fk = (ik_beam_hand, batched_fk_hand) if mb_hand else (ik_beam, batched_fk)
+            print(f"  pyroki collision-free EE frame: {'panda_hand' if mb_hand else 'panda_hand_tcp'}; "
+                  f"collision costs: {'on (foam spheres)' if coll_aware else 'OFF (plain IK, oracle-validated only)'}")
             for num_seeds_init in seed_list:
                 print(f"  pyroki num_seeds_init: {num_seeds_init}")
                 batched_ik_fn = make_batched_pyroki_ik(num_seeds_init, beam=mb_beam)
                 wxyz0, pos0 = mb_instance_to_target(instances[0])
-                jax.block_until_ready(batched_ik_fn(jnp.asarray(wxyz0[None, :]), jnp.asarray(pos0[None, :])))
+                jax.block_until_ready(_pyroki_ik_call(batched_ik_fn, jnp.asarray(wxyz0[None, :]), jnp.asarray(pos0[None, :]),
+                                                      mb_instance_to_world_dict(instances[0]) if coll_aware else None))
                 if args.print_idx >= 0:
                     if args.print_idx >= len(instances):
                         raise ValueError(f"--print_idx {args.print_idx} out of range (0..{len(instances)-1})")
-                    print_one_solution(robot_file, instances[args.print_idx], batched_ik_fn, args.print_idx)
+                    print_one_solution(robot_file, instances[args.print_idx], batched_ik_fn, args.print_idx,
+                                       collision_aware=coll_aware)
                 for idx, inst in enumerate(instances):
-                    dt_ms, pe, oe, ps, cs, q_best = eval_one_mb_instance(robot_file, inst, batched_ik_fn, batched_fk_fn=mb_fk)
+                    dt_ms, pe, oe, ps, cs, q_best = eval_one_mb_instance(robot_file, inst, batched_ik_fn, batched_fk_fn=mb_fk,
+                                                                         collision_aware=coll_aware)
                     record_row(problem_idx=idx, num_seeds=num_seeds_init, solver_name="pyroki",
                                time_ms=dt_ms, pos_err_mm=pe * 1000.0, ori_err_rad=oe,
                                succ_pct=100.0 if ps else 0.0, collision_free=cs)

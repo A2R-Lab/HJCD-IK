@@ -304,7 +304,7 @@ def main() -> None:
 
     # Collision-free (RoboMetrics)
     ap.add_argument("--collision-free", action="store_true",help="Enable collision-free solutions.")
-    ap.add_argument("--collision-validation-model", choices=("paper", "hjcd"), default="paper",
+    ap.add_argument("--collision-validation-model", choices=("paper", "hjcd", "curobo"), default="paper",
                     help="Post-hoc Panda environment geometry: paper (historical +/-65 mm fingers) "
                          "or hjcd (current URDF +/-40 mm fingers). Does not change solver geometry.")
     ap.add_argument("--collision-mode", choices=("hard", "soft", "both"),

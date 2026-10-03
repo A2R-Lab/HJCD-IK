@@ -54,6 +54,8 @@ joints. Target indices and transform counts are generated constants; the default
 | `benchmark/baseline_bench.py` | Competitor baselines (PyRoki/cuRobo, `--mode`); optional, see `docs/source/user_guide/benchmarks/results.rst`. |
 | `benchmark/baseline_ikflow.py` | IKFlow baseline (standalone, torch); same CSV/MMD-dump schema. |
 | `benchmark/check_ee_frames.py` | Gated smoke test: do all solvers agree on the EE (panda_hand) frame? |
+| `benchmark/collision_oracles.py`, `score_collision_oracles.py` | Independent collision judges (sphere models incl. cuRobo's; `hull` and `visual` FCL meshes) and the scorer for stored configurations. |
+| `benchmark/mbm_export.py`, `make_clearance_ladder.py`, `make_curobo_sphere_urdf.py` | MotionBenchMaker export (mesh scenes → primitives), clearance-ladder sets, HJCD on cuRobo's sphere model. |
 | `benchmark/gen_targets.py` | Neutral Halton + numpy-FK shared open-world targets (fair cross-solver compare). |
 | `benchmark/{make_tables,plot_pareto}.py` | Merge per-solver CSVs → paper tables / accuracy-latency Pareto (Figs 4/5). |
 | `benchmark/{mmd,run_mmd,gen_groundtruth_tracik}.py` | MMD/MMD² (Table IV): config dumps + TRAC-IK ground truth. |
@@ -199,7 +201,17 @@ if missing). Tracked project docs: this file, `docs/development/agent_debugging_
    had none — a harness defect fixed in `486b547`), it matches HJCD on the hard collision sets at similar
    latency. HJCD leads on open-world Panda latency (1.7 vs 6.4 ms), Fetch is cuRobo's, MMD is HJCD's.
    `benchmark/score_collision_oracles.py` re-scores stored configurations under sphere and FCL-mesh oracles;
-   use it (not a single oracle) for any collision claim. Open: HJCD accuracy not monotone in B on hard sets.
+   use it (not a single oracle) for any collision claim. **Fairness pass (same day, evening):** PyRoki is now
+   collision-aware (foam spheres through its own API), the judges are `hull` (franka's convex collision
+   meshes = MoveIt's geometry) / `visual` (true shape, the headline) / `hjcd`, `paper`, `curobo` spheres;
+   `kitchen` + `table_bars` exported from the public MBM dataset (`benchmark/mbm_export.py`,
+   `benchmark/problems/mb_extra_panda.json`); clearance ladder (`benchmark/make_clearance_ladder.py`). Under
+   the true geometry every solver is 94–100 % on every set; on tight clearance the foam sphere model — not the
+   search — is HJCD's limit (HJCD compiled on cuRobo's spheres, `benchmark/make_curobo_sphere_urdf.py`,
+   matches cuRobo in the cage), and a residual ~10-point gap on the table sets is the post-solve filtering
+   vs. collision-in-the-loop difference. Evidence: `docs/development/evidence/fairness_hardsets_2026-10-03/`.
+   Open: latency columns for the new sets / collision-aware PyRoki (needs a quiet window); HJCD accuracy not
+   monotone in B on hard sets; collision-aware refinement (C2).
 3. **Two collision-scene protocols (ruled 2026-10-03).** MotionBenchMaker goals are `panda_hand` poses (the
    dataset's `goal_ik` puts `panda_hand` on them; the TCP is 105 mm further out). The paper's Table II used the
    *cylinder-snapped* target with the TCP frame, which is physically consistent for cylinder-grasp scenes

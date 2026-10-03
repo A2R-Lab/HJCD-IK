@@ -1,0 +1,133 @@
+{
+ "source": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/paper-2026-10-03/hjcd/tests/mb_problems.json",
+ "mesh_tol_mm": 1.0,
+ "rule": "cuboid dims += 2*delta; cylinders and goals unchanged",
+ "levels": {
+  "cage_panda_tight0cm": {
+   "source_set": "cage_panda",
+   "delta_cm": 0.0,
+   "kept": 99,
+   "of": 100,
+   "goal_ik_per_problem_median": 14.0
+  },
+  "cage_panda_tight0.5cm": {
+   "source_set": "cage_panda",
+   "delta_cm": 0.5,
+   "kept": 100,
+   "of": 100,
+   "goal_ik_per_problem_median": 11.0
+  },
+  "cage_panda_tight1cm": {
+   "source_set": "cage_panda",
+   "delta_cm": 1.0,
+   "kept": 75,
+   "of": 100,
+   "goal_ik_per_problem_median": 9.0
+  },
+  "cage_panda_tight1.5cm": {
+   "source_set": "cage_panda",
+   "delta_cm": 1.5,
+   "kept": 28,
+   "of": 100,
+   "goal_ik_per_problem_median": 5.5
+  },
+  "cage_panda_tight2cm": {
+   "source_set": "cage_panda",
+   "delta_cm": 2.0,
+   "kept": 3,
+   "of": 100,
+   "goal_ik_per_problem_median": 4.0
+  },
+  "cage_panda_tight3cm": {
+   "source_set": "cage_panda",
+   "delta_cm": 3.0,
+   "kept": 1,
+   "of": 100,
+   "goal_ik_per_problem_median": 3.0
+  },
+  "table_pick_panda_tight0cm": {
+   "source_set": "table_pick_panda",
+   "delta_cm": 0.0,
+   "kept": 100,
+   "of": 100,
+   "goal_ik_per_problem_median": 18.0
+  },
+  "table_pick_panda_tight0.5cm": {
+   "source_set": "table_pick_panda",
+   "delta_cm": 0.5,
+   "kept": 100,
+   "of": 100,
+   "goal_ik_per_problem_median": 17.0
+  },
+  "table_pick_panda_tight1cm": {
+   "source_set": "table_pick_panda",
+   "delta_cm": 1.0,
+   "kept": 99,
+   "of": 100,
+   "goal_ik_per_problem_median": 15.0
+  },
+  "table_pick_panda_tight1.5cm": {
+   "source_set": "table_pick_panda",
+   "delta_cm": 1.5,
+   "kept": 95,
+   "of": 100,
+   "goal_ik_per_problem_median": 14.0
+  },
+  "table_pick_panda_tight2cm": {
+   "source_set": "table_pick_panda",
+   "delta_cm": 2.0,
+   "kept": 87,
+   "of": 100,
+   "goal_ik_per_problem_median": 12.0
+  },
+  "table_pick_panda_tight3cm": {
+   "source_set": "table_pick_panda",
+   "delta_cm": 3.0,
+   "kept": 65,
+   "of": 100,
+   "goal_ik_per_problem_median": 12.0
+  },
+  "table_under_pick_panda_tight0cm": {
+   "source_set": "table_under_pick_panda",
+   "delta_cm": 0.0,
+   "kept": 100,
+   "of": 100,
+   "goal_ik_per_problem_median": 19.0
+  },
+  "table_under_pick_panda_tight0.5cm": {
+   "source_set": "table_under_pick_panda",
+   "delta_cm": 0.5,
+   "kept": 100,
+   "of": 100,
+   "goal_ik_per_problem_median": 17.0
+  },
+  "table_under_pick_panda_tight1cm": {
+   "source_set": "table_under_pick_panda",
+   "delta_cm": 1.0,
+   "kept": 100,
+   "of": 100,
+   "goal_ik_per_problem_median": 16.0
+  },
+  "table_under_pick_panda_tight1.5cm": {
+   "source_set": "table_under_pick_panda",
+   "delta_cm": 1.5,
+   "kept": 92,
+   "of": 100,
+   "goal_ik_per_problem_median": 14.0
+  },
+  "table_under_pick_panda_tight2cm": {
+   "source_set": "table_under_pick_panda",
+   "delta_cm": 2.0,
+   "kept": 86,
+   "of": 100,
+   "goal_ik_per_problem_median": 10.5
+  },
+  "table_under_pick_panda_tight3cm": {
+   "source_set": "table_under_pick_panda",
+   "delta_cm": 3.0,
+   "kept": 62,
+   "of": 100,
+   "goal_ik_per_problem_median": 9.0
+  }
+ }
+}
