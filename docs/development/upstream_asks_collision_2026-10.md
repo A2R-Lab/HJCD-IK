@@ -63,6 +63,11 @@ Nothing else in this work is linear algebra; the sphere/primitive SDFs are GRiD'
    sphere-fidelity table gets a row that is BOTH conservative and fast, which neither foam nor cuRobo's model is.
 4. Receipt, docs (`CLAUDE.md` Conventions paragraph, `upgrading.md`), push.
 
+## Where the agents pick it up
+
+GRiD: `~/Desktop/GRiD/docs/open-tasks/hjcd_asks_collision_primitives_2026-10-04.md`;
+GLASS: `~/Desktop/GLASS/docs/open-tasks/hjcd_asks_warp_helpers_2026-10-04.md` (both local open-task ledgers, 2026-10-04).
+
 ## Sequencing
 
 timing gate (HJCD, quiet window) → G1 + G2 + L1/L2 (small, unblock the HJCD cleanup) → G5 + G6 (tooling/assets,
