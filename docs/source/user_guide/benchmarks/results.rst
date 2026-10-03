@@ -439,6 +439,163 @@ ground-truth samples, over 100 target poses — lower is a closer match to the f
    Distribution of collision-free IK solutions for a representative target — cuRobo (left), PyRoki
    (center), HJCD-IK (right). HJCD-IK returns a broader, more diverse spread of locally-optimal solutions.
 
+Rerun on the current code — RTX 5090, 2026-10-03
+-------------------------------------------------
+
+.. note::
+
+   This section is a **new measurement of the current release** (``main`` at ``2fc1316``), run with the
+   latest competitor versions (cuRobo v2 ``main``, PyRoki ``main``, IKFlow 0.0.8) on an RTX 5090 with
+   CUDA 13. It does not replace the camera-ready tables above and must not be mixed with them: different
+   GPU, different cuRobo generation, and — for the collision scenes — a corrected evaluation protocol.
+   Full raw data, logs and caveats: ``docs/development/evidence/paper_rerun_2026-10-03/``.
+
+**What changed in the protocol.** The MotionBenchMaker goals are ``panda_hand`` poses (the dataset's own IK
+solutions put ``panda_hand`` on them; the TCP is 105 mm further along the approach axis). The paper's
+Table II snapped the target onto the grasped cylinder and solved for the TCP, which is physically consistent
+for cylinder-grasp scenes such as ``box_panda`` but is undefined for scenes without a cylinder near the goal.
+The rerun therefore reports two protocols: the **paper protocol** on ``box_panda`` for continuity, and the
+**dataset protocol** (``panda_hand`` frame, ``goal_pose`` exactly as posed, every solver at the same frame)
+on all eight MotionBenchMaker sets. Every solver's collision-free column is judged by the same independent
+NumPy sphere oracle (URDF-derived ``hjcd`` geometry).
+
+Open-world, Panda (100 Halton targets, ``panda_hand``): time in ms, position error in mm.
+
+.. list-table::
+   :header-rows: 1
+   :stub-columns: 1
+
+   * - Batch
+     - HJCD-IK Time
+     - HJCD-IK Pos
+     - cuRobo v2 Time
+     - cuRobo v2 Pos
+     - PyRoki Time
+     - PyRoki Pos
+     - IKFlow Time
+     - IKFlow Pos
+   * - 1
+     - 3.34
+     - 2.80 (5/100 miss)
+     - 8.55
+     - 1.82e-2
+     - 3.26
+     - 371
+     - 2.69
+     - 13.3
+   * - 10
+     - 2.08
+     - 5.77e-5
+     - 5.97
+     - 1.73e-2
+     - 5.40
+     - 5.22
+     - 2.57
+     - 3.70
+   * - 100
+     - **1.67**
+     - **2.28e-5**
+     - 6.02
+     - 1.78e-2
+     - 5.63
+     - 0.390
+     - 2.86
+     - 1.49
+   * - 1000
+     - **1.72**
+     - **4.80e-5**
+     - 6.25
+     - 2.09e-2
+     - 6.86
+     - 1.08e-4
+     - 5.14
+     - 0.732
+   * - 2000
+     - **1.75**
+     - **4.99e-5**
+     - 6.43
+     - 2.09e-2
+     - 6.87
+     - 1.13e-4
+     - 6.19
+     - 0.653
+
+Fetch open-world: HJCD-IK 0.82–1.11 ms, cuRobo v2 1.85–2.22 ms, PyRoki 3.1–6.1 ms, IKFlow 2.6–6.2 ms
+(31–137 mm error). DoF scaling at B = 1000 (7 / 12 / 18 / 24 DoF): HJCD-IK 1.80 / 1.89 / 2.39 / 2.99 ms,
+cuRobo v2 2.02 / 2.17 / 2.49 / 2.68 ms, PyRoki 7.0 / 8.8 / 10.4 / 13.0 ms. MMD (lower is better):
+HJCD-IK **0.103**, PyRoki 0.128, cuRobo v2 0.144, IKFlow 0.222.
+
+Collision-free, ``box_panda``, both protocols (time ms / position error mm at B = 2000, 100 problems):
+
+.. list-table::
+   :header-rows: 1
+   :stub-columns: 1
+
+   * - Protocol
+     - HJCD-IK
+     - cuRobo v2
+     - PyRoki
+   * - Paper (TCP, cylinder-snapped target)
+     - 2.26 / 9.9e-6
+     - 2.22 / 1.6e-5
+     - 7.22 / 1.2e-4
+   * - Dataset (``panda_hand``, goal as posed)
+     - 2.55 / 4.7e-6
+     - 2.21 / 2.1e-3
+     - 7.73 / 1.1e-4
+
+**The harder sets (new; dataset protocol, B = 2000, 100 problems each).** Success means the returned
+configuration both reaches the pose (< 5 mm, < 0.05 rad) *and* passes the shared collision oracle.
+
+.. list-table::
+   :header-rows: 1
+   :stub-columns: 1
+
+   * - Set
+     - HJCD-IK
+     - cuRobo v2
+     - PyRoki
+   * - bookshelf_small
+     - **100**
+     - 82
+     - 88
+   * - bookshelf_tall
+     - **100**
+     - 97
+     - 98
+   * - bookshelf_thin
+     - **100**
+     - **100**
+     - **100**
+   * - box
+     - **100**
+     - 99
+     - 98
+   * - box_flipped
+     - **100**
+     - **100**
+     - 99
+   * - cage
+     - **97**
+     - 79
+     - 83
+   * - table_pick
+     - **94**
+     - 37
+     - 45
+   * - table_under_pick
+     - **95**
+     - 45
+     - 41
+
+HJCD-IK's remaining misses on the hard sets are reachable (they solve at B = 16000); making the solver find
+them at B = 2000 — e.g. an informed second round seeded by the collision outcome of the first — is future
+work. Two caveats apply to this table: cuRobo and PyRoki reach the pose on 100% of problems, so their
+shortfall is entirely collision judgements, and the oracle geometry is the same sphere model HJCD-IK filters
+with, so some of their failures may be grazing contacts their own collision models accept (the dataset's own
+solutions pass this oracle 99% of the time). The per-set tables and the full logs are in the evidence
+directory.
+
 Reproducing these results
 -------------------------
 

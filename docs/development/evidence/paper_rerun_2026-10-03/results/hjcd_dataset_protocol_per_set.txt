@@ -1,0 +1,26 @@
+HJCD dataset protocol (panda_hand build, goal_pose, hard): per set, 100 problems, S=1; accurate = pos<5 mm & ori<0.05 rad (baseline thresholds) / strict = pos<1 mm & ori<1e-3; oracle-free of returned configs
+set                          B accurate%  strict% oracle_free% median ms
+bookshelf_small_panda      100        98       94          100      1.86
+bookshelf_small_panda     1000       100       99          100      1.99
+bookshelf_small_panda     2000       100       99          100      2.14
+bookshelf_tall_panda       100       100      100          100      2.01
+bookshelf_tall_panda      1000       100      100          100      2.16
+bookshelf_tall_panda      2000       100      100          100      2.45
+bookshelf_thin_panda       100       100      100          100      1.98
+bookshelf_thin_panda      1000       100      100          100      2.18
+bookshelf_thin_panda      2000       100      100          100      2.52
+box_panda                  100       100      100          100      2.23
+box_panda                 1000       100      100          100      2.27
+box_panda                 2000       100      100          100      2.52
+box_panda_flipped          100       100      100          100      1.61
+box_panda_flipped         1000       100      100          100      1.75
+box_panda_flipped         2000       100      100          100      2.08
+cage_panda                 100        99       99          100      1.87
+cage_panda                1000        90       88          100      1.97
+cage_panda                2000        97       93          100      2.25
+table_pick_panda           100        92       89          100      2.13
+table_pick_panda          1000        91       85          100      2.24
+table_pick_panda          2000        94       87          100      2.57
+table_under_pick_panda     100        97       91          100      2.01
+table_under_pick_panda    1000        94       88          100      2.11
+table_under_pick_panda    2000        95       90          100      2.45

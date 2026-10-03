@@ -177,7 +177,8 @@ before/after the audit) and the de-vendoring gate + HJCD-only paper rerun
 (`docs/development/evidence/timing_gate_2026-10-02/`: landed code 0.1–1% faster than the previous main in all 18
 A/B cells up to B=32000; Panda open-world 1.67–1.74 ms at B=100–2000, box_panda collision-free 1.9–2.3 ms, DoF
 7/12/18/24 at B=1000 = 1.85/1.95/2.42/3.01 ms). `scripts/bench/run_paper_experiments.sh` (with `HJCD_REGEN=1`)
-regenerates the paper protocol (~4.5 min HJCD-only, mostly rebuilds); `scripts/perf/timing_driver.py` is the
+regenerates the paper protocol (~4.5 min HJCD-only; ~15 min with all baselines and `RUN_HARD=1`, see
+`docs/development/evidence/paper_rerun_2026-10-03/`); `scripts/perf/timing_driver.py` is the
 neutral two-endpoint A/B driver (alternate rounds, compare paired per-round medians);
 `scripts/perf/run_all_timing_sweeps.sh` is the HJCD-only timing capture.
 
@@ -192,10 +193,11 @@ if missing). Tracked project docs: this file, `docs/development/agent_debugging_
 `docs/source/user_guide/benchmarks/results.rst`, and the sphinx docs. In priority order:
 
 1. **Re-record the GPU proof** after any `csrc/`/`tests/`/docs change (see *Testing and the GPU-proof gate*).
-2. **Rerun the paper protocol WITH the competitor baselines** (`scripts/setup/install_baselines.sh`, then
-   `HJCD_REGEN=1 RUN_FETCH=1 RUN_DOF=1 RUN_MMD=1 scripts/bench/run_paper_experiments.sh`) and record it as dated
-   evidence under `docs/development/evidence/`. The HJCD-only columns were re-run 2026-10-02 (see above); Table IV
-   (MMD) still needs TRAC-IK ground truth.
+2. **Paper protocol rerun with baselines: DONE 2026-10-03** (`docs/development/evidence/paper_rerun_2026-10-03/`,
+   summarised in `docs/source/user_guide/benchmarks/results.rst` "Rerun on the current code"). cuRobo v2 is a
+   much stronger baseline than the paper's v0.7 (1.8–2.2 ms on collision scenes, faster than HJCD there and at
+   24 DoF). Open follow-ups: store the baselines' returned configurations so the collision column can be
+   re-scored under a solver-independent checker; HJCD accuracy is not monotone in B on the hard sets.
 3. **Two collision-scene protocols (ruled 2026-10-03).** MotionBenchMaker goals are `panda_hand` poses (the
    dataset's `goal_ik` puts `panda_hand` on them; the TCP is 105 mm further out). The paper's Table II used the
    *cylinder-snapped* target with the TCP frame, which is physically consistent for cylinder-grasp scenes
