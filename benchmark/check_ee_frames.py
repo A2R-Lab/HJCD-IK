@@ -16,6 +16,7 @@ still validates the reference + harness). Run it on the GPU box after scripts/se
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -74,27 +75,30 @@ def fk_pyroki(configs, ee_link="panda_hand", urdf_path=None):
 
 
 def fk_curobo(configs, ee_link="panda_hand", urdf_path=None, base_link="panda_link0", robot_file="franka.yml"):
+    """cuRobo v2: build the same robot the benchmark solves with (baseline_bench's RobotBuilder path for a
+    URDF, else the bundled robot config) and read the tool pose from its kinematics."""
     import torch
-    from curobo.types.base import TensorDeviceType
-    from curobo.types.robot import RobotConfig
-    from curobo.cuda_robot_model.cuda_robot_model import CudaRobotModel
-    from curobo.util_file import get_robot_configs_path, join_path, load_yaml
-    td = TensorDeviceType()
+    import baseline_bench as bb   # cuRobo v2 solver/robot builders shared with the benchmark harness
+    if not bb._HAS_CUROBO:
+        raise ImportError(str(bb._CUROBO_IMPORT_ERR))
+    build = dict(high_precision=False, use_cuda_graph=False, num_seeds=1)
     if urdf_path:
-        cfg = RobotConfig.from_basic(urdf_path, base_link, ee_link, td)
+        solver, _ = bb.make_curobo_solver_from_urdf(urdf_path, base_link, ee_link, **build)
     else:
-        cfg = RobotConfig.from_dict(load_yaml(join_path(get_robot_configs_path(), robot_file))["robot_cfg"], td)
-    model = CudaRobotModel(cfg.kinematics)
-    q = torch.as_tensor(np.asarray(configs), dtype=td.dtype, device=td.device)
-    st = model.get_state(q)
-    pos = st.ee_position.detach().cpu().numpy()
-    quat = st.ee_quaternion.detach().cpu().numpy()  # [qw,qx,qy,qz]
+        solver, _ = bb.make_curobo_solver_from_world_dict(robot_file=robot_file, world_dict={},
+                                                         collision_free=False, **build)
+    q = torch.as_tensor(np.asarray(configs, dtype=np.float32), device="cuda")
+    pose = solver.kinematics.get_link_poses(q, [solver.tool_frames[0]])   # pos (N,1,3), quat (N,1,4) wxyz
+    pos = pose.position.reshape(-1, 3).detach().cpu().numpy()
+    quat = pose.quaternion.reshape(-1, 4).detach().cpu().numpy()
     return np.concatenate([pos, quat], axis=1)
 
 
-def fk_ikflow(configs, model_name="panda_full_tpm"):
-    from ikflow.model_loading import get_ik_solver
-    ik_solver, _ = get_ik_solver(model_name)
+def fk_ikflow(configs, model_name="panda__full__lp191_5.25m"):
+    """IKFlow: the paper's Panda model, loaded offline through baseline_ikflow's staging (registry merge +
+    local .pkl from benchmark/assets/ikflow/weights/), exactly as the benchmark loads it."""
+    import baseline_ikflow as bi
+    ik_solver = bi._load_solver(model_name, os.environ.get("IKFLOW_WEIGHTS_DIR", str(bi._ASSETS / "weights")))
     return np.asarray(ik_solver.robot.forward_kinematics(np.asarray(configs)))  # [x,y,z,qw,qx,qy,qz]
 
 
