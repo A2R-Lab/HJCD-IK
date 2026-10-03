@@ -18,7 +18,7 @@
 # Prereqs: a built `hjcdik` (GPU) for HJCD; `scripts/setup/install_baselines.sh` for the baselines.
 # Coverage (all wired; opt-in flags): Table I open-world Panda (always) + Fetch (RUN_FETCH=1),
 #   Table II collision-free Panda: paper protocol on PROBLEM_SET + dataset protocol (panda_hand, goal_pose) on
-#   MB_SETS (default PROBLEM_SET; RUN_HARD=1 = every set), Table III DoF 7/12/18/24 (RUN_DOF=1), Table IV MMD (RUN_MMD=1).
+#   MB_SETS (default PROBLEM_SET; RUN_HARD=1 = every set of tests/mb_problems.json + benchmark/problems/mb_extra_panda.json), Table III DoF 7/12/18/24 (RUN_DOF=1), Table IV MMD (RUN_MMD=1).
 # Extra env: HJCD_REGEN=1 re-codegens+rebuilds HJCD per EE frame / DoF and restores the default build on successful completion
 #   (heavy: GPU compiles); RUN_FETCH / RUN_DOF / RUN_MMD / DOF_BATCH select the optional tables.
 set -euo pipefail
@@ -152,10 +152,19 @@ fi
 # pointed at panda_hand and no target snapping is applied. This is the only protocol that is valid on
 # every set: cage_panda has no cylinders and box_panda_flipped's goal is 38 cm from any cylinder.
 # MB_SETS (default: $PROBLEM_SET) selects the sets; RUN_HARD=1 runs every set in the problem file.
-MB_SETS="${MB_SETS:-$PROBLEM_SET}"
-if [ "${RUN_HARD:-0}" = "1" ]; then
-  MB_SETS="$("$PY" -c "import json,sys; print(' '.join(sorted(json.load(open(sys.argv[1]))['problems'])))" "$MB_JSON")"
+# Each entry is <problems-json>:<set>; RUN_HARD=1 adds every set of tests/mb_problems.json AND of
+# benchmark/problems/mb_extra_panda.json (kitchen, table_bars — exported from the public MotionBenchMaker data).
+MB_EXTRA_JSON="$(pwd)/benchmark/problems/mb_extra_panda.json"
+if [ -n "${MB_SETS:-}" ]; then
+  MB_RUNS="$(for s in $MB_SETS; do printf '%s:%s ' "$MB_JSON" "$s"; done)"
+elif [ "${RUN_HARD:-0}" = "1" ]; then
+  MB_RUNS="$("$PY" -c "import json,sys
+for path in sys.argv[1:]:
+    print(' '.join(f'{path}:{s}' for s in sorted(json.load(open(path))['problems'])))" "$MB_JSON" "$MB_EXTRA_JSON" | tr '\n' ' ')"
+else
+  MB_RUNS="$MB_JSON:$PROBLEM_SET"
 fi
+MB_SETS="$(for r in $MB_RUNS; do printf '%s ' "${r##*:}"; done)"
 echo "=== [Table II-dataset] collision-free, Panda, panda_hand frame, goal_pose as posed: $MB_SETS ==="
 if [ "${HJCD_REGEN:-0}" = "1" ] && [ "${SKIP_HJCD:-0}" != "1" ]; then
   echo "--- regen HJCD-IK to panda_hand_joint + collision (dataset frame) ---"
@@ -163,20 +172,21 @@ if [ "${HJCD_REGEN:-0}" = "1" ] && [ "${SKIP_HJCD:-0}" != "1" ]; then
     --collision --spherized-urdf external/foam/assets/panda/smaller_panda_spherized.urdf
   bash scripts/setup/rebuild.sh
 fi
-for set in $MB_SETS; do
-  echo "--- set $set ---"
+for run in $MB_RUNS; do
+  SET_JSON="${run%%:*}"; set="${run##*:}"
+  echo "--- set $set ($(basename "$SET_JSON")) ---"
   if [ "${SKIP_HJCD:-0}" != "1" ]; then
     "$PY" benchmark/hjcd_ik_bench.py --skip-grid-codegen --collision-free --target-mode goal \
-      --collision-validation-model hjcd --problems-json "$MB_JSON" --problem-set "$set" \
+      --collision-validation-model hjcd --problems-json "$SET_JSON" --problem-set "$set" \
       --batches "$BATCHES" --num-solutions 1 --solver hjcdik --csv-out "$OUT_DIR/collfree_hand_${set}_hjcdik.csv" \
       --configs-out "$CFG_HAND/hjcdik.jsonl"
   fi
-  [ "${SKIP_PYROKI:-0}" = "1" ] || MB_JSON_PATH="$MB_JSON" "$PY" benchmark/baseline_bench.py --mode pyroki --collision_free \
+  [ "${SKIP_PYROKI:-0}" = "1" ] || MB_JSON_PATH="$SET_JSON" "$PY" benchmark/baseline_bench.py --mode pyroki --collision_free \
     --mb-target goal --ee-link panda_hand --collision-validation-model hjcd \
     --problem_set "$set" --num_instances "$NUM_TARGETS" \
     --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name "collfree_hand_${set}" --configs_out "$CFG_HAND/pyroki.jsonl" \
     || echo "(PyRoki Table II-dataset $set skipped — solver error; column left blank, run continues)"
-  [ "${SKIP_CUROBO:-0}" = "1" ] || MB_JSON_PATH="$MB_JSON" "$PY" benchmark/baseline_bench.py --mode curobo --collision_free \
+  [ "${SKIP_CUROBO:-0}" = "1" ] || MB_JSON_PATH="$SET_JSON" "$PY" benchmark/baseline_bench.py --mode curobo --collision_free \
     --mb-target goal --collision-validation-model hjcd \
     --problem_set "$set" --num_instances "$NUM_TARGETS" \
     --robot-urdf csrc/urdf/panda.urdf --base-link panda_link0 --ee-link panda_hand \
@@ -254,9 +264,17 @@ echo "=== [tables + plots] merge per-solver CSVs ==="
 "$PY" benchmark/plot_pareto.py $(ls $OUT_DIR/collfree_hand_${PROBLEM_SET}_{hjcdik,pyroki,curobo}.csv 2>/dev/null) --out "$OUT_DIR/pareto_collfree_hand.png" \
   --title "Panda collision-free, $PROBLEM_SET (dataset protocol)" --annotate-batch || true
 # Independent judges of the stored configurations: sphere oracles + FCL mesh (needs python-fcl; skipped otherwise).
+"$PY" - "$MB_JSON" "$MB_EXTRA_JSON" "$OUT_DIR/problems_merged.json" <<'PYEOF'
+import json, os, sys
+merged = {}
+for path in sys.argv[1:3]:
+    if os.path.exists(path):
+        merged.update(json.load(open(path))["problems"])
+json.dump({"problems": merged}, open(sys.argv[3], "w"))
+PYEOF
 for proto in paper hand; do
   cfg="$OUT_DIR/configs_collfree_${proto}"
-  "$PY" benchmark/score_collision_oracles.py "$cfg"/*.jsonl --problems "$MB_JSON" \
+  "$PY" benchmark/score_collision_oracles.py "$cfg"/*.jsonl --problems "$OUT_DIR/problems_merged.json" \
     --out "$OUT_DIR/table_oracles_collfree_${proto}.md" > /dev/null || echo "(oracle scoring for $proto skipped)"
 done
 
