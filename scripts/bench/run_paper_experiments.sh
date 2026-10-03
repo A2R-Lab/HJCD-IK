@@ -175,7 +175,8 @@ for set in $MB_SETS; do
     --robot-urdf csrc/urdf/panda.urdf --base-link panda_link0 --ee-link panda_hand \
     --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name "collfree_hand_${set}" \
     || echo "(cuRobo Table II-dataset $set skipped — solver error; column left blank, run continues)"
-  "$PY" benchmark/make_tables.py $OUT_DIR/collfree_hand_${set}_*.csv \
+  # Explicit per-solver files: a `collfree_hand_${set}_*` glob would also match e.g. box_panda_flipped.
+  "$PY" benchmark/make_tables.py $(ls $OUT_DIR/collfree_hand_${set}_{hjcdik,pyroki,curobo}.csv 2>/dev/null) \
     --title "Panda collision-free, $set (dataset protocol: panda_hand, goal_pose)" \
     --out "$OUT_DIR/table_collfree_hand_${set}.md" || true
 done
@@ -243,7 +244,7 @@ echo "=== [tables + plots] merge per-solver CSVs ==="
   --title "Panda open-world" --annotate-batch || echo "(open plot skipped — pip install -e '.[plots]')"
 "$PY" benchmark/plot_pareto.py $OUT_DIR/collfree_paper_*.csv --out "$OUT_DIR/pareto_collfree.png" \
   --title "Panda collision-free (paper protocol)" --annotate-batch || true
-"$PY" benchmark/plot_pareto.py $OUT_DIR/collfree_hand_${PROBLEM_SET}_*.csv --out "$OUT_DIR/pareto_collfree_hand.png" \
+"$PY" benchmark/plot_pareto.py $(ls $OUT_DIR/collfree_hand_${PROBLEM_SET}_{hjcdik,pyroki,curobo}.csv 2>/dev/null) --out "$OUT_DIR/pareto_collfree_hand.png" \
   --title "Panda collision-free, $PROBLEM_SET (dataset protocol)" --annotate-batch || true
 
 if [ "${HJCD_REGEN:-0}" = "1" ] && [ "${SKIP_HJCD:-0}" != "1" ]; then
