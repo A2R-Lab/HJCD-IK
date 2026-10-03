@@ -849,7 +849,6 @@ def _curobo_panda_with_tool(ee_link):
     out_urdf = os.path.join(tempfile.gettempdir(), f"curobo_franka_{ee_link}.urdf")
     tree.write(out_urdf)
     kin["urdf_path"] = out_urdf
-    kin["ee_link"] = ee_link
     kin["tool_frames"] = [ee_link]
     if ee_link not in kin.get("link_names", []):
         kin.setdefault("link_names", []).append(ee_link)
