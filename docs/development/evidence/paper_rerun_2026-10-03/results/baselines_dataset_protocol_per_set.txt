@@ -1,26 +1,27 @@
-Baselines, dataset protocol (panda_hand, goal_pose), 100 problems/set. succ = pose success (<5 mm, <0.05 rad); cf = oracle collision-free; both = succ AND cf; median ms
+Baselines, dataset protocol (panda_hand, goal_pose), 100 problems/set; cuRobo WITH its collision spheres (corrected 10-03 pm).
+succ = pose success (<5 mm, <0.05 rad); cf = hjcd sphere oracle on the returned configuration; both = succ AND cf; median ms
 set                          B |   cuRobo succ/cf/both%     ms |   PyRoki succ/cf/both%     ms
-bookshelf_small_panda      100 |     100/ 82/ 82 (n=100)   1.95 |     100/ 82/ 82 (n=100)   5.76 |
-bookshelf_small_panda     1000 |     100/ 85/ 85 (n=100)   2.10 |     100/ 82/ 82 (n=100)   6.88 |
-bookshelf_small_panda     2000 |     100/ 82/ 82 (n=100)   2.15 |     100/ 88/ 88 (n=100)   7.20 |
-bookshelf_tall_panda       100 |     100/ 98/ 98 (n=100)   1.98 |     100/ 97/ 97 (n=100)   5.66 |
-bookshelf_tall_panda      1000 |     100/ 97/ 97 (n=100)   2.14 |     100/ 95/ 95 (n=100)   6.77 |
-bookshelf_tall_panda      2000 |     100/ 97/ 97 (n=100)   2.26 |     100/ 98/ 98 (n=100)   6.89 |
-bookshelf_thin_panda       100 |     100/100/100 (n=100)   1.85 |     100/100/100 (n=100)   5.84 |
-bookshelf_thin_panda      1000 |     100/100/100 (n=100)   2.09 |     100/100/100 (n=100)   7.11 |
-bookshelf_thin_panda      2000 |     100/100/100 (n=100)   2.22 |     100/100/100 (n=100)   7.35 |
-box_panda                  100 |     100/ 99/ 99 (n=100)   1.93 |     100/100/100 (n=100)   6.56 |
-box_panda                 1000 |     100/ 99/ 99 (n=100)   2.08 |     100/100/100 (n=100)   7.54 |
-box_panda                 2000 |     100/ 99/ 99 (n=100)   2.20 |     100/ 98/ 98 (n=100)   7.67 |
-box_panda_flipped          100 |     100/ 99/ 99 (n=100)   1.93 |     100/100/100 (n=100)   6.13 |
-box_panda_flipped         1000 |     100/100/100 (n=100)   2.08 |     100/ 99/ 99 (n=100)   7.16 |
-box_panda_flipped         2000 |     100/100/100 (n=100)   2.21 |     100/ 99/ 99 (n=100)   7.61 |
-cage_panda                 100 |     100/ 78/ 78 (n=100)   1.97 |     100/ 92/ 92 (n=100)   6.59 |
-cage_panda                1000 |     100/ 83/ 83 (n=100)   2.11 |     100/ 86/ 86 (n=100)   7.28 |
-cage_panda                2000 |     100/ 79/ 79 (n=100)   2.17 |     100/ 83/ 83 (n=100)   7.16 |
-table_pick_panda           100 |     100/ 40/ 40 (n=100)   1.98 |     100/ 49/ 49 (n=100)   5.53 |
-table_pick_panda          1000 |     100/ 41/ 41 (n=100)   2.06 |     100/ 43/ 43 (n=100)   6.74 |
-table_pick_panda          2000 |     100/ 37/ 37 (n=100)   2.18 |     100/ 45/ 45 (n=100)   6.86 |
-table_under_pick_panda     100 |     100/ 43/ 43 (n=100)   1.88 |     100/ 44/ 44 (n=100)   5.82 |
-table_under_pick_panda    1000 |     100/ 46/ 46 (n=100)   2.12 |     100/ 40/ 40 (n=100)   7.06 |
-table_under_pick_panda    2000 |     100/ 45/ 45 (n=100)   2.25 |     100/ 41/ 41 (n=100)   7.13 |
+bookshelf_small_panda      100 |     100/ 96/ 96 (n=100)   2.18 |     100/ 82/ 82 (n=100)   5.76 |
+bookshelf_small_panda     1000 |     100/ 94/ 94 (n=100)   2.29 |     100/ 82/ 82 (n=100)   6.88 |
+bookshelf_small_panda     2000 |     100/ 96/ 96 (n=100)   2.42 |     100/ 88/ 88 (n=100)   7.20 |
+bookshelf_tall_panda       100 |     100/ 99/ 99 (n=100)   2.19 |     100/ 97/ 97 (n=100)   5.66 |
+bookshelf_tall_panda      1000 |     100/ 98/ 98 (n=100)   2.29 |     100/ 95/ 95 (n=100)   6.77 |
+bookshelf_tall_panda      2000 |     100/ 99/ 99 (n=100)   2.42 |     100/ 98/ 98 (n=100)   6.89 |
+bookshelf_thin_panda       100 |     100/100/100 (n=100)   2.16 |     100/100/100 (n=100)   5.84 |
+bookshelf_thin_panda      1000 |     100/100/100 (n=100)   2.39 |     100/100/100 (n=100)   7.11 |
+bookshelf_thin_panda      2000 |     100/100/100 (n=100)   2.53 |     100/100/100 (n=100)   7.35 |
+box_panda                  100 |     100/100/100 (n=100)   2.20 |     100/100/100 (n=100)   6.56 |
+box_panda                 1000 |     100/100/100 (n=100)   2.37 |     100/100/100 (n=100)   7.54 |
+box_panda                 2000 |     100/100/100 (n=100)   2.51 |     100/ 98/ 98 (n=100)   7.67 |
+box_panda_flipped          100 |     100/100/100 (n=100)   2.23 |     100/100/100 (n=100)   6.13 |
+box_panda_flipped         1000 |     100/100/100 (n=100)   2.35 |     100/ 99/ 99 (n=100)   7.16 |
+box_panda_flipped         2000 |     100/100/100 (n=100)   2.47 |     100/ 99/ 99 (n=100)   7.61 |
+cage_panda                 100 |     100/ 99/ 99 (n=100)   2.15 |     100/ 92/ 92 (n=100)   6.59 |
+cage_panda                1000 |     100/100/100 (n=100)   2.33 |     100/ 86/ 86 (n=100)   7.28 |
+cage_panda                2000 |     100/ 99/ 99 (n=100)   2.46 |     100/ 83/ 83 (n=100)   7.16 |
+table_pick_panda           100 |     100/ 97/ 97 (n=100)   2.12 |     100/ 49/ 49 (n=100)   5.53 |
+table_pick_panda          1000 |     100/ 94/ 94 (n=100)   2.30 |     100/ 43/ 43 (n=100)   6.74 |
+table_pick_panda          2000 |     100/ 93/ 93 (n=100)   2.43 |     100/ 45/ 45 (n=100)   6.86 |
+table_under_pick_panda     100 |     100/ 91/ 91 (n=100)   2.11 |     100/ 44/ 44 (n=100)   5.82 |
+table_under_pick_panda    1000 |     100/ 89/ 89 (n=100)   2.29 |     100/ 40/ 40 (n=100)   7.06 |
+table_under_pick_panda    2000 |     100/ 90/ 90 (n=100)   2.42 |     100/ 41/ 41 (n=100)   7.13 |

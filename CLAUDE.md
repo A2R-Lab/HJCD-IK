@@ -195,9 +195,11 @@ if missing). Tracked project docs: this file, `docs/development/agent_debugging_
 1. **Re-record the GPU proof** after any `csrc/`/`tests/`/docs change (see *Testing and the GPU-proof gate*).
 2. **Paper protocol rerun with baselines: DONE 2026-10-03** (`docs/development/evidence/paper_rerun_2026-10-03/`,
    summarised in `docs/source/user_guide/benchmarks/results.rst` "Rerun on the current code"). cuRobo v2 is a
-   much stronger baseline than the paper's v0.7 (1.8–2.2 ms on collision scenes, faster than HJCD there and at
-   24 DoF). Open follow-ups: store the baselines' returned configurations so the collision column can be
-   re-scored under a solver-independent checker; HJCD accuracy is not monotone in B on the hard sets.
+   much stronger baseline than the paper's v0.7 and, once its collision spheres are active (the URDF-built robot
+   had none — a harness defect fixed in `486b547`), it matches HJCD on the hard collision sets at similar
+   latency. HJCD leads on open-world Panda latency (1.7 vs 6.4 ms), Fetch is cuRobo's, MMD is HJCD's.
+   `benchmark/score_collision_oracles.py` re-scores stored configurations under sphere and FCL-mesh oracles;
+   use it (not a single oracle) for any collision claim. Open: HJCD accuracy not monotone in B on hard sets.
 3. **Two collision-scene protocols (ruled 2026-10-03).** MotionBenchMaker goals are `panda_hand` poses (the
    dataset's `goal_ik` puts `panda_hand` on them; the TCP is 105 mm further out). The paper's Table II used the
    *cylinder-snapped* target with the TCP frame, which is physically consistent for cylinder-grasp scenes

@@ -5,6 +5,18 @@ Archival evidence for the full `scripts/bench/run_paper_experiments.sh` campaign
 signed correctness receipt. Numbers are from one quiet window on one machine; they are not the camera-ready
 paper's numbers (RTX 4060, CUDA 12.5, cuRobo v0.7) and should not be mixed with them.
 
+
+> **Correction, same day (afternoon).** The morning campaign's cuRobo Table II columns were produced by a cuRobo
+> robot built from our mesh-less `panda.urdf` via `RobotBuilder`, which has **no collision spheres**, so cuRobo's
+> "collision-free" IK was in fact unconstrained in every Table II row (both protocols). This affected the paper's
+> harness design as well, not cuRobo. Fixed in `486b547` (cuRobo's bundled, sphere-equipped `franka.yml` is
+> re-targeted to the requested frame); cuRobo's Table II passes were re-run (`results/collfree_*_curobo.csv`,
+> 121 s, quiet GPU) and every table below is regenerated from the corrected files. The superseded CSVs are kept in
+> `results_superseded_curobo_nospheres/`. A second bug fixed at the same time: the per-set table glob merged
+> `box_panda_flipped` into the `box_panda` dataset-protocol table (`a69cf2d`-era script); regenerated from
+> explicit file lists. PyRoki's collision-free path is plain IK with no obstacle term (as in the paper), so its
+> `cf` column is purely the oracle filtering its pose solutions.
+
 ## Machine and run
 
 RTX 5090 (sm_120), driver 615.71.09, nvcc 13.2.86, Python 3.12.3. Isolated clone with its own venv:
@@ -63,11 +75,11 @@ published Table II.
 
 | Batch | curobo Time(ms) | curobo Pos(mm) | curobo Ori(rad) | hjcdik Time(ms) | hjcdik Pos(mm) | hjcdik Ori(rad) | pyroki Time(ms) | pyroki Pos(mm) | pyroki Ori(rad) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 1.846 | 5.626e-05 | 6.361e-08 | 5.488 | 14.59 | 0.02032 | 3.326 | 499.4 | 0.3599 |
-| 10 | 1.853 | 5.626e-05 | 6.361e-08 | 2.118 | 2.571e-05 | 1.284e-08 | 5.742 | 1.402e-04 | 1.985e-07 |
-| 100 | 1.857 | 3.428e-05 | 4.297e-08 | 1.884 | 5.002e-06 | 2.627e-09 | 5.909 | 1.421e-04 | 2.093e-07 |
-| 1000 | 2.088 | 1.645e-05 | 3.431e-08 | 2.002 | 2.176e-05 | 1.249e-08 | 7.108 | 1.266e-04 | 1.935e-07 |
-| 2000 | 2.221 | 1.555e-05 | 3.302e-08 | 2.258 | 9.886e-06 | 5.345e-09 | 7.22 | 1.202e-04 | 2.033e-07 |
+| 1 | 9.079 | 0.3238 | 0.001226 | 5.488 | 14.59 | 0.02032 | 3.326 | 499.4 | 0.3599 |
+| 10 | 2.142 | 5.934e-05 | 6.582e-08 | 2.118 | 2.571e-05 | 1.284e-08 | 5.742 | 1.402e-04 | 1.985e-07 |
+| 100 | 2.143 | 3.790e-05 | 4.555e-08 | 1.884 | 5.002e-06 | 2.627e-09 | 5.909 | 1.421e-04 | 2.093e-07 |
+| 1000 | 2.342 | 1.742e-05 | 3.426e-08 | 2.002 | 2.176e-05 | 1.249e-08 | 7.108 | 1.266e-04 | 1.935e-07 |
+| 2000 | 2.472 | 1.615e-05 | 3.293e-08 | 2.258 | 9.886e-06 | 5.345e-09 | 7.22 | 1.202e-04 | 2.033e-07 |
 
 _solvers: curobo: n=100/batch, hjcdik: n=1/batch, pyroki: n=100/batch_
 
@@ -80,11 +92,11 @@ box goal is 38 cm from any cylinder). box_panda:
 
 | Batch | curobo Time(ms) | curobo Pos(mm) | curobo Ori(rad) | hjcdik Time(ms) | hjcdik Pos(mm) | hjcdik Ori(rad) | pyroki Time(ms) | pyroki Pos(mm) | pyroki Ori(rad) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 1.765 | 0.006069 | 3.129e-07 | 6.485 | 22.15 | 0.03437 | 3.363 | 522.7 | 0.2789 |
-| 10 | 1.835 | 0.006069 | 3.129e-07 | 2.427 | 5.263e-06 | 7.833e-10 | 5.851 | 0.4027 | 2.374e-04 |
-| 100 | 1.928 | 0.004938 | 1.628e-07 | 2.226 | 4.971e-06 | 7.924e-10 | 6.584 | 1.172e-04 | 1.943e-07 |
-| 1000 | 2.08 | 0.004717 | 4.048e-08 | 2.298 | 4.808e-06 | 7.800e-10 | 7.567 | 1.129e-04 | 1.963e-07 |
-| 2000 | 2.208 | 0.002101 | 1.451e-07 | 2.553 | 4.702e-06 | 8.112e-10 | 7.73 | 1.143e-04 | 1.831e-07 |
+| 1 | 8.549 | 0.1052 | 1.343e-04 | 6.485 | 22.15 | 0.03437 | 3.363 | 522.7 | 0.2789 |
+| 10 | 2.131 | 0.02121 | 1.208e-05 | 2.427 | 5.263e-06 | 7.833e-10 | 5.851 | 0.4027 | 2.374e-04 |
+| 100 | 2.203 | 0.004937 | 1.628e-07 | 2.226 | 4.971e-06 | 7.924e-10 | 6.584 | 1.172e-04 | 1.943e-07 |
+| 1000 | 2.377 | 0.004717 | 3.935e-08 | 2.298 | 4.808e-06 | 7.800e-10 | 7.567 | 1.129e-04 | 1.963e-07 |
+| 2000 | 2.513 | 0.002099 | 1.461e-07 | 2.553 | 4.702e-06 | 8.112e-10 | 7.73 | 1.143e-04 | 1.831e-07 |
 
 _solvers: curobo: n=100/batch, hjcdik: n=1/batch, pyroki: n=100/batch_
 
@@ -94,32 +106,33 @@ same thresholds and `strict` is <1 mm, <1e-3 rad; HJCD's `hard` filter returns o
 model deems collision-free, so its oracle column is 100 by construction (same geometry).
 
 ```
-Baselines, dataset protocol (panda_hand, goal_pose), 100 problems/set. succ = pose success (<5 mm, <0.05 rad); cf = oracle collision-free; both = succ AND cf; median ms
+Baselines, dataset protocol (panda_hand, goal_pose), 100 problems/set; cuRobo WITH its collision spheres (corrected 10-03 pm).
+succ = pose success (<5 mm, <0.05 rad); cf = hjcd sphere oracle on the returned configuration; both = succ AND cf; median ms
 set                          B |   cuRobo succ/cf/both%     ms |   PyRoki succ/cf/both%     ms
-bookshelf_small_panda      100 |     100/ 82/ 82 (n=100)   1.95 |     100/ 82/ 82 (n=100)   5.76 |
-bookshelf_small_panda     1000 |     100/ 85/ 85 (n=100)   2.10 |     100/ 82/ 82 (n=100)   6.88 |
-bookshelf_small_panda     2000 |     100/ 82/ 82 (n=100)   2.15 |     100/ 88/ 88 (n=100)   7.20 |
-bookshelf_tall_panda       100 |     100/ 98/ 98 (n=100)   1.98 |     100/ 97/ 97 (n=100)   5.66 |
-bookshelf_tall_panda      1000 |     100/ 97/ 97 (n=100)   2.14 |     100/ 95/ 95 (n=100)   6.77 |
-bookshelf_tall_panda      2000 |     100/ 97/ 97 (n=100)   2.26 |     100/ 98/ 98 (n=100)   6.89 |
-bookshelf_thin_panda       100 |     100/100/100 (n=100)   1.85 |     100/100/100 (n=100)   5.84 |
-bookshelf_thin_panda      1000 |     100/100/100 (n=100)   2.09 |     100/100/100 (n=100)   7.11 |
-bookshelf_thin_panda      2000 |     100/100/100 (n=100)   2.22 |     100/100/100 (n=100)   7.35 |
-box_panda                  100 |     100/ 99/ 99 (n=100)   1.93 |     100/100/100 (n=100)   6.56 |
-box_panda                 1000 |     100/ 99/ 99 (n=100)   2.08 |     100/100/100 (n=100)   7.54 |
-box_panda                 2000 |     100/ 99/ 99 (n=100)   2.20 |     100/ 98/ 98 (n=100)   7.67 |
-box_panda_flipped          100 |     100/ 99/ 99 (n=100)   1.93 |     100/100/100 (n=100)   6.13 |
-box_panda_flipped         1000 |     100/100/100 (n=100)   2.08 |     100/ 99/ 99 (n=100)   7.16 |
-box_panda_flipped         2000 |     100/100/100 (n=100)   2.21 |     100/ 99/ 99 (n=100)   7.61 |
-cage_panda                 100 |     100/ 78/ 78 (n=100)   1.97 |     100/ 92/ 92 (n=100)   6.59 |
-cage_panda                1000 |     100/ 83/ 83 (n=100)   2.11 |     100/ 86/ 86 (n=100)   7.28 |
-cage_panda                2000 |     100/ 79/ 79 (n=100)   2.17 |     100/ 83/ 83 (n=100)   7.16 |
-table_pick_panda           100 |     100/ 40/ 40 (n=100)   1.98 |     100/ 49/ 49 (n=100)   5.53 |
-table_pick_panda          1000 |     100/ 41/ 41 (n=100)   2.06 |     100/ 43/ 43 (n=100)   6.74 |
-table_pick_panda          2000 |     100/ 37/ 37 (n=100)   2.18 |     100/ 45/ 45 (n=100)   6.86 |
-table_under_pick_panda     100 |     100/ 43/ 43 (n=100)   1.88 |     100/ 44/ 44 (n=100)   5.82 |
-table_under_pick_panda    1000 |     100/ 46/ 46 (n=100)   2.12 |     100/ 40/ 40 (n=100)   7.06 |
-table_under_pick_panda    2000 |     100/ 45/ 45 (n=100)   2.25 |     100/ 41/ 41 (n=100)   7.13 |
+bookshelf_small_panda      100 |     100/ 96/ 96 (n=100)   2.18 |     100/ 82/ 82 (n=100)   5.76 |
+bookshelf_small_panda     1000 |     100/ 94/ 94 (n=100)   2.29 |     100/ 82/ 82 (n=100)   6.88 |
+bookshelf_small_panda     2000 |     100/ 96/ 96 (n=100)   2.42 |     100/ 88/ 88 (n=100)   7.20 |
+bookshelf_tall_panda       100 |     100/ 99/ 99 (n=100)   2.19 |     100/ 97/ 97 (n=100)   5.66 |
+bookshelf_tall_panda      1000 |     100/ 98/ 98 (n=100)   2.29 |     100/ 95/ 95 (n=100)   6.77 |
+bookshelf_tall_panda      2000 |     100/ 99/ 99 (n=100)   2.42 |     100/ 98/ 98 (n=100)   6.89 |
+bookshelf_thin_panda       100 |     100/100/100 (n=100)   2.16 |     100/100/100 (n=100)   5.84 |
+bookshelf_thin_panda      1000 |     100/100/100 (n=100)   2.39 |     100/100/100 (n=100)   7.11 |
+bookshelf_thin_panda      2000 |     100/100/100 (n=100)   2.53 |     100/100/100 (n=100)   7.35 |
+box_panda                  100 |     100/100/100 (n=100)   2.20 |     100/100/100 (n=100)   6.56 |
+box_panda                 1000 |     100/100/100 (n=100)   2.37 |     100/100/100 (n=100)   7.54 |
+box_panda                 2000 |     100/100/100 (n=100)   2.51 |     100/ 98/ 98 (n=100)   7.67 |
+box_panda_flipped          100 |     100/100/100 (n=100)   2.23 |     100/100/100 (n=100)   6.13 |
+box_panda_flipped         1000 |     100/100/100 (n=100)   2.35 |     100/ 99/ 99 (n=100)   7.16 |
+box_panda_flipped         2000 |     100/100/100 (n=100)   2.47 |     100/ 99/ 99 (n=100)   7.61 |
+cage_panda                 100 |     100/ 99/ 99 (n=100)   2.15 |     100/ 92/ 92 (n=100)   6.59 |
+cage_panda                1000 |     100/100/100 (n=100)   2.33 |     100/ 86/ 86 (n=100)   7.28 |
+cage_panda                2000 |     100/ 99/ 99 (n=100)   2.46 |     100/ 83/ 83 (n=100)   7.16 |
+table_pick_panda           100 |     100/ 97/ 97 (n=100)   2.12 |     100/ 49/ 49 (n=100)   5.53 |
+table_pick_panda          1000 |     100/ 94/ 94 (n=100)   2.30 |     100/ 43/ 43 (n=100)   6.74 |
+table_pick_panda          2000 |     100/ 93/ 93 (n=100)   2.43 |     100/ 45/ 45 (n=100)   6.86 |
+table_under_pick_panda     100 |     100/ 91/ 91 (n=100)   2.11 |     100/ 44/ 44 (n=100)   5.82 |
+table_under_pick_panda    1000 |     100/ 89/ 89 (n=100)   2.29 |     100/ 40/ 40 (n=100)   7.06 |
+table_under_pick_panda    2000 |     100/ 90/ 90 (n=100)   2.42 |     100/ 41/ 41 (n=100)   7.13 |
 ```
 
 ```
@@ -172,35 +185,103 @@ table_under_pick_panda    2000        95       90          100      2.45
 
 _canonical IMQ MMD (beta=0.5, scales=0.2,0.5,1,2,5), per-pose then averaged; n_targets per solver: hjcdik=100, pyroki=100, curobo=100, ikflow=100_
 
+## Multi-oracle collision study (`oracle_study/`)
+
+Every solver's returned configuration (dataset protocol, B = 100 and 2000, 100 problems per set, 4800
+configurations) was stored (`--configs-out` / `--configs_out`, added `3490d28`) and re-scored offline with
+`benchmark/score_collision_oracles.py` under three judges: the `hjcd` spheres HJCD compiles, the paper's 65 mm
+`paper` spheres, and the `panda_description` collision **meshes** checked with FCL (fingers open, penetration
+tolerance 1 mm and 5 mm). `cf` means pose reached AND the oracle agrees the configuration is clear.
+
+## Pose-success AND collision-free (%), per oracle
+
+| set | solver | B | n | pose ok | pose & hjcd | pose & paper | pose & mesh<=1mm | pose & mesh<=5mm | all oracles |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| bookshelf_small_panda | curobo | 100 | 100 | 100 | 96 | 96 | 94 | 94 | 93 |
+| bookshelf_small_panda | curobo | 2000 | 100 | 100 | 96 | 96 | 93 | 93 | 91 |
+| bookshelf_small_panda | hjcdik | 100 | 100 | 98 | 98 | 98 | 92 | 93 | 92 |
+| bookshelf_small_panda | hjcdik | 2000 | 100 | 100 | 100 | 100 | 94 | 94 | 94 |
+| bookshelf_small_panda | pyroki | 100 | 100 | 100 | 82 | 82 | 83 | 83 | 82 |
+| bookshelf_small_panda | pyroki | 2000 | 100 | 100 | 88 | 88 | 89 | 90 | 87 |
+| bookshelf_tall_panda | curobo | 100 | 100 | 100 | 99 | 99 | 97 | 97 | 97 |
+| bookshelf_tall_panda | curobo | 2000 | 100 | 100 | 99 | 99 | 98 | 99 | 98 |
+| bookshelf_tall_panda | hjcdik | 100 | 100 | 100 | 100 | 100 | 98 | 99 | 98 |
+| bookshelf_tall_panda | hjcdik | 2000 | 100 | 100 | 100 | 100 | 98 | 99 | 98 |
+| bookshelf_tall_panda | pyroki | 100 | 100 | 100 | 97 | 97 | 97 | 97 | 97 |
+| bookshelf_tall_panda | pyroki | 2000 | 100 | 100 | 98 | 98 | 98 | 99 | 98 |
+| bookshelf_thin_panda | curobo | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| bookshelf_thin_panda | curobo | 2000 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| bookshelf_thin_panda | hjcdik | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| bookshelf_thin_panda | hjcdik | 2000 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| bookshelf_thin_panda | pyroki | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| bookshelf_thin_panda | pyroki | 2000 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| box_panda | curobo | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| box_panda | curobo | 2000 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| box_panda | hjcdik | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| box_panda | hjcdik | 2000 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| box_panda | pyroki | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| box_panda | pyroki | 2000 | 100 | 100 | 98 | 98 | 98 | 99 | 98 |
+| box_panda_flipped | curobo | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| box_panda_flipped | curobo | 2000 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| box_panda_flipped | hjcdik | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| box_panda_flipped | hjcdik | 2000 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| box_panda_flipped | pyroki | 100 | 100 | 100 | 100 | 100 | 100 | 100 | 100 |
+| box_panda_flipped | pyroki | 2000 | 100 | 100 | 99 | 99 | 100 | 100 | 99 |
+| cage_panda | curobo | 100 | 100 | 100 | 99 | 99 | 83 | 90 | 83 |
+| cage_panda | curobo | 2000 | 100 | 100 | 99 | 99 | 74 | 83 | 74 |
+| cage_panda | hjcdik | 100 | 100 | 99 | 99 | 99 | 82 | 88 | 82 |
+| cage_panda | hjcdik | 2000 | 100 | 97 | 97 | 97 | 77 | 84 | 77 |
+| cage_panda | pyroki | 100 | 100 | 100 | 92 | 92 | 84 | 87 | 84 |
+| cage_panda | pyroki | 2000 | 100 | 100 | 83 | 83 | 73 | 77 | 73 |
+| table_pick_panda | curobo | 100 | 100 | 100 | 97 | 97 | 95 | 96 | 93 |
+| table_pick_panda | curobo | 2000 | 100 | 100 | 93 | 93 | 95 | 97 | 90 |
+| table_pick_panda | hjcdik | 100 | 100 | 92 | 92 | 92 | 89 | 89 | 89 |
+| table_pick_panda | hjcdik | 2000 | 100 | 95 | 95 | 95 | 90 | 93 | 90 |
+| table_pick_panda | pyroki | 100 | 100 | 100 | 50 | 50 | 50 | 54 | 48 |
+| table_pick_panda | pyroki | 2000 | 100 | 100 | 43 | 43 | 44 | 46 | 42 |
+| table_under_pick_panda | curobo | 100 | 100 | 100 | 91 | 91 | 95 | 95 | 87 |
+| table_under_pick_panda | curobo | 2000 | 100 | 100 | 90 | 90 | 94 | 97 | 86 |
+| table_under_pick_panda | hjcdik | 100 | 100 | 98 | 98 | 98 | 97 | 97 | 97 |
+| table_under_pick_panda | hjcdik | 2000 | 100 | 95 | 95 | 95 | 95 | 95 | 95 |
+| table_under_pick_panda | pyroki | 100 | 100 | 100 | 44 | 44 | 45 | 49 | 43 |
+| table_under_pick_panda | pyroki | 2000 | 100 | 100 | 39 | 39 | 40 | 43 | 38 |
+
+_pose ok = pos < 5 mm and ori < 0.05 rad on the solver's own report; oracles ignore the base link, check environment obstacles only, touching permitted; `all oracles` = every column agrees free._
+
+Takeaways: the two sphere models agree to the problem; the mesh oracle is stricter in the cage (HJCD 97 -> 77,
+cuRobo 99 -> 74: the hand's spheres under-cover the meshes against the bars) and marginally more lenient under
+the table. With collision spheres active, cuRobo and HJCD are within a few points of each other on every set
+under every oracle; PyRoki (unconstrained IK) is the outlier on the table sets. `curobo_nospheres.jsonl` is the
+superseded unconstrained collection for reference.
+
 ## Reading the results
 
 - HJCD reproduces its own numbers: Panda open-world 1.67–1.75 ms (B=100–2000), Fetch 0.82–0.95 ms,
-  box collision-free 1.9–2.3 ms, lowest MMD. B=1 rows are single-candidate solves: 5/100 Panda targets miss
+  box collision-free 1.9–2.6 ms, lowest MMD. B=1 rows are single-candidate solves: 5/100 Panda targets miss
   entirely, which is what makes the B=1 mean 2.8 mm; at B>=10 all 100 are sub-micron.
-- **cuRobo v2 is a far stronger baseline than the v0.7 in the paper**: 1.8–2.2 ms on every collision scene and
-  on Fetch (faster than HJCD there), 6–8.5 ms on Panda open-world via the bundled `franka.yml`, and faster
-  than HJCD at 24 DoF (2.68 vs 2.99 ms). Its pose accuracy is 1e-5–1e-2 mm.
-- PyRoki: 5–7.7 ms, sub-0.1 mm from B>=100 (needs B>=10 to converge). IKFlow: 2.6–6.2 ms with mm-level error.
-- Hard sets: HJCD keeps 90–100% accurate-and-collision-free; cuRobo/PyRoki reach the pose 100% but their
-  returned configurations pass the shared oracle only 37–49% on `table_pick` / `table_under_pick` and
-  78–92% on `cage`. HJCD's accuracy is not monotone in B on the hard sets (cage 99/90/97 at B=100/1000/2000):
-  run-to-run non-determinism plus the hard filter's interaction with candidate ranking — an open item.
+- **cuRobo v2 is a far stronger baseline than the v0.7 in the paper**: with collision spheres 2.1–2.5 ms on the
+  collision scenes (HJCD 1.9–2.6 ms), 1.8–2.2 ms on Fetch (faster than HJCD), 6–8.5 ms on Panda open-world via
+  the bundled `franka.yml`, and faster than HJCD at 24 DoF (2.68 vs 2.99 ms). Pose accuracy 1e-5–1e-2 mm.
+- PyRoki: 5–7.7 ms, sub-0.1 mm from B>=100. IKFlow: 2.6–6.2 ms with mm-level error.
+- Hard sets (success = pose AND collision-free): HJCD 94–100% and cuRobo 90–100% under the sphere oracles,
+  within a few points of each other on every set; under the mesh oracle both drop in the cage (77 / 74).
+  PyRoki, which has no obstacle term, is 39–49% on the table sets. HJCD's accuracy is not monotone in B on the
+  hard sets (cage 99/90/97 at B=100/1000/2000) — an open item.
 
 ## Caveats
 
-1. **The collision oracle is HJCD's geometry.** `hjcd` spheres are what HJCD filters with, so its 100% is a
-   tautology, and part of the baselines' oracle failures on the table sets may be grazing contacts that their
-   own collision models accept. The dataset's own `goal_ik` solutions pass this oracle 99%, so it is not
-   unreasonable, but the comparison would be fairer with a solver-independent checker (mesh-based, or at least
-   both the `hjcd` and the paper's 65 mm `paper` models) applied to *stored* returned configurations. The
-   harness does not store the baselines' returned q; add that before drawing conclusions from `cf`.
-2. Timing is per-call wall time including each library's host overhead, as in the paper.
-3. The paper-protocol row keeps PyRoki's 1.6 mm TCP mismatch; the dataset protocol has none.
-4. One machine, one window, 100 targets/problems; no confidence intervals.
+1. The sphere oracles are not independent of HJCD (it filters with the `hjcd` model), so its 100% there is by
+   construction; the mesh oracle is the independent judge and it is the one that lowers HJCD in the cage.
+2. PyRoki's collision column measures unconstrained IK filtered by the oracle, not a collision-aware solver.
+3. Timing is per-call wall time including each library's host overhead, as in the paper.
+4. The paper-protocol row keeps PyRoki's 1.6 mm TCP mismatch; the dataset protocol has none.
+5. One machine, one window, 100 targets/problems; no confidence intervals.
 
 ## Files
 
 `results/`: per-solver CSVs (`open_*`, `fetch_open_*`, `collfree_paper_*`, `collfree_hand_<set>_*`,
 `dof<N>_*`), merged tables (`table_*.md`, `table4_mmd.md`), Pareto plots, `*.metadata.json` sidecars,
-`run.log` (NUL bytes stripped), `monitor.log`, and the two per-set summaries. `dry_runs/`: the aborted first
+`run.log` (NUL bytes stripped), `monitor.log`, and the two per-set summaries. `oracle_study/`: configuration dumps,
+the multi-oracle table and the collection script. `results_superseded_curobo_nospheres/`: the morning's
+unconstrained cuRobo Table II files and the re-run logs. `dry_runs/`: the aborted first
 attempt, the 3-target functional dry run, and the baseline installer log. `run_paper_full.sh`: the runner.

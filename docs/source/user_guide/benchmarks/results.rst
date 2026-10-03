@@ -537,64 +537,108 @@ Collision-free, ``box_panda``, both protocols (time ms / position error mm at B 
      - PyRoki
    * - Paper (TCP, cylinder-snapped target)
      - 2.26 / 9.9e-6
-     - 2.22 / 1.6e-5
+     - 2.47 / 1.6e-5
      - 7.22 / 1.2e-4
    * - Dataset (``panda_hand``, goal as posed)
      - 2.55 / 4.7e-6
-     - 2.21 / 2.1e-3
+     - 2.51 / 2.1e-3
      - 7.73 / 1.1e-4
 
 **The harder sets (new; dataset protocol, B = 2000, 100 problems each).** Success means the returned
-configuration both reaches the pose (< 5 mm, < 0.05 rad) *and* passes the shared collision oracle.
+configuration both reaches the pose (< 5 mm, < 0.05 rad) *and* is collision-free. Two judges are shown:
+the shared sphere oracle (HJCD-IK's own URDF-derived model) and an independent **mesh** oracle (the
+``panda_description`` collision meshes checked with FCL, 1 mm touch tolerance). cuRobo v2 runs with its
+collision spheres and the scene; PyRoki's path is plain IK with no obstacle term, so its column is the
+oracle filtering unconstrained solutions.
 
 .. list-table::
-   :header-rows: 1
+   :header-rows: 2
    :stub-columns: 1
 
    * - Set
      - HJCD-IK
+     -
      - cuRobo v2
+     -
      - PyRoki
+     -
+   * -
+     - spheres
+     - mesh
+     - spheres
+     - mesh
+     - spheres
+     - mesh
    * - bookshelf_small
      - **100**
-     - 82
+     - **94**
+     - 96
+     - 93
      - 88
+     - 89
    * - bookshelf_tall
      - **100**
-     - 97
+     - 98
+     - 99
+     - 98
+     - 98
      - 98
    * - bookshelf_thin
      - **100**
      - **100**
      - **100**
+     - **100**
+     - **100**
+     - **100**
    * - box
      - **100**
-     - 99
+     - **100**
+     - **100**
+     - **100**
+     - 98
      - 98
    * - box_flipped
      - **100**
      - **100**
+     - **100**
+     - **100**
      - 99
+     - **100**
    * - cage
-     - **97**
-     - 79
+     - 97
+     - **77**
+     - **99**
+     - 74
      - 83
+     - 73
    * - table_pick
-     - **94**
-     - 37
-     - 45
-   * - table_under_pick
+     - **95**
+     - 90
+     - 93
      - **95**
      - 45
+     - 44
+   * - table_under_pick
+     - **95**
+     - **95**
+     - 90
+     - 94
      - 41
+     - 40
 
-HJCD-IK's remaining misses on the hard sets are reachable (they solve at B = 16000); making the solver find
-them at B = 2000 — e.g. an informed second round seeded by the collision outcome of the first — is future
-work. Two caveats apply to this table: cuRobo and PyRoki reach the pose on 100% of problems, so their
-shortfall is entirely collision judgements, and the oracle geometry is the same sphere model HJCD-IK filters
-with, so some of their failures may be grazing contacts their own collision models accept (the dataset's own
-solutions pass this oracle 99% of the time). The per-set tables and the full logs are in the evidence
-directory.
+With both solvers collision-constrained, HJCD-IK and cuRobo v2 are within a few points of each other on
+every set under either judge, at similar latency (2.3–2.6 ms vs 2.4–2.5 ms); the mesh oracle lowers both in
+the cage, where the hand's sphere models under-cover the meshes against the bars. HJCD-IK's remaining misses
+are reachable (they solve at B = 16000); finding them at B = 2000 — e.g. an informed second round seeded by
+the collision outcome of the first — is future work. The full per-set and per-oracle tables, the stored
+configurations and the scoring script (``benchmark/score_collision_oracles.py``) are in the evidence directory.
+
+.. note::
+
+   An earlier version of this section (same day) showed cuRobo at 37–45% on the table sets. That was a
+   harness defect, not cuRobo: the robot built from our mesh-less URDF carried no collision spheres, so
+   cuRobo's collision-free IK was unconstrained. The numbers above use cuRobo's bundled, sphere-equipped
+   Panda re-targeted to the evaluation frame.
 
 Reproducing these results
 -------------------------
