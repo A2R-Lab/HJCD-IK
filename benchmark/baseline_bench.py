@@ -809,7 +809,7 @@ def make_curobo_solver_from_world_dict(
 
 def make_curobo_solver_from_urdf(urdf_path, base_link, ee_link, *, high_precision, use_cuda_graph, num_seeds):
     """Open-world cuRobo v2 IK solver from an arbitrary URDF (Fetch + the DoF variants for Table III).
-    Builds a robot config via RobotBuilder rooted at base_link, no collisions."""
+    Builds a robot config via RobotBuilder rooted at base_link, no collisions (Panda -> bundled config)."""
     robot_yml = _curobo_robot_yml_from_urdf(urdf_path, base_link, ee_link)
     return _build_ik_solver(
         robot_yml, scene=None, num_seeds=num_seeds,
@@ -819,10 +819,55 @@ def make_curobo_solver_from_urdf(urdf_path, base_link, ee_link, *, high_precisio
 
 _URDF_ROBOT_CACHE = {}
 
+def _curobo_panda_with_tool(ee_link):
+    """cuRobo's bundled Panda (`franka.yml`, WITH its collision spheres) re-targeted to `ee_link`.
+
+    `RobotBuilder` on our mesh-less `csrc/urdf/panda.urdf` yields a robot with NO collision spheres, which
+    silently turns cuRobo's collision-free IK into unconstrained IK (found 2026-10-03). The bundled config has
+    the spheres and its tool frame is exactly our `panda_hand`; for any other frame we append a fixed frame
+    with the offset read from our URDF to a copy of the bundled URDF and point a copy of the config at it."""
+    if ee_link == "panda_hand":
+        return "franka.yml"
+    import yaml
+    from curobo.util_file import get_assets_path, get_robot_configs_path, join_path, load_yaml
+    cfg = load_yaml(join_path(get_robot_configs_path(), "franka.yml"))
+    kin = cfg["robot_cfg"]["kinematics"]
+    # offset of the requested frame relative to panda_hand, from OUR URDF (e.g. panda_grasptarget: 0.105 m)
+    ours = ET.parse(str(Path(__file__).resolve().parents[1] / "csrc" / "urdf" / "panda.urdf")).getroot()
+    origin = None
+    for j in ours.findall("joint"):
+        if j.find("child").get("link") == ee_link and j.find("parent").get("link") == "panda_hand":
+            origin = j.find("origin")
+    if origin is None:
+        raise ValueError(f"{ee_link} is not a fixed child of panda_hand in csrc/urdf/panda.urdf")
+    src_urdf = join_path(get_assets_path(), kin["urdf_path"])
+    tree = ET.parse(src_urdf); root = tree.getroot()
+    link = ET.SubElement(root, "link", name=ee_link)
+    joint = ET.SubElement(root, "joint", name=f"{ee_link}_fixed_joint", type="fixed")
+    ET.SubElement(joint, "parent", link="panda_hand"); ET.SubElement(joint, "child", link=ee_link)
+    ET.SubElement(joint, "origin", xyz=origin.get("xyz", "0 0 0"), rpy=origin.get("rpy", "0 0 0"))
+    out_urdf = os.path.join(tempfile.gettempdir(), f"curobo_franka_{ee_link}.urdf")
+    tree.write(out_urdf)
+    kin["urdf_path"] = out_urdf
+    kin["ee_link"] = ee_link
+    kin["tool_frames"] = [ee_link]
+    if ee_link not in kin.get("link_names", []):
+        kin.setdefault("link_names", []).append(ee_link)
+    out_yml = os.path.join(tempfile.gettempdir(), f"curobo_franka_{ee_link}.yml")
+    with open(out_yml, "w") as f:
+        yaml.safe_dump(cfg, f)
+    return out_yml
+
+
 def _curobo_robot_yml_from_urdf(urdf_path, base_link, ee_link):
-    """Build (once, cached) a cuRobo v2 robot config .yml from a URDF + base/ee links; return its path."""
+    """Build (once, cached) a cuRobo v2 robot config .yml from a URDF + base/ee links; return its path.
+    For our Panda URDF this returns the bundled, sphere-equipped Franka config instead (see
+    `_curobo_panda_with_tool`): RobotBuilder cannot fit spheres to a URDF whose meshes are not on disk."""
     key = (os.path.abspath(urdf_path), base_link, ee_link)
     if key in _URDF_ROBOT_CACHE:
+        return _URDF_ROBOT_CACHE[key]
+    if os.path.basename(urdf_path) == "panda.urdf":
+        _URDF_ROBOT_CACHE[key] = _curobo_panda_with_tool(ee_link)
         return _URDF_ROBOT_CACHE[key]
     sub = _subtree_urdf(urdf_path, base_link)
     builder = RobotBuilder(urdf_path=os.path.abspath(sub), tool_frames=[ee_link])
