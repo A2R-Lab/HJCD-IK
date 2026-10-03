@@ -505,13 +505,13 @@ def main() -> None:
             pos_err = res["pos_errors"]
             ori_err = res["ori_errors"]
             if args.configs_out and args.collision_free and count > 0:
-                best = int(np.argmin(np.asarray(pos_err, dtype=float)))
+                pe_list = [float(v) for v in pos_err]
+                best = min(range(len(pe_list)), key=pe_list.__getitem__)
                 with open(args.configs_out, "a", encoding="utf-8") as cf_stream:
                     cf_stream.write(json.dumps({
                         "solver": args.solver, "problem_set": args.problem_set, "problem_idx": int(eff_pidx),
-                        "batch": int(B), "q": [float(v) for v in np.asarray(res["joint_config"])[best]],
-                        "pos_err_mm": float(np.asarray(pos_err, dtype=float)[best]),
-                        "ori_err_rad": float(np.asarray(ori_err, dtype=float)[best])}) + "\n")
+                        "batch": int(B), "q": [float(v) for v in res["joint_config"][best]],
+                        "pos_err_mm": pe_list[best], "ori_err_rad": float(ori_err[best])}) + "\n")
 
             # Post-hoc collision-free validation of HJCD's OWN returned q against the shared sphere model
             # (computed AFTER dt_ms is captured, so it never enters the timed region). Panda only: gated on
