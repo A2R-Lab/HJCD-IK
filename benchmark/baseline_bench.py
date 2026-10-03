@@ -850,8 +850,6 @@ def _curobo_panda_with_tool(ee_link):
     tree.write(out_urdf)
     kin["urdf_path"] = out_urdf
     kin["tool_frames"] = [ee_link]
-    if ee_link not in kin.get("link_names", []):
-        kin.setdefault("link_names", []).append(ee_link)
     out_yml = os.path.join(tempfile.gettempdir(), f"curobo_franka_{ee_link}.yml")
     with open(out_yml, "w") as f:
         yaml.safe_dump(cfg, f)
