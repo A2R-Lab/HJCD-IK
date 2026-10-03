@@ -576,7 +576,7 @@ def eval_one_mb_instance(robot_file: str, inst: dict, batched_ik_fn, batched_fk_
     q_torch = torch.from_numpy(np.array(sol_jax)).to("cuda")
     collision_free = _collision_free_or_unknown(robot_file, world_dict, q_torch)
 
-    return dt_ms, pos_err, ori_err, pose_success, collision_free
+    return dt_ms, pos_err, ori_err, pose_success, collision_free, np.asarray(sol_jax).reshape(-1)
 
 def print_one_solution(robot_file: str, inst: dict, batched_ik_fn, idx: int):
     world_dict = mb_instance_to_world_dict(inst)
@@ -933,6 +933,9 @@ if __name__ == "__main__":
                         help="Collision-scene target: 'goal' = MotionBenchMaker goal_pose as posed (panda_hand frame; "
                              "default), 'cylinder' = paper Table II protocol (xy of the closest cylinder; pair with the "
                              "TCP frame). Scenes without cylinders always use goal.")
+    parser.add_argument("--configs_out", type=str, default="",
+                        help="Collision-free mode: append one JSON line per (problem, seed count) with the returned "
+                             "configuration, for offline re-scoring under other collision oracles.")
     parser.add_argument("--collision-validation-model", choices=("paper", "hjcd"), default="hjcd",
                         help="Sphere geometry of the shared collision oracle for the collision_free column "
                              "(hjcd = URDF-derived 40 mm fingers, paper = historical 65 mm).")
@@ -1051,6 +1054,15 @@ if __name__ == "__main__":
         # ---- collision-free: per-instance targets from mb_problems.json ----
         instances = load_mb_problem_set(MB_JSON_PATH, args.problem_set)[:args.num_instances]
 
+        def dump_config(solver_name, idx, seeds, q, pos_err_mm, ori_err_rad):
+            if not args.configs_out:
+                return
+            q = np.asarray(q.detach().cpu().numpy() if hasattr(q, "detach") else q, dtype=float).reshape(-1)
+            with open(args.configs_out, "a", encoding="utf-8") as stream:
+                stream.write(json.dumps({"solver": solver_name, "problem_set": args.problem_set, "problem_idx": int(idx),
+                                         "batch": int(seeds), "q": q.tolist(), "pos_err_mm": float(pos_err_mm),
+                                         "ori_err_rad": float(ori_err_rad)}) + "\n")
+
         if args.mode == "curobo":
             # FAIR cuRobo collision timing: build the solver ONCE per seed count (mirroring cuRobo's own
             # benchmark/ik_benchmark.py) and swap the obstacle scene per instance via update_world(), which
@@ -1080,6 +1092,8 @@ if __name__ == "__main__":
                     record_row(problem_idx=idx, num_seeds=num_seeds, solver_name="curobo",
                                time_ms=dt_s * 1000.0, pos_err_mm=pos98 * 1000.0, ori_err_rad=ori98,
                                succ_pct=succ_pct, collision_free=cs)
+                    if len(sols):
+                        dump_config("curobo", idx, num_seeds, sols[0], pos98 * 1000.0, ori98)
                     if args.print_idx == idx:
                         print("\n==== cuRobo single-solution dump ====")
                         print(f"problem_idx: {idx}")
@@ -1114,10 +1128,11 @@ if __name__ == "__main__":
                         raise ValueError(f"--print_idx {args.print_idx} out of range (0..{len(instances)-1})")
                     print_one_solution(robot_file, instances[args.print_idx], batched_ik_fn, args.print_idx)
                 for idx, inst in enumerate(instances):
-                    dt_ms, pe, oe, ps, cs = eval_one_mb_instance(robot_file, inst, batched_ik_fn, batched_fk_fn=mb_fk)
+                    dt_ms, pe, oe, ps, cs, q_best = eval_one_mb_instance(robot_file, inst, batched_ik_fn, batched_fk_fn=mb_fk)
                     record_row(problem_idx=idx, num_seeds=num_seeds_init, solver_name="pyroki",
                                time_ms=dt_ms, pos_err_mm=pe * 1000.0, ori_err_rad=oe,
                                succ_pct=100.0 if ps else 0.0, collision_free=cs)
+                    dump_config("pyroki", idx, num_seeds_init, q_best, pe * 1000.0, oe)
 
     else:
         # ---- non-collision-free: shared goal dataset (file or FK-sampled) ----

@@ -323,6 +323,9 @@ def main() -> None:
     ap.add_argument("--filtered-targets", type=str, default="",help="JSON of explicit targets; xyz is used for association.")
     ap.add_argument("--max-targets", type=int, default=0,help="If >0, cap number of loaded targets (quick tests).")
 
+    ap.add_argument("--configs-out", type=str, default="",
+                    help="Collision-free mode: append one JSON line per (problem, batch) with the returned best "
+                         "configuration, for offline re-scoring under other collision oracles (benchmark/score_collision_oracles.py).")
     ap.add_argument("--csv-out", type=str, default="",help="If set, write a CSV summary with columns: solver,Batch-Size,time_ms,pos_err_mm,ori_err_rad")
     ap.add_argument("--solver", type=str, default="hjcdik",help="Solver name to emit in CSV (default: hjcdik).")
     
@@ -501,6 +504,14 @@ def main() -> None:
             count = int(res.get("count", S))
             pos_err = res["pos_errors"]
             ori_err = res["ori_errors"]
+            if args.configs_out and args.collision_free and count > 0:
+                best = int(np.argmin(np.asarray(pos_err, dtype=float)))
+                with open(args.configs_out, "a", encoding="utf-8") as cf_stream:
+                    cf_stream.write(json.dumps({
+                        "solver": args.solver, "problem_set": args.problem_set, "problem_idx": int(eff_pidx),
+                        "batch": int(B), "q": [float(v) for v in np.asarray(res["joint_config"])[best]],
+                        "pos_err_mm": float(np.asarray(pos_err, dtype=float)[best]),
+                        "ori_err_rad": float(np.asarray(ori_err, dtype=float)[best])}) + "\n")
 
             # Post-hoc collision-free validation of HJCD's OWN returned q against the shared sphere model
             # (computed AFTER dt_ms is captured, so it never enters the timed region). Panda only: gated on
