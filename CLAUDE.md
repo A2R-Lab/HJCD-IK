@@ -238,7 +238,11 @@ if missing). Tracked project docs: this file, `docs/development/agent_debugging_
    the accurate-rate over 64 problems was 47/64 (cage 0/8); at `panda_hand` it is 60/64 and the remaining
    misses are found at B=16000. Robustness work (informed second round, collision-aware refinement) is future
    work alongside floating-base support.
-4. **Upstream candidates:** grasptarget-offset FK (`ee_fk_warp`/`ee_fk_thread`/`ee_fk_suffix_thread`) and the
+4. **Upstream the collision primitives/models to GRiD (+ two tiny GLASS helpers) after the timing gate** — spec in
+   `docs/development/upstream_asks_collision_2026-10.md` (G1 expose sphere tables, G2 warp-scoped `config_free`, G3
+   broad→fine cascade, G4 parallel block path, G5 bounded-bulge spherizer + fidelity report, G6 named Panda presets);
+   HJCD then drops its sidecar + `warp_config_free`. Ruled by the user 2026-10-04.
+5. **Upstream candidates (older):** grasptarget-offset FK (`ee_fk_warp`/`ee_fk_thread`/`ee_fk_suffix_thread`) and the
    batched pose-7 FK kernel → GRiD; the warp dogleg step and a `gn_step` variant that exposes diag(A)/g → GLASS.
-5. **Branched-chain support** in `ee_fk_suffix_thread` (needs the parent table; the GRiD primitive is general).
-6. **Self-hosted GPU runner** so `.github/workflows/test.yml` can leave manual-only mode.
+6. **Branched-chain support** in `ee_fk_suffix_thread` (needs the parent table; the GRiD primitive is general).
+7. **Self-hosted GPU runner** so `.github/workflows/test.yml` can leave manual-only mode.
