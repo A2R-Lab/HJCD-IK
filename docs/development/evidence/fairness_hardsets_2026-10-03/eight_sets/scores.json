@@ -69,33 +69,67 @@
  },
  {
   "problem_set": "bookshelf_small_panda",
-  "solver": "hjcdik_cusph",
+  "solver": "hjcdik_ccstop",
   "batch": 100,
   "n": 100,
   "pose_ok": 98,
   "pose_and_free": {
-   "hjcd": 95,
-   "paper": 95,
-   "curobo": 98,
-   "hull<=1mm": 91,
-   "hull<=5mm": 93,
-   "visual<=1mm": 97,
+   "hjcd": 98,
+   "paper": 98,
+   "curobo": 97,
+   "hull<=1mm": 93,
+   "hull<=5mm": 94,
+   "visual<=1mm": 98,
    "visual<=5mm": 98
   },
-  "all_oracles": 89
+  "all_oracles": 92
  },
  {
   "problem_set": "bookshelf_small_panda",
-  "solver": "hjcdik_cusph",
+  "solver": "hjcdik_ccstop",
   "batch": 2000,
   "n": 100,
   "pose_ok": 100,
   "pose_and_free": {
-   "hjcd": 97,
-   "paper": 97,
+   "hjcd": 100,
+   "paper": 100,
    "curobo": 100,
-   "hull<=1mm": 97,
-   "hull<=5mm": 97,
+   "hull<=1mm": 95,
+   "hull<=5mm": 95,
+   "visual<=1mm": 100,
+   "visual<=5mm": 100
+  },
+  "all_oracles": 95
+ },
+ {
+  "problem_set": "bookshelf_small_panda",
+  "solver": "hjcdik_cusph_ccstop",
+  "batch": 100,
+  "n": 100,
+  "pose_ok": 99,
+  "pose_and_free": {
+   "hjcd": 94,
+   "paper": 94,
+   "curobo": 99,
+   "hull<=1mm": 92,
+   "hull<=5mm": 94,
+   "visual<=1mm": 98,
+   "visual<=5mm": 99
+  },
+  "all_oracles": 90
+ },
+ {
+  "problem_set": "bookshelf_small_panda",
+  "solver": "hjcdik_cusph_ccstop",
+  "batch": 2000,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 99,
+   "paper": 99,
+   "curobo": 100,
+   "hull<=1mm": 95,
+   "hull<=5mm": 95,
    "visual<=1mm": 100,
    "visual<=5mm": 100
   },
@@ -205,8 +239,25 @@
  },
  {
   "problem_set": "bookshelf_tall_panda",
-  "solver": "hjcdik_cusph",
+  "solver": "hjcdik_ccstop",
   "batch": 100,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "hull<=1mm": 97,
+   "hull<=5mm": 98,
+   "visual<=1mm": 100,
+   "visual<=5mm": 100
+  },
+  "all_oracles": 97
+ },
+ {
+  "problem_set": "bookshelf_tall_panda",
+  "solver": "hjcdik_ccstop",
+  "batch": 2000,
   "n": 100,
   "pose_ok": 100,
   "pose_and_free": {
@@ -222,7 +273,24 @@
  },
  {
   "problem_set": "bookshelf_tall_panda",
-  "solver": "hjcdik_cusph",
+  "solver": "hjcdik_cusph_ccstop",
+  "batch": 100,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "hull<=1mm": 97,
+   "hull<=5mm": 98,
+   "visual<=1mm": 100,
+   "visual<=5mm": 100
+  },
+  "all_oracles": 97
+ },
+ {
+  "problem_set": "bookshelf_tall_panda",
+  "solver": "hjcdik_cusph_ccstop",
   "batch": 2000,
   "n": 100,
   "pose_ok": 100,
@@ -230,12 +298,12 @@
    "hjcd": 100,
    "paper": 100,
    "curobo": 100,
-   "hull<=1mm": 99,
+   "hull<=1mm": 98,
    "hull<=5mm": 99,
    "visual<=1mm": 100,
    "visual<=5mm": 100
   },
-  "all_oracles": 99
+  "all_oracles": 98
  },
  {
   "problem_set": "bookshelf_tall_panda",
@@ -341,7 +409,7 @@
  },
  {
   "problem_set": "bookshelf_thin_panda",
-  "solver": "hjcdik_cusph",
+  "solver": "hjcdik_ccstop",
   "batch": 100,
   "n": 100,
   "pose_ok": 100,
@@ -358,7 +426,41 @@
  },
  {
   "problem_set": "bookshelf_thin_panda",
-  "solver": "hjcdik_cusph",
+  "solver": "hjcdik_ccstop",
+  "batch": 2000,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "hull<=1mm": 100,
+   "hull<=5mm": 100,
+   "visual<=1mm": 100,
+   "visual<=5mm": 100
+  },
+  "all_oracles": 100
+ },
+ {
+  "problem_set": "bookshelf_thin_panda",
+  "solver": "hjcdik_cusph_ccstop",
+  "batch": 100,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "hull<=1mm": 100,
+   "hull<=5mm": 100,
+   "visual<=1mm": 100,
+   "visual<=5mm": 100
+  },
+  "all_oracles": 100
+ },
+ {
+  "problem_set": "bookshelf_thin_panda",
+  "solver": "hjcdik_cusph_ccstop",
   "batch": 2000,
   "n": 100,
   "pose_ok": 100,
@@ -477,7 +579,7 @@
  },
  {
   "problem_set": "box_panda",
-  "solver": "hjcdik_cusph",
+  "solver": "hjcdik_ccstop",
   "batch": 100,
   "n": 100,
   "pose_ok": 100,
@@ -494,20 +596,54 @@
  },
  {
   "problem_set": "box_panda",
-  "solver": "hjcdik_cusph",
+  "solver": "hjcdik_ccstop",
   "batch": 2000,
   "n": 100,
   "pose_ok": 100,
   "pose_and_free": {
-   "hjcd": 99,
-   "paper": 99,
+   "hjcd": 100,
+   "paper": 100,
    "curobo": 100,
    "hull<=1mm": 100,
    "hull<=5mm": 100,
    "visual<=1mm": 100,
    "visual<=5mm": 100
   },
-  "all_oracles": 99
+  "all_oracles": 100
+ },
+ {
+  "problem_set": "box_panda",
+  "solver": "hjcdik_cusph_ccstop",
+  "batch": 100,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "hull<=1mm": 100,
+   "hull<=5mm": 100,
+   "visual<=1mm": 100,
+   "visual<=5mm": 100
+  },
+  "all_oracles": 100
+ },
+ {
+  "problem_set": "box_panda",
+  "solver": "hjcdik_cusph_ccstop",
+  "batch": 2000,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "hull<=1mm": 100,
+   "hull<=5mm": 100,
+   "visual<=1mm": 100,
+   "visual<=5mm": 100
+  },
+  "all_oracles": 100
  },
  {
   "problem_set": "box_panda",
@@ -613,7 +749,7 @@
  },
  {
   "problem_set": "box_panda_flipped",
-  "solver": "hjcdik_cusph",
+  "solver": "hjcdik_ccstop",
   "batch": 100,
   "n": 100,
   "pose_ok": 100,
@@ -630,7 +766,41 @@
  },
  {
   "problem_set": "box_panda_flipped",
-  "solver": "hjcdik_cusph",
+  "solver": "hjcdik_ccstop",
+  "batch": 2000,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "hull<=1mm": 100,
+   "hull<=5mm": 100,
+   "visual<=1mm": 100,
+   "visual<=5mm": 100
+  },
+  "all_oracles": 100
+ },
+ {
+  "problem_set": "box_panda_flipped",
+  "solver": "hjcdik_cusph_ccstop",
+  "batch": 100,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "hull<=1mm": 100,
+   "hull<=5mm": 100,
+   "visual<=1mm": 100,
+   "visual<=5mm": 100
+  },
+  "all_oracles": 100
+ },
+ {
+  "problem_set": "box_panda_flipped",
+  "solver": "hjcdik_cusph_ccstop",
   "batch": 2000,
   "n": 100,
   "pose_ok": 100,
@@ -749,37 +919,71 @@
  },
  {
   "problem_set": "cage_panda",
-  "solver": "hjcdik_cusph",
+  "solver": "hjcdik_ccstop",
   "batch": 100,
   "n": 100,
-  "pose_ok": 99,
+  "pose_ok": 100,
   "pose_and_free": {
-   "hjcd": 96,
-   "paper": 96,
-   "curobo": 99,
-   "hull<=1mm": 82,
-   "hull<=5mm": 88,
-   "visual<=1mm": 97,
-   "visual<=5mm": 99
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "hull<=1mm": 88,
+   "hull<=5mm": 94,
+   "visual<=1mm": 99,
+   "visual<=5mm": 100
   },
-  "all_oracles": 82
+  "all_oracles": 88
  },
  {
   "problem_set": "cage_panda",
-  "solver": "hjcdik_cusph",
+  "solver": "hjcdik_ccstop",
   "batch": 2000,
   "n": 100,
-  "pose_ok": 97,
+  "pose_ok": 100,
   "pose_and_free": {
-   "hjcd": 92,
-   "paper": 92,
-   "curobo": 97,
-   "hull<=1mm": 81,
-   "hull<=5mm": 84,
-   "visual<=1mm": 96,
-   "visual<=5mm": 97
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "hull<=1mm": 87,
+   "hull<=5mm": 94,
+   "visual<=1mm": 100,
+   "visual<=5mm": 100
   },
-  "all_oracles": 80
+  "all_oracles": 87
+ },
+ {
+  "problem_set": "cage_panda",
+  "solver": "hjcdik_cusph_ccstop",
+  "batch": 100,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 97,
+   "paper": 97,
+   "curobo": 100,
+   "hull<=1mm": 87,
+   "hull<=5mm": 91,
+   "visual<=1mm": 98,
+   "visual<=5mm": 100
+  },
+  "all_oracles": 87
+ },
+ {
+  "problem_set": "cage_panda",
+  "solver": "hjcdik_cusph_ccstop",
+  "batch": 2000,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 99,
+   "paper": 99,
+   "curobo": 100,
+   "hull<=1mm": 86,
+   "hull<=5mm": 92,
+   "visual<=1mm": 100,
+   "visual<=5mm": 100
+  },
+  "all_oracles": 86
  },
  {
   "problem_set": "cage_panda",
@@ -885,37 +1089,71 @@
  },
  {
   "problem_set": "table_pick_panda",
-  "solver": "hjcdik_cusph",
+  "solver": "hjcdik_ccstop",
   "batch": 100,
   "n": 100,
-  "pose_ok": 93,
+  "pose_ok": 99,
   "pose_and_free": {
-   "hjcd": 85,
-   "paper": 85,
-   "curobo": 93,
-   "hull<=1mm": 86,
-   "hull<=5mm": 89,
-   "visual<=1mm": 92,
-   "visual<=5mm": 93
+   "hjcd": 99,
+   "paper": 99,
+   "curobo": 98,
+   "hull<=1mm": 95,
+   "hull<=5mm": 96,
+   "visual<=1mm": 98,
+   "visual<=5mm": 98
   },
-  "all_oracles": 82
+  "all_oracles": 95
  },
  {
   "problem_set": "table_pick_panda",
-  "solver": "hjcdik_cusph",
+  "solver": "hjcdik_ccstop",
   "batch": 2000,
   "n": 100,
-  "pose_ok": 96,
+  "pose_ok": 100,
   "pose_and_free": {
-   "hjcd": 87,
-   "paper": 87,
-   "curobo": 96,
-   "hull<=1mm": 91,
-   "hull<=5mm": 94,
-   "visual<=1mm": 94,
-   "visual<=5mm": 96
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "hull<=1mm": 95,
+   "hull<=5mm": 97,
+   "visual<=1mm": 100,
+   "visual<=5mm": 100
+  },
+  "all_oracles": 95
+ },
+ {
+  "problem_set": "table_pick_panda",
+  "solver": "hjcdik_cusph_ccstop",
+  "batch": 100,
+  "n": 100,
+  "pose_ok": 99,
+  "pose_and_free": {
+   "hjcd": 86,
+   "paper": 86,
+   "curobo": 99,
+   "hull<=1mm": 93,
+   "hull<=5mm": 97,
+   "visual<=1mm": 96,
+   "visual<=5mm": 99
   },
   "all_oracles": 84
+ },
+ {
+  "problem_set": "table_pick_panda",
+  "solver": "hjcdik_cusph_ccstop",
+  "batch": 2000,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 93,
+   "paper": 93,
+   "curobo": 100,
+   "hull<=1mm": 92,
+   "hull<=5mm": 97,
+   "visual<=1mm": 97,
+   "visual<=5mm": 100
+  },
+  "all_oracles": 90
  },
  {
   "problem_set": "table_pick_panda",
@@ -1021,37 +1259,71 @@
  },
  {
   "problem_set": "table_under_pick_panda",
-  "solver": "hjcdik_cusph",
+  "solver": "hjcdik_ccstop",
   "batch": 100,
   "n": 100,
-  "pose_ok": 98,
+  "pose_ok": 99,
   "pose_and_free": {
-   "hjcd": 86,
-   "paper": 86,
-   "curobo": 98,
-   "hull<=1mm": 91,
-   "hull<=5mm": 96,
-   "visual<=1mm": 92,
-   "visual<=5mm": 97
+   "hjcd": 99,
+   "paper": 99,
+   "curobo": 99,
+   "hull<=1mm": 99,
+   "hull<=5mm": 99,
+   "visual<=1mm": 99,
+   "visual<=5mm": 99
   },
-  "all_oracles": 85
+  "all_oracles": 99
  },
  {
   "problem_set": "table_under_pick_panda",
-  "solver": "hjcdik_cusph",
+  "solver": "hjcdik_ccstop",
   "batch": 2000,
   "n": 100,
-  "pose_ok": 95,
+  "pose_ok": 100,
   "pose_and_free": {
-   "hjcd": 82,
-   "paper": 82,
-   "curobo": 95,
-   "hull<=1mm": 92,
-   "hull<=5mm": 94,
-   "visual<=1mm": 92,
-   "visual<=5mm": 94
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "hull<=1mm": 99,
+   "hull<=5mm": 99,
+   "visual<=1mm": 100,
+   "visual<=5mm": 100
   },
-  "all_oracles": 82
+  "all_oracles": 99
+ },
+ {
+  "problem_set": "table_under_pick_panda",
+  "solver": "hjcdik_cusph_ccstop",
+  "batch": 100,
+  "n": 100,
+  "pose_ok": 99,
+  "pose_and_free": {
+   "hjcd": 76,
+   "paper": 76,
+   "curobo": 99,
+   "hull<=1mm": 95,
+   "hull<=5mm": 98,
+   "visual<=1mm": 95,
+   "visual<=5mm": 98
+  },
+  "all_oracles": 76
+ },
+ {
+  "problem_set": "table_under_pick_panda",
+  "solver": "hjcdik_cusph_ccstop",
+  "batch": 2000,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 83,
+   "paper": 83,
+   "curobo": 100,
+   "hull<=1mm": 94,
+   "hull<=5mm": 98,
+   "visual<=1mm": 97,
+   "visual<=5mm": 100
+  },
+  "all_oracles": 80
  },
  {
   "problem_set": "table_under_pick_panda",

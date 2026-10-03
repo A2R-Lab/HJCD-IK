@@ -208,3 +208,22 @@ not exact candidate identity.
   including the mesh scenes (kitchen, table_bars) by exact rectilinear box decomposition / prism→cylinder.
   `goal_pose` of an exported set is FK(request joint goal) at panda_hand (MBM's own IK tolerance puts the
   request goal up to 14 mm from its pose query, so the dataset's pose and our FK differ by that much).
+- **The early stop was collision-blind (fixed 2026-10-03).** `g_stop` was raised by the first pose-accurate
+  candidate whether or not it collided, so cluttered scenes stopped the batch on a candidate the hard filter
+  then discarded. The fix is warp-scoped (`warp_config_free` over the sidecar sphere tables on the per-warp
+  `s_jointX`) and must stay so: `grid_collision::config_free` is block-cooperative (multi-target FK with
+  `__syncthreads`) and cannot be called from one warp of a multi-warp LM block. Traps hit on the way:
+  (a) the LM loop counter `it` is a per-lane register — a restart decided by lane 0 must be signalled
+  through warp-shared scratch (`accurate == 2`) and applied by every lane, or the warp desynchronises;
+  (b) `warp_base` (coarse per-warp dynamic smem) is reused as sphere scratch only where the anchor FK
+  buffers are dead, and the host sizes it as max(FK buffers, 3·NUM_SPHERES floats); (c) `lm_eps` is 1e-8 m,
+  so "accurate" in the LM means fully converged — the practically successful candidates live in the 5 mm
+  band below it, which is why the old kernel's cage "successes" at 1.4–3.5 mm vanished when the stop became
+  collision-aware (warps kept converging into the obstacle) until the band fallback was added. Diagnose
+  stage by stage with `HJCD_CC_STOP=0/1/2/3` and `HJCD_REPAIR_ATTEMPTS=0`.
+- **Finer conservative spheres are not "better" on this benchmark.** Measured with
+  `benchmark/make_bounded_bulge_spheres.py --report`: foam bulges 40 mm and leaves 4–35 % of the true
+  surface uncovered; cuRobo's model bulges 75 mm on link 5 and leaves 20–71 % uncovered; a full-cover model
+  with ≤13.5 mm bulge needs 377 spheres, costs 3–4× latency (every per-candidate loop scales with the sphere
+  count) and scores LOWER (cage −0.5 cm: 52 % vs foam 96 %) because the true clearance is 1–2 cm. Compare
+  solvers on identical spheres; if a conservative model is ever required, it needs GRiD's broad→fine cascade.

@@ -41,6 +41,7 @@ joints. Target indices and transform counts are generated constants; the default
 | `csrc/kernel/hjcd_settings.h` | `HJCDSettings<T>` (coarse/LM tolerances, `lambda_init`), `mat4_mul`, FK helpers (`ee_fk_warp`/`ee_fk_thread`/`ee_fk_suffix_thread`), `#include "grid.cuh"`, `N`/`FLANGE_JID`/`GRASP_FIXED_IDX`. |
 | `csrc/kernel/hjcd_kernel.h` | Native host API: move-only `Result<T>`, `generate_ik_solutions<T,RT>(target, batch, ...)`, `sample_random_target_poses`. |
 | `csrc/kernel/main.cpp` | Native CLI (`single`/`sweep`/`from_csv`), open-world only; CTest-covered by `tests/native/`. |
+| `csrc/generated/hjcd_collision_tables.cuh` | **Generated** with grid.cuh: the collision sphere batch (anchor slot / offset / radius) for the kernel's warp-scoped checks. |
 | `csrc/generated/grid.cuh` | **Generated** GRiD kinematics + collision header. Do **not** hand-edit. Generated with `vendor_glass=False`, so it `#include "glass.cuh"`s the top-level GLASS instead of vendoring a copy (~6k lines, was ~15k). |
 | `external/GRiD/` | Submodule: GRiD codegen (emits `grid.cuh` from a URDF). Its nested GLASS pin must equal `external/GLASS`. |
 | `external/GLASS/` | Submodule: GLASS single-block / warp / thread linear algebra (`glass::warp::`, `glass::thread::`, `glass::block::`). |
@@ -112,6 +113,14 @@ out = generate_solutions(targets[0], batch_size=2000, num_solutions=4)
   (see `CMakeLists.txt`). This is
   the **bring-your-own-URDF** path: `generate_grid.py <robot.urdf> --collision [...]` provides FK and
   collision for supported fixed-base serial arms with no hand-written per-robot header.
+- **Collision-aware refinement (hard/both modes, 2026-10).** The cross-block early stop is raised only by a
+  collision-free accurate candidate (`warp_config_free`: warp-scoped, spheres placed from the codegen
+  sidecar `csrc/generated/hjcd_collision_tables.cuh` on the per-warp joint transforms — no block barrier,
+  no extra FK); LM seeds are ranked with a penalty on colliding coarse candidates; an accurate-but-colliding
+  LM candidate gets `HJCD_REPAIR_ATTEMPTS` (4) kicked re-projections; the best collision-free configuration
+  inside `HJCDSettings::cc_fallback_*` (5 mm / 0.05 rad) is returned when the exact pose is in collision.
+  `HJCD_CC_STOP` (bit 0 coarse, bit 1 LM) is the A/B knob. The sidecar is regenerated with grid.cuh (an
+  open-world regen writes an empty one; the kernel only includes it under `HJCD_HAS_COLLISION`).
 - **Collision policy.** Python exposes `collision_mode="hard"|"soft"|"both"`; `hard` is the
   default and strictly excludes colliding candidates (self **+** environment). `soft` is a penetration-cost
   ranking mode and does not guarantee collision freedom; `both` ranks and filters. Neither the API nor the
@@ -210,8 +219,14 @@ if missing). Tracked project docs: this file, `docs/development/agent_debugging_
    search — is HJCD's limit (HJCD compiled on cuRobo's spheres, `benchmark/make_curobo_sphere_urdf.py`,
    matches cuRobo in the cage), and a residual ~10-point gap on the table sets is the post-solve filtering
    vs. collision-in-the-loop difference. Evidence: `docs/development/evidence/fairness_hardsets_2026-10-03/`.
-   Open: latency columns for the new sets / collision-aware PyRoki (needs a quiet window); HJCD accuracy not
-   monotone in B on hard sets; collision-aware refinement (C2).
+   **Kernel follow-up (same night):** collision-aware early stop + seed ranking + repair round + success-band
+   fallback (see *Conventions*) — the three dataset sets with misses went to 100 % and the ladder's table
+   levels are within 0–4 points of cuRobo on foam's spheres; on cuRobo's spheres HJCD = cuRobo everywhere.
+   Sphere-model fidelity tool `benchmark/make_bounded_bulge_spheres.py` (bulge/coverage vs the true meshes):
+   conservative full-cover models (200–377 spheres) cost 3–4× latency AND success on this benchmark, so foam
+   stays the default; a broad→fine cascade (GRiD supports it) is the route if a conservative model is ever
+   wanted. Open: the quiet-window A/B (open-world old vs new binary; `HJCD_CC_STOP=0` vs 3 in collision
+   mode) + latency columns; HJCD accuracy not monotone in B (likely the same early-stop mechanism — re-measure).
 3. **Two collision-scene protocols (ruled 2026-10-03).** MotionBenchMaker goals are `panda_hand` poses (the
    dataset's `goal_ik` puts `panda_hand` on them; the TCP is 105 mm further out). The paper's Table II used the
    *cylinder-snapped* target with the TCP frame, which is physically consistent for cylinder-grasp scenes

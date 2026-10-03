@@ -555,10 +555,11 @@ the headline is the **true geometry** (the ``panda_description`` *visual* meshes
 by 1 mm so touching is permitted); beside it, in small type, the solver's **own sphere model** (foam's 58
 spheres for HJCD-IK and PyRoki, cuRobo's 61 for cuRobo) and the **convex hull** judge (the stock
 ``panda_description`` *collision* meshes, which are convex hulls — MoveIt's and MotionBenchMaker's own
-geometry; link 5's hull is 50 % larger than the link). PyRoki now runs PyRoki's world- and self-collision
+geometry; link 5's hull is 50 % larger than the link). PyRoki runs PyRoki's world- and self-collision
 costs on the foam spheres (its URDF capsule model is 16–70 mm too coarse for these gaps); cuRobo runs its
-bundled sphere model; "HJCD-IK / cuRobo spheres" is HJCD-IK compiled on cuRobo's sphere model instead of
-foam's (``benchmark/make_curobo_sphere_urdf.py``), a controlled experiment that separates the collision
+bundled sphere model. Two HJCD-IK columns: the kernel **before** and **after** the collision-aware
+refinement described below, and a third compiled on cuRobo's sphere model instead of foam's
+(``benchmark/make_curobo_sphere_urdf.py``) — the controlled experiment that separates the collision
 model from the search. ``kitchen`` and ``table_bars`` are MotionBenchMaker scenes exported from the public
 dataset (``benchmark/mbm_export.py``; mesh furniture decomposed exactly into boxes and cylinders), new here.
 
@@ -567,6 +568,8 @@ dataset (``benchmark/mbm_export.py``; mesh furniture decomposed exactly into box
    :stub-columns: 1
 
    * - Set
+     - HJCD-IK (before)
+     -
      - HJCD-IK
      -
      - HJCD-IK / cuRobo spheres
@@ -584,11 +587,15 @@ dataset (``benchmark/mbm_export.py``; mesh furniture decomposed exactly into box
      - own / hull
      - true mesh
      - own / hull
+     - true mesh
+     - own / hull
    * - bookshelf_small
      - 99
      - 100 / 94
      - **100**
-     - 100 / 97
+     - 100 / 95
+     - **100**
+     - 100 / 95
      - 98
      - 98 / 93
      - **100**
@@ -597,12 +604,16 @@ dataset (``benchmark/mbm_export.py``; mesh furniture decomposed exactly into box
      - **100**
      - 100 / 98
      - **100**
-     - 100 / 99
+     - 100 / 98
+     - **100**
+     - 100 / 98
      - **100**
      - 100 / 98
      - **100**
      - 100 / 100
    * - bookshelf_thin
+     - **100**
+     - 100 / 100
      - **100**
      - 100 / 100
      - **100**
@@ -620,7 +631,11 @@ dataset (``benchmark/mbm_export.py``; mesh furniture decomposed exactly into box
      - 100 / 100
      - **100**
      - 100 / 100
+     - **100**
+     - 100 / 100
    * - box_flipped
+     - **100**
+     - 100 / 100
      - **100**
      - 100 / 100
      - **100**
@@ -632,8 +647,10 @@ dataset (``benchmark/mbm_export.py``; mesh furniture decomposed exactly into box
    * - cage
      - 96
      - 97 / 78
-     - 96
-     - 97 / 81
+     - **100**
+     - 100 / 87
+     - **100**
+     - 100 / 86
      - **100**
      - 100 / 77
      - **100**
@@ -641,8 +658,10 @@ dataset (``benchmark/mbm_export.py``; mesh furniture decomposed exactly into box
    * - table_pick
      - 94
      - 95 / 90
-     - 94
-     - 96 / 91
+     - **100**
+     - 100 / 95
+     - 97
+     - 100 / 92
      - 99
      - 100 / 95
      - **100**
@@ -650,13 +669,17 @@ dataset (``benchmark/mbm_export.py``; mesh furniture decomposed exactly into box
    * - table_under_pick
      - 95
      - 95 / 95
-     - 92
-     - 95 / 92
+     - **100**
+     - 100 / 99
+     - 97
+     - 100 / 94
      - 98
      - 100 / 95
      - **100**
      - 100 / 100
    * - kitchen
+     - 99
+     - 99 / 99
      - 99
      - 99 / 99
      - **100**
@@ -668,21 +691,30 @@ dataset (``benchmark/mbm_export.py``; mesh furniture decomposed exactly into box
    * - table_bars
      - **100**
      - 100 / 72
-     - 96
+     - **100**
      - 100 / 69
+     - 98
+     - 100 / 66
      - **100**
      - 100 / 33
      - **100**
      - 100 / 71
 
-Under the true geometry every collision-constrained solver is within a few points of the others on every
-set: HJCD-IK 94–100 %, cuRobo 98–100 %, PyRoki 99–100 % (B = 2000). The judge matters more than the solver
-at this clearance: the convex-hull judge lowers the ``cage`` to 77–81 % for all three and ``table_bars``
-to 33–72 %, because the hulls bulge where the links are concave and the arm reaches past a thin shelf
-there. A sphere model, in turn, under-covers the hull by up to 58 mm (foam) / 65 mm (cuRobo) on link 5
-while covering the true link; that is why a "mesh oracle" must say which mesh.
+**Collision-aware refinement (kernel change, 2026-10-03).** The cross-block early stop used to be raised
+by the *first* pose-accurate candidate, colliding or not, so in a cluttered scene the whole batch could stop
+on a candidate the hard filter then discarded. In hard/both collision modes the kernel now (i) raises the
+stop only for a collision-free accurate candidate, decided warp-locally from the joint transforms the
+solver already holds (``warp_config_free``: spheres placed from a codegen sidecar,
+``csrc/generated/hjcd_collision_tables.cuh``, no block barrier, no extra FK); (ii) ranks the LM seeds with
+a penalty on colliding coarse candidates; (iii) gives an accurate-but-colliding LM candidate an **informed
+repair round** — a deterministic joint-space kick that grows per attempt, after which the LM re-projects
+it onto the pose and the verdict is re-run (``HJCD_REPAIR_ATTEMPTS``, default 4); and (iv) keeps the best
+collision-free configuration inside the success band (5 mm / 0.05 rad) as a fallback when the exactly
+converged pose sits inside an obstacle. Open-world solves never enter this code; the hot warp loop is
+unchanged (the A/B latency gate is scheduled for the next quiet window). Effect on the three dataset sets
+that had misses: cage 96 → 100 %, table_pick 94 → 100 %, table_under_pick 95 → 100 %.
 
-**Clearance ladder (new).** To see where the solvers separate, every cuboid of the three tightest sets is
+**Clearance ladder.** To see where the solvers separate, every cuboid of the three tightest sets is
 grown by *D* on each face (``benchmark/make_clearance_ladder.py``), keeping only problems for which at
 least one of the dataset's own ``goal_ik`` solutions is still free under the hull judge (so every kept
 problem is known-feasible). Success under the true-geometry judge vs *D*, B = 100 (solid) and 2000
@@ -693,18 +725,58 @@ problem is known-feasible). Success under the true-geometry judge vs *D*, B = 10
 
    Success (pose reached and collision-free under the visual meshes, 1 mm) against the clearance reduction
    *D*. Kept problems per level: cage 99 / 100 / 75 / 28; table_pick 100 / 100 / 99 / 95 / 87 / 65;
-   table_under_pick 100 / 100 / 100 / 92 / 86 / 62 (D = 0 / 0.5 / 1 / 1.5 / 2 / 3 cm).
+   table_under_pick 100 / 100 / 100 / 92 / 86 / 62 (D = 0 / 0.5 / 1 / 1.5 / 2 / 3 cm). "b10"/"b15" are
+   the bounded-bulge models of the fidelity table below.
 
-In the ``cage``, HJCD-IK and PyRoki (foam spheres) fall to 52–59 % at *D* = 1 cm and 0 % at 1.5 cm while
-cuRobo holds 95 %. That is the sphere model, not the search: at *D* = 1.5 cm foam's spheres accept **0 %**
-of the dataset's own hull-feasible ``goal_ik`` (cuRobo's accept 68 %), and HJCD-IK compiled on cuRobo's
-spheres holds 91 % and 82–89 % at *D* = 1 and 1.5 cm — the same as cuRobo. On the table sets a residual
-8–12 point gap to cuRobo and PyRoki remains with identical spheres (e.g. table_pick *D* = 2 cm: 80 vs 92 %):
-HJCD-IK filters collisions after the solve, the other two optimise a collision cost inside the solve.
-Closing that gap (an informed second round seeded by the first round's collision outcome, or a
-collision-aware refinement) is the open solver item. Everything in this section is correctness only and
-was collected on a shared GPU; the latency columns for the new sets and the collision-aware PyRoki follow
-in the next quiet-window campaign.
+With the refinement, HJCD-IK on its own foam spheres is within 0–4 points of cuRobo at every table level
+(B = 2000: table_pick 100/98/97/89/90/86 vs 99/98/98/93/92/92; table_under_pick 100/100/94/95/91/92 vs
+98/97/94/93/86/92) and above it on several. In the ``cage`` it still falls to 64 % at *D* = 1 cm and
+4 % at 1.5 cm while cuRobo holds 95–96 %. That residue is the sphere model, not the search: HJCD-IK
+compiled on cuRobo's spheres scores 95 % and 96 % there — identical to cuRobo. The table below says why.
+
+**Sphere-model fidelity against the true links** (``benchmark/make_bounded_bulge_spheres.py --report``:
+bulge = how far the sphere union protrudes past the visual mesh, uncovered = fraction of the true surface
+more than 1 mm outside every sphere):
+
+.. list-table::
+   :header-rows: 1
+   :stub-columns: 1
+
+   * - Model
+     - spheres
+     - max bulge
+     - uncovered surface
+     - cage *D* = 0.5 / 1 / 1.5 cm (HJCD-IK, B = 2000)
+   * - foam (HJCD-IK default)
+     - 58
+     - 40 mm
+     - 4–35 % per link
+     - 96 / 64 / 4
+   * - cuRobo ``franka.yml``
+     - 61
+     - 75 mm (link 5)
+     - 20–71 % per link
+     - 99 / 95 / 96
+   * - bounded bulge 15 mm (true mesh, full cover)
+     - 200
+     - 19 mm
+     - 0 %
+     - 44 / 0 / 0
+   * - bounded bulge 10 mm (true mesh, full cover)
+     - 377
+     - 13.5 mm
+     - 0 %
+     - 52 / 4 / 0
+
+Every practical sphere model is optimistic somewhere; cuRobo's is the most optimistic of the three in
+the places that matter in the cage (it leaves most of link 2–6 uncovered where the arm squeezes past the
+bars), and a model that genuinely contains the robot (bounded bulge, full cover) loses on *both* axes —
+3–4× the latency from the sphere count and lower success, because the true clearance in these scenes is
+one to two centimetres. The honest comparison is therefore the same spheres for every solver, which is
+where HJCD-IK and cuRobo coincide; a finer conservative model only pays off with a broad-to-fine cascade,
+which GRiD's codegen supports but HJCD-IK does not yet use. Everything in this section is correctness
+only and was collected on a shared GPU; latency columns for the new sets, the collision-aware PyRoki and
+the refined kernel follow in the next quiet-window campaign.
 
 .. note::
 

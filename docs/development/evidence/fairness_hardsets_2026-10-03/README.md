@@ -14,6 +14,21 @@ on a GPU shared with other jobs; **no latency in this directory is meaningful**.
 | New sets | `benchmark/mbm_export.py` on MotionBenchMaker's public Panda dataset (`problems/download.sh panda`): `kitchen_panda`, `table_bars_panda` → `benchmark/problems/mb_extra_panda.json`. Mesh furniture decomposed exactly (boxes / 32-gon prisms → cylinders / rectilinear unions → boxes; one 4 %-overfull OBB on a bevelled counter piece). Validation against the original meshes: 100/100 request goals free under both; random configurations agree 99.7 % (kitchen) / 99.95 % (table_bars). |
 | Ladder | `benchmark/make_clearance_ladder.py --include-level0 --deltas-cm 0.5 1 1.5 2 3` on cage / table_pick / table_under_pick; cuboids grow by *D* per face, cylinders and goals untouched; a problem survives if ≥ 1 of its `goal_ik` is free under the hull judge (1 mm). Levels with < 20 survivors skipped. `ladder/levels_used.json` lists the kept counts. The ladder was generated before the `id()` cache fix; regenerating after it changes only marginal cases (cage D=0 gains problem 36; the skipped ≥ 2 cm cage levels), so the collected results stand. |
 
+## Kernel variants (same night)
+
+Solver labels in the dumps: `hjcdik` = kernel before the collision-aware refinement (foam spheres);
+`hjcdik_ccstop` = after it (collision-aware early stop + seed ranking + repair round + 5 mm band fallback;
+foam spheres, header `7f4a82d9…`); `hjcdik_cusph_ccstop` = same kernel on cuRobo's spheres (`af92cbf7…`);
+`hjcdik_b10_ccstop` / `hjcdik_b15_ccstop` = same kernel on the bounded-bulge full-cover models fitted to the
+visual meshes by `benchmark/make_bounded_bulge_spheres.py` (377 / 200 spheres; the URDFs are in this
+directory, they are NOT the default build). `sphere_model_fidelity.txt` is the `--report` of all four models.
+`run_hjcd_variant.sh` collected every HJCD variant (B = 100, 2000, all three problem files, ~3 min each).
+
+Headline deltas (B = 2000, true-mesh judge): cage/table_pick/table_under_pick 96/94/95 → **100/100/100**;
+ladder table levels +5–9 points (now within 0–4 of cuRobo); cage −1 cm 49 → 64, −1.5 cm 0 → 4 on foam's
+spheres, 95 / 96 on cuRobo's spheres (= cuRobo). b10/b15: 3–4× latency and lower success (cage −0.5 cm:
+52 / 44 %).
+
 ## Layout
 
 - `eight_sets/` — the 8 dataset sets, dataset protocol (`panda_hand`, `goal_pose` as posed), B = 100 and 2000:
@@ -25,13 +40,13 @@ on a GPU shared with other jobs; **no latency in this directory is meaningful**.
 - `new_sets/` — kitchen + table_bars, same layout.
 - `run_*.sh` — the collection scripts as run (paths point at the staging clone).
 
-## Headline numbers (B = 2000, pose < 5 mm / 0.05 rad AND free under the visual meshes, 1 mm)
+## Headline numbers (B = 2000, pose < 5 mm / 0.05 rad AND free under the visual meshes, 1 mm; before → after the kernel refinement)
 
 | set | HJCD-IK | HJCD-IK/cuRobo spheres | cuRobo v2 | PyRoki (collision-aware) |
 | --- | --- | --- | --- | --- |
-| cage | 96 | 96 | 100 | 100 |
-| table_pick | 94 | 94 | 99 | 100 |
-| table_under_pick | 95 | 92 | 98 | 100 |
+| cage | 96 → 100 | 96 → 100 | 100 | 100 |
+| table_pick | 94 → 100 | 94 → 97 | 99 | 100 |
+| table_under_pick | 95 → 100 | 92 → 97 | 98 | 100 |
 | kitchen | 99 | 100 | 99 | 99 |
 | table_bars | 100 | 96 | 100 | 100 |
 | bookshelf / box sets | 99–100 | 98–100 | 98–100 | 100 |

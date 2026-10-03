@@ -2,19 +2,19 @@
   "sampled_unconstrained": {
     "num_targets": 64,
     "solved_rate": 1.0,
-    "mean_pos_err": 0.0002936323806407446,
-    "mean_ori_err": 7.21615747607649e-08,
+    "mean_pos_err": 0.00029077108213917626,
+    "mean_ori_err": 6.991145976773848e-08,
     "batch_size": 2000
   },
   "collision_free_mb": {
     "num_targets": 64,
     "solved_rate": 1.0,
-    "mean_pos_err": 3.1720447468438657e-06,
-    "mean_ori_err": 1.903042163780211e-09,
+    "mean_pos_err": 2.372568823006792e-06,
+    "mean_ori_err": 1.4756040710470372e-09,
     "batch_size": 2000,
     "problems_per_set": 8,
     "collision_mode": "hard",
-    "accurate_rate": 0.734375,
+    "accurate_rate": 0.75,
     "returned": 64,
     "oracle_collision_free_rate": 1.0
   }

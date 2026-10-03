@@ -16,8 +16,16 @@ from collections import defaultdict
 from pathlib import Path
 
 NAME_RE = re.compile(r"^(?P<set>.+)_tight(?P<delta>[0-9.]+)cm$")
-SOLVER_ORDER = ["hjcdik", "hjcdik_cusph", "curobo", "pyroki"]
-SOLVER_LABEL = {"hjcdik": "HJCD-IK", "hjcdik_cusph": "HJCD-IK/cuRobo-spheres", "curobo": "cuRobo", "pyroki": "PyRoki"}
+SOLVER_LABEL = {"hjcdik": "HJCD-IK", "hjcdik_ccstop": "HJCD-IK (cc-stop+repair)",
+                "hjcdik_cusph": "HJCD-IK/cuRobo-spheres", "hjcdik_cusph_ccstop": "HJCD-IK/cuRobo-spheres (cc-stop+repair)",
+                "curobo": "cuRobo", "pyroki": "PyRoki"}
+SOLVER_COLOR = {"hjcdik": "C0", "hjcdik_ccstop": "C9", "hjcdik_cusph": "C3", "hjcdik_cusph_ccstop": "C6",
+                "curobo": "C1", "pyroki": "C2"}
+
+
+def solver_order(solvers):
+    known = list(SOLVER_LABEL)
+    return sorted(solvers, key=lambda s: (known.index(s) if s in known else len(known), s))
 
 
 def main():
@@ -48,6 +56,7 @@ def main():
 
     lines = [f"## Clearance ladder — pose reached AND collision-free under `{args.oracle}` (%)", ""]
     for pset in sorted(curves):
+        SOLVER_ORDER = solver_order(curves[pset])
         batches = sorted({b for sv in curves[pset].values() for b in sv})
         deltas = sorted({d for sv in curves[pset].values() for b in sv.values() for d, _, _ in b})
         lines.append(f"### {pset}")
@@ -79,13 +88,13 @@ def main():
         fig, axes = plt.subplots(1, len(sets), figsize=(4.2 * len(sets), 3.6), sharey=True, squeeze=False)
         styles = {}
         for ax, pset in zip(axes[0], sets):
-            for s in SOLVER_ORDER:
+            for s in solver_order(curves[pset]):
                 if s not in curves[pset]:
                     continue
                 for b, pts in sorted(curves[pset][s].items()):
                     ls = styles.setdefault(b, ["-", "--", ":", "-."][len(styles) % 4])
                     ax.plot([d for d, _, _ in pts], [r for _, r, _ in pts], ls, marker="o", ms=3,
-                            color={"hjcdik": "C0", "hjcdik_cusph": "C3", "curobo": "C1", "pyroki": "C2"}.get(s, None),
+                            color=SOLVER_COLOR.get(s, None),
                             label=f"{SOLVER_LABEL.get(s, s)} B={b}")
             ax.set_title(pset)
             ax.set_xlabel("clearance reduction D (cm)")

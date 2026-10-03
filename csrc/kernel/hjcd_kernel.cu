@@ -541,6 +541,59 @@ __device__ inline void build_ne_and_solve_warp(
 // __syncthreads). The constant cells of s_XmatsHom are q-independent (identical across
 // candidates) and loaded once block-cooperatively in the prologue; ee_pose_inner_warp
 // refreshes the q-dependent cells per-warp.
+// ---------------------------------------------------------------------------------------------
+// Collision-aware early stop + informed repair (2026-10). The cross-block stop flag used to be raised
+// by the FIRST pose-accurate candidate, collision or not, so in cluttered scenes the whole batch
+// could stop on a colliding candidate. In hard/both collision modes the stop now requires the
+// candidate to be collision-free, decided WARP-LOCALLY from the joint transforms the solver already
+// holds (no block barrier, no extra FK): each lane places spheres from the codegen sidecar tables
+// and tests them against the environment, then the self-collision ranges are split across lanes.
+// Open-world solves pass cc_stop = 0 and never enter this code.
+#if defined(HJCD_HAS_COLLISION)
+#include "hjcd_collision_tables.cuh"
+using CCEnv = grid_collision::Environment<float>;
+static_assert(hjcd_cc::NUM_SPHERES == grid_collision::NUM_COLLISION_SPHERES,
+              "hjcd_collision_tables.cuh is stale: regenerate with scripts/codegen/generate_grid.py");
+constexpr int CC_WARP_POS_FLOATS = 3 * hjcd_cc::NUM_SPHERES;   // per-warp scratch for sphere positions
+
+// Warp-scoped verdict for the configuration whose joint world transforms are in s_jointX (any
+// precision; column-major 4x4 per movable joint slot). w_pos = per-warp scratch of
+// CC_WARP_POS_FLOATS floats. Entered by the full warp; every lane returns the same verdict.
+template<typename T>
+__device__ bool warp_config_free(const T* __restrict__ s_jointX, const CCEnv& env, float* w_pos)
+{
+    constexpr int NS = hjcd_cc::NUM_SPHERES;
+    const int lane = threadIdx.x & 31;
+    bool hit = false;
+    for (int s = lane; s < NS; s += WARP_SIZE) {
+        const T* X = &s_jointX[16 * hjcd_cc::sphere_anchor[s]];
+        const float ox = hjcd_cc::sphere_offset[3 * s], oy = hjcd_cc::sphere_offset[3 * s + 1],
+                    oz = hjcd_cc::sphere_offset[3 * s + 2];
+        const float px = (float)(X[0] * ox + X[4] * oy + X[8]  * oz + X[12]);
+        const float py = (float)(X[1] * ox + X[5] * oy + X[9]  * oz + X[13]);
+        const float pz = (float)(X[2] * ox + X[6] * oy + X[10] * oz + X[14]);
+        w_pos[3 * s] = px; w_pos[3 * s + 1] = py; w_pos[3 * s + 2] = pz;
+        hit |= grid_collision::grid_cc_sphere_in_environment<float>(env, px, py, pz, hjcd_cc::sphere_radius[s]);
+    }
+    __syncwarp(FULL_WARP_MASK);
+    for (int k = lane; k < grid_collision::NUM_COLLISION_SELF_CC_RANGES; k += WARP_SIZE) {
+        const int i  = grid_collision::g_collision_self_cc_ranges[3 * k];
+        const int j0 = grid_collision::g_collision_self_cc_ranges[3 * k + 1];
+        const int j1 = grid_collision::g_collision_self_cc_ranges[3 * k + 2];
+        const float ix = w_pos[3 * i], iy = w_pos[3 * i + 1], iz = w_pos[3 * i + 2], ir = hjcd_cc::sphere_radius[i];
+        for (int j = j0; j <= j1 && !hit; ++j)
+            hit |= grid_collision::grid_cc_sphere_sphere<float>(ix, iy, iz, ir, w_pos[3 * j], w_pos[3 * j + 1], w_pos[3 * j + 2],
+                                                hjcd_cc::sphere_radius[j]) < 0.0f;
+    }
+    const bool any_hit = __any_sync(FULL_WARP_MASK, hit);
+    __syncwarp(FULL_WARP_MASK);   // w_pos reads done before the caller reuses the scratch
+    return !any_hit;
+}
+#else
+struct CCEnv { int unused; };
+constexpr int CC_WARP_POS_FLOATS = 0;
+#endif
+
 template<typename T>
 struct LMWarpScratch {
     T s_x[N], x_old[N];
@@ -553,6 +606,11 @@ struct LMWarpScratch {
     T pos_err_m, ori_err_rad, cost_sq, prev_cost, best_pos_seen;
     int s_break, stall, accepted;
     int s_fail;   // per-warp non-PD flag written by warp::posv CHECK (cholDecomp, lane 0)
+    // collision-aware stop + repair round (hard/both modes only; unused open-world)
+    int accurate, attempts, final_free, have_free;
+    T q_acc[N];                                     // the accurate-but-colliding config of the repair round
+    T best_free_x[N]; T best_free_pos;              // best collision-free config inside the fallback band
+    float cc_pos[CC_WARP_POS_FLOATS > 0 ? CC_WARP_POS_FLOATS : 1];
 };
 
 template<typename T>
@@ -568,7 +626,10 @@ __device__ void solve_lm_batched(
     T lambda_init,
     const int k_max,
     const int B,
-    int stop_on_first)
+    int stop_on_first,
+    CCEnv env,
+    int cc_stop,              // 1 = collision-aware stop + repair (hard/both collision modes)
+    int repair_attempts)
 {
     // Multi-warp LM: one independent candidate per warp, W warps per block. All barriers
     // inside the iteration loop are warp-scoped (the only __syncthreads are in the one-time
@@ -635,6 +696,8 @@ __device__ void solve_lm_batched(
     int& s_break   = st->s_break;
     int& stall     = st->stall;
     int& accepted  = st->accepted;
+    int& accurate  = st->accurate;
+    int& attempts  = st->attempts;
 
     const T  lambda_min = (T)1e-12, lambda_max = (T)1e6;
     const int stall_lim = 5;
@@ -645,7 +708,8 @@ __device__ void solve_lm_batched(
         q_goal[0]=tp[3]; q_goal[1]=tp[4]; q_goal[2]=tp[5]; q_goal[3]=tp[6];
         T n = rsqrt(q_goal[0]*q_goal[0]+q_goal[1]*q_goal[1]+q_goal[2]*q_goal[2]+q_goal[3]*q_goal[3]);
         q_goal[0]*=n; q_goal[1]*=n; q_goal[2]*=n; q_goal[3]*=n;
-        s_break=0; stall=0; prev_cost=(T)-1; cost_sq=(T)0;
+        s_break=0; stall=0; prev_cost=(T)-1; cost_sq=(T)0; accurate=0; attempts=0;
+        st->final_free = 0; st->have_free = 0; st->best_free_pos = (T)1e30;
     }
     SYNC();
 
@@ -663,7 +727,19 @@ __device__ void solve_lm_batched(
 
     if (tid == 0) best_pos_seen = pos_err_m;
     if (tid < N) best_x_pos[tid] = s_x[tid];
-    if (tid == 0 && pos_err_m < eps_pos && ori_err_rad < eps_ori) s_break = 1;
+    // Already accurate on entry: done — unless the collision-aware stop finds it colliding, in which
+    // case it enters the loop so the repair round below can act on it.
+    if (tid == 0) accurate = (pos_err_m < eps_pos && ori_err_rad < eps_ori) ? 1 : 0;
+    SYNC();
+    if (accurate) {   // uniform (warp-shared)
+#if defined(HJCD_HAS_COLLISION)
+        if (cc_stop) {
+            const bool free = warp_config_free<T>(s_jointX, env, st->cc_pos);
+            if (tid == 0 && free) { s_break = 1; st->final_free = 1; }
+        } else
+#endif
+        { if (tid == 0) s_break = 1; }
+    }
     SYNC(); if (s_break) goto WRITE_OUT;
     // Finish the entry guard before lane 0 can update s_break from the global stop flag.
     SYNC();
@@ -872,9 +948,60 @@ __device__ void solve_lm_batched(
                 stall = 0;
             }
 
-            if (pos_err_m < eps_pos && ori_err_rad < eps_ori) { atomicCAS(&g_stop, 0, 1); s_break = 1; }
+            accurate = (pos_err_m < eps_pos && ori_err_rad < eps_ori) ? 1 : 0;
+            if (accurate && !cc_stop) { atomicCAS(&g_stop, 0, 1); s_break = 1; }
         }
         SYNC();
+#if defined(HJCD_HAS_COLLISION)
+        if (cc_stop && !accurate) {   // uniform: track the best collision-free config in the fallback band
+            if (pos_err_m < HJCDSettings<T>::cc_fallback_pos && ori_err_rad < HJCDSettings<T>::cc_fallback_ori
+                && pos_err_m < st->best_free_pos) {
+                const bool free = warp_config_free<T>(s_jointX, env, st->cc_pos);
+                if (tid == 0 && free) {
+                    st->have_free = 1; st->best_free_pos = pos_err_m;
+                    for (int i = 0; i < N; ++i) st->best_free_x[i] = s_x[i];
+                }
+            }
+        }
+        if (cc_stop && accurate) {   // uniform across the warp (shared)
+            const bool free = warp_config_free<T>(s_jointX, env, st->cc_pos);
+            if (tid == 0) {
+                if (free) {
+                    atomicCAS(&g_stop, 0, 1); s_break = 1; st->final_free = 1;
+                } else if (attempts < repair_attempts) {
+                    // Informed repair round: keep the accurate-but-colliding configuration, kick it with a
+                    // deterministic joint-space perturbation that grows per attempt, and let the LM re-project
+                    // it onto the pose; the verdict above re-runs when it is accurate again.
+                    if (attempts == 0) for (int i = 0; i < N; ++i) st->q_acc[i] = s_x[i];
+                    ++attempts;
+                    const T amp = (T)0.04 * (T)attempts;
+                    for (int i = 0; i < N; ++i) {
+                        uint32_t seed = make_seed(0x5EEDu, gp, attempts, i);
+                        const double2 L = c_joint_limits[i];
+                        const T kick = ((T)2 * (T)u01(seed) - (T)1) * amp * (T)(L.y - L.x);
+                        s_x[i] = clamp_val<T>(st->q_acc[i] + kick, (T)L.x, (T)L.y);
+                    }
+                    ee_fk_thread<T>(s_jointX, s_XmatsHom, s_x, EE_IDX, s_XmatsHom);
+                    pos_err_m   = compute_pos_err(s_jointX, tp);
+                    ori_err_rad = compute_ori_err(s_jointX, &tp[3]);
+                    lambda = lambda_init; stall = 0; prev_cost = (T)-1;
+                    accurate = 2;                              // -> every lane restarts its iteration budget
+                } else {
+                    // Out of attempts: hand back the accurate (colliding) configuration; the post-solve
+                    // hard filter drops it, so a failed repair costs nothing in correctness.
+                    if (attempts > 0) {
+                        for (int i = 0; i < N; ++i) s_x[i] = st->q_acc[i];
+                        ee_fk_thread<T>(s_jointX, s_XmatsHom, s_x, EE_IDX, s_XmatsHom);
+                        pos_err_m   = compute_pos_err(s_jointX, tp);
+                        ori_err_rad = compute_ori_err(s_jointX, &tp[3]);
+                    }
+                    s_break = 1;
+                }
+            }
+            SYNC();
+            if (accurate == 2) it = -1;   // uniform: `accurate` is warp-shared
+        }
+#endif
         if (s_break) break;
 
         ee_fk_warp<T>(s_jointX, s_XmatsHom, s_x, EE_IDX);
@@ -902,6 +1029,16 @@ WRITE_OUT:
     // Even when no restore was needed, every lane must finish reading the shared
     // restore guard before lane 0 overwrites pos_err_m for the final output.
     SYNC();
+#if defined(HJCD_HAS_COLLISION)
+    // Collision-aware fallback: no collision-free converged configuration -> hand back the best
+    // collision-free one inside the tolerance band instead of an exact-but-colliding (filtered) one.
+    if (cc_stop && !st->final_free && st->have_free) {   // uniform (warp-shared)
+        if (tid < N) s_x[tid] = st->best_free_x[tid];
+        SYNC();
+        ee_fk_warp<T>(s_jointX, s_XmatsHom, s_x, EE_IDX);
+        SYNC();
+    }
+#endif
 
     if (tid == 0) {
         pos_err_m   = compute_pos_err(s_jointX, tp);
@@ -925,7 +1062,10 @@ __global__ void coarse_search(
     T* __restrict__ pos_errors,
     T* __restrict__ ori_errors,
     const grid::robotModel<T>* d_robotModel,
-    bool stop_on_first
+    bool stop_on_first,
+    CCEnv env,
+    int cc_stop,              // 1 = only a collision-free accurate candidate raises the stop flag
+    unsigned char* __restrict__ coarse_free   // cc_stop: per-block verdict of the returned candidate
 ) {
     const int gp   = blockIdx.x;
     const int tid  = threadIdx.x;
@@ -949,6 +1089,7 @@ __global__ void coarse_search(
     __shared__ int  s_stop;
     __shared__ int  s_allow_ori;
     __shared__ int  s_last_joint_o, s_last_joint_p;
+    __shared__ int  s_accurate;
 
     __shared__ T s_x[N];
     __shared__ T s_pose[7];
@@ -1166,14 +1307,28 @@ __global__ void coarse_search(
                 s_ori_err[jj] = s_glob_ori_err;
             }
 
-            if (stop_on_first && s_glob_pos_err < HJCDSettings<T>::epsilon && s_glob_ori_err < HJCDSettings<T>::nu)
+            s_accurate = (s_glob_pos_err < HJCDSettings<T>::epsilon && s_glob_ori_err < HJCDSettings<T>::nu) ? 1 : 0;
+            if (stop_on_first && s_accurate && !cc_stop)
                 atomicCAS(&g_stop, 0, 1);
         }
         __syncthreads();
-
+#if defined(HJCD_HAS_COLLISION)
+        if (cc_stop) {   // uniform: collision-aware stop. warp 0's dead per-warp scratch holds the spheres.
+            if (stop_on_first && s_accurate) {
+                if (warp == 0) {
+                    const bool free = warp_config_free<T>(s_jointXforms, env, reinterpret_cast<float*>(warp_base));
+                    if (lane == 0 && free) atomicCAS(&g_stop, 0, 1);
+                }
+                __syncthreads();
+            }
+        }
+#endif
         if (tid == 0) s_stop = read_stop();
         __syncthreads();
         if (s_stop) break;
+        // An accurate but colliding candidate is this block's result either way: hand it to the LM
+        // (whose repair round can fix it) rather than wandering off with further descent steps.
+        if (cc_stop && s_accurate) break;
 
         if (tid < N) x[gp * N + tid] = s_x[tid];
     }
@@ -1184,6 +1339,17 @@ __global__ void coarse_search(
         pos_errors[gp] = s_glob_pos_err * (T)1000.0;
         ori_errors[gp] = s_glob_ori_err;
     }
+#if defined(HJCD_HAS_COLLISION)
+    // Collision-aware ranking: the top-K selection that seeds the LM penalises colliding coarse
+    // candidates (a 20 mm-accurate colliding seed is often repairable, so a penalty, not exclusion).
+    // s_jointXforms holds the FK of the returned s_x (refreshed at the end of every iteration).
+    if (cc_stop) {   // uniform
+        if (warp == 0) {
+            const bool free = warp_config_free<T>(s_jointXforms, env, reinterpret_cast<float*>(warp_base));
+            if (lane == 0) coarse_free[gp] = free ? 1 : 0;
+        }
+    }
+#endif
 }
 
 
@@ -1200,7 +1366,10 @@ __global__ void lm_tuner(
     T lambda_init,
     int k_max,
     int B,
-    int stop_on_first
+    int stop_on_first,
+    CCEnv env,
+    int cc_stop,
+    int repair_attempts
 ) {
     // B = total candidates (Krep). grid = ceil(B / warps_per_block); each warp does one candidate.
     solve_lm_batched<T>(
@@ -1215,7 +1384,10 @@ __global__ void lm_tuner(
         lambda_init,
         k_max,
         B,
-        stop_on_first
+        stop_on_first,
+        env,
+        cc_stop,
+        repair_attempts
     );
 }
 
@@ -1386,12 +1558,16 @@ __host__ __device__ __forceinline__ T rank_score(T pos_err_mm, T ori_err_rad) {
 template<typename T>
 __global__ void build_scores_kernel(const T* __restrict__ pos_err_mm,
     const T* __restrict__ ori_err_rad,
+    const unsigned char* __restrict__ coarse_free,   // nullptr = open world; else 1 = collision-free
+    T penalty,                                       // added to colliding candidates' rank score
     T* __restrict__ scores,
     int B)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= B) return;
-    scores[i] = rank_score(pos_err_mm[i], ori_err_rad[i]);
+    T sc = rank_score(pos_err_mm[i], ori_err_rad[i]);
+    if (coarse_free && !coarse_free[i]) sc += penalty;
+    scores[i] = sc;
 }
 
 template<typename T>
@@ -1535,6 +1711,7 @@ __global__ void mark_collisions(
 #endif  // HJCD_HAS_COLLISION
 
 const double ENV_COLLISION_COST_W = 1.5;   // soft-mode weight of the penetration cost in the rank
+const double COARSE_COLLIDING_RANK_PENALTY = 50.0;   // rank-score units (~mm) added to colliding coarse seeds
 const float  CC_SPHERE_MARGIN_MM = 0.0f;   // env-collision margin (mm) for the coll-free tally
 
 namespace {
@@ -1675,6 +1852,28 @@ Result<T> generate_ik_solutions(
 
     const bool do_cc = collision_free;
 
+    // Collision policy: "hard" (1, default) filters colliding candidates outright; "soft" (0) is a
+    // penetration cost that only biases selection; "both" (2) = soft cost + hard filter. Strict
+    // filtering is what makes collision_free=True truthful.
+    const bool use_soft = do_cc && (collision_mode == 0 || collision_mode == 2);
+    const bool use_hard = do_cc && (collision_mode == 1 || collision_mode == 2);
+
+    // Collision-aware early stop + LM repair round (hard/both modes): the stop flag is raised only by
+    // a collision-free accurate candidate, and an accurate-but-colliding LM candidate gets
+    // HJCD_REPAIR_ATTEMPTS kicked re-projections before it is handed to the post-solve filter.
+    // HJCD_CC_STOP (diagnostic/A-B knob): bit 0 = coarse stage, bit 1 = LM stage; default 3 (both).
+    CCEnv cc_kernel_env{};
+    int cc_stop_mask = 3;
+    if (const char* e = std::getenv("HJCD_CC_STOP")) { int v = std::atoi(e); if (v >= 0 && v <= 3) cc_stop_mask = v; }
+    const int cc_stop = use_hard ? 1 : 0;
+    const int cc_stop_coarse = (cc_stop && (cc_stop_mask & 1)) ? 1 : 0;
+    const int cc_stop_lm     = (cc_stop && (cc_stop_mask & 2)) ? 1 : 0;
+    int repair_attempts = 4;
+    if (const char* e = std::getenv("HJCD_REPAIR_ATTEMPTS")) { int v = std::atoi(e); if (v >= 0 && v <= 64) repair_attempts = v; }
+#if defined(HJCD_HAS_COLLISION)
+    if (use_hard) cc_kernel_env = cc_env;
+#endif
+
     // Coarse phase precision
     using TC = float;
 
@@ -1701,6 +1900,8 @@ Result<T> generate_ik_solutions(
     // float coarse targets, one row per candidate block
     TC* d_targets_coarse_c = upload_replicated_target<TC>(allocations, target_pose64, B);
     reset_stop_flag();
+    unsigned char* d_coarse_free = nullptr;          // cc_stop only: per-block collision verdict
+    if (cc_stop_coarse) allocations.allocate(d_coarse_free, (size_t)B);
 
     // COARSE SEARCH
     {
@@ -1713,7 +1914,9 @@ Result<T> generate_ik_solutions(
         TPB_req = (TPB_req + WARP_SIZE - 1) / WARP_SIZE * WARP_SIZE;
         TPB_req = std::max(TPB_req, WARP_SIZE);
 
-        const size_t perWarpBytes = (size_t)(2 * NX * 16) * sizeof(TC);
+        // Per-warp scratch: the two anchor FK buffers, or (collision-aware stop) warp 0's sphere positions.
+        const size_t perWarpBytes = std::max((size_t)(2 * NX * 16) * sizeof(TC),
+                                             cc_stop_coarse ? (size_t)CC_WARP_POS_FLOATS * sizeof(float) : (size_t)0);
 
         cudaFuncAttributes attr{};
         CUDA_OK(cudaFuncGetAttributes(&attr, (const void*)coarse_search<TC>));
@@ -1749,7 +1952,7 @@ Result<T> generate_ik_solutions(
             coarse_search<TC><<<B, TPB, scratchBytes>>>(
                 d_x_c, d_pose_c, d_targets_coarse_c,
                 d_pos_mm_c, d_ori_r_c, d_robotModel_f,
-                stop_on_first
+                stop_on_first, cc_kernel_env, cc_stop_coarse, d_coarse_free
             );
             cudaError_t e = cudaGetLastError();
             if (e == cudaSuccess) break;
@@ -1788,7 +1991,7 @@ Result<T> generate_ik_solutions(
     {
         const int tpb = 256, gpb = (B + tpb - 1) / tpb;
         build_scores_kernel<TC><<<gpb, tpb>>>(
-            d_pos_mm_c, d_ori_r_c, d_scores_c, B);
+            d_pos_mm_c, d_ori_r_c, d_coarse_free, (TC)COARSE_COLLIDING_RANK_PENALTY, d_scores_c, B);
         CUDA_OK(cudaGetLastError());
     }
 
@@ -1910,7 +2113,8 @@ Result<T> generate_ik_solutions(
             }
             lm_tuner<RT><<<grid_lm, TPB_lm, lm_smem>>>(
                 dx64, dpose64, dtgt64, dposmm64, dori64, d_robotModel_rt,
-                eps_pos, eps_ori, HJCDSettings<RT>::lambda_init, max_iters, Krep, stop_on_first_lm
+                eps_pos, eps_ori, HJCDSettings<RT>::lambda_init, max_iters, Krep, stop_on_first_lm,
+                cc_kernel_env, cc_stop_lm, repair_attempts
             );
             cudaError_t launch_err = cudaGetLastError();
             if (launch_err == cudaSuccess) break;
@@ -1922,12 +2126,6 @@ Result<T> generate_ik_solutions(
         }
         CUDA_OK(cudaDeviceSynchronize());
     }
-
-    // Collision policy: "hard" (1, default) filters colliding candidates outright; "soft" (0) is a
-    // penetration cost that only biases selection; "both" (2) = soft cost + hard filter. Strict
-    // filtering is what makes collision_free=True truthful.
-    const bool use_soft = do_cc && (collision_mode == 0 || collision_mode == 2);
-    const bool use_hard = do_cc && (collision_mode == 1 || collision_mode == 2);
 
     // Host collision buffers are needed only for the requested check, not open-world solves.
     std::vector<float> h_env_cost_refined(use_soft ? Krep : 0);

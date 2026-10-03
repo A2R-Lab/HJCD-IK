@@ -1,0 +1,56 @@
+
+== external/foam/assets/panda/smaller_panda_spherized.urdf
+link               spheres  bulge max  bulge p99  uncovered>1mm  gap p99
+panda_link1              4     36.2 mm     31.5 mm         16.4 %   21.9 mm
+panda_link2              4     34.2 mm     30.4 mm         15.8 %   21.8 mm
+panda_link3              4     39.8 mm     35.0 mm         20.6 %   12.0 mm
+panda_link4              4     35.0 mm     32.5 mm         16.5 %   11.5 mm
+panda_link5             12     20.2 mm     15.0 mm          7.6 %    6.3 mm
+panda_link6              3     35.0 mm     32.5 mm         34.3 %   15.0 mm
+panda_link7              5     32.4 mm     26.7 mm          4.4 %    2.4 mm
+panda_hand              18     17.7 mm     12.5 mm         15.1 %    6.8 mm
+panda_leftfinger         2     10.3 mm     10.0 mm         35.2 %   13.5 mm
+panda_rightfinger        2      7.9 mm      7.5 mm         35.2 %   13.5 mm
+TOTAL                   58     39.8 mm
+
+== benchmark/reference/panda_curobo_spherized.urdf
+link               spheres  bulge max  bulge p99  uncovered>1mm  gap p99
+panda_link1              4     36.2 mm     31.5 mm         19.9 %   23.5 mm
+panda_link2              4     29.3 mm     25.8 mm         48.5 %   26.8 mm
+panda_link3              4     39.8 mm     35.6 mm         37.6 %   14.1 mm
+panda_link4              4     32.5 mm     30.0 mm         44.8 %   14.5 mm
+panda_link5             13     75.0 mm     65.0 mm         46.8 %   16.3 mm
+panda_link6              3      9.8 mm      7.4 mm         71.3 %   87.6 mm
+panda_link7              5     27.0 mm     22.7 mm         23.4 %    6.2 mm
+panda_hand              18     12.7 mm      7.5 mm         38.4 %   11.8 mm
+panda_leftfinger         2      5.0 mm      5.0 mm         40.0 %   11.8 mm
+panda_rightfinger        2      7.5 mm      7.5 mm         40.0 %   11.8 mm
+TOTAL                   59     75.0 mm
+
+== benchmark/reference/panda_visual_b15_spherized.urdf
+link               spheres  bulge max  bulge p99  uncovered>1mm  gap p99
+panda_link1             24     17.5 mm     15.8 mm          0.0 %    0.0 mm
+panda_link2             24     17.5 mm     15.3 mm          0.0 %    0.0 mm
+panda_link3             28     17.7 mm     16.0 mm          0.0 %    0.0 mm
+panda_link4             28     17.7 mm     15.8 mm          0.0 %    0.0 mm
+panda_link5             35     17.7 mm     15.8 mm          0.0 %    0.0 mm
+panda_link6             20     17.5 mm     15.8 mm          0.0 %    0.0 mm
+panda_link7             11     17.7 mm     15.2 mm          0.0 %    0.0 mm
+panda_hand              24     19.0 mm     17.5 mm          0.0 %    0.0 mm
+panda_leftfinger         3     16.2 mm     15.8 mm          0.0 %    0.0 mm
+panda_rightfinger        3     17.5 mm     16.0 mm          0.0 %    0.0 mm
+TOTAL                  200     19.0 mm
+
+== benchmark/reference/panda_visual_b10_spherized.urdf
+link               spheres  bulge max  bulge p99  uncovered>1mm  gap p99
+panda_link1             46     12.5 mm     11.1 mm          0.0 %    0.0 mm
+panda_link2             45     12.5 mm     10.9 mm          0.0 %    0.0 mm
+panda_link3             51     12.7 mm     11.2 mm          0.1 %    0.0 mm
+panda_link4             48     12.5 mm     10.9 mm          0.0 %    0.0 mm
+panda_link5             54     12.5 mm     11.2 mm          0.0 %    0.0 mm
+panda_link6             36     12.5 mm     11.0 mm          0.0 %    0.0 mm
+panda_link7             33     12.5 mm     10.6 mm          0.0 %    0.0 mm
+panda_hand              53     13.5 mm     12.5 mm          0.0 %    0.0 mm
+panda_leftfinger         6     12.5 mm     10.9 mm          0.0 %    0.0 mm
+panda_rightfinger        5     12.5 mm     11.2 mm          0.0 %    0.0 mm
+TOTAL                  377     13.5 mm

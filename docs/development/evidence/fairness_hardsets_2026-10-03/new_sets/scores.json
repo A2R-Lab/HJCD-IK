@@ -69,7 +69,41 @@
  },
  {
   "problem_set": "kitchen_panda",
-  "solver": "hjcdik_cusph",
+  "solver": "hjcdik_ccstop",
+  "batch": 100,
+  "n": 100,
+  "pose_ok": 99,
+  "pose_and_free": {
+   "hjcd": 99,
+   "paper": 99,
+   "curobo": 99,
+   "hull<=1mm": 98,
+   "hull<=5mm": 99,
+   "visual<=1mm": 99,
+   "visual<=5mm": 99
+  },
+  "all_oracles": 98
+ },
+ {
+  "problem_set": "kitchen_panda",
+  "solver": "hjcdik_ccstop",
+  "batch": 2000,
+  "n": 100,
+  "pose_ok": 99,
+  "pose_and_free": {
+   "hjcd": 99,
+   "paper": 99,
+   "curobo": 99,
+   "hull<=1mm": 99,
+   "hull<=5mm": 99,
+   "visual<=1mm": 99,
+   "visual<=5mm": 99
+  },
+  "all_oracles": 99
+ },
+ {
+  "problem_set": "kitchen_panda",
+  "solver": "hjcdik_cusph_ccstop",
   "batch": 100,
   "n": 100,
   "pose_ok": 100,
@@ -82,11 +116,11 @@
    "visual<=1mm": 100,
    "visual<=5mm": 100
   },
-  "all_oracles": 97
+  "all_oracles": 96
  },
  {
   "problem_set": "kitchen_panda",
-  "solver": "hjcdik_cusph",
+  "solver": "hjcdik_cusph_ccstop",
   "batch": 2000,
   "n": 100,
   "pose_ok": 100,
@@ -205,7 +239,7 @@
  },
  {
   "problem_set": "table_bars_panda",
-  "solver": "hjcdik_cusph",
+  "solver": "hjcdik_ccstop",
   "batch": 100,
   "n": 100,
   "pose_ok": 100,
@@ -213,29 +247,63 @@
    "hjcd": 100,
    "paper": 100,
    "curobo": 100,
-   "hull<=1mm": 70,
-   "hull<=5mm": 82,
+   "hull<=1mm": 79,
+   "hull<=5mm": 88,
    "visual<=1mm": 100,
    "visual<=5mm": 100
   },
-  "all_oracles": 70
+  "all_oracles": 79
  },
  {
   "problem_set": "table_bars_panda",
-  "solver": "hjcdik_cusph",
+  "solver": "hjcdik_ccstop",
   "batch": 2000,
   "n": 100,
   "pose_ok": 100,
   "pose_and_free": {
-   "hjcd": 96,
-   "paper": 96,
+   "hjcd": 100,
+   "paper": 100,
    "curobo": 100,
    "hull<=1mm": 69,
-   "hull<=5mm": 91,
-   "visual<=1mm": 96,
+   "hull<=5mm": 96,
+   "visual<=1mm": 100,
    "visual<=5mm": 100
   },
   "all_oracles": 69
+ },
+ {
+  "problem_set": "table_bars_panda",
+  "solver": "hjcdik_cusph_ccstop",
+  "batch": 100,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "hull<=1mm": 81,
+   "hull<=5mm": 89,
+   "visual<=1mm": 100,
+   "visual<=5mm": 100
+  },
+  "all_oracles": 81
+ },
+ {
+  "problem_set": "table_bars_panda",
+  "solver": "hjcdik_cusph_ccstop",
+  "batch": 2000,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 98,
+   "paper": 98,
+   "curobo": 100,
+   "hull<=1mm": 66,
+   "hull<=5mm": 93,
+   "visual<=1mm": 98,
+   "visual<=5mm": 100
+  },
+  "all_oracles": 66
  },
  {
   "problem_set": "table_bars_panda",

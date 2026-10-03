@@ -146,4 +146,9 @@ struct HJCDSettings {
     // HJCD_LM_EPS_POS / HJCD_LM_EPS_ORI override it for precision-appropriate sweeps.
     static constexpr T lm_eps_pos = static_cast<T>(1e-8);
     static constexpr T lm_eps_ori = static_cast<T>(1e-8);
+    // Collision-aware refinement (hard/both modes): a collision-free configuration inside this band
+    // is preferred to an exactly converged one that collides (the exact pose can sit inside an
+    // obstacle by a millimetre). The band equals the benchmark success criterion.
+    static constexpr T cc_fallback_pos = static_cast<T>(5e-3);     // 5 mm
+    static constexpr T cc_fallback_ori = static_cast<T>(5e-2);     // 0.05 rad
 };
