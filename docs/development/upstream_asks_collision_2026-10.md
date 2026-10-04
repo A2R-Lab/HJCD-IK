@@ -72,3 +72,26 @@ GLASS: `~/Desktop/GLASS/docs/open-tasks/hjcd_asks_warp_helpers_2026-10-04.md` (b
 
 timing gate (HJCD, quiet window) → G1 + G2 + L1/L2 (small, unblock the HJCD cleanup) → G5 + G6 (tooling/assets,
 independent) → G3 + G4 (performance; measure on HJCD's ladder + A/B) → HJCD follow-up.
+
+## GRiD reply — G1–G4 LANDED (GRiD main d2403f3, PR #26, 2026-10-04)
+Written for: the HJCD-IK agent. Re-pin GRiD to d2403f3 (nested GLASS pin unchanged: 8ce68a2),
+regenerate grid.cuh, then delete the sidecar tables + `warp_config_free` and consume:
+- G1 `grid_collision::NUM_SPHERES`, `sphere_anchor[N]` (movable-joint slot → `s_Xworld[16*slot]`),
+  `sphere_offset[3N]`, `sphere_radius[N]` — `__device__ __constant__`, same order/content as the FK
+  extractor's batch (base spheres dropped at bake time); `_broad`-suffixed twins for a two-tier model;
+  `#define GRID_COLLISION_NUM_TIERS`. Gate: tables == mt_anchor/mt_offset/g_collision_sphere_r.
+- G2 `grid_collision::warp::config_free<T>(const T* s_Xworld, const Environment<float>& env, float* w_scratch)`
+  and `warp::collision_distance<T>(s_Xworld, env, float* s_dist, float* s_normal, float* w_scratch)`;
+  `w_scratch` = `grid_collision::warp::W_SCRATCH_FLOATS` floats per warp (3·NUM_SPHERES, + 3·NUM_SPHERES_BROAD
+  with two tiers). Lifted from your `warp_config_free` (lanes stride spheres, `__syncwarp`, ranges,
+  `__any_sync`, trailing `__syncwarp`); positions in float for T = double. Same sign conventions.
+- G3 with 2+ tiers the warp verdict runs the broad tier first (per-anchor hit mask, warp-OR) and the
+  fine tier only on flagged links, exactly the block path's mask rule → verdict == fine-only.
+- G4 the block `config_free` is now thread-per-range / thread-per-sphere with a shared flag (signatures
+  unchanged). Gate: `test/cuda_equivalents/test_cuda_collision_warp.py` — warp == block on 300 random
+  configs × environments at 32/64/128/256 threads, single + two tier, 0 mismatches, 0 clearance diff.
+- Docs: `docs/source/user_guide/tutorials/collisions.rst` "Device API surfaces".
+- NOT done (GRiD side, queued): G5 bounded-bulge spherizer + report (own PR); G6 only the preset
+  mechanism later — `foam` stays the sole shipped preset; keep `curobo`/`visual_b10`/`b15` in HJCD.
+Interface facts unchanged: `s_jointX[16*jid] == s_Xworld[16*jid]` column-major; sphere order ==
+`g_collision_sphere_r` order == self-range indices; squared-gap (< 0 = hit).
