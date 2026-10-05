@@ -31,8 +31,9 @@ COLUMNS = ["label", "leg", "batch", "round", "n_targets", "median_ms", "mean_ms"
 
 
 def load_shared_targets(path):
-    D = json.load(open(path))
-    return [list(map(float, t)) for t in D["targets"]]
+    from hjcd_ik_bench import _load_filtered_targets
+    targets, _ = _load_filtered_targets(Path(path))
+    return targets
 
 
 def goal_pose_targets(problems_json_path, set_name):

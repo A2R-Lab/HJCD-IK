@@ -94,18 +94,22 @@ def main():
         if sha != ep["commit"]:
             raise ValueError(f"changed checkout: {label}")
         info = json.loads(subprocess.check_output([ep["python"], "-c",
-            "import json,hjcdik,hjcdik._hjcdik as m; print(json.dumps(dict(build=hjcdik.build_info(),binary=m.__file__)))"],
+            "import json,sys,numpy,hjcdik,hjcdik._hjcdik as m; print(json.dumps(dict(build=hjcdik.build_info(),binary=m.__file__,python=sys.version,numpy=numpy.__version__)))"],
             cwd="/tmp", env=env, text=True))
         if info["build"]["grid_header_sha256"] != ep["header_sha"] or digest(info["binary"]) != ep["binary_sha"]:
             raise ValueError(f"changed installed build: {label}")
         if info["build"].get("ee_target", "panda_hand_joint") != "panda_hand_joint":
             raise ValueError("gate requires hand-frame builds")
         provenance[label] = info
+    if len({(p["python"], p["numpy"]) for p in provenance.values()}) != 1:
+        raise ValueError("endpoint Python/NumPy runtimes differ")
     if args.quiet_window and foreign_gpu_pids():
         raise RuntimeError("GPU is occupied; no timing started")
     args.out.mkdir(parents=True, exist_ok=False)
     (args.out / "manifest.json").write_text(json.dumps(dict(config=config, provenance=provenance,
-        driver_sha=digest(DRIVER), correctness_only=args.correctness_only), indent=2)+"\n")
+        driver_sha=digest(DRIVER), correctness_only=args.correctness_only,
+        helpers={name: digest(DRIVER.parents[2] / "benchmark" / name) for name in
+                 ("query_results.py", "hjcd_ik_bench.py", "panda_collision.py", "panda_model.py", "collision_check.py", "gen_targets.py")}), indent=2)+"\n")
     output = args.out.resolve() / "results.csv"
     endpoints = list(config["endpoints"])
     for r in range(1, config["rounds"]+1):

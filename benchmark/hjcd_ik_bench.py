@@ -161,6 +161,8 @@ def _load_filtered_targets(path):
     pidxs = []
 
     for i, it in enumerate(items):
+        if isinstance(it, list):
+            it = {"problem_idx": i, "target": it}
         if not isinstance(it, dict):
             raise ValueError(f"entry {i} must be an object")
         if "problem_idx" not in it or "target" not in it:

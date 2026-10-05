@@ -183,5 +183,6 @@ tests/test_stats_summary.py::test_summary_uses_only_measured_denominators[32,0,0
 tests/test_stats_summary.py::test_summary_uses_only_measured_denominators[32,100,-1,100,-1\n-expected0]
 tests/test_stats_summary.py::test_summary_uses_only_measured_denominators[32,2,1,4,1\n-expected1]
 tests/test_stats_summary.py::test_summary_uses_only_measured_denominators[32,2,1,4,1\n32,100,-1,100,-1\n-expected2]
+tests/test_timing_contract.py::test_driver_accepts_neutral_generator_target_schema
 tests/test_timing_contract.py::test_driver_names_precision_and_never_times_correctness
 tests/test_timing_contract.py::test_gate_rejects_missing_duplicate_and_mixed_protocol_cells

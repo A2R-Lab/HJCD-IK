@@ -15,6 +15,16 @@ def module(name):
     return m
 
 
+def test_driver_accepts_neutral_generator_target_schema(tmp_path):
+    import json
+    m = module("timing_driver")
+    target = [0, 0, 0, 1, 0, 0, 0]
+    path = tmp_path / "targets.json"
+    for record in (target, {"problem_idx": 0, "target": target}):
+        path.write_text(json.dumps({"targets": [record]}))
+        assert m.load_shared_targets(path) == [target]
+
+
 def test_driver_names_precision_and_never_times_correctness(monkeypatch):
     m = module("timing_driver")
     calls = []
