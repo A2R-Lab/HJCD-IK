@@ -277,7 +277,10 @@ json.dump({"problems": merged}, open(sys.argv[3], "w"))
 PYEOF
 for proto in paper hand; do
   cfg="$OUT_DIR/configs_collfree_${proto}"
+  required_sets="$MB_SETS"
+  if [ "$proto" = paper ]; then required_sets="$PROBLEM_SET"; fi
   "$PY" benchmark/score_collision_oracles.py "$cfg"/*.jsonl --problems "$OUT_DIR/problems_merged.json" \
+    --problem-sets $required_sets \
     --out "$OUT_DIR/table_oracles_collfree_${proto}.md" > /dev/null || { echo "ERROR: (oracle scoring for $proto skipped)" >&2; exit 1; }
 done
 

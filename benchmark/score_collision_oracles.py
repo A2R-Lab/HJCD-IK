@@ -31,6 +31,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("dumps", nargs="+", help="JSON-lines configuration dumps")
     ap.add_argument("--problems", required=True, help="mb_problems.json")
+    ap.add_argument("--problem-sets", nargs="+", help="Explicit subset; otherwise every set in the problem manifest is required")
     ap.add_argument("--mesh-tols-mm", default="1,5", help="mesh judges' touch tolerances to report (mm; obstacles shrunk)")
     ap.add_argument("--mesh-geometries", default="hull,visual",
                     help="which Panda meshes judge: hull = franka collision hulls (MoveIt's), visual = visual-link mesh approximation")
@@ -43,6 +44,8 @@ def main():
     args = ap.parse_args()
 
     problems = json.load(open(args.problems))["problems"]
+    if args.problem_sets:
+        problems = {name: problems[name] for name in args.problem_sets}
     worlds = {}
     oracles = make_oracles(("hjcd", "paper", "curobo"))
     if len(oracles) != 3 and not args.allow_missing_oracles:

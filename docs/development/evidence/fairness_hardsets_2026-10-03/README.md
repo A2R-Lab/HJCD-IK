@@ -1,5 +1,11 @@
 # Fairness pass + harder sets — RTX 5090, 2026-10-03 (correctness only; GPU shared)
 
+**Audit erratum (2026-10-04):** the conservative b10/b15 ladder dumps contain 2775/2771 records,
+not the expected 2776, because empty outputs were omitted. Their returned-record rates need recollection
+before use as per-query success. Default-model dumps are complete. The “3–4× latency” observation below
+is withdrawn as a performance claim because the GPU was shared. Visual meshes are an environment-only
+approximation, not physical ground truth. Archived raw data remain unchanged.
+
 Companion to `paper_rerun_2026-10-03/` (the latency campaign). Everything here is success-rate data collected
 on a GPU shared with other jobs; **no latency in this directory is meaningful**. Summarised in
 `docs/source/user_guide/benchmarks/results.rst`, section *All MotionBenchMaker sets* and *Clearance ladder*.

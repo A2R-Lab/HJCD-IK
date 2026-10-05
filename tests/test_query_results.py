@@ -24,6 +24,8 @@ def test_empty_query_is_serialized_and_counts_as_an_attempt():
         validate_groups([r], {"s": [{}, {}]})
     with pytest.raises(ValueError, match="duplicate"):
         validate_groups([r, r], {"s": [{}]})
+    with pytest.raises(ValueError, match="missing query group"):
+        validate_groups([r], {"s": [{}], "missing_set": [{}]})
 
 
 def test_candidate_selection_requires_both_errors_on_one_candidate():

@@ -57,7 +57,7 @@ def validate_groups(records, problems):
         raise ValueError("no query records")
     solvers = {key[1] for key in groups}
     batches = {key[2] for key in groups}
-    for pset in {key[0] for key in groups}:
+    for pset in problems:
         for solver in solvers:
             for batch in batches:
                 if (pset, solver, batch) not in groups:

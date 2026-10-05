@@ -24,6 +24,8 @@ an explicit empty record for a zero-output attempt. Both errors must pass for th
 `--allow-legacy-reports` and `--allow-missing-oracles` are explicit exploratory opt-outs, not publication gates.
 For a subset experiment supply a correspondingly indexed subset problem manifest; do not score a partial
 file as though it were the entire dataset. Different solvers/batches must cover the same selected sets.
+The scorer requires every set in its problem manifest by default; declare an intentional set-level
+subset with `--problem-sets`. An entirely missing set is an error, not an implicit selection.
 
 CSV summaries count attempts (including empty failures), not returned solutions. Empty errors are infinite;
 `queries` and `pose_success(%)` make the denominator and joint accuracy explicit. Collision-only percentages
