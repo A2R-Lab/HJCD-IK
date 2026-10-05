@@ -796,7 +796,7 @@ namespace grid {
 
     // vendor_glass=False: GLASS is NOT vendored. The consumer's include path
     // must provide the top-level glass.cuh (included in this header's prelude);
-    // the generator was run against GLASS revision 8ce68a29bceb30c7764c9391d517a182d061697d.
+    // the generator was run against GLASS revision 9e57178ca146fa1cecae7e27c22260603b993aa6.
     namespace glass = ::glass;
 
     /**

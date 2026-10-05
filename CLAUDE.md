@@ -180,7 +180,11 @@ a `#define HJCD_HAS_COLLISION 1` sentinel and the kernel + `grid_env.cuh` guard 
 it. A no-collision header (e.g. the DoF-scaling regens, or any BYO-URDF built without `--collision`) still
 compiles and runs open-world; the Python API rejects a collision-free request in that build.
 
-**Performance status.** Current revision performance is pending a quiet-window gate; see
+**Performance status (updated October 5).** The completed pre-upstream A/B gate has identical matched
+quality counts, 19/20 cells consistently faster and one approximately unchanged; see
+[`audit_timing_2026-10-05`](docs/development/evidence/audit_timing_2026-10-05/README.md).
+The subsequent GRiD/GLASS pin update is validated separately, not silently included in those measurements.
+Protocol details:
 [`docs/development/timing_gate.md`](docs/development/timing_gate.md). The October 2 A/B driver forced
 fp32 even for S=1, and its results must not be called auto-precision/default-S1 coverage. October 3
 conservative-model dumps omitted some empty queries (2775/2771 of 2776); those groups require recollection.
@@ -203,11 +207,13 @@ neutral two-endpoint A/B driver (alternate rounds, compare paired per-round medi
 
 ## What next
 
-**Current priority (2026-10-04 audit):** complete sanitizer/correctness and signed receipt, stage matched
-release hand-frame endpoints, then PAUSE until an explicitly approved quiet timing window. Do not push
-without permission. GRiD's G1–G4 APIs are consumed; its nested GLASS pin must match top-level GLASS before
-consuming the new GLASS helpers. The detailed historical roadmap below is context, not a completed
-performance gate. Visual meshes are an environment-only approximation with obstacle-shrink tolerances,
+**Current priority (2026-10-05):** completed timing reviewed; GRiD 8dccbfa and matching GLASS 9e57178
+pulled. Revalidate and sign proof, preserve measured endpoints, assess whether compiled code changes need
+targeted timing. No push or new timing without permission. G1–G4 are consumed. G5's generic collision-mesh
+spherizer/report and the G6 foam preset mechanism now exist upstream; they are not automatically equivalent
+to HJCD's historical visual-mesh experiments. GLASS point-transform/vote helpers are available but are not
+called by the unchanged generated warp checker. Keep numerical-policy changes separate. The roadmap below
+contains historical context. Visual meshes are an environment-only approximation with obstacle-shrink tolerances,
 not physical ground truth; model substitution does not isolate every solver-policy difference.
 
 The running roadmap is `docs/open-tasks/TODO.md` (local, gitignored agent scratch — recreate it from this list
