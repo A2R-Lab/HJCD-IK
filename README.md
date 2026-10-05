@@ -119,6 +119,14 @@ Returned `pos_errors` are in **millimeters** and `ori_errors` are in **radians**
 your tolerances; the solver can return approximate candidates for unreachable targets. Collision filtering
 can return fewer solutions, including zero. See [the Python API](docs/source/api_reference/python.rst).
 
+In hard/both mode, collision-aware refinement may retain a free fallback within 5 mm / 0.05 rad
+when this run finds no exactly converged free candidate. A nonempty result is not an accuracy
+certificate: check both errors for the same candidate against your application's tolerances.
+`build_info()["ee_target"]` identifies the compiled tool frame. MotionBenchMaker goals are
+hand-frame poses, 105 mm from the default Panda TCP; the collision example converts them explicitly.
+The benchmark's `--target-mode goal` requires a `panda_hand_joint` build, whereas `--target-mode cylinder`
+uses the default `panda_grasptarget_hand` build. Do not pass hand poses directly to a TCP build.
+
 ## Collision-Enabled Build
 
 Generate the Panda collision model:
@@ -155,6 +163,10 @@ geometry. This flag changes only post-hoc validation, never the solver's compile
 Both checks are environment-only; the solver's hard/both modes additionally check self-collision.
 CSV/YAML collision results have a `.metadata.json` sidecar identifying the selected model,
 source hashes, finger origins, and compiled-header identity.
+
+Benchmark summaries count attempted queries, including zero-output failures, rather than returned
+solutions. Configuration dumps retain the target/frame and empty records for independent FK scoring.
+See [the current timing and evidence protocol](docs/development/timing_gate.md).
 
 ## Examples
 

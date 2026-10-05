@@ -36,6 +36,7 @@ ACCURATE_ORI_RAD = 1e-3
 
 sys.path.insert(0, str(ROOT / "benchmark"))
 from panda_collision import mb_instance_to_world_dict, panda_config_collision_free  # noqa: E402
+from query_results import panda_hand_target
 
 
 def _aggregate(num_targets, solved, pos_errs, ori_errs, **extra):
@@ -73,6 +74,7 @@ def run_collision_suite(problems_per_set=PROBLEMS_PER_SET, batch_size=2000, num_
             inst = problems[set_name][i]
             gp = inst["goal_pose"]
             target = list(gp["position_xyz"]) + list(gp["quaternion_wxyz"])
+            target = panda_hand_target(target, hjcdik.build_info()["ee_target"])
             out = hjcdik.generate_solutions(
                 target, batch_size=batch_size, num_solutions=num_solutions, collision_free=True,
                 problems_json_text=text, problem_set_name=set_name, problem_idx=i,

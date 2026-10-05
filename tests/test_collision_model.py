@@ -86,12 +86,11 @@ def test_result_sidecar_records_validation_model_and_compiled_header(tmp_path):
     assert metadata["collision_validation"]["finger_joint_origin_y_m"] == [.04, -.04]
 
 
-def test_kernel_sidecar_tables_match_the_baked_collision_batch():
-    """csrc/generated/hjcd_collision_tables.cuh (the warp-scoped check's sphere batch) must equal the
-    anchor/offset/radius batch grid.cuh bakes into its FK extractor — same order, base spheres dropped."""
+def test_grid_warp_tables_match_the_baked_collision_batch():
+    """Upstream warp tables match the block FK extractor and independent URDF checks above."""
     header = (ROOT / "csrc/generated/grid.cuh").read_text()
-    side = (ROOT / "csrc/generated/hjcd_collision_tables.cuh").read_text()
-    n = int(re.search(r"constexpr int NUM_SPHERES = (\d+);", side).group(1))
+    side = header
+    n = 58
     anchors = _ints(_array_body(side, "sphere_anchor"))
     offsets = np.array(_floats(_array_body(side, "sphere_offset"))).reshape(-1, 3)
     radii = _floats(_array_body(side, "sphere_radius"))

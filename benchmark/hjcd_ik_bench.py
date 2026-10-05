@@ -222,10 +222,10 @@ def write_yaml_flat(path, batch_sizes, time_ms, pos_err, ori_err, cfree=None):
             y.write(f"  - {v:.9f}\n")
         y.write("Pos-Error:\n")
         for v in pos_err:
-            y.write(f"  - {v:.17g}\n")
+            y.write("  - .inf\n" if v == float("inf") else f"  - {v:.17g}\n")
         y.write("Ori-Error:\n")
         for v in ori_err:
-            y.write(f"  - {v:.17g}\n")
+            y.write("  - .inf\n" if v == float("inf") else f"  - {v:.17g}\n")
         if cfree is not None and any(c is not None for c in cfree):
             # per-solution collision-free flag (null when not validated), same order as the lists above.
             y.write("Collision-Free:\n")
@@ -254,7 +254,7 @@ def print_batch_summary(y_batch, y_time_ms, y_pos, y_ori, y_cfree=None):
         print(f"  Position Error: {sum(g_pos[B]) / len(g_pos[B]):12.6e}")
         print(f"  Orientation Error: {sum(g_ori[B]) / len(g_ori[B]):12.6e}")
         if g_cfree[B]:
-            print(f"  Collision-Free: {100.0 * sum(g_cfree[B]) / len(g_cfree[B]):.1f}% ({len(g_cfree[B])} solutions)")
+            print(f"  Collision-Free: {100.0 * sum(g_cfree[B]) / len(g_cfree[B]):.1f}% ({len(g_cfree[B])} queries)")
 
 def write_csv_summary(path, solver, y_batch, y_time_ms, y_pos, y_ori, y_cfree=None):
     import csv
@@ -278,7 +278,7 @@ def write_csv_summary(path, solver, y_batch, y_time_ms, y_pos, y_ori, y_cfree=No
 
     with path.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["solver", "Batch-Size", "time_ms", "pos_err_mm", "ori_err_rad", "collision_free(%)"])
+        w.writerow(["solver", "Batch-Size", "time_ms", "pos_err_mm", "ori_err_rad", "collision_free(%)", "queries", "pose_success(%)"])
 
         for B in sorted(g_time.keys()):
             time_ms = sum(g_time[B]) / len(g_time[B])
@@ -286,7 +286,9 @@ def write_csv_summary(path, solver, y_batch, y_time_ms, y_pos, y_ori, y_cfree=No
             ori_rad = sum(g_ori[B]) / len(g_ori[B])
             cfree   = (f"{100.0 * sum(g_cfree[B]) / len(g_cfree[B]):.4g}" if g_cfree[B] else "")
 
-            w.writerow([solver, int(B), f"{time_ms:.9f}", f"{pos_mm:.9g}", f"{ori_rad:.9g}", cfree])
+            pose_success = sum(p < 5 and o < .05 for p, o in zip(g_pos[B], g_ori[B])) / len(g_pos[B])
+            w.writerow([solver, int(B), f"{time_ms:.9f}", f"{pos_mm:.9g}", f"{ori_rad:.9g}", cfree,
+                        len(g_time[B]), 100 * pose_success])
 
 def main() -> None:
     ap = argparse.ArgumentParser()
@@ -352,7 +354,7 @@ def main() -> None:
     did_codegen = run_grid_codegen(
         Path(args.urdf),
         args.skip_grid_codegen,
-        args.grid_target,
+        args.grid_target or ("panda_hand_joint" if args.collision_free and args.target_mode == "goal" else ""),
         collision=args.collision_free,
     )
     if did_codegen:
@@ -371,6 +373,9 @@ def main() -> None:
     world_by_pidx: Dict[int, dict] = {}   # pidx -> world_dict for post-hoc collision validation (Panda only)
 
     if args.collision_free:
+        expected_target = "panda_hand_joint" if args.target_mode == "goal" else "panda_grasptarget_hand"
+        if hjcdik.build_info().get("ee_target") != expected_target:
+            raise ValueError(f"collision protocol requires {expected_target}; regenerate and rebuild (see --grid-target)")
         # Preserve the historical paper-model comparison by default. The explicit
         # hjcd option instead checks the current URDF-bound geometry; neither checks self collision.
         from panda_collision import panda_config_collision_free, mb_instance_to_world_dict
@@ -399,7 +404,11 @@ def main() -> None:
             else:
                 # Dataset protocol: the MotionBenchMaker goal_pose itself, which is posed for the
                 # panda_hand frame (its goal_ik solutions put panda_hand there). Use a panda_hand build.
-                targets.append(build_target_from_goal_pose(inst))
+                goal_target = build_target_from_goal_pose(inst)
+                if args.target_mode == "cylinder":
+                    from query_results import panda_hand_target
+                    goal_target = panda_hand_target(goal_target, expected_target)
+                targets.append(goal_target)
             problem_indices.append(pidx)
             world_by_pidx[pidx] = mb_instance_to_world_dict(inst)
 
@@ -504,14 +513,12 @@ def main() -> None:
             count = int(res.get("count", S))
             pos_err = res["pos_errors"]
             ori_err = res["ori_errors"]
-            if args.configs_out and args.collision_free and count > 0:
-                pe_list = [float(v) for v in pos_err]
-                best = min(range(len(pe_list)), key=pe_list.__getitem__)
-                with open(args.configs_out, "a", encoding="utf-8") as cf_stream:
-                    cf_stream.write(json.dumps({
-                        "solver": args.solver, "problem_set": args.problem_set, "problem_idx": int(eff_pidx),
-                        "batch": int(B), "q": [float(v) for v in res["joint_config"][best]],
-                        "pos_err_mm": pe_list[best], "ori_err_rad": float(ori_err[best])}) + "\n")
+            from query_results import best_candidate, query_record, append_record
+            best = best_candidate(res)
+            if args.configs_out and args.collision_free:
+                append_record(args.configs_out, query_record(
+                    res, solver=args.solver, problem_set=args.problem_set, problem_idx=eff_pidx,
+                    batch=B, target=target, ee_target=hjcdik.build_info()["ee_target"], elapsed_ms=dt_ms))
 
             # Post-hoc collision-free validation of HJCD's OWN returned q against the shared sphere model
             # (computed AFTER dt_ms is captured, so it never enters the timed region). Panda only: gated on
@@ -519,12 +526,15 @@ def main() -> None:
             jc = res.get("joint_config") if (args.collision_free and pidx in world_by_pidx) else None
             world_dict = world_by_pidx.get(pidx) if jc is not None else None
 
-            for r in range(count):
+            # One timing/error row per ATTEMPT, never weighted by returned count.
+            for r in [best]:
                 y_batch.append(B)
                 y_time_ms.append(dt_ms)
-                y_pos.append(float(pos_err[r]))
-                y_ori.append(float(ori_err[r]))
-                if world_dict is not None and jc is not None and r < len(jc):
+                y_pos.append(float(pos_err[r]) if r is not None else float("inf"))
+                y_ori.append(float(ori_err[r]) if r is not None else float("inf"))
+                if r is None:
+                    y_cfree.append(False if args.collision_free else None)
+                elif world_dict is not None and jc is not None and r < len(jc):
                     y_cfree.append(bool(panda_config_collision_free(
                         jc[r], world_dict, model=args.collision_validation_model)))
                 else:
@@ -580,8 +590,8 @@ def main() -> None:
     if args.collision_free:
         write_collision_model_metadata(out_path, args.collision_validation_model,
                                        build=hjcdik.build_info())
-    print(f"\n[OK] wrote {out_path} with {len(targets) * S * len(batches)} entries "
-          f"({len(targets)} targets x {len(batches)} batches x {S} solutions each).")
+    print(f"\n[OK] wrote {out_path} with {len(targets) * len(batches)} query entries "
+          f"({len(targets)} targets x {len(batches)} batches; up to {S} solutions per query).")
 
 
 if __name__ == "__main__":

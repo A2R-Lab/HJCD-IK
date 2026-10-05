@@ -18,7 +18,7 @@ hjcdik = pytest.importorskip("hjcdik")
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCH = ROOT / "benchmark" / "hjcd_ik_bench.py"
-COLUMNS = ["solver", "Batch-Size", "time_ms", "pos_err_mm", "ori_err_rad", "collision_free(%)"]
+COLUMNS = ["solver", "Batch-Size", "time_ms", "pos_err_mm", "ori_err_rad", "collision_free(%)", "queries", "pose_success(%)"]
 
 
 def _run(tmp_path, *extra):
@@ -34,6 +34,8 @@ def _run(tmp_path, *extra):
     assert sorted(int(r["Batch-Size"]) for r in rows) == [1, 64]
     for r in rows:
         assert float(r["time_ms"]) > 0
+        assert int(r["queries"]) > 0
+        assert 0 <= float(r["pose_success(%)"]) <= 100
         assert float(r["pos_err_mm"]) >= 0 and float(r["ori_err_rad"]) >= 0
     # The harness writes its outputs where it is told, plus a provenance sidecar beside each one;
     # nothing may land outside the working directory.
@@ -49,7 +51,7 @@ def test_open_world_harness_runs(tmp_path):
 
 @pytest.mark.skipif(not hjcdik.collision_enabled(), reason="needs a collision-enabled grid.cuh build")
 def test_collision_free_harness_runs(tmp_path):
-    rows, _ = _run(tmp_path, "--collision-free", "--problem-set", "box_panda", "--problem-idx", "0",
+    rows, _ = _run(tmp_path, "--collision-free", "--target-mode", "cylinder", "--problem-set", "box_panda", "--problem-idx", "0",
                    "--collision-mode", "hard", "--collision-validation-model", "hjcd")
     for r in rows:
         assert 0.0 <= float(r["collision_free(%)"]) <= 100.0

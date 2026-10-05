@@ -76,14 +76,20 @@ def panda_config_collision_free(q, world_dict, exclude_base: bool = True, margin
 
 
 def mb_instance_to_world_dict(inst: dict) -> dict:
-    """A MotionBenchMaker problem instance -> the ``{"cuboid":{...}, "cylinder":{...}}`` world_dict that
-    ``config_is_collision_free`` / ``panda_config_collision_free`` consume. Pure data reshape (numpy-free),
-    so any solver's returned q can be validated against the same shared model without importing the heavy
-    baseline harness. Keep in sync with the identical reshape in benchmark/baseline_bench.py."""
+    """Normalize supported obstacle collections; never silently discard geometry."""
     obs = inst.get("obstacles", {})
+    if not isinstance(obs, dict) or set(obs) - {"cuboid", "cylinder", "sphere"}:
+        raise ValueError("unsupported obstacle type")
     world = {"cuboid": {}, "cylinder": {}}
-    for name, o in obs.get("cuboid", {}).items():
-        world["cuboid"][name] = {"dims": o["dims"], "pose": o["pose"]}
-    for name, o in obs.get("cylinder", {}).items():
-        world["cylinder"][name] = {"radius": o["radius"], "height": o["height"], "pose": o["pose"]}
+    for kind, shapes in obs.items():
+        if isinstance(shapes, list):
+            shapes = {str(i): s for i, s in enumerate(shapes)}
+        world[kind] = {}
+        for name, shape in shapes.items():
+            o = dict(shape)
+            if kind == "sphere" and "pose" not in o:
+                o["pose"] = [*o["position"], 1, 0, 0, 0]
+            if kind == "cylinder" and "height" not in o:
+                o["height"] = o["length"]
+            world[kind][name] = o
     return world

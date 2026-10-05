@@ -167,9 +167,16 @@ if(BUILD_PYTHON)
   # Reconfigure when the selected model changes so Python metadata cannot retain a stale hash.
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${GRID_HEADER}")
   file(SHA256 "${GRID_HEADER}" HJCDIK_GRID_SHA256)
+  file(STRINGS "${GRID_HEADER}" HJCDIK_TARGET_LINE REGEX "codegen-resolved EE fixed-frame index for target")
+  string(REGEX MATCH "for target '?([A-Za-z0-9_]+)" HJCDIK_TARGET_MATCH "${HJCDIK_TARGET_LINE}")
+  set(HJCDIK_EE_TARGET "${CMAKE_MATCH_1}")
+  if(NOT HJCDIK_EE_TARGET)
+    message(FATAL_ERROR "Generated header is missing the named EE target metadata; regenerate it")
+  endif()
   pybind11_add_module(_hjcdik MODULE csrc/bindings/pybind_module.cpp)
   target_compile_definitions(_hjcdik PRIVATE
     HJCDIK_GRID_SHA256="${HJCDIK_GRID_SHA256}"
+    HJCDIK_EE_TARGET="${HJCDIK_EE_TARGET}"
     HJCDIK_CUDA_COMPILER_VERSION="${CMAKE_CUDA_COMPILER_VERSION}"
   )
   target_compile_options(_hjcdik PRIVATE ${HJCDIK_WARN_FLAGS})

@@ -546,49 +546,12 @@ __device__ inline void build_ne_and_solve_warp(
 // by the FIRST pose-accurate candidate, collision or not, so in cluttered scenes the whole batch
 // could stop on a colliding candidate. In hard/both collision modes the stop now requires the
 // candidate to be collision-free, decided WARP-LOCALLY from the joint transforms the solver already
-// holds (no block barrier, no extra FK): each lane places spheres from the codegen sidecar tables
+// holds (no block barrier, no extra FK): each lane places spheres from the generated GRiD tables
 // and tests them against the environment, then the self-collision ranges are split across lanes.
 // Open-world solves pass cc_stop = 0 and never enter this code.
 #if defined(HJCD_HAS_COLLISION)
-#include "hjcd_collision_tables.cuh"
 using CCEnv = grid_collision::Environment<float>;
-static_assert(hjcd_cc::NUM_SPHERES == grid_collision::NUM_COLLISION_SPHERES,
-              "hjcd_collision_tables.cuh is stale: regenerate with scripts/codegen/generate_grid.py");
-constexpr int CC_WARP_POS_FLOATS = 3 * hjcd_cc::NUM_SPHERES;   // per-warp scratch for sphere positions
-
-// Warp-scoped verdict for the configuration whose joint world transforms are in s_jointX (any
-// precision; column-major 4x4 per movable joint slot). w_pos = per-warp scratch of
-// CC_WARP_POS_FLOATS floats. Entered by the full warp; every lane returns the same verdict.
-template<typename T>
-__device__ bool warp_config_free(const T* __restrict__ s_jointX, const CCEnv& env, float* w_pos)
-{
-    constexpr int NS = hjcd_cc::NUM_SPHERES;
-    const int lane = threadIdx.x & 31;
-    bool hit = false;
-    for (int s = lane; s < NS; s += WARP_SIZE) {
-        const T* X = &s_jointX[16 * hjcd_cc::sphere_anchor[s]];
-        const float ox = hjcd_cc::sphere_offset[3 * s], oy = hjcd_cc::sphere_offset[3 * s + 1],
-                    oz = hjcd_cc::sphere_offset[3 * s + 2];
-        const float px = (float)(X[0] * ox + X[4] * oy + X[8]  * oz + X[12]);
-        const float py = (float)(X[1] * ox + X[5] * oy + X[9]  * oz + X[13]);
-        const float pz = (float)(X[2] * ox + X[6] * oy + X[10] * oz + X[14]);
-        w_pos[3 * s] = px; w_pos[3 * s + 1] = py; w_pos[3 * s + 2] = pz;
-        hit |= grid_collision::grid_cc_sphere_in_environment<float>(env, px, py, pz, hjcd_cc::sphere_radius[s]);
-    }
-    __syncwarp(FULL_WARP_MASK);
-    for (int k = lane; k < grid_collision::NUM_COLLISION_SELF_CC_RANGES; k += WARP_SIZE) {
-        const int i  = grid_collision::g_collision_self_cc_ranges[3 * k];
-        const int j0 = grid_collision::g_collision_self_cc_ranges[3 * k + 1];
-        const int j1 = grid_collision::g_collision_self_cc_ranges[3 * k + 2];
-        const float ix = w_pos[3 * i], iy = w_pos[3 * i + 1], iz = w_pos[3 * i + 2], ir = hjcd_cc::sphere_radius[i];
-        for (int j = j0; j <= j1 && !hit; ++j)
-            hit |= grid_collision::grid_cc_sphere_sphere<float>(ix, iy, iz, ir, w_pos[3 * j], w_pos[3 * j + 1], w_pos[3 * j + 2],
-                                                hjcd_cc::sphere_radius[j]) < 0.0f;
-    }
-    const bool any_hit = __any_sync(FULL_WARP_MASK, hit);
-    __syncwarp(FULL_WARP_MASK);   // w_pos reads done before the caller reuses the scratch
-    return !any_hit;
-}
+constexpr int CC_WARP_POS_FLOATS = grid_collision::warp::W_SCRATCH_FLOATS;
 #else
 struct CCEnv { int unused; };
 constexpr int CC_WARP_POS_FLOATS = 0;
@@ -734,7 +697,7 @@ __device__ void solve_lm_batched(
     if (accurate) {   // uniform (warp-shared)
 #if defined(HJCD_HAS_COLLISION)
         if (cc_stop) {
-            const bool free = warp_config_free<T>(s_jointX, env, st->cc_pos);
+            const bool free = grid_collision::warp::config_free<T>(s_jointX, env, st->cc_pos);
             if (tid == 0 && free) { s_break = 1; st->final_free = 1; }
         } else
 #endif
@@ -956,7 +919,7 @@ __device__ void solve_lm_batched(
         if (cc_stop && !accurate) {   // uniform: track the best collision-free config in the fallback band
             if (pos_err_m < HJCDSettings<T>::cc_fallback_pos && ori_err_rad < HJCDSettings<T>::cc_fallback_ori
                 && pos_err_m < st->best_free_pos) {
-                const bool free = warp_config_free<T>(s_jointX, env, st->cc_pos);
+                const bool free = grid_collision::warp::config_free<T>(s_jointX, env, st->cc_pos);
                 if (tid == 0 && free) {
                     st->have_free = 1; st->best_free_pos = pos_err_m;
                     for (int i = 0; i < N; ++i) st->best_free_x[i] = s_x[i];
@@ -964,7 +927,7 @@ __device__ void solve_lm_batched(
             }
         }
         if (cc_stop && accurate) {   // uniform across the warp (shared)
-            const bool free = warp_config_free<T>(s_jointX, env, st->cc_pos);
+            const bool free = grid_collision::warp::config_free<T>(s_jointX, env, st->cc_pos);
             if (tid == 0) {
                 if (free) {
                     atomicCAS(&g_stop, 0, 1); s_break = 1; st->final_free = 1;
@@ -1141,6 +1104,12 @@ __global__ void coarse_search(
     // Rewriting it at the top could race another warp's previous stop decision.
     if (tid == 0) s_stop = stop_on_first ? read_stop() : 0;
     __syncthreads();
+    // Publish each warp's constant transform cells once, before any warp starts
+    // writing greedy scores. FK overwrites every q-dependent cell on each call.
+    // Copying the source inside the independently progressing warp loops reads
+    // dead cells whose shared storage nvcc can reuse for another warp's scores.
+    for (int m = lane; m < N * 16; m += WARP_SIZE) l_tmp[m] = s_XmatsHom[m];
+    __syncthreads();
     for (int k = 0; k < HJCDSettings<T>::k_max; ++k) {
         if (stop_on_first && s_stop) break;
 
@@ -1191,8 +1160,6 @@ __global__ void coarse_search(
                 for (int m = 0; m < N; ++m) cand_p[m] = s_x[m];
                 cand_p[p] = clamp_val<T>(cand_p[p] + delta1,
                                          (T)c_joint_limits[p].x, (T)c_joint_limits[p].y);
-                #pragma unroll
-                for (int m = 0; m < NX * 16; ++m) l_tmp[m] = s_XmatsHom[m];
                 ee_fk_thread<T>(l_C1, l_tmp, cand_p, EE_IDX, s_XmatsHom);
             }
             __syncwarp(FULL_WARP_MASK);   // publish l_C1 / l_tmp (lane 0 -> all lanes)
@@ -1316,7 +1283,7 @@ __global__ void coarse_search(
         if (cc_stop) {   // uniform: collision-aware stop. warp 0's dead per-warp scratch holds the spheres.
             if (stop_on_first && s_accurate) {
                 if (warp == 0) {
-                    const bool free = warp_config_free<T>(s_jointXforms, env, reinterpret_cast<float*>(warp_base));
+                    const bool free = grid_collision::warp::config_free<T>(s_jointXforms, env, reinterpret_cast<float*>(warp_base));
                     if (lane == 0 && free) atomicCAS(&g_stop, 0, 1);
                 }
                 __syncthreads();
@@ -1345,7 +1312,7 @@ __global__ void coarse_search(
     // s_jointXforms holds the FK of the returned s_x (refreshed at the end of every iteration).
     if (cc_stop) {   // uniform
         if (warp == 0) {
-            const bool free = warp_config_free<T>(s_jointXforms, env, reinterpret_cast<float*>(warp_base));
+            const bool free = grid_collision::warp::config_free<T>(s_jointXforms, env, reinterpret_cast<float*>(warp_base));
             if (lane == 0) coarse_free[gp] = free ? 1 : 0;
         }
     }

@@ -155,6 +155,7 @@ collisions. The GIL is released while native sampling runs.
   m.def("build_info", [] {
     py::dict info;
     info["num_joints"] = grid_num_joints();
+    info["ee_target"] = HJCDIK_EE_TARGET;
     info["collision_enabled"] = grid_has_collision();
     info["grid_header_sha256"] = HJCDIK_GRID_SHA256;
     info["cuda_compiler_version"] = HJCDIK_CUDA_COMPILER_VERSION;

@@ -65,7 +65,8 @@ def test_explicit_empty_scene_and_valid_scene_after_parse_error():
 
 def _goal7(entry):
     gp = entry["goal_pose"]
-    return list(gp["position_xyz"]) + list(gp["quaternion_wxyz"])
+    from query_results import panda_hand_target
+    return panda_hand_target(list(gp["position_xyz"]) + list(gp["quaternion_wxyz"]), hjcdik.build_info()["ee_target"])
 
 
 @pytest.mark.skipif(not MB_PATH.exists(), reason="tests/mb_problems.json missing")

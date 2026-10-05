@@ -41,7 +41,6 @@ joints. Target indices and transform counts are generated constants; the default
 | `csrc/kernel/hjcd_settings.h` | `HJCDSettings<T>` (coarse/LM tolerances, `lambda_init`), `mat4_mul`, FK helpers (`ee_fk_warp`/`ee_fk_thread`/`ee_fk_suffix_thread`), `#include "grid.cuh"`, `N`/`FLANGE_JID`/`GRASP_FIXED_IDX`. |
 | `csrc/kernel/hjcd_kernel.h` | Native host API: move-only `Result<T>`, `generate_ik_solutions<T,RT>(target, batch, ...)`, `sample_random_target_poses`. |
 | `csrc/kernel/main.cpp` | Native CLI (`single`/`sweep`/`from_csv`), open-world only; CTest-covered by `tests/native/`. |
-| `csrc/generated/hjcd_collision_tables.cuh` | **Generated** with grid.cuh: the collision sphere batch (anchor slot / offset / radius) for the kernel's warp-scoped checks. |
 | `csrc/generated/grid.cuh` | **Generated** GRiD kinematics + collision header. Do **not** hand-edit. Generated with `vendor_glass=False`, so it `#include "glass.cuh"`s the top-level GLASS instead of vendoring a copy (~6k lines, was ~15k). |
 | `external/GRiD/` | Submodule: GRiD codegen (emits `grid.cuh` from a URDF). Its nested GLASS pin must equal `external/GLASS`. |
 | `external/GLASS/` | Submodule: GLASS single-block / warp / thread linear algebra (`glass::warp::`, `glass::thread::`, `glass::block::`). |
@@ -114,18 +113,19 @@ out = generate_solutions(targets[0], batch_size=2000, num_solutions=4)
   the **bring-your-own-URDF** path: `generate_grid.py <robot.urdf> --collision [...]` provides FK and
   collision for supported fixed-base serial arms with no hand-written per-robot header.
 - **Collision-aware refinement (hard/both modes, 2026-10).** The cross-block early stop is raised only by a
-  collision-free accurate candidate (`warp_config_free`: warp-scoped, spheres placed from the codegen
-  sidecar `csrc/generated/hjcd_collision_tables.cuh` on the per-warp joint transforms — no block barrier,
+  collision-free accurate candidate (`grid_collision::warp::config_free`: warp-scoped, generated sphere
+  tables and per-warp joint transforms — no block barrier,
   no extra FK); LM seeds are ranked with a penalty on colliding coarse candidates; an accurate-but-colliding
   LM candidate gets `HJCD_REPAIR_ATTEMPTS` (4) kicked re-projections; the best collision-free configuration
-  inside `HJCDSettings::cc_fallback_*` (5 mm / 0.05 rad) is returned when the exact pose is in collision.
-  `HJCD_CC_STOP` (bit 0 coarse, bit 1 LM) is the A/B knob. The sidecar is regenerated with grid.cuh (an
-  open-world regen writes an empty one; the kernel only includes it under `HJCD_HAS_COLLISION`).
+  inside `HJCDSettings::cc_fallback_*` (5 mm / 0.05 rad) can be returned when this run finds no exactly
+  converged free candidate. This does not establish infeasibility. `HJCD_CC_STOP` (bit 0 coarse, bit 1 LM)
+  is the A/B knob. GRiD owns the tables and warp checker; HJCD has no duplicate collision sidecar.
 - **Collision policy.** Python exposes `collision_mode="hard"|"soft"|"both"`; `hard` is the
   default and strictly excludes colliding candidates (self **+** environment). `soft` is a penetration-cost
   ranking mode and does not guarantee collision freedom; `both` ranks and filters. Neither the API nor the
   native solver reads `HJCD_CC_MODE`; only the benchmark CLI keeps it as the default of `--collision-mode`.
-  All three are post-solve, off the hot warp loop. Obstacle JSON uses `pose` (`[x,y,z,qw,qx,qy,qz]`); the legacy
+  Final filtering/ranking is post-solve; hard/both additionally check collision during refinement.
+  Obstacle JSON uses `pose` (`[x,y,z,qw,qx,qy,qz]`); the legacy
   Euler `box` schema is gone.
 - **`FLANGE_IDX` discipline.** The fixed EE target (`panda_grasptarget_hand`) and its index must agree across
   codegen, the kernel, and any benchmark problem. A mismatch silently solves to the wrong frame.
@@ -168,7 +168,7 @@ orientation weight).
 **Collision migrated to `grid_collision`.** The former bespoke pRRTC stack (`csrc/collision/` +
 `csrc/robots/{panda,fetch}.cuh`) is gone; collision is now GRiD's URDF-driven `grid_collision` baked into
 `grid.cuh` (`--collision`), scored post-solve by `mark_collisions` for strict filtering and optionally by `score_environment_costs`
-for soft ranking (the hot warp solver never touches collision). Strict filtering can return fewer
+for soft ranking (hard/both now also check within the warp solver). Strict filtering can return fewer
 solutions than the historical soft-ranking path. The paper reference model lives frozen under
 `benchmark/reference/panda_collision_model.cuh`; it is NOT identical to the compiled geometry
 because the fixed finger openings differ. `benchmark/panda_model.py` provides explicit `paper`
@@ -180,9 +180,14 @@ a `#define HJCD_HAS_COLLISION 1` sentinel and the kernel + `grid_env.cuh` guard 
 it. A no-collision header (e.g. the DoF-scaling regens, or any BYO-URDF built without `--collision`) still
 compiles and runs open-world; the Python API rejects a collision-free request in that build.
 
-**Performance status.** Published numbers are the camera-ready paper's (RTX 4060) and live in
+**Performance status.** Current revision performance is pending a quiet-window gate; see
+[`docs/development/timing_gate.md`](docs/development/timing_gate.md). The October 2 A/B driver forced
+fp32 even for S=1, and its results must not be called auto-precision/default-S1 coverage. October 3
+conservative-model dumps omitted some empty queries (2775/2771 of 2776); those groups require recollection.
+The original measurements below are historical, not measurements of this revision.
+Published numbers are the camera-ready paper's (RTX 4060) and live in
 `docs/source/user_guide/benchmarks/results.rst`; the competitor columns have **not** been re-run on the current
-code (no baselines installed here). Tracked evidence on the RTX 5090: the audit timing gate
+code. Baselines are installed only in the local staging environment. Tracked evidence on the RTX 5090: the audit timing gate
 (`docs/development/evidence/targeted_timing_2026-09-27/`, open-world B=2000 ≈ 1.3 ms fp64, kernel within 1%
 before/after the audit) and the de-vendoring gate + HJCD-only paper rerun
 (`docs/development/evidence/timing_gate_2026-10-02/`: landed code 0.1–1% faster than the previous main in all 18
@@ -197,6 +202,13 @@ neutral two-endpoint A/B driver (alternate rounds, compare paired per-round medi
 > site-packages). Always rebuild with **`scripts/setup/rebuild.sh`** (or `pip install -e . --no-build-isolation`).
 
 ## What next
+
+**Current priority (2026-10-04 audit):** complete sanitizer/correctness and signed receipt, stage matched
+release hand-frame endpoints, then PAUSE until an explicitly approved quiet timing window. Do not push
+without permission. GRiD's G1–G4 APIs are consumed; its nested GLASS pin must match top-level GLASS before
+consuming the new GLASS helpers. The detailed historical roadmap below is context, not a completed
+performance gate. Visual meshes are an environment-only approximation with obstacle-shrink tolerances,
+not physical ground truth; model substitution does not isolate every solver-policy difference.
 
 The running roadmap is `docs/open-tasks/TODO.md` (local, gitignored agent scratch — recreate it from this list
 if missing). Tracked project docs: this file, `docs/development/agent_debugging_guide.md`,
@@ -223,7 +235,8 @@ if missing). Tracked project docs: this file, `docs/development/agent_debugging_
    fallback (see *Conventions*) — the three dataset sets with misses went to 100 % and the ladder's table
    levels are within 0–4 points of cuRobo on foam's spheres; on cuRobo's spheres HJCD = cuRobo everywhere.
    Sphere-model fidelity tool `benchmark/make_bounded_bulge_spheres.py` (bulge/coverage vs the true meshes):
-   conservative full-cover models (200–377 spheres) cost 3–4× latency AND success on this benchmark, so foam
+   conservative full-cover models (200–377 spheres) reduced observed success; their shared-GPU latency
+   observations are not a valid performance claim. Foam
    stays the default; a broad→fine cascade (GRiD supports it) is the route if a conservative model is ever
    wanted. Open: the quiet-window A/B (open-world old vs new binary; `HJCD_CC_STOP=0` vs 3 in collision
    mode) + latency columns; HJCD accuracy not monotone in B (likely the same early-stop mechanism — re-measure).
@@ -238,10 +251,10 @@ if missing). Tracked project docs: this file, `docs/development/agent_debugging_
    the accurate-rate over 64 problems was 47/64 (cage 0/8); at `panda_hand` it is 60/64 and the remaining
    misses are found at B=16000. Robustness work (informed second round, collision-aware refinement) is future
    work alongside floating-base support.
-4. **Upstream the collision primitives/models to GRiD (+ two tiny GLASS helpers) after the timing gate** — spec in
+4. **Consume upstream collision primitives/models** — spec in
    `docs/development/upstream_asks_collision_2026-10.md` (G1 expose sphere tables, G2 warp-scoped `config_free`, G3
    broad→fine cascade, G4 parallel block path, G5 bounded-bulge spherizer + fidelity report, G6 named Panda presets);
-   HJCD then drops its sidecar + `warp_config_free`. Ruled by the user 2026-10-04.
+   G1–G4 are integrated and HJCD's duplicate sidecar/checker are removed. G5/G6 remain upstream follow-ups.
 5. **Upstream candidates (older):** grasptarget-offset FK (`ee_fk_warp`/`ee_fk_thread`/`ee_fk_suffix_thread`) and the
    batched pose-7 FK kernel → GRiD; the warp dogleg step and a `gn_step` variant that exposes diag(A)/g → GLASS.
 6. **Branched-chain support** in `ee_fk_suffix_thread` (needs the parent table; the GRiD primitive is general).

@@ -3,7 +3,8 @@ Collision environment
 
 Collision is **URDF-driven**. The robot's covering spheres and self-collision ranges are baked
 into the generated ``grid.cuh`` as GRiD's ``grid_collision`` namespace (pass ``--collision`` to
-``scripts/codegen/generate_grid.py``); the kernel scores them *post-solve* via
+``scripts/codegen/generate_grid.py``). Hard/both refinement uses the warp-scoped
+``grid_collision::warp::config_free`` on existing joint transforms; the kernel also scores *post-solve* via
 ``grid_collision::collision_distance`` (soft penetration cost) and, in hard mode, filters with
 ``grid_collision::config_free`` (see :doc:`kernel`). There is no hand-written per-robot collision
 header. Supported fixed-base serial arms get FK and collision from one codegen step;
@@ -16,8 +17,13 @@ kernel as a ``grid_collision::Environment``.
 The default ``collision_mode="hard"`` checks self-collision and the environment, then
 excludes colliding candidates. It can return zero solutions. ``soft`` only ranks by
 environment penetration cost and offers no collision-free guarantee; ``both`` ranks
-and strictly filters. Collision checking is post-solve and does not certify a motion path
+and strictly filters. The final filter is authoritative. These checks do not certify a motion path
 or guarantee that the returned candidate reaches the requested pose.
+
+Collision-aware early stopping, seed ranking and repair help search for a free candidate.
+A free candidate within 5 mm / 0.05 rad can be retained as a fallback if this run finds
+no exactly converged free candidate. Always inspect both reported errors for the same
+candidate; an empty result is not a proof that the problem is infeasible.
 
 Each selected problem must explicitly describe its obstacles. Use ``"obstacles": {}``
 for an empty environment (self-collision is still checked). Supported obstacle keys are

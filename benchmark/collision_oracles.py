@@ -8,7 +8,7 @@ collision-free rate can be reported under geometry it did not optimise against:
   curobo cuRobo's bundled 61-sphere Panda model (franka.yml) on our kinematic chain; needs cuRobo installed
   hull   the Panda *collision* meshes of `panda_description` (franka_description's convex hulls — MoveIt's and
          MotionBenchMaker's own geometry), fingers fully open, FCL via trimesh. Needs `pip install python-fcl`.
-  visual the Panda *visual* meshes (true link shape); the strictest honest judge of a configuration.
+  visual the Panda *visual* meshes (visual-link mesh approximation); an independent mesh approximation, not a safety certificate.
 
 All of them ignore the base link (HJCD's base-contact policy), check environment obstacles only (no self
 collision) and permit touching: the mesh judges tolerate `tol_m` by shrinking every obstacle by that much.
@@ -42,7 +42,7 @@ class MeshOracle:
 
       geometry="hull"    the URDF's *collision* meshes — franka_description ships convex hulls (link5's is 50 %
                          larger than the link), i.e. what MoveIt and MotionBenchMaker validated the dataset with;
-      geometry="visual"  the *visual* meshes (true link shape, ~50k vertices per link).
+      geometry="visual"  the *visual* meshes (visual-link mesh approximation, ~50k vertices per link).
 
     `collision_free(q, world, tol_m)` is "no triangle intersection with every obstacle shrunk by tol_m" — the
     shrink is how touching is tolerated, since penetration depth is not reliable on non-convex meshes. One
@@ -100,6 +100,8 @@ class MeshOracle:
         return m
 
     def _world_manager(self, world_dict, shrink_m=0.0):
+        if set(world_dict) - {"sphere", "cuboid", "cylinder"}:
+            raise ValueError("unsupported obstacle type")
         # Keyed by content, not id(): callers pass transient dicts whose ids get reused.
         key = (json.dumps(world_dict, sort_keys=True), round(shrink_m, 6))
         if key in self._world_cache:
@@ -108,6 +110,10 @@ class MeshOracle:
             self._world_cache.clear()
         tm = self._trimesh
         m = tm.collision.CollisionManager()
+        for name, o in world_dict.get("sphere", {}).items():
+            pose = o.get("pose", [*o.get("position", []), 1, 0, 0, 0])
+            m.add_object(f"sphere:{name}", tm.primitives.Sphere(radius=max(float(o["radius"]) - shrink_m, 1e-6)),
+                         transform=_quat_wxyz_to_T(pose))
         for name, o in world_dict.get("cuboid", {}).items():
             dims = [max(float(d) - 2 * shrink_m, 1e-6) for d in o["dims"]]
             m.add_object(f"cuboid:{name}", tm.creation.box(extents=dims), transform=_quat_wxyz_to_T(o["pose"]))

@@ -42,7 +42,7 @@ tests/test_benchmark_setup.py::test_paper_workflow_selects_collision_builds_with
 tests/test_benchmark_smoke.py::test_collision_free_harness_runs
 tests/test_benchmark_smoke.py::test_open_world_harness_runs
 tests/test_benchmark_tools.py::test_box_mesh_exports_as_one_exact_cuboid
-tests/test_benchmark_tools.py::test_curobo_sphere_model_when_curobo_is_installed
+tests/test_benchmark_tools.py::test_curobo_sphere_model_from_frozen_asset
 tests/test_benchmark_tools.py::test_exported_problem_schema_matches_dataset
 tests/test_benchmark_tools.py::test_grow_cuboids_shrinks_clearance_by_delta_per_face
 tests/test_benchmark_tools.py::test_link_sphere_loader_reproduces_the_foam_model
@@ -83,7 +83,7 @@ tests/test_collision.py::test_malformed_collision_geometry_is_rejected[obstacles
 tests/test_collision.py::test_malformed_collision_geometry_is_rejected[obstacles9-positive]
 tests/test_collision_model.py::test_all_reference_joint_frames_match_kinematic_urdf
 tests/test_collision_model.py::test_compiled_spheres_match_independent_urdf_geometry
-tests/test_collision_model.py::test_kernel_sidecar_tables_match_the_baked_collision_batch
+tests/test_collision_model.py::test_grid_warp_tables_match_the_baked_collision_batch
 tests/test_collision_model.py::test_model_metadata_identifies_opening_and_sources[hjcd-0.04]
 tests/test_collision_model.py::test_model_metadata_identifies_opening_and_sources[paper-0.065]
 tests/test_collision_model.py::test_obstacle_at_each_compiled_finger_distinguishes_reference[55]
@@ -93,6 +93,26 @@ tests/test_collision_model.py::test_obstacle_at_each_compiled_finger_distinguish
 tests/test_collision_model.py::test_paper_default_is_preserved_and_openings_are_distinct
 tests/test_collision_model.py::test_result_sidecar_records_validation_model_and_compiled_header
 tests/test_collision_model.py::test_unknown_model_is_rejected
+tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[0-0-0-1]
+tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[0-0-0-3]
+tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[0-0-1-3]
+tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[0-0-1-4]
+tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[1-0-0-1]
+tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[1-0-0-3]
+tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[1-0-1-3]
+tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[1-0-1-4]
+tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[2-4-0-1]
+tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[2-4-0-3]
+tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[2-4-1-3]
+tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[2-4-1-4]
+tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[3-4-0-1]
+tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[3-4-0-3]
+tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[3-4-1-3]
+tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[3-4-1-4]
+tests/test_collision_refinement.py::test_collision_repair_never_returns_a_blocked_fallback[0-0]
+tests/test_collision_refinement.py::test_collision_repair_never_returns_a_blocked_fallback[0-1]
+tests/test_collision_refinement.py::test_collision_repair_never_returns_a_blocked_fallback[4-0]
+tests/test_collision_refinement.py::test_collision_repair_never_returns_a_blocked_fallback[4-1]
 tests/test_examples.py::test_documented_quickstarts[README.md-## Quick Start]
 tests/test_examples.py::test_documented_quickstarts[docs/source/api_reference/python.rst-.. code-block:: python]
 tests/test_examples.py::test_documented_quickstarts[docs/source/index.rst-Quick start]
@@ -143,6 +163,11 @@ tests/test_precision.py::test_default_arg_is_auto
 tests/test_precision.py::test_fp32_refine_accuracy
 tests/test_precision.py::test_fp64_refine_accuracy
 tests/test_problem_document.py::test_exact_document_cache_and_failure_recovery
+tests/test_query_results.py::test_candidate_selection_requires_both_errors_on_one_candidate
+tests/test_query_results.py::test_empty_query_is_serialized_and_counts_as_an_attempt
+tests/test_query_results.py::test_hand_to_tcp_conversion_preserves_physical_hand_goal
+tests/test_query_results.py::test_mesh_oracle_constructs_spheres_without_optional_fcl
+tests/test_query_results.py::test_sphere_obstacles_cannot_disappear_from_validation
 tests/test_regression.py::test_no_collision_free_regression_vs_baseline
 tests/test_regression.py::test_no_regression_vs_baseline
 tests/test_regression.py::test_solver_runs_and_returns_solutions
@@ -158,3 +183,5 @@ tests/test_stats_summary.py::test_summary_uses_only_measured_denominators[32,0,0
 tests/test_stats_summary.py::test_summary_uses_only_measured_denominators[32,100,-1,100,-1\n-expected0]
 tests/test_stats_summary.py::test_summary_uses_only_measured_denominators[32,2,1,4,1\n-expected1]
 tests/test_stats_summary.py::test_summary_uses_only_measured_denominators[32,2,1,4,1\n32,100,-1,100,-1\n-expected2]
+tests/test_timing_contract.py::test_driver_names_precision_and_never_times_correctness
+tests/test_timing_contract.py::test_gate_rejects_missing_duplicate_and_mixed_protocol_cells

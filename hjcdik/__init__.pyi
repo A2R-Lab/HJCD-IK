@@ -15,6 +15,7 @@ class IKResult(TypedDict):
 
 class BuildInfo(TypedDict):
     num_joints: int
+    ee_target: str
     collision_enabled: bool
     grid_header_sha256: str
     cuda_compiler_version: str

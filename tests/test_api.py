@@ -234,4 +234,5 @@ def test_build_metadata_matches_header_without_a_visible_gpu():
     assert info["grid_header_sha256"] == hashlib.sha256(header.read_bytes()).hexdigest()
     assert info["num_joints"] == hjcdik.num_joints()
     assert info["collision_enabled"] == hjcdik.collision_enabled()
+    assert info["ee_target"] == "panda_grasptarget_hand"
     assert all(part.isdigit() for part in info["cuda_compiler_version"].split("."))

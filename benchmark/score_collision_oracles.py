@@ -22,6 +22,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from collision_oracles import MeshOracle, make_oracles  # noqa: E402
 from panda_collision import mb_instance_to_world_dict  # noqa: E402
+from query_results import validate_groups, pose_errors
 
 POS_OK_MM, ORI_OK_RAD = 5.0, 0.05     # the baseline harness's pose-success thresholds
 
@@ -32,27 +33,33 @@ def main():
     ap.add_argument("--problems", required=True, help="mb_problems.json")
     ap.add_argument("--mesh-tols-mm", default="1,5", help="mesh judges' touch tolerances to report (mm; obstacles shrunk)")
     ap.add_argument("--mesh-geometries", default="hull,visual",
-                    help="which Panda meshes judge: hull = franka collision hulls (MoveIt's), visual = true shape")
+                    help="which Panda meshes judge: hull = franka collision hulls (MoveIt's), visual = visual-link mesh approximation")
     ap.add_argument("--out", default="", help="write the markdown table here as well as stdout")
     ap.add_argument("--json-out", default="", help="also write the rows as JSON (for plot_clearance_ladder.py etc.)")
+    ap.add_argument("--allow-legacy-reports", action="store_true",
+                    help="Historical dumps only: trust reported errors when target/frame metadata is absent")
+    ap.add_argument("--allow-missing-oracles", action="store_true",
+                    help="Exploratory scoring only: permit explicitly reported missing optional judges")
     args = ap.parse_args()
 
     problems = json.load(open(args.problems))["problems"]
     worlds = {}
     oracles = make_oracles(("hjcd", "paper", "curobo"))
+    if len(oracles) != 3 and not args.allow_missing_oracles:
+        raise RuntimeError("required sphere oracle unavailable; install baselines or explicitly allow missing oracles")
     meshes = {}
     for g in [g for g in args.mesh_geometries.split(",") if g]:
         try:
             meshes[g] = MeshOracle(geometry=g)
         except ImportError as e:
+            if not args.allow_missing_oracles:
+                raise
             print(f"[score] {g} mesh oracle unavailable ({e})")
     mesh_tols = [float(t) for t in args.mesh_tols_mm.split(",")] if meshes else []
     columns = list(oracles) + [f"{g}<={t:g}mm" for g in meshes for t in mesh_tols]
 
     records = [json.loads(line) for f in args.dumps for line in open(f) if line.strip()]
-    groups = defaultdict(list)
-    for r in records:
-        groups[(r["problem_set"], r["solver"], int(r["batch"]))].append(r)
+    groups = validate_groups(records, problems)
 
     rows = []
     for (pset, solver, batch), recs in sorted(groups.items()):
@@ -65,8 +72,16 @@ def main():
             if key not in worlds:
                 worlds[key] = mb_instance_to_world_dict(problems[pset][key[1]])
             w = worlds[key]
+            if r.get("q") is None:
+                continue  # explicit empty output remains in the denominator
             q = np.asarray(r["q"], float)
-            ok = r["pos_err_mm"] < POS_OK_MM and r["ori_err_rad"] < ORI_OK_RAD
+            if "target" in r and "ee_target" in r:
+                pe, oe = pose_errors(q, r["target"], r["ee_target"])
+            elif args.allow_legacy_reports:
+                pe, oe = r["pos_err_mm"], r["ori_err_rad"]
+            else:
+                raise ValueError("dump lacks target/frame metadata; recollect or explicitly allow legacy reports")
+            ok = pe < POS_OK_MM and oe < ORI_OK_RAD
             pose_ok += ok
             if not ok:
                 continue
@@ -87,9 +102,10 @@ def main():
         lines.append(f"| {pset} | {solver} | {batch} | {n} | {pct(pose_ok)} | "
                      + " | ".join(pct(free[c]) for c in columns) + f" | {pct(unanimous)} |")
     lines.append("")
-    lines.append(f"_pose ok = pos < {POS_OK_MM:g} mm and ori < {ORI_OK_RAD:g} rad on the solver's own report; oracles ignore the "
+    lines.append(f"_pose ok = pos < {POS_OK_MM:g} mm and ori < {ORI_OK_RAD:g} rad (independent URDF FK for new dumps; "
+                 "legacy solver reports only when explicitly permitted); oracles ignore the "
                  "base link and check environment obstacles only; sphere columns permit touching, mesh columns shrink every "
-                 "obstacle by the stated tolerance (hull = franka collision hulls, MoveIt's geometry; visual = true link shape); "
+                 "obstacle by the stated tolerance (hull = franka collision hulls, MoveIt's geometry; visual = visual-link mesh approximation); "
                  "`all oracles` = every column agrees free._")
     text = "\n".join(lines)
     print(text)

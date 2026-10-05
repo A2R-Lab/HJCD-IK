@@ -198,27 +198,11 @@ def load_mb_problem_set(path: str, problem_set: str):
     return D["problems"][problem_set]
 
 def mb_instance_to_world_dict(inst: dict) -> dict:
-    world = {"cuboid": {}, "cylinder": {}}
-
-    obs = inst.get("obstacles", {})
-
-    # Cuboids
-    cub = obs.get("cuboid", {})
-    for name, o in cub.items():
-        world["cuboid"][name] = {
-            "dims": o["dims"],      # [x,y,z]
-            "pose": o["pose"],      # [x,y,z,qw,qx,qy,qz]
-        }
-
-    # Cylinders (mb_problems.json stores radius/height/pose)
-    cyl = obs.get("cylinder", {})
-    for name, o in cyl.items():
-        world["cylinder"][name] = {
-            "radius": o["radius"],
-            "height": o["height"],
-            "pose": o["pose"],      # [x,y,z,qw,qx,qy,qz]
-        }
-
+    from panda_collision import mb_instance_to_world_dict as normalize
+    world = normalize(inst)
+    # These backend adapters currently support cuboids/cylinders only.
+    if world.get("sphere"):
+        raise ValueError("baseline solver adapters do not yet support sphere obstacles")
     return world
 
 def mb_instance_to_goal(inst: dict):
@@ -1217,10 +1201,19 @@ if __name__ == "__main__":
             if not args.configs_out:
                 return
             q = np.asarray(q.detach().cpu().numpy() if hasattr(q, "detach") else q, dtype=float).reshape(-1)
-            with open(args.configs_out, "a", encoding="utf-8") as stream:
-                stream.write(json.dumps({"solver": solver_name, "problem_set": args.problem_set, "problem_idx": int(idx),
-                                         "batch": int(seeds), "q": q.tolist(), "pos_err_mm": float(pos_err_mm),
-                                         "ori_err_rad": float(ori_err_rad)}) + "\n")
+            from query_results import append_record
+            quat, pos = mb_instance_to_target(instances[idx])
+            # Judge the shared hand frame. PyRoki's paper TCP is 103.4 mm,
+            # cuRobo/HJCD's is 105 mm; convert each target back to its hand.
+            target = np.concatenate([pos, quat]).astype(float)
+            if args.ee_link != "panda_hand":
+                from collision_check import quat_wxyz_to_rot
+                offset = .1034 if solver_name == "pyroki" else .105
+                target[:3] -= quat_wxyz_to_rot(target[3:])[:, 2] * offset
+            append_record(args.configs_out, dict(schema_version=1, solver=solver_name,
+                problem_set=args.problem_set, problem_idx=int(idx), batch=int(seeds),
+                count=1, status="returned", target=target.tolist(), ee_target="panda_hand_joint",
+                q=q.tolist(), pos_err_mm=float(pos_err_mm), ori_err_rad=float(ori_err_rad)))
 
         if args.mode == "curobo":
             # FAIR cuRobo collision timing: build the solver ONCE per seed count (mirroring cuRobo's own

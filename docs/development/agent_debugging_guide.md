@@ -210,7 +210,7 @@ not exact candidate identity.
   request goal up to 14 mm from its pose query, so the dataset's pose and our FK differ by that much).
 - **The early stop was collision-blind (fixed 2026-10-03).** `g_stop` was raised by the first pose-accurate
   candidate whether or not it collided, so cluttered scenes stopped the batch on a candidate the hard filter
-  then discarded. The fix is warp-scoped (`warp_config_free` over the sidecar sphere tables on the per-warp
+  then discarded. The fix is warp-scoped (`grid_collision::warp::config_free` over generated tables on the per-warp
   `s_jointX`) and must stay so: `grid_collision::config_free` is block-cooperative (multi-target FK with
   `__syncthreads`) and cannot be called from one warp of a multi-warp LM block. Traps hit on the way:
   (a) the LM loop counter `it` is a per-lane register — a restart decided by lane 0 must be signalled
@@ -224,6 +224,17 @@ not exact candidate identity.
 - **Finer conservative spheres are not "better" on this benchmark.** Measured with
   `benchmark/make_bounded_bulge_spheres.py --report`: foam bulges 40 mm and leaves 4–35 % of the true
   surface uncovered; cuRobo's model bulges 75 mm on link 5 and leaves 20–71 % uncovered; a full-cover model
-  with ≤13.5 mm bulge needs 377 spheres, costs 3–4× latency (every per-candidate loop scales with the sphere
-  count) and scores LOWER (cage −0.5 cm: 52 % vs foam 96 %) because the true clearance is 1–2 cm. Compare
+  with ≤13.5 mm bulge needs 377 spheres and scored lower in archived runs. Shared-GPU latency observations
+  are not valid speed comparisons; conservative-model groups with missing queries require recollection. Compare
   solvers on identical spheres; if a conservative model is ever required, it needs GRiD's broad→fine cascade.
+
+- **Coarse constant-copy WAR hazard (2026-10-04).** Copying every transform cell from shared source matrices
+  inside independently progressing warp loops reads cells that FK immediately overwrites. nvcc can reuse
+  the dead source cells' shared slots for scores written by another warp. Initialize each warp's constant
+  transform cells once, before the loops, followed by a block barrier. Racecheck the diagnostic binary,
+  including fp32/fp64, partial multi-warp blocks, and collision repair/stop settings; numerical tests alone
+  missed this. Do not put a block barrier inside the divergent loop.
+- **Benchmark accounting and precision (2026-10-04).** One record per attempted query, including empty output.
+  Score pose via independent FK with explicit target/frame, reject incomplete groups, and compare both errors
+  on one candidate. Never infer accuracy from count. The eighth positional Python solver argument is
+  `refine_fp64`, not `write_stats`; name all options. See `timing_gate.md` for the corrected gate and errata.

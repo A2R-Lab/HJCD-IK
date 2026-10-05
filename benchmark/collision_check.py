@@ -71,6 +71,11 @@ def sphere_min_signed_distance(center, radius, world_dict) -> float:
     """Minimum signed distance from one sphere to ALL obstacles in `world_dict` (min == worst/closest).
     Returns +inf for an empty world."""
     best = np.inf
+    if set(world_dict) - {"sphere", "cuboid", "cylinder"}:
+        raise ValueError("unsupported obstacle type")
+    for o in (world_dict.get("sphere") or {}).values():
+        p = o["pose"][:3] if "pose" in o else o["position"]
+        best = min(best, float(np.linalg.norm(np.asarray(center) - p)) - float(radius) - float(o["radius"]))
     for _name, o in (world_dict.get("cuboid") or {}).items():
         best = min(best, sphere_cuboid_signed_distance(center, radius, o["pose"], o["dims"]))
     for _name, o in (world_dict.get("cylinder") or {}).items():
@@ -83,7 +88,9 @@ def config_is_collision_free(spheres_world, world_dict, margin: float = 0.0) -> 
     """True iff every sphere clears every obstacle by at least `margin` metres.
     `spheres_world`: (N,4) array of [x,y,z, radius] in the world frame. Empty world -> True."""
     spheres_world = np.atleast_2d(np.asarray(spheres_world, dtype=float))
-    if not world_dict or not (world_dict.get("cuboid") or world_dict.get("cylinder")):
+    if set(world_dict) - {"sphere", "cuboid", "cylinder"}:
+        raise ValueError("unsupported obstacle type")
+    if not world_dict or not any(world_dict.values()):
         return True
     for s in spheres_world:
         # collision-free requires every sphere to clear every obstacle by >= margin metres

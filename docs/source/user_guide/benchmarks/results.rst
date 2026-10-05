@@ -3,6 +3,16 @@ Examples & Results
 
 Runnable examples for the Python API, then the published benchmark results and how to reproduce them.
 
+.. important::
+
+   October 4 audit: current-code latency is pending a quiet-window rerun. The October 2 A/B
+   driver forced fp32 even for S=1; it did not exercise default S=1 fp64. October 3 conservative-model
+   ladder dumps omitted empty outputs (b10: 2775, b15: 2771 of 2776 queries); those groups need
+   recollection. Default-model groups were complete. New dumps retain empty queries and target/frame
+   metadata for independent FK. Archived tables/plots below are historical evidence, not a new
+   guarantee of final-code performance. Visual-mesh judges exclude base/self collision and shrink
+   obstacles by the stated tolerance; they are not physical ground truth.
+
 Examples
 --------
 
@@ -551,7 +561,7 @@ Collision-free, ``box_panda``, both protocols (time ms / position error mm at B 
 **All MotionBenchMaker sets, every solver collision-constrained (dataset protocol, B = 2000, 100 problems
 each).** Success means the returned configuration both reaches the pose (< 5 mm, < 0.05 rad) *and* is
 collision-free. Three judges score the *stored* configurations (``benchmark/score_collision_oracles.py``):
-the headline is the **true geometry** (the ``panda_description`` *visual* meshes under FCL, obstacles shrunk
+the headline is the **visual-mesh approximation** (the ``panda_description`` *visual* meshes under FCL, obstacles shrunk
 by 1 mm so touching is permitted); beside it, in small type, the solver's **own sphere model** (foam's 58
 spheres for HJCD-IK and PyRoki, cuRobo's 61 for cuRobo) and the **convex hull** judge (the stock
 ``panda_description`` *collision* meshes, which are convex hulls — MoveIt's and MotionBenchMaker's own
@@ -704,7 +714,7 @@ dataset (``benchmark/mbm_export.py``; mesh furniture decomposed exactly into box
 by the *first* pose-accurate candidate, colliding or not, so in a cluttered scene the whole batch could stop
 on a candidate the hard filter then discarded. In hard/both collision modes the kernel now (i) raises the
 stop only for a collision-free accurate candidate, decided warp-locally from the joint transforms the
-solver already holds (``warp_config_free``: spheres placed from a codegen sidecar,
+solver already holds (``grid_collision::warp::config_free``: spheres placed from GRiD-generated tables,
 ``csrc/generated/hjcd_collision_tables.cuh``, no block barrier, no extra FK); (ii) ranks the LM seeds with
 a penalty on colliding coarse candidates; (iii) gives an accurate-but-colliding LM candidate an **informed
 repair round** — a deterministic joint-space kick that grows per attempt, after which the LM re-projects
@@ -717,7 +727,7 @@ that had misses: cage 96 → 100 %, table_pick 94 → 100 %, table_under_pick 95
 **Clearance ladder.** To see where the solvers separate, every cuboid of the three tightest sets is
 grown by *D* on each face (``benchmark/make_clearance_ladder.py``), keeping only problems for which at
 least one of the dataset's own ``goal_ik`` solutions is still free under the hull judge (so every kept
-problem is known-feasible). Success under the true-geometry judge vs *D*, B = 100 (solid) and 2000
+problem is known-feasible). Success under the visual-mesh judge vs *D*, B = 100 (solid) and 2000
 (dashed):
 
 .. figure:: /_static/rerun_2026-10-03/clearance_ladder.png
@@ -770,9 +780,9 @@ more than 1 mm outside every sphere):
 
 Every practical sphere model is optimistic somewhere; cuRobo's is the most optimistic of the three in
 the places that matter in the cage (it leaves most of link 2–6 uncovered where the arm squeezes past the
-bars), and a model that genuinely contains the robot (bounded bulge, full cover) loses on *both* axes —
-3–4× the latency from the sphere count and lower success, because the true clearance in these scenes is
-one to two centimetres. The honest comparison is therefore the same spheres for every solver, which is
+bars). Conservative models showed lower success in the archived experiment, but their incomplete
+query groups require recollection and their shared-GPU latency observations are not valid comparisons.
+The clearance in these scenes is one to two centimetres. A useful comparison uses the same spheres for every solver, which is
 where HJCD-IK and cuRobo coincide; a finer conservative model only pays off with a broad-to-fine cascade,
 which GRiD's codegen supports but HJCD-IK does not yet use. Everything in this section is correctness
 only and was collected on a shared GPU; latency columns for the new sets, the collision-aware PyRoki and
@@ -784,7 +794,7 @@ the refined kernel follow in the next quiet-window campaign.
    37–45 % on the table sets: a harness defect (the robot built from our mesh-less URDF carried no
    collision spheres, so cuRobo's collision-free IK was unconstrained). The second showed PyRoki at
    40–45 % there with plain IK and used the convex-hull meshes as "the mesh oracle" (cage 73–77 %); PyRoki
-   is now collision-constrained and the true-geometry judge is the headline.
+   is now collision-constrained and the visual-mesh judge is the headline.
 
 Reproducing these results
 -------------------------

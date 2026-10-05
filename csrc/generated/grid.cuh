@@ -427,8 +427,8 @@ namespace grid {
     const int END_EFFECTOR_POSE_DYNAMIC_SHARED_MEM_COUNT = 261;
     const int END_EFFECTOR_POSE_GRADIENT_DYNAMIC_SHARED_MEM_COUNT = 519;
     const int END_EFFECTOR_POSE_HESSIAN_DYNAMIC_SHARED_MEM_COUNT = 883;
-    const int IDSVA_SO_DYNAMIC_SHARED_MEM_COUNT = 5649;
-    const int FDSVA_SO_DYNAMIC_SHARED_MEM_COUNT = 7182;
+    const int IDSVA_SO_DYNAMIC_SHARED_MEM_COUNT = 5187;
+    const int FDSVA_SO_DYNAMIC_SHARED_MEM_COUNT = 6720;
     const int MAX_PERF_LEVEL_THREADS = 352;
 
     // Resource-tier API (v2.0): each emitted kernel/_device/_inner takes a
@@ -574,9 +574,9 @@ namespace grid {
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t DCCRBA_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(1336, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(1336, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()) : grid_shared_arena_bytes<T>(748, TOPOLOGY_HELPERS_COUNT, GRID_EE_LINALG_SHARED_BYTES<T>()); }
     template <int TIER> __host__ __device__ constexpr bool DCCRBA_OUTPUT_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
     template <int TIER> __host__ __device__ constexpr bool DCCRBA_J_IN_SMEM() { return (TIER == TIER_SHARED) ? true : (TIER == TIER_LITE) ? true : false; }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(5641, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(5641, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(525, TOPOLOGY_HELPERS_COUNT); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(5641, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(5641, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(525, TOPOLOGY_HELPERS_COUNT); }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(7174, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(7174, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(686, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t IDSVA_SO_BODY_FRAME_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(5179, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(5179, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(525, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t IDSVA_SO_WORLD_FRAME_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(5179, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(5179, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(525, TOPOLOGY_HELPERS_COUNT); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t FDSVA_SO_DYNAMIC_SHARED_MEM_BYTES() { return (TIER == TIER_SHARED) ? grid_shared_arena_bytes<T>(6712, TOPOLOGY_HELPERS_COUNT) : (TIER == TIER_LITE) ? grid_shared_arena_bytes<T>(6712, TOPOLOGY_HELPERS_COUNT) : grid_shared_arena_bytes<T>(686, TOPOLOGY_HELPERS_COUNT); }
     // Per-tier scratch sizes for fdsva_so_contract (inline-CUDA users only — the host launchers always use TIER_SHARED).
     // At TIER_SHARED the 4*NV^3 inner scratch lives in s_temp; at TIER_LITE/MINIMAL it moves to d_workspace, freeing shared memory for the caller's outer kernel.
     // fdsva_so_contract scratch sizing, keyed on the INNER's placement choice
@@ -641,15 +641,15 @@ namespace grid {
             : grid_shared_arena_bytes<T>(630, TOPOLOGY_HELPERS_COUNT, GRID_LINALG_NVIDIA_MAX_HELPER_BYTES<T>());
     }
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t INVERSE_DYNAMICS_GRADIENT_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(1722); }
-    // Per-tier sizes for idsva_so_device (inline-CUDA users only). At TIER_SHARED temp lives in s_temp; at TIER_LITE/MINIMAL it moves to d_workspace, freeing 3744*sizeof(T) bytes of smem. Frame picked at codegen time: body_frame.
+    // Per-tier sizes for idsva_so_device (inline-CUDA users only). At TIER_SHARED temp lives in s_temp; at TIER_LITE/MINIMAL it moves to d_workspace, freeing 3282*sizeof(T) bytes of smem. Frame picked at codegen time: body_frame.
     template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t IDSVA_SO_DEVICE_INLINE_SMEM_BYTES() {
         return (TIER == TIER_SHARED)
-            ? grid_shared_arena_bytes<T>(4248, TOPOLOGY_HELPERS_COUNT)
+            ? grid_shared_arena_bytes<T>(3786, TOPOLOGY_HELPERS_COUNT)
             : grid_shared_arena_bytes<T>(504, TOPOLOGY_HELPERS_COUNT);
     }
-    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t IDSVA_SO_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(3744); }
+    template <typename T, int TIER = GRID_DEFAULT_RESOURCE_TIER> __host__ __device__ constexpr size_t IDSVA_SO_DEVICE_INLINE_WORKSPACE_BYTES() { return (TIER == TIER_SHARED) ? static_cast<size_t>(0) : sizeof(T) * static_cast<size_t>(3282); }
     template <typename T> __host__ __device__ constexpr size_t GRID_GRAD_WORKSPACE_BYTES_PER_TIMESTEP() { return sizeof(T) * static_cast<size_t>(2604); }
-    template <typename T> __host__ __device__ constexpr size_t GRID_SO_WORKSPACE_BYTES_PER_TIMESTEP() { return sizeof(T) * static_cast<size_t>(3744); }
+    template <typename T> __host__ __device__ constexpr size_t GRID_SO_WORKSPACE_BYTES_PER_TIMESTEP() { return sizeof(T) * static_cast<size_t>(3282); }
     template <typename T> __host__ __device__ constexpr size_t GRID_FDSVA_SO_SPILL_BYTES_PER_TIMESTEP() { return sizeof(T) * static_cast<size_t>(147); }
     template <typename T> __host__ __device__ constexpr size_t GRID_FDSVA_SO_SPILL_OFFSET_BYTES() { return GRID_GRAD_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_SO_WORKSPACE_BYTES_PER_TIMESTEP<T>(); }
     template <typename T> __host__ __device__ constexpr size_t GRID_WORKSPACE_BYTES_PER_TIMESTEP() { return GRID_GRAD_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_SO_WORKSPACE_BYTES_PER_TIMESTEP<T>() + GRID_FDSVA_SO_SPILL_BYTES_PER_TIMESTEP<T>(); }
@@ -5736,6 +5736,7 @@ namespace grid_plant {
  * Collision namespace: baked sphere data + config_free composed over grid::multi_target_position + the static SDF geometry header
  *
  */
+#define GRID_COLLISION_NUM_TIERS 1
 namespace grid_collision {
     using grid::TIER_SHARED; using grid::TIER_LITE; using grid::TIER_MINIMAL;
     constexpr int NUM_COLLISION_SPHERES = 58;
@@ -5743,6 +5744,10 @@ namespace grid_collision {
     static_assert(NUM_COLLISION_SPHERES == grid::NUM_MULTI_TARGETS, "collision sphere batch must be the multi_target batch");
     __device__ const float g_collision_sphere_r[58] = {0.06f, 0.06f, 0.06f, 0.06f, 0.06f, 0.06f, 0.06f, 0.06f, 0.06f, 0.05f, 0.055f, 0.055f, 0.06f, 0.055f, 0.055f, 0.055f, 0.06f, 0.06f, 0.06f, 0.05f, 0.025f, 0.025f, 0.025f, 0.025f, 0.025f, 0.025f, 0.025f, 0.025f, 0.05f, 0.05f, 0.052f, 0.05f, 0.025f, 0.025f, 0.02f, 0.02f, 0.028f, 0.028f, 0.028f, 0.028f, 0.028f, 0.028f, 0.026f, 0.026f, 0.026f, 0.026f, 0.026f, 0.026f, 0.024f, 0.024f, 0.024f, 0.024f, 0.024f, 0.024f, 0.012f, 0.012f, 0.012f, 0.012f};
     __device__ const int g_collision_self_cc_ranges[84] = {0, 8, 57, 1, 8, 57, 2, 8, 57, 3, 8, 57, 4, 12, 57, 5, 12, 57, 6, 12, 57, 7, 12, 57, 8, 16, 57, 9, 16, 57, 10, 16, 57, 11, 16, 57, 12, 28, 57, 13, 28, 57, 14, 28, 57, 15, 28, 57, 16, 31, 57, 17, 31, 57, 18, 31, 57, 19, 31, 57, 20, 31, 57, 21, 31, 57, 22, 31, 57, 23, 31, 57, 24, 31, 57, 25, 31, 57, 26, 31, 57, 27, 31, 57};
+    constexpr int NUM_SPHERES = NUM_COLLISION_SPHERES;
+    __device__ __constant__ int   sphere_anchor[58] = {0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6};
+    __device__ __constant__ float sphere_offset[174] = {0.0f, -0.08f, 0.0f, 0.0f, -0.03f, 0.0f, 0.0f, 0.0f, -0.12f, 0.0f, 0.0f, -0.17f, 0.0f, 0.0f, 0.03f, 0.0f, 0.0f, 0.08f, 0.0f, -0.12f, 0.0f, 0.0f, -0.17f, 0.0f, 0.0f, 0.0f, -0.1f, 0.0f, 0.0f, -0.06f, 0.08f, 0.06f, 0.0f, 0.08f, 0.02f, 0.0f, -0.08f, 0.095f, 0.0f, 0.0f, 0.0f, 0.02f, 0.0f, 0.0f, 0.06f, -0.08f, 0.06f, 0.0f, 0.0f, 0.055f, 0.0f, 0.0f, 0.075f, 0.0f, 0.0f, 0.0f, -0.22f, 0.0f, 0.05f, -0.18f, 0.01f, 0.08f, -0.14f, 0.01f, 0.085f, -0.11f, 0.01f, 0.09f, -0.08f, 0.01f, 0.095f, -0.05f, -0.01f, 0.08f, -0.14f, -0.01f, 0.085f, -0.11f, -0.01f, 0.09f, -0.08f, -0.01f, 0.095f, -0.05f, 0.0f, 0.0f, 0.0f, 0.08f, -0.01f, 0.0f, 0.08f, 0.035f, 0.0f, 0.0f, 0.0f, 0.07f, 0.02f, 0.04f, 0.08f, 0.04f, 0.02f, 0.08f, 0.04f, 0.06f, 0.085f, 0.06f, 0.04f, 0.085f, -0.0530330086f, -0.0530330086f, 0.117f, -0.0318198052f, -0.0318198052f, 0.117f, -0.0106066017f, -0.0106066017f, 0.117f, 0.0106066017f, 0.0106066017f, 0.117f, 0.0318198052f, 0.0318198052f, 0.117f, 0.0530330086f, 0.0530330086f, 0.117f, -0.0530330086f, -0.0530330086f, 0.137f, -0.0318198052f, -0.0318198052f, 0.137f, -0.0106066017f, -0.0106066017f, 0.137f, 0.0106066017f, 0.0106066017f, 0.137f, 0.0318198052f, 0.0318198052f, 0.137f, 0.0530330086f, 0.0530330086f, 0.137f, -0.0530330086f, -0.0530330086f, 0.157f, -0.0318198052f, -0.0318198052f, 0.157f, -0.0106066017f, -0.0106066017f, 0.157f, 0.0106066017f, 0.0106066017f, 0.157f, 0.0318198052f, 0.0318198052f, 0.157f, 0.0530330086f, 0.0530330086f, 0.157f, 0.038890873f, 0.038890873f, 0.1874f, 0.0339411255f, 0.0339411255f, 0.2094f, -0.038890873f, -0.038890873f, 0.1874f, -0.0339411255f, -0.0339411255f, 0.2094f};
+    __device__ __constant__ float sphere_radius[58] = {0.06f, 0.06f, 0.06f, 0.06f, 0.06f, 0.06f, 0.06f, 0.06f, 0.06f, 0.05f, 0.055f, 0.055f, 0.06f, 0.055f, 0.055f, 0.055f, 0.06f, 0.06f, 0.06f, 0.05f, 0.025f, 0.025f, 0.025f, 0.025f, 0.025f, 0.025f, 0.025f, 0.025f, 0.05f, 0.05f, 0.052f, 0.05f, 0.025f, 0.025f, 0.02f, 0.02f, 0.028f, 0.028f, 0.028f, 0.028f, 0.028f, 0.028f, 0.026f, 0.026f, 0.026f, 0.026f, 0.026f, 0.026f, 0.024f, 0.024f, 0.024f, 0.024f, 0.024f, 0.024f, 0.012f, 0.012f, 0.012f, 0.012f};
     /**
      * Fill s_r[NUM_COLLISION_SPHERES] with the baked fp32 radii cast to T
      *
@@ -5762,7 +5767,8 @@ namespace grid_collision {
      * Notes:
      *   Returns true iff the current configuration q is COLLISION-FREE (self + environment).
      *   Sphere world positions via the W1b batched extractor; SDF self/env checks via the static header.
-     *   Every thread computes the same verdict; the self/env range loops are serial (parallelize = W3 perf TODO).
+     *   Block-parallel (G4, 2026-10-04): thread-per-self-range + thread-per-sphere env checks OR-ed into a
+     *   shared flag; every thread returns the same verdict; thread-count invariant; single block.
      *
      * @param s_q is the vector of joint positions
      * @param d_robotModel is the initialized model-specific helpers on the GPU
@@ -5774,14 +5780,89 @@ namespace grid_collision {
     template <typename T, int RESOURCE_TIER = GRID_DEFAULT_RESOURCE_TIER>
     __device__
     bool config_free(const T *s_q, const grid::robotModel<T> *d_robotModel, const Environment<T> &env, T *s_sphere_pos, T *s_sphere_r, T *d_workspace = nullptr) {
+        __shared__ int s_cc_hit;
+        if (threadIdx.x == 0 && threadIdx.y == 0) s_cc_hit = 0;   // published by the extractor's barriers
         grid::multi_target_position_device<T, RESOURCE_TIER>(s_sphere_pos, s_q, d_robotModel, d_workspace);
         load_collision_radii<T>(s_sphere_r);
         __syncthreads();
-        if (grid_cc_self_collision<T>(s_sphere_pos, s_sphere_r, g_collision_self_cc_ranges, NUM_COLLISION_SELF_CC_RANGES)) return false;
-        for (int i = 0; i < NUM_COLLISION_SPHERES; ++i) {
-            if (grid_cc_sphere_in_environment<T>(env, s_sphere_pos[3*i], s_sphere_pos[3*i+1], s_sphere_pos[3*i+2], s_sphere_r[i])) return false;
+        for(int k = threadIdx.x + threadIdx.y*blockDim.x; k < NUM_COLLISION_SELF_CC_RANGES; k += blockDim.x*blockDim.y){
+            const int i = g_collision_self_cc_ranges[3*k], j0 = g_collision_self_cc_ranges[3*k+1], j1 = g_collision_self_cc_ranges[3*k+2];
+            const T ix = s_sphere_pos[3*i], iy = s_sphere_pos[3*i+1], iz = s_sphere_pos[3*i+2], ir = s_sphere_r[i];
+            for (int j = j0; j <= j1; ++j) {
+                if (grid_cc_sphere_sphere<T>(ix, iy, iz, ir, s_sphere_pos[3*j], s_sphere_pos[3*j+1], s_sphere_pos[3*j+2], s_sphere_r[j]) < static_cast<T>(0)) { s_cc_hit = 1; break; }
+            }
         }
-        return true;
+        for(int i = threadIdx.x + threadIdx.y*blockDim.x; i < NUM_COLLISION_SPHERES; i += blockDim.x*blockDim.y){
+            if (grid_cc_sphere_in_environment<T>(env, s_sphere_pos[3*i], s_sphere_pos[3*i+1], s_sphere_pos[3*i+2], s_sphere_r[i])) s_cc_hit = 1;
+        }
+        __syncthreads();
+        const bool is_free = (s_cc_hit == 0);
+        __syncthreads();
+        return is_free;
+    }
+
+
+    /**
+     * Warp-scoped collision API over caller-held joint world transforms (G2/G3, 2026-10-04)
+     *
+     * Notes:
+     *   The whole warp calls these; lanes stride the sphere batch, the verdict is warp-uniform.
+     *   s_Xworld = column-major 4x4 per movable joint (what ee_pose_inner_warp / the multi_target chain-up fill).
+     *   w_scratch = per-warp float scratch of 3*NUM_SPHERES floats.
+     *   Sphere positions are float even for T = double (HJCD-IK convention).
+     *
+     */
+    namespace warp {
+        constexpr unsigned FULL_MASK = 0xffffffffu;
+        constexpr int W_SCRATCH_FLOATS = 3*NUM_SPHERES;
+        template <typename T>
+        __device__ bool config_free(const T *s_Xworld, const Environment<float> &env, float *w_scratch) {
+            const int lane = threadIdx.x & 31;
+            float *w_pos = w_scratch;
+            bool hit = false;
+            for (int s = lane; s < NUM_SPHERES; s += 32) {
+                const T *X = &s_Xworld[16 * sphere_anchor[s]];
+                const float ox = sphere_offset[3*s], oy = sphere_offset[3*s+1], oz = sphere_offset[3*s+2];
+                w_pos[3*s]   = static_cast<float>(X[0]*ox + X[4]*oy + X[8]*oz  + X[12]);
+                w_pos[3*s+1] = static_cast<float>(X[1]*ox + X[5]*oy + X[9]*oz  + X[13]);
+                w_pos[3*s+2] = static_cast<float>(X[2]*ox + X[6]*oy + X[10]*oz + X[14]);
+            }
+            for (int s = lane; s < NUM_SPHERES; s += 32) {
+                hit |= grid_cc_sphere_in_environment<float>(env, w_pos[3*s], w_pos[3*s+1], w_pos[3*s+2], sphere_radius[s]);
+            }
+            __syncwarp(FULL_MASK);
+            for (int k = lane; k < NUM_COLLISION_SELF_CC_RANGES; k += 32) {
+                const int i = g_collision_self_cc_ranges[3*k], j0 = g_collision_self_cc_ranges[3*k+1], j1 = g_collision_self_cc_ranges[3*k+2];
+                const float ix = w_pos[3*i], iy = w_pos[3*i+1], iz = w_pos[3*i+2], ir = sphere_radius[i];
+                for (int j = j0; j <= j1 && !hit; ++j) {
+                    hit |= grid_cc_sphere_sphere<float>(ix, iy, iz, ir, w_pos[3*j], w_pos[3*j+1], w_pos[3*j+2], sphere_radius[j]) < 0.0f;
+                }
+            }
+            const bool any_hit = __any_sync(FULL_MASK, hit);
+            __syncwarp(FULL_MASK);   // scratch reads done before the caller reuses it
+            return !any_hit;
+        }
+
+        template <typename T>
+        __device__ void collision_distance(const T *s_Xworld, const Environment<float> &env, float *s_dist, float *s_normal, float *w_scratch) {
+            const int lane = threadIdx.x & 31;
+            float *w_pos = w_scratch;
+            for (int s = lane; s < NUM_SPHERES; s += 32) {
+                const T *X = &s_Xworld[16 * sphere_anchor[s]];
+                const float ox = sphere_offset[3*s], oy = sphere_offset[3*s+1], oz = sphere_offset[3*s+2];
+                w_pos[3*s]   = static_cast<float>(X[0]*ox + X[4]*oy + X[8]*oz  + X[12]);
+                w_pos[3*s+1] = static_cast<float>(X[1]*ox + X[5]*oy + X[9]*oz  + X[13]);
+                w_pos[3*s+2] = static_cast<float>(X[2]*ox + X[6]*oy + X[10]*oz + X[14]);
+            }
+            __syncwarp(FULL_MASK);
+            for (int s = lane; s < NUM_SPHERES; s += 32) {
+                float nx, ny, nz;
+                s_dist[s] = grid_cc_nearest_obstacle<float>(env, w_pos[3*s], w_pos[3*s+1], w_pos[3*s+2], sphere_radius[s], &nx, &ny, &nz);
+                s_normal[3*s] = nx; s_normal[3*s+1] = ny; s_normal[3*s+2] = nz;
+            }
+            __syncwarp(FULL_MASK);
+        }
+
     }
 
     /**

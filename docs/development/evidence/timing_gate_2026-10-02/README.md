@@ -1,5 +1,9 @@
 # Timing gate + HJCD-only paper rerun — 2026-10-02
 
+**Erratum (2026-10-04):** the neutral A/B driver passed positional argument eight as `False`,
+which forced `refine_fp64=0`. Thus its S=1 rows measure fp32, not default fp64. The raw CSVs
+are preserved; the A/B cannot establish default-S1 performance. See `../../timing_gate.md`.
+
 Archival evidence for the de-vendored GLASS tidy-up that landed on `main` as the fast-forward
 `3f14ae6..a720514`. It is separate from the signed correctness receipt (`gpu-proof.json`,
 recorded at `d3e6a75`): the receipt certifies test outcomes, not these timings. No binaries,
@@ -83,7 +87,7 @@ cost grew linearly with B on one thread (~2.7 ns/row ≈ 90 µs at B=32000).
 Verdict: the landed code is 0.06–0.96% faster than the previous `main` in every cell, within the
 1% bar everywhere. The small gain at small B is consistent with fewer kernel launches and
 allocations in the host orchestration (no coarse→RT cast when RT is float, no `g_winner` reset).
-`S=1` runs fp64 refinement, `S=4` fp32 (the `refine_fp64=-1` default). `min_ms` columns are
+Both `S=1` and `S=4` ran forced fp32 (see erratum above). `min_ms` columns are
 single-call outliers of the early-stop race and are not a signal.
 
 ## 2. HJCD-only paper protocol (`paper_results/`, `paper_run.log`)

@@ -93,10 +93,23 @@ def test_link_sphere_loader_reproduces_the_foam_model():
     np.testing.assert_array_equal(anchors, ref_a)
 
 
-def test_curobo_sphere_model_when_curobo_is_installed():
-    pytest.importorskip("curobo")
-    from panda_model import panda_sphere_model
-    spheres, anchors = panda_sphere_model("curobo")
+def test_curobo_sphere_model_from_frozen_asset(tmp_path, monkeypatch, request):
+    """Exercise the real YAML loader offline using the attributed frozen asset."""
+    import xml.etree.ElementTree as ET
+    import yaml
+    import panda_model as pm
+    rows = {}
+    for link in ET.parse(ROOT / "benchmark/reference/panda_curobo_spherized.urdf").getroot().findall("link"):
+        rows[link.get("name")] = [
+            {"center": [float(v) for v in c.find("origin").get("xyz").split()],
+             "radius": float(c.find("geometry/sphere").get("radius"))}
+            for c in link.findall("collision")]
+    fixture = tmp_path / "franka.yml"
+    fixture.write_text(yaml.safe_dump({"robot_cfg": {"kinematics": {"collision_spheres": rows}}}))
+    monkeypatch.setattr(pm, "curobo_franka_yml_path", lambda: fixture)
+    pm.load_curobo_spheres.cache_clear()
+    request.addfinalizer(pm.load_curobo_spheres.cache_clear)
+    spheres, anchors = pm.panda_sphere_model("curobo")
     assert len(spheres) == 61 and (anchors != 0).sum() == 59
     # fingers locked at 0.04 like ours: finger spheres sit |y| >= 0.04 - radius from the hand axis at q = 0
     world = panda_spheres_world(np.zeros(7), model="curobo")

@@ -35,6 +35,10 @@ if [ "${SKIP_HJCD:-0}" != "1" ] && [ "${HJCD_REGEN:-0}" != "1" ]; then
   exit 2
 fi
 OUT_DIR="${OUT_DIR:-benchmark/results}"
+if [ -e "$OUT_DIR" ]; then
+  echo "ERROR: OUT_DIR must be a new directory; refusing to mix or overwrite previous evidence." >&2
+  exit 2
+fi
 NUM_TARGETS="${NUM_TARGETS:-100}"
 BATCHES="${BATCHES:-1,10,100,1000,2000}"
 PROBLEM_SET="${PROBLEM_SET:-box_panda}"
@@ -45,14 +49,13 @@ mkdir -p "$OUT_DIR" "$(dirname "$TGT")"
 # collision claims can be re-scored offline under independent oracles (benchmark/score_collision_oracles.py).
 CFG_PAPER="$OUT_DIR/configs_collfree_paper"; CFG_HAND="$OUT_DIR/configs_collfree_hand"
 mkdir -p "$CFG_PAPER" "$CFG_HAND"
-for f in "$CFG_PAPER"/*.jsonl "$CFG_HAND"/*.jsonl; do [ -e "$f" ] && : > "$f"; done   # the dumps append
 
 echo "=== [0] shared open-world targets (neutral Halton, panda_hand frame) ==="
 # Match HJCD's internal sample_targets sequence for the Panda Table I targets.
 "$PY" benchmark/gen_targets.py --scramble cranley-patterson --num-targets "$NUM_TARGETS" --out "$TGT"
 
-echo "=== [0b] EE-frame equivalence check (informational; installed backends only) ==="
-"$PY" benchmark/check_ee_frames.py --num 8 || echo "(frame check flagged a mismatch — see docs/source/user_guide/benchmarks/results.rst)"
+echo "=== [0b] EE-frame equivalence check (installed backends) ==="
+"$PY" benchmark/check_ee_frames.py --num 8
 
 echo "=== [Table I] open-world, Panda ==="
 if [ "${HJCD_REGEN:-0}" = "1" ] && [ "${SKIP_HJCD:-0}" != "1" ]; then
@@ -70,18 +73,18 @@ if [ "${SKIP_PYROKI:-0}" != "1" ]; then
   echo "--- PyRoki ---"
   "$PY" benchmark/baseline_bench.py --mode pyroki --goal_file "$TGT.yml" \
     --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name open \
-    || echo "(PyRoki Table I skipped — solver error; column left blank, run continues)"
+    || { echo "ERROR: (PyRoki Table I failed)" >&2; exit 1; }
 fi
 if [ "${SKIP_CUROBO:-0}" != "1" ]; then
   echo "--- cuRobo ---"
   "$PY" benchmark/baseline_bench.py --mode curobo --goal_file "$TGT.yml" \
     --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name open \
-    || echo "(cuRobo Table I skipped — solver error; column left blank, run continues)"
+    || { echo "ERROR: (cuRobo Table I failed)" >&2; exit 1; }
 fi
 if [ "${SKIP_IKFLOW:-0}" != "1" ]; then
   echo "--- IKFlow ---"
   "$PY" benchmark/baseline_ikflow.py --goal_file "$TGT.yml" --seed_list "$BATCHES" \
-    --csv-out "$OUT_DIR/open_ikflow.csv" || echo "(IKFlow skipped — not installed)"
+    --csv-out "$OUT_DIR/open_ikflow.csv" || { echo "ERROR: (IKFlow failed or not installed)" >&2; exit 1; }
 fi
 
 if [ "${RUN_FETCH:-0}" = "1" ]; then
@@ -97,13 +100,13 @@ if [ "${RUN_FETCH:-0}" = "1" ]; then
   [ "${SKIP_PYROKI:-0}" = "1" ] || "$PY" benchmark/baseline_bench.py --mode pyroki --goal_file "$FTGT.yml" \
     --robot-urdf csrc/urdf/fetch.urdf --ee-link ee_link --base-link arm_mount_link \
     --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name fetch_open \
-    || echo "(PyRoki Fetch skipped — solver error; column left blank, run continues)"
+    || { echo "ERROR: (PyRoki Fetch failed)" >&2; exit 1; }
   [ "${SKIP_CUROBO:-0}" = "1" ] || "$PY" benchmark/baseline_bench.py --mode curobo --goal_file "$FTGT.yml" \
     --robot-urdf csrc/urdf/fetch.urdf --ee-link ee_link --base-link arm_mount_link \
     --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name fetch_open \
-    || echo "(cuRobo Fetch skipped — solver error; column left blank, run continues)"
+    || { echo "ERROR: (cuRobo Fetch failed)" >&2; exit 1; }
   [ "${SKIP_IKFLOW:-0}" = "1" ] || "$PY" benchmark/baseline_ikflow.py --goal_file "$FTGT.yml" \
-    --model fetch_full_temp_nsc_tpm --seed_list "$BATCHES" --csv-out "$OUT_DIR/fetch_open_ikflow.csv" || echo "(IKFlow fetch skipped)"
+    --model fetch_full_temp_nsc_tpm --seed_list "$BATCHES" --csv-out "$OUT_DIR/fetch_open_ikflow.csv" || { echo "ERROR: (IKFlow fetch skipped)" >&2; exit 1; }
   "$PY" benchmark/make_tables.py $OUT_DIR/fetch_open_*.csv --title "Fetch open-world (Table I)" \
     --out "$OUT_DIR/table_fetch.md" || true
   "$PY" benchmark/plot_pareto.py $OUT_DIR/fetch_open_*.csv --out "$OUT_DIR/pareto_fetch.png" \
@@ -135,7 +138,7 @@ if [ "${SKIP_PYROKI:-0}" != "1" ]; then
     --mb-target cylinder --ee-link panda_hand_tcp --collision-validation-model hjcd \
     --problem_set "$PROBLEM_SET" --num_instances "$NUM_TARGETS" \
     --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name collfree_paper --configs_out "$CFG_PAPER/pyroki.jsonl" \
-    || echo "(PyRoki Table II-paper skipped — solver error; column left blank, run continues)"
+    || { echo "ERROR: (PyRoki Table II-paper failed)" >&2; exit 1; }
 fi
 if [ "${SKIP_CUROBO:-0}" != "1" ]; then
   echo "--- cuRobo ---"
@@ -144,7 +147,7 @@ if [ "${SKIP_CUROBO:-0}" != "1" ]; then
     --problem_set "$PROBLEM_SET" --num_instances "$NUM_TARGETS" \
     --robot-urdf csrc/urdf/panda.urdf --base-link panda_link0 --ee-link panda_grasptarget \
     --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name collfree_paper --configs_out "$CFG_PAPER/curobo.jsonl" \
-    || echo "(cuRobo Table II-paper skipped — solver error; column left blank, run continues)"
+    || { echo "ERROR: (cuRobo Table II-paper failed)" >&2; exit 1; }
 fi
 
 # Dataset protocol: the MotionBenchMaker goal_pose exactly as posed. Those goals are panda_hand poses
@@ -185,13 +188,13 @@ for run in $MB_RUNS; do
     --mb-target goal --ee-link panda_hand --collision-validation-model hjcd \
     --problem_set "$set" --num_instances "$NUM_TARGETS" \
     --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name "collfree_hand_${set}" --configs_out "$CFG_HAND/pyroki.jsonl" \
-    || echo "(PyRoki Table II-dataset $set skipped — solver error; column left blank, run continues)"
+    || { echo "ERROR: (PyRoki Table II-dataset $set failed)" >&2; exit 1; }
   [ "${SKIP_CUROBO:-0}" = "1" ] || MB_JSON_PATH="$SET_JSON" "$PY" benchmark/baseline_bench.py --mode curobo --collision_free \
     --mb-target goal --collision-validation-model hjcd \
     --problem_set "$set" --num_instances "$NUM_TARGETS" \
     --robot-urdf csrc/urdf/panda.urdf --base-link panda_link0 --ee-link panda_hand \
     --seed_list "$BATCHES" --save_path "$OUT_DIR" --file_name "collfree_hand_${set}" --configs_out "$CFG_HAND/curobo.jsonl" \
-    || echo "(cuRobo Table II-dataset $set skipped — solver error; column left blank, run continues)"
+    || { echo "ERROR: (cuRobo Table II-dataset $set failed)" >&2; exit 1; }
   # Explicit per-solver files: a `collfree_hand_${set}_*` glob would also match e.g. box_panda_flipped.
   "$PY" benchmark/make_tables.py $(ls $OUT_DIR/collfree_hand_${set}_{hjcdik,pyroki,curobo}.csv 2>/dev/null) \
     --title "Panda collision-free, $set (dataset protocol: panda_hand, goal_pose)" \
@@ -212,10 +215,10 @@ if [ "${RUN_DOF:-0}" = "1" ]; then
     fi
     [ "${SKIP_PYROKI:-0}" = "1" ] || "$PY" benchmark/baseline_bench.py --mode pyroki --goal_file "$dtgt.yml" \
       --robot-urdf "$urdf" --ee-link panda_hand --base-link panda_link0 --seed_list "$DOF_B" --save_path "$OUT_DIR" --file_name "dof${d}" \
-      || echo "(PyRoki DoF=$d skipped — solver error; run continues)"
+      || { echo "ERROR: (PyRoki DoF=$d failed)" >&2; exit 1; }
     [ "${SKIP_CUROBO:-0}" = "1" ] || "$PY" benchmark/baseline_bench.py --mode curobo --goal_file "$dtgt.yml" \
       --robot-urdf "$urdf" --ee-link panda_hand --base-link panda_link0 --seed_list "$DOF_B" --save_path "$OUT_DIR" --file_name "dof${d}" \
-      || echo "(cuRobo DoF=$d skipped — solver error; run continues)"
+      || { echo "ERROR: (cuRobo DoF=$d failed)" >&2; exit 1; }
     "$PY" benchmark/make_tables.py $OUT_DIR/dof${d}_*.csv --title "DoF=$d (Table III)" --out "$OUT_DIR/table_dof${d}.md" || true
   done
 fi
@@ -234,14 +237,14 @@ if [ "${RUN_MMD:-0}" = "1" ]; then
       --mmd-batch 2000 --solutions-count 50
   [ "${SKIP_PYROKI:-0}" = "1" ] || "$PY" benchmark/baseline_bench.py --mode pyroki \
       --goal_file "$TGT.yml" --mmd_dump "$DUMPS/pyroki.json" --solutions_seed 2000 --solutions_k 50 \
-      || echo "(PyRoki MMD dump skipped — solver error; run continues)"
+      || { echo "ERROR: (PyRoki MMD dump failed)" >&2; exit 1; }
   [ "${SKIP_CUROBO:-0}" = "1" ] || "$PY" benchmark/baseline_bench.py --mode curobo \
       --goal_file "$TGT.yml" --mmd_dump "$DUMPS/curobo.json" --solutions_seed 2000 --solutions_k 50 \
-      || echo "(cuRobo MMD dump skipped — solver error; run continues)"
+      || { echo "ERROR: (cuRobo MMD dump failed)" >&2; exit 1; }
   [ "${SKIP_IKFLOW:-0}" = "1" ] || "$PY" benchmark/baseline_ikflow.py --goal_file "$TGT.yml" \
-      --mmd-dump "$DUMPS/ikflow.json" --mmd-batch 2000 --solutions-count 50 || echo "(ikflow mmd dump skipped)"
+      --mmd-dump "$DUMPS/ikflow.json" --mmd-batch 2000 --solutions-count 50 || { echo "ERROR: (ikflow mmd dump skipped)" >&2; exit 1; }
   "$PY" benchmark/gen_groundtruth_tracik.py --targets "$TGT.json" --tip panda_hand \
-      --num-samples 50 --out "$DUMPS/groundtruth.json" || echo "(groundtruth skipped — TRAC-IK not installed)"
+      --num-samples 50 --out "$DUMPS/groundtruth.json" || { echo "ERROR: (groundtruth skipped — TRAC-IK not installed)" >&2; exit 1; }
   DUMP_ARGS=""; for s in hjcdik pyroki curobo ikflow; do [ -f "$DUMPS/$s.json" ] && DUMP_ARGS="$DUMP_ARGS $DUMPS/$s.json"; done
   if [ -f "$DUMPS/groundtruth.json" ] && [ -n "$DUMP_ARGS" ]; then
     "$PY" benchmark/run_mmd.py --groundtruth "$DUMPS/groundtruth.json" --solver-dump $DUMP_ARGS \
@@ -258,7 +261,7 @@ echo "=== [tables + plots] merge per-solver CSVs ==="
 "$PY" benchmark/make_tables.py $OUT_DIR/collfree_paper_*.csv --title "Panda collision-free, $PROBLEM_SET (Table II, paper protocol)" \
   --out "$OUT_DIR/table_collfree.md" || true
 "$PY" benchmark/plot_pareto.py $OUT_DIR/open_*.csv --out "$OUT_DIR/pareto_open.png" \
-  --title "Panda open-world" --annotate-batch || echo "(open plot skipped — pip install -e '.[plots]')"
+  --title "Panda open-world" --annotate-batch || { echo "ERROR: (open plot skipped — pip install -e '.[plots]')" >&2; exit 1; }
 "$PY" benchmark/plot_pareto.py $OUT_DIR/collfree_paper_*.csv --out "$OUT_DIR/pareto_collfree.png" \
   --title "Panda collision-free (paper protocol)" --annotate-batch || true
 "$PY" benchmark/plot_pareto.py $(ls $OUT_DIR/collfree_hand_${PROBLEM_SET}_{hjcdik,pyroki,curobo}.csv 2>/dev/null) --out "$OUT_DIR/pareto_collfree_hand.png" \
@@ -275,7 +278,7 @@ PYEOF
 for proto in paper hand; do
   cfg="$OUT_DIR/configs_collfree_${proto}"
   "$PY" benchmark/score_collision_oracles.py "$cfg"/*.jsonl --problems "$OUT_DIR/problems_merged.json" \
-    --out "$OUT_DIR/table_oracles_collfree_${proto}.md" > /dev/null || echo "(oracle scoring for $proto skipped)"
+    --out "$OUT_DIR/table_oracles_collfree_${proto}.md" > /dev/null || { echo "ERROR: (oracle scoring for $proto skipped)" >&2; exit 1; }
 done
 
 if [ "${HJCD_REGEN:-0}" = "1" ] && [ "${SKIP_HJCD:-0}" != "1" ]; then
