@@ -2,7 +2,24 @@
 
 Written for: the GRiD and GLASS agents/maintainers, and whoever lands the HJCD-IK follow-up.
 
-**Status: proposal, gated on the HJCD-IK quiet-window timing gate** (`docs/open-tasks/ab_2026-10-03/`). Nothing here
+## Current status — October 5
+
+HJCD pins GRiD **8dccbfa** and matching top-level/nested GLASS **9e57178**. G1–G4 are integrated;
+the HJCD sidecar and duplicate warp checker are removed. G5's generic spherizer/report and G6's
+foam preset mechanism are available upstream. The broader proposed preset catalog is not shipped.
+The generic fitter uses collision meshes, so it is not a drop-in replacement for HJCD's historical
+visual-mesh b10/b15 experiment. GLASS L1/L2 exist, but the generated checker still uses its existing
+point placement/vote code; do not claim helper adoption solely from the newer pin.
+
+The audited pre-pin A/B is [complete](evidence/audit_timing_2026-10-05/README.md); post-pin correctness
+is validated and focused timing is staged separately. Preserve the default foam geometry and solver
+policy. See [the current timing protocol](timing_gate.md), not the obsolete launchers named below.
+The old `run_hjcd_variant.sh` swallows worker failures and the old `run_ab.sh` has protocol errors;
+neither is an acceptance/publication gate. Conservative-model query groups need complete recollection.
+
+## Original proposal and replies (historical, not current instructions)
+
+**Original status: proposal, gated on the HJCD-IK quiet-window timing gate** (`docs/open-tasks/ab_2026-10-03/`). Nothing here
 starts until that gate confirms the collision-aware refinement (`33d312f`) costs nothing open-world and an acceptable
 amount in collision mode. Decision record: user, 2026-10-04 — "after timing, if this is good, upstream the collision
 models and improvements to GRiD, and any relevant GLASS improvements, to keep things modular".
@@ -22,7 +39,8 @@ built HJCD-side as a stopgap (`csrc/kernel/hjcd_kernel.cu`, `csrc/generated/hjcd
 
 Evidence that it matters (`docs/development/evidence/fairness_hardsets_2026-10-03/`, results.rst *Collision-aware
 refinement*): hard-set success 96/94/95 → 100/100/100 %; on identical spheres HJCD-IK = cuRobo on the whole clearance
-ladder; the sphere model, not the search, decides tight scenes.
+ladder in that archived experiment. Model substitution implicates geometry but does not isolate all
+solver-policy differences. These counts are not universal success guarantees.
 
 ## GRiD asks (grid_collision namespace, codegen + runtime)
 
@@ -30,7 +48,7 @@ ladder; the sphere model, not the search, decides tight scenes.
 | --- | --- | --- | --- |
 | G1 | **Expose the sphere batch** as `__constant__`/`__device__ const` arrays in the collision namespace: `sphere_anchor[N]` (movable-joint slot of `s_Xworld`), `sphere_offset[3N]`, `sphere_radius[N]`, plus `NUM_SPHERES`. Same order as the FK extractor's batch, base spheres dropped. | codegen (`GRiDCodeGenerator`, collision emitter) | the sidecar `hjcd_collision_tables.cuh` and its `generate_grid.py` emitter |
 | G2 | **Warp-scoped verdict** `grid_collision::warp::config_free<T>(const T* s_Xworld, const Environment<float>& env, float* w_scratch)`: lanes stride the spheres (place from G1 tables, `grid_cc_sphere_in_environment`), `__syncwarp`, lanes stride the self-collision ranges, `__any_sync` reduce; every lane returns the verdict. Entered by a full warp; no block barrier. Also `warp::collision_distance` (per-sphere min signed distance + normal, lanes over spheres) for a future gradient/nullspace repair step. | runtime header (`grid_collision_geometry.cuh` or a new `grid_collision_warp.cuh`) | `warp_config_free` in `hjcd_kernel.cu` |
-| G3 | **Broad→fine cascade in the warp and block paths**: per-anchor bounding sphere derived from the fine rows (`_broad_tier_from_rows` already does this at bake time) tested first against the environment and for self pairs (anchor-pair hit mask), fine spheres only where the broad one hits. This is what makes a 200–400-sphere conservative model affordable (today 3–4× latency on HJCD's loops). | codegen + runtime | nothing yet (HJCD has no cascade) |
+| G3 | **Broad→fine cascade in the warp and block paths**: per-anchor bounding sphere derived from the fine rows (`_broad_tier_from_rows` already does this at bake time) tested first against the environment and for self pairs (anchor-pair hit mask), fine spheres only where the broad one hits. Intended to reduce conservative-model cost; the original shared-GPU “3–4×” estimate was not valid timing evidence. | codegen + runtime | nothing at proposal time (HJCD had no cascade) |
 | G4 | **Parallelise the block path**: `config_free` / `collision_distance` currently run the env and self loops serially on every thread ("W3 perf TODO" in the header). Thread-per-sphere + block any-reduce; thread-per-range for self. | runtime | the post-solve `mark_collisions` cost scaling with sphere count |
 | G5 | **Bounded-bulge mesh spherizer** as a mode of `_spherize.py` next to the voxel fill: voxelise + EDT, candidates = inscribed radius + bulge budget, greedy surface cover (port of `benchmark/make_bounded_bulge_spheres.py`); and a `--report` that evaluates ANY spherized URDF against the mesh (count, max/p99 bulge, uncovered surface %). Fidelity is the number a paper needs beside a sphere count. | codegen (`algorithms/_spherize.py`, CLI) | `benchmark/make_bounded_bulge_spheres.py` |
 | G6 | **Named Panda sphere presets** in GRiD's assets with provenance + fidelity: foam `smaller_panda_spherized` (58; bulge 40 mm, 4–35 % uncovered), cuRobo `franka.yml` spheres (61; Apache-2.0, NVIDIA; bulge 75 mm on link 5, 20–71 % uncovered), bounded-bulge b10/b15 from the `panda_description` visual meshes. `generate_grid.py --spherized-urdf` then takes a preset name. | assets + codegen | `benchmark/reference/panda_curobo_spherized.urdf`, `make_curobo_sphere_urdf.py` |

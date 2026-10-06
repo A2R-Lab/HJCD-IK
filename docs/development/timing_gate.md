@@ -1,7 +1,8 @@
 # Current correctness and timing protocol
 
 The October 4 audit separates correctness (shared GPU allowed) from performance (announced quiet window).
-No new latency or paper-speedup claim is justified until the final compiled endpoints pass the latter.
+The pre-upstream A/B completed October 5; see [verified evidence](evidence/audit_timing_2026-10-05/README.md).
+A focused post-pin confirmation is staged separately. Neither gate is a current competitor/paper rerun.
 
 ## Evidence corrections
 
@@ -58,6 +59,11 @@ Incomplete runs cannot produce a complete analysis. A quality drop is flagged fo
 excused as nondeterminism. Median ratios alone do not establish a performance win; inspect per-round spread,
 accuracy, output counts, and repeated runs. Paper comparisons require matching precision/frame/geometry and
 the paper's mean metric, not these A/B medians.
+
+Use `--check` instead of either execution mode for read-only preflight: verify workload hashes, endpoint
+commits, installed binary/header hashes and Python/NumPy agreement. This imports build metadata without
+initializing CUDA, starts no workers and does not create `--out`. A successful check is not a quiet-window
+check or a correctness run. Keep the source/helper files and installed endpoints unchanged after staging.
 
 Estimated full gate: roughly 20–35 minutes for six rounds, S=1/4 and the prepared batch sweep; hardware and
 solver convergence affect this. No clean timing estimate is made from shared-GPU work. Stop with Ctrl-C;

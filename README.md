@@ -313,6 +313,13 @@ for detailed baseline instructions.
 
 ## Reproducing the Paper Benchmarks
 
+Use an isolated checkout/virtual environment: this workflow regenerates robot headers and rebuilds
+the extension for several frames. Set `OUT_DIR` to a **new, nonexistent directory** for each run;
+the harness refuses to overwrite earlier evidence. The commands below reproduce the protocol,
+not a guarantee of the published numerical results on different hardware or code revisions.
+The completed [October 5 same-machine A/B](docs/development/evidence/audit_timing_2026-10-05/README.md)
+is separate from the historical paper/competitor tables; a fresh full comparison remains outstanding.
+
 ### HJCD-only benchmark (open-world and collision-free)
 
 ```bash

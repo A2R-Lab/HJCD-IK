@@ -454,13 +454,14 @@ ground-truth samples, over 100 target poses — lower is a closer match to the f
    Distribution of collision-free IK solutions for a representative target — cuRobo (left), PyRoki
    (center), HJCD-IK (right). HJCD-IK returns a broader, more diverse spread of locally-optimal solutions.
 
-Rerun on the current code — RTX 5090, 2026-10-03
--------------------------------------------------
+Historical rerun — RTX 5090, 2026-10-03
+--------------------------------------
 
 .. note::
 
-   This section is a **new measurement of the current release** (``main`` at ``2fc1316``), run with the
-   latest competitor versions (cuRobo v2 ``main``, PyRoki ``main``, IKFlow 0.0.8) on an RTX 5090 with
+   This section records the **October 3 snapshot**, starting at ``2fc1316`` with the follow-up fixes
+   identified in its evidence directories. It is not a measurement of today's HEAD. It used the
+   then-installed competitor versions (cuRobo v2 ``main``, PyRoki ``main``, IKFlow 0.0.8) on an RTX 5090 with
    CUDA 13. It does not replace the camera-ready tables above and must not be mixed with them: different
    GPU, different cuRobo generation, and — for the collision scenes — a corrected evaluation protocol.
    Full raw data, logs and caveats: ``docs/development/evidence/paper_rerun_2026-10-03/`` (latency
@@ -719,15 +720,18 @@ dataset (``benchmark/mbm_export.py``; mesh furniture decomposed exactly into box
 by the *first* pose-accurate candidate, colliding or not, so in a cluttered scene the whole batch could stop
 on a candidate the hard filter then discarded. In hard/both collision modes the kernel now (i) raises the
 stop only for a collision-free accurate candidate, decided warp-locally from the joint transforms the
-solver already holds (``grid_collision::warp::config_free``: spheres placed from GRiD-generated tables,
-``csrc/generated/hjcd_collision_tables.cuh``, no block barrier, no extra FK); (ii) ranks the LM seeds with
+solver already holds (``grid_collision::warp::config_free``: spheres placed from GRiD-generated tables
+in ``grid.cuh``, no block barrier, no extra FK; the original HJCD sidecar has been removed); (ii) ranks the LM seeds with
 a penalty on colliding coarse candidates; (iii) gives an accurate-but-colliding LM candidate an **informed
 repair round** — a deterministic joint-space kick that grows per attempt, after which the LM re-projects
 it onto the pose and the verdict is re-run (``HJCD_REPAIR_ATTEMPTS``, default 4); and (iv) keeps the best
 collision-free configuration inside the success band (5 mm / 0.05 rad) as a fallback when the exactly
-converged pose sits inside an obstacle. Open-world solves never enter this code; the hot warp loop is
-unchanged (the A/B latency gate is scheduled for the next quiet window). Effect on the three dataset sets
-that had misses: cage 96 → 100 %, table_pick 94 → 100 %, table_under_pick 95 → 100 %.
+converged free candidate was not found in this run. Open-world solves never enter this collision-policy
+path. The October 5 A/B gate above covers the subsequent audit-fixed kernel; the later dependency-pin
+confirmation remains separate. The archived October 3 effect on three dataset sets was
+cage 96 → 100 %, table_pick 94 → 100 %, table_under_pick 95 → 100 %; those are observed counts, not
+guaranteed success. The audit's complete ten-set recollection at B=2000 solved 999/1000 queries
+(one kitchen miss). Nonempty output is not necessarily pose-accurate, and harder ladder scenes have misses.
 
 **Clearance ladder.** To see where the solvers separate, every cuboid of the three tightest sets is
 grown by *D* on each face (``benchmark/make_clearance_ladder.py``), keeping only problems for which at
@@ -746,7 +750,7 @@ problem is known-feasible). Success under the visual-mesh judge vs *D*, B = 100 
 With the refinement, HJCD-IK on its own foam spheres is within 0–4 points of cuRobo at every table level
 (B = 2000: table_pick 100/98/97/89/90/86 vs 99/98/98/93/92/92; table_under_pick 100/100/94/95/91/92 vs
 98/97/94/93/86/92) and above it on several. In the ``cage`` it still falls to 64 % at *D* = 1 cm and
-4 % at 1.5 cm while cuRobo holds 95–96 %. That residue is the sphere model, not the search: HJCD-IK
+4 % at 1.5 cm while cuRobo holds 95–96 %. Model substitution strongly implicates geometry in this gap: HJCD-IK
 compiled on cuRobo's spheres scores 95 % and 96 % there — identical to cuRobo. The table below says why.
 
 **Sphere-model fidelity against the true links** (``benchmark/make_bounded_bulge_spheres.py --report``:
@@ -788,10 +792,12 @@ the places that matter in the cage (it leaves most of link 2–6 uncovered where
 bars). Conservative models showed lower success in the archived experiment, but their incomplete
 query groups require recollection and their shared-GPU latency observations are not valid comparisons.
 The clearance in these scenes is one to two centimetres. A useful comparison uses the same spheres for every solver, which is
-where HJCD-IK and cuRobo coincide; a finer conservative model only pays off with a broad-to-fine cascade,
-which GRiD's codegen supports but HJCD-IK does not yet use. Everything in this section is correctness
-only and was collected on a shared GPU; latency columns for the new sets, the collision-aware PyRoki and
-the refined kernel follow in the next quiet-window campaign.
+where HJCD-IK and cuRobo had matching observed rates on the substituted model. This does not isolate
+every solver-policy difference. GRiD now provides a broad-to-fine cascade, but the default HJCD build
+retains its single-tier foam model; conservative-model performance needs a separate experiment.
+The hard-set/model study in this subsection was correctness-only on a shared GPU. Latency columns
+for these new sets and the collision-aware competitors require a fresh full campaign, distinct from
+the completed October 5 open-world/box A/B gate.
 
 .. note::
 

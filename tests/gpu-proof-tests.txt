@@ -185,4 +185,9 @@ tests/test_stats_summary.py::test_summary_uses_only_measured_denominators[32,2,1
 tests/test_stats_summary.py::test_summary_uses_only_measured_denominators[32,2,1,4,1\n32,100,-1,100,-1\n-expected2]
 tests/test_timing_contract.py::test_driver_accepts_neutral_generator_target_schema
 tests/test_timing_contract.py::test_driver_names_precision_and_never_times_correctness
+tests/test_timing_contract.py::test_gate_preflight_checks_provenance_without_gpu_work[None]
+tests/test_timing_contract.py::test_gate_preflight_checks_provenance_without_gpu_work[binary]
+tests/test_timing_contract.py::test_gate_preflight_checks_provenance_without_gpu_work[commit]
+tests/test_timing_contract.py::test_gate_preflight_checks_provenance_without_gpu_work[header]
+tests/test_timing_contract.py::test_gate_preflight_checks_provenance_without_gpu_work[input]
 tests/test_timing_contract.py::test_gate_rejects_missing_duplicate_and_mixed_protocol_cells

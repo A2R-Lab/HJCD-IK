@@ -78,6 +78,7 @@ def main():
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--quiet-window", action="store_true")
     mode.add_argument("--correctness-only", action="store_true")
+    mode.add_argument("--check", action="store_true", help="Verify endpoint/input provenance only; no GPU work or output directory")
     args = ap.parse_args()
     config = json.loads(args.config.read_text())
     for key in ("targets_json", "problems_json"):
@@ -103,6 +104,9 @@ def main():
         provenance[label] = info
     if len({(p["python"], p["numpy"]) for p in provenance.values()}) != 1:
         raise ValueError("endpoint Python/NumPy runtimes differ")
+    if args.check:
+        print("Preflight passed: endpoint commits, installed builds, runtimes and inputs match. No GPU work started.")
+        return
     if args.quiet_window and foreign_gpu_pids():
         raise RuntimeError("GPU is occupied; no timing started")
     args.out.mkdir(parents=True, exist_ok=False)

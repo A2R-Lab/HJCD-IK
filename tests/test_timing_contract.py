@@ -49,3 +49,42 @@ def test_gate_rejects_missing_duplicate_and_mixed_protocol_cells():
     for bad in (rows[:1], rows + rows[:1], [*rows[:1], {**rows[1], "refine_fp64": "0"}]):
         with pytest.raises(ValueError):
             m.analyze(config, bad, True)
+
+
+@pytest.mark.parametrize("changed", [None, "commit", "header", "binary", "input"])
+def test_gate_preflight_checks_provenance_without_gpu_work(tmp_path, monkeypatch, changed):
+    import json
+    m = module("run_audit_gate")
+    binary = tmp_path / "solver.so"
+    binary.write_bytes(b"precompiled")
+    workload = tmp_path / "input.json"
+    workload.write_text("{}")
+    config = {key: str(workload) for key in ("targets_json", "problems_json")}
+    config.update({key + "_sha": m.digest(workload) for key in ("targets_json", "problems_json")})
+    config["endpoints"] = {"main": dict(repo="repo", python="python", commit="commit",
+                                      header_sha="header", binary_sha=m.digest(binary))}
+    info = dict(build=dict(grid_header_sha256="header", ee_target="panda_hand_joint"),
+                binary=str(binary), python="3.12", numpy="2.5")
+    if changed == "binary":
+        binary.write_bytes(b"changed")
+    if changed == "input":
+        workload.write_text("changed")
+    if changed == "header":
+        info["build"]["grid_header_sha256"] = "changed"
+    def check_output(cmd, **kwargs):
+        if cmd[0] == "git":
+            return "changed" if changed == "commit" else "commit"
+        assert cmd[:2] == ["python", "-c"]
+        return json.dumps(info)
+    monkeypatch.setattr(m.subprocess, "check_output", check_output)
+    monkeypatch.setattr(m.subprocess, "Popen", lambda *a, **kw: pytest.fail("preflight launched a worker"))
+    monkeypatch.setattr(m, "foreign_gpu_pids", lambda *a: pytest.fail("preflight queried the GPU"))
+    path, out = tmp_path / "gate.json", tmp_path / "no-output"
+    path.write_text(json.dumps(config))
+    monkeypatch.setattr(m.sys, "argv", ["gate", "--config", str(path), "--out", str(out), "--check"])
+    if changed:
+        with pytest.raises(ValueError, match="changed"):
+            m.main()
+    else:
+        m.main()
+    assert not out.exists()

@@ -207,19 +207,47 @@ neutral two-endpoint A/B driver (alternate rounds, compare paired per-round medi
 
 ## What next
 
-**Current priority (2026-10-05):** completed timing reviewed; GRiD 8dccbfa and matching GLASS 9e57178
-pulled. Revalidate and sign proof, preserve measured endpoints, assess whether compiled code changes need
-targeted timing. No push or new timing without permission. G1–G4 are consumed. G5's generic collision-mesh
-spherizer/report and the G6 foam preset mechanism now exist upstream; they are not automatically equivalent
-to HJCD's historical visual-mesh experiments. GLASS point-transform/vote helpers are available but are not
-called by the unchanged generated warp checker. Keep numerical-policy changes separate. The roadmap below
-contains historical context. Visual meshes are an environment-only approximation with obstacle-shrink tolerances,
-not physical ground truth; model substitution does not isolate every solver-policy difference.
+**Current priority (2026-10-05):** finish release closeout, not another kernel/model redesign. GRiD
+8dccbfa and matching GLASS 9e57178 are integrated and correctness-validated. The pre-upstream A/B is
+complete; the already compiled post-pin endpoint awaits a focused host/API timing confirmation in the
+overnight coordinator's quiet slot. Its 26 GPU functions have identical instruction/encoding streams to
+the measured audit build, and native-core host text matches, but final linked-library text differs.
+This is strong evidence of unchanged solver work, not a substitute for end-to-end timing. No timing
+while agents share the box; no push without user approval.
 
 The running roadmap is `docs/open-tasks/TODO.md` (local, gitignored agent scratch — recreate it from this list
 if missing). Tracked project docs: this file, `docs/development/agent_debugging_guide.md`,
 `docs/development/STARTUP_PROMPT.md`, `docs/source/user_guide/upgrading.md`,
-`docs/source/user_guide/benchmarks/results.rst`, and the sphinx docs. In priority order:
+`docs/source/user_guide/benchmarks/results.rst`, and the sphinx docs.
+
+### Release closeout
+
+1. Keep README/examples/API docs consistent with the current contract: one target per call, AUTO precision,
+   frame identity, hard filtering, possible empty/approximate results, paired errors and model limitations.
+2. Run the staged focused post-pin A/B in the assigned quiet slot; preserve the completed October 5 archive.
+3. Review the final diff and verify the full signed receipt; refresh it after fingerprinted edits.
+4. Obtain user approval before pushing. Nothing in the research backlog below blocks the default-model
+   release by itself, provided unmeasured performance is not claimed.
+
+### Publication and research (separate from release)
+
+- Re-run the full paper/baseline campaign with the corrected fail-closed harness in an isolated checkout,
+  fresh outputs, matched frames/precision/geometry and complete per-query scoring. Existing competitor
+  results are historical snapshots; the same-machine audit A/B is not a current paper speedup claim.
+- Recollect b10/b15 conservative-model groups before republishing their rates: old dumps omitted empties.
+- G1–G4 are integrated; no HJCD collision sidecar or duplicate warp checker remains. G5's upstream generic
+  spherizer/report uses **collision** meshes, unlike HJCD's historical **visual**-mesh fitter. G6 provides
+  the foam preset mechanism, not the entire proposed model catalog. Keep the explicit default foam path.
+- GLASS point-transform/vote helpers are available, but the generated GRiD checker does not call them.
+  Adopt optional helpers/models only as separately validated changes; do not change numerical policy here.
+- Visual-mesh judges are environment-only approximations with obstacle-shrink tolerances, not physical
+  ground truth. Model substitution informs geometry effects without isolating all solver-policy differences.
+- Fetch collision scenes, procedural clutter, branched-chain support, additional upstream math/FK helpers
+  and a self-hosted GPU runner remain research/infrastructure work.
+
+### Historical roadmap (October 3; superseded by the current sections above)
+
+The numbered record below explains earlier decisions and measurements; it is not today's task queue.
 
 1. **Re-record the GPU proof** after any `csrc/`/`tests/`/docs change (see *Testing and the GPU-proof gate*).
 2. **Paper protocol rerun with baselines: DONE 2026-10-03** (`docs/development/evidence/paper_rerun_2026-10-03/`,
