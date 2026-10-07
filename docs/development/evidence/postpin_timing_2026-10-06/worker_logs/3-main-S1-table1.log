@@ -1,0 +1,6 @@
+[main-S1] hjcdik = /home/plancher/Desktop/HJCD-IK/docs/open-tasks/audit_gate_2026-10-04/branch/hjcdik/__init__.py
+{"build": {"num_joints": 7, "ee_target": "panda_hand_joint", "collision_enabled": true, "grid_header_sha256": "efc2c7585cb8be991cf136ae0288b94332309a8b44d53453184704f97820af4d", "cuda_compiler_version": "13.2.86"}, "precision": -1, "correctness_only": false}
+[main-S1 r3] table1 B=1: 95/100 accurate; empty=0
+[main-S1 r3] table1 B=2000: 100/100 accurate; empty=0
+[main-S1 r3] table1 B=8000: 100/100 accurate; empty=0
+[main-S1 r3] table1 B=32000: 100/100 accurate; empty=0

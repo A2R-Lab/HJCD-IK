@@ -1,0 +1,4 @@
+[branch-S4] hjcdik = /home/plancher/Desktop/HJCD-IK/hjcdik/__init__.py
+{"build": {"num_joints": 7, "ee_target": "panda_hand_joint", "collision_enabled": true, "grid_header_sha256": "602db0639bc408c26f4d57ebf4623fea868b3c45236a3a3e654defcb3d0f0720", "cuda_compiler_version": "13.2.86"}, "precision": -1, "correctness_only": false}
+[branch-S4 r1] table2 B=100: 100/100 accurate; empty=0
+[branch-S4 r1] table2 B=2000: 100/100 accurate; empty=0

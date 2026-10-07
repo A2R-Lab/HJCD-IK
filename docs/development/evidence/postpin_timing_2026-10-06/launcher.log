@@ -1,0 +1,39 @@
+Launcher PID: 3900239
+Results: /home/plancher/Desktop/HJCD-IK/docs/open-tasks/postpin_timing_2026-10-05/results-20261006T041238798290236Z
+Tue Oct  6 04:12:38 UTC 2026
+name, uuid, driver_version, utilization.gpu [%], temperature.gpu, power.draw [W], clocks.current.sm [MHz], clocks.current.memory [MHz]
+NVIDIA GeForce RTX 5090, GPU-bf781ab0-9632-4b9a-497b-c3b846aae70c, 615.71.09, 0 %, 29, 6.51 W, 180 MHz, 405 MHz
+Coordinator must ensure no concurrent GPU work or CPU-heavy compiles. No settings are changed.
+round 1: main S=1 table1
+round 1: main S=1 table2
+round 1: branch S=1 table1
+round 1: branch S=1 table2
+round 1: main S=4 table1
+round 1: main S=4 table2
+round 1: branch S=4 table1
+round 1: branch S=4 table2
+round 2: branch S=1 table1
+round 2: branch S=1 table2
+round 2: main S=1 table1
+round 2: main S=1 table2
+round 2: branch S=4 table1
+round 2: branch S=4 table2
+round 2: main S=4 table1
+round 2: main S=4 table2
+round 3: main S=1 table1
+round 3: main S=1 table2
+round 3: branch S=1 table1
+round 3: branch S=1 table2
+round 3: main S=4 table1
+round 3: main S=4 table2
+round 3: branch S=4 table1
+round 3: branch S=4 table2
+round 4: branch S=1 table1
+round 4: branch S=1 table2
+round 4: main S=1 table1
+round 4: main S=1 table2
+round 4: branch S=4 table1
+round 4: branch S=4 table2
+round 4: main S=4 table1
+round 4: main S=4 table2
+Complete; inspect analysis.json for quality regressions and paired latency ratios. No automatic performance approval.
