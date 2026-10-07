@@ -1,0 +1,226 @@
+[
+ {
+  "problem_set": "bookshelf_small_panda",
+  "solver": "hjcdik_b10",
+  "batch": 100,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "visual<=1mm": 100
+  },
+  "all_oracles": 100
+ },
+ {
+  "problem_set": "bookshelf_small_panda",
+  "solver": "hjcdik_b10",
+  "batch": 2000,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "visual<=1mm": 100
+  },
+  "all_oracles": 100
+ },
+ {
+  "problem_set": "bookshelf_tall_panda",
+  "solver": "hjcdik_b10",
+  "batch": 100,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "visual<=1mm": 100
+  },
+  "all_oracles": 100
+ },
+ {
+  "problem_set": "bookshelf_tall_panda",
+  "solver": "hjcdik_b10",
+  "batch": 2000,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "visual<=1mm": 100
+  },
+  "all_oracles": 100
+ },
+ {
+  "problem_set": "bookshelf_thin_panda",
+  "solver": "hjcdik_b10",
+  "batch": 100,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "visual<=1mm": 100
+  },
+  "all_oracles": 100
+ },
+ {
+  "problem_set": "bookshelf_thin_panda",
+  "solver": "hjcdik_b10",
+  "batch": 2000,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "visual<=1mm": 100
+  },
+  "all_oracles": 100
+ },
+ {
+  "problem_set": "box_panda",
+  "solver": "hjcdik_b10",
+  "batch": 100,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "visual<=1mm": 100
+  },
+  "all_oracles": 100
+ },
+ {
+  "problem_set": "box_panda",
+  "solver": "hjcdik_b10",
+  "batch": 2000,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "visual<=1mm": 100
+  },
+  "all_oracles": 100
+ },
+ {
+  "problem_set": "box_panda_flipped",
+  "solver": "hjcdik_b10",
+  "batch": 100,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "visual<=1mm": 100
+  },
+  "all_oracles": 100
+ },
+ {
+  "problem_set": "box_panda_flipped",
+  "solver": "hjcdik_b10",
+  "batch": 2000,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "visual<=1mm": 100
+  },
+  "all_oracles": 100
+ },
+ {
+  "problem_set": "cage_panda",
+  "solver": "hjcdik_b10",
+  "batch": 100,
+  "n": 100,
+  "pose_ok": 88,
+  "pose_and_free": {
+   "hjcd": 88,
+   "paper": 88,
+   "curobo": 88,
+   "visual<=1mm": 88
+  },
+  "all_oracles": 88
+ },
+ {
+  "problem_set": "cage_panda",
+  "solver": "hjcdik_b10",
+  "batch": 2000,
+  "n": 100,
+  "pose_ok": 89,
+  "pose_and_free": {
+   "hjcd": 89,
+   "paper": 89,
+   "curobo": 89,
+   "visual<=1mm": 89
+  },
+  "all_oracles": 89
+ },
+ {
+  "problem_set": "table_pick_panda",
+  "solver": "hjcdik_b10",
+  "batch": 100,
+  "n": 100,
+  "pose_ok": 98,
+  "pose_and_free": {
+   "hjcd": 98,
+   "paper": 98,
+   "curobo": 98,
+   "visual<=1mm": 98
+  },
+  "all_oracles": 98
+ },
+ {
+  "problem_set": "table_pick_panda",
+  "solver": "hjcdik_b10",
+  "batch": 2000,
+  "n": 100,
+  "pose_ok": 98,
+  "pose_and_free": {
+   "hjcd": 97,
+   "paper": 97,
+   "curobo": 98,
+   "visual<=1mm": 98
+  },
+  "all_oracles": 97
+ },
+ {
+  "problem_set": "table_under_pick_panda",
+  "solver": "hjcdik_b10",
+  "batch": 100,
+  "n": 100,
+  "pose_ok": 98,
+  "pose_and_free": {
+   "hjcd": 97,
+   "paper": 97,
+   "curobo": 98,
+   "visual<=1mm": 98
+  },
+  "all_oracles": 97
+ },
+ {
+  "problem_set": "table_under_pick_panda",
+  "solver": "hjcdik_b10",
+  "batch": 2000,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "visual<=1mm": 100
+  },
+  "all_oracles": 100
+ }
+]

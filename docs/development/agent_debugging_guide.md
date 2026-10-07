@@ -221,6 +221,12 @@ not exact candidate identity.
   band below it, which is why the old kernel's cage "successes" at 1.4–3.5 mm vanished when the stop became
   collision-aware (warps kept converging into the obstacle) until the band fallback was added. Diagnose
   stage by stage with `HJCD_CC_STOP=0/1/2/3` and `HJCD_REPAIR_ATTEMPTS=0`.
+- **Before improving the repair step, check what the misses ARE (2026-10-07).** The scorer's `pose ok` vs
+  `pose & own spheres` columns tell you whether any accurate-but-colliding candidates are being returned at
+  all. With the collision-aware stop + band fallback they are not (equal in every ladder cell), so a smarter
+  repair (nullspace step along contact normals — implemented, measured, archived in
+  `evidence/repair_nullspace_2026-10-07/`, not shipped) has nothing to act on; the residue is the sphere
+  model. Success is monotone in B now (`evidence/c1_batch_monotonic_2026-10-07/`).
 - **Finer conservative spheres are not "better" on this benchmark.** Measured with
   `benchmark/make_bounded_bulge_spheres.py --report`: foam bulges 40 mm and leaves 4–35 % of the true
   surface uncovered; cuRobo's model bulges 75 mm on link 5 and leaves 20–71 % uncovered; a full-cover model

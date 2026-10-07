@@ -14,8 +14,9 @@ Runnable examples for the Python API, then the published benchmark results and h
    for exact provenance and ratios.
    The October 2 A/B
    driver forced fp32 even for S=1; it did not exercise default S=1 fp64. October 3 conservative-model
-   ladder dumps omitted empty outputs (b10: 2775, b15: 2771 of 2776 queries); those groups need
-   recollection. Default-model groups were complete. New dumps retain empty queries and target/frame
+   ladder dumps omitted empty outputs (b10: 2775, b15: 2771 of 2776 queries); those groups were
+   recollected on October 7 with identical cage rates (``fairness_hardsets_2026-10-03/recollection_2026-10-07``).
+   Default-model groups were complete. New dumps retain empty queries and target/frame
    metadata for independent FK. Archived tables/plots below are historical evidence, not a new
    guarantee of final-code performance. Visual-mesh judges exclude base/self collision and shrink
    obstacles by the stated tolerance; they are not physical ground truth.
@@ -734,6 +735,15 @@ confirmation remains separate. The archived October 3 effect on three dataset se
 cage 96 → 100 %, table_pick 94 → 100 %, table_under_pick 95 → 100 %; those are observed counts, not
 guaranteed success. The audit's complete ten-set recollection at B=2000 solved 999/1000 queries
 (one kitchen miss). Nonempty output is not necessarily pose-accurate, and harder ladder scenes have misses.
+Two follow-ups closed on October 7 (shared GPU, correctness only): success is now monotone in the batch size
+on the hard sets (cage 99/100/100/100 %, table_pick 98/100/100/100 %, table_under_pick 99/99/100/100 % at
+B = 100/1000/2000/8000; ``docs/development/evidence/c1_batch_monotonic_2026-10-07/``), and a nullspace
+repair step (contact normals from ``grid_collision::warp::collision_distance`` projected onto the
+end-effector Jacobian's nullspace, then LM re-projection) was implemented and measured on the full ladder
+against the shipped kick: 2545 vs 2547 of 2776 queries — a wash — because in every cell the solver never
+returns an accurate configuration its own spheres reject, so there is nothing left for a repair step to act
+on; the remaining misses belong to the sphere model. It was not shipped
+(``docs/development/evidence/repair_nullspace_2026-10-07/``).
 
 **Clearance ladder.** To see where the solvers separate, every cuboid of the three tightest sets is
 grown by *D* on each face (``benchmark/make_clearance_ladder.py``), keeping only problems for which at
@@ -782,12 +792,12 @@ more than 1 mm outside every sphere):
      - 200
      - 19 mm
      - 0 %
-     - 44 / 0 / 0
+     - 44 / 0 / 0 (recollected Oct 7, 4776 queries, zero mesh disagreements)
    * - bounded bulge 10 mm (true mesh, full cover)
      - 377
      - 13.5 mm
      - 0 %
-     - 52 / 4 / 0
+     - 52 / 4 / 0 (recollected Oct 7, 4776 queries, zero mesh disagreements)
 
 Every practical sphere model is optimistic somewhere; cuRobo's is the most optimistic of the three in
 the places that matter in the cage (it leaves most of link 2–6 uncovered where the arm squeezes past the
@@ -811,6 +821,14 @@ the completed October 5 open-world/box A/B gate.
 
 Reproducing these results
 -------------------------
+
+.. note::
+
+   cuRobo v2's cuda-core backend compiles kernels at run time with the venv's ``libnvrtc.so.13``; the matching
+   ``libnvrtc-builtins.so.13.0`` is only found when the wheel's library directory is on the loader path
+   (``export LD_LIBRARY_PATH=$VENV/lib/python3.12/site-packages/nvidia/cu13/lib:$LD_LIBRARY_PATH``), otherwise a
+   fresh kernel instantiation fails with ``NVRTC_ERROR_BUILTIN_OPERATION_FAILURE``. ``scripts/setup/install_baselines.sh``
+   records this; the staging campaign wrapper exports it.
 
 The numbers above are the paper's; you can regenerate the **HJCD-IK** columns on your own GPU (absolute
 timings will differ — see the note at the top). The competitor baselines are optional and heavy.

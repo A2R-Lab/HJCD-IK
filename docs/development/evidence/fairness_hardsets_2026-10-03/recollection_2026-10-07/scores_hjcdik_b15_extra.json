@@ -1,0 +1,58 @@
+[
+ {
+  "problem_set": "kitchen_panda",
+  "solver": "hjcdik_b15_extra",
+  "batch": 100,
+  "n": 100,
+  "pose_ok": 98,
+  "pose_and_free": {
+   "hjcd": 98,
+   "paper": 98,
+   "curobo": 98,
+   "visual<=1mm": 98
+  },
+  "all_oracles": 98
+ },
+ {
+  "problem_set": "kitchen_panda",
+  "solver": "hjcdik_b15_extra",
+  "batch": 2000,
+  "n": 100,
+  "pose_ok": 99,
+  "pose_and_free": {
+   "hjcd": 99,
+   "paper": 99,
+   "curobo": 99,
+   "visual<=1mm": 99
+  },
+  "all_oracles": 99
+ },
+ {
+  "problem_set": "table_bars_panda",
+  "solver": "hjcdik_b15_extra",
+  "batch": 100,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "visual<=1mm": 100
+  },
+  "all_oracles": 100
+ },
+ {
+  "problem_set": "table_bars_panda",
+  "solver": "hjcdik_b15_extra",
+  "batch": 2000,
+  "n": 100,
+  "pose_ok": 100,
+  "pose_and_free": {
+   "hjcd": 100,
+   "paper": 100,
+   "curobo": 100,
+   "visual<=1mm": 100
+  },
+  "all_oracles": 100
+ }
+]

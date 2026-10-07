@@ -120,6 +120,11 @@ if [ "${SKIP_IKFLOW:-0}" != "1" ]; then
     || echo "[install_baselines] WARNING: ikflow install failed (see docs/source/user_guide/benchmarks/results.rst); Tables I/IV IKFlow column will be absent."
   # ikflow/jkinpylib import pkg_resources, which setuptools>=81 removed (2026): pin below it.
   "$PY" -m pip install "setuptools<81"
+# cuRobo v2's cuda-core backend JIT-compiles kernels with the venv's libnvrtc.so.13 (nvidia-cuda-nvrtc 13.x);
+# NVRTC looks for libnvrtc-builtins.so.13.0 next to the loader path, not next to itself, so runs that
+# compile a new kernel fail with NVRTC_ERROR_BUILTIN_OPERATION_FAILURE unless the wheel's lib dir is
+# exported (the campaign wrapper does this):
+#   export LD_LIBRARY_PATH="$PWD/.venv/lib/python3.12/site-packages/nvidia/cu13/lib:$LD_LIBRARY_PATH"
   if ! ls benchmark/assets/ikflow/weights/*.pkl >/dev/null 2>&1; then
     echo "[install_baselines] NOTE: no IKFlow weights in benchmark/assets/ikflow/weights/ — add the co-author's .pkl there for offline load."
   fi

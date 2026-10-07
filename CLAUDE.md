@@ -189,7 +189,8 @@ counts, all 12 paired ratios within 0.9946–1.0046; reviewed October 7):
 Protocol details:
 [`docs/development/timing_gate.md`](docs/development/timing_gate.md). The October 2 A/B driver forced
 fp32 even for S=1, and its results must not be called auto-precision/default-S1 coverage. October 3
-conservative-model dumps omitted some empty queries (2775/2771 of 2776); those groups require recollection.
+conservative-model dumps omitted some empty queries (2775/2771 of 2776); recollected October 7 (same rates,
+`evidence/fairness_hardsets_2026-10-03/recollection_2026-10-07/`).
 The original measurements below are historical, not measurements of this revision.
 Published numbers are the camera-ready paper's (RTX 4060) and live in
 `docs/source/user_guide/benchmarks/results.rst`; the competitor columns have **not** been re-run on the current
@@ -274,8 +275,12 @@ The numbered record below explains earlier decisions and measurements; it is not
    conservative full-cover models (200–377 spheres) reduced observed success; their shared-GPU latency
    observations are not a valid performance claim. Foam
    stays the default; a broad→fine cascade (GRiD supports it) is the route if a conservative model is ever
-   wanted. Open: the quiet-window A/B (open-world old vs new binary; `HJCD_CC_STOP=0` vs 3 in collision
-   mode) + latency columns; HJCD accuracy not monotone in B (likely the same early-stop mechanism — re-measure).
+   wanted. The quiet-window A/B is done (`audit_timing_2026-10-05`, `postpin_timing_2026-10-06`). **Closed
+   2026-10-07:** success is monotone in B with the collision-aware stop
+   (`docs/development/evidence/c1_batch_monotonic_2026-10-07/`); a nullspace repair step (contact normals →
+   EE-Jacobian nullspace → LM re-projection) was implemented, measured on the ladder and NOT shipped — a
+   wash, because the solver never returns an accurate configuration its own spheres reject; the remaining
+   misses are the sphere model's (`docs/development/evidence/repair_nullspace_2026-10-07/`).
 3. **Two collision-scene protocols (ruled 2026-10-03).** MotionBenchMaker goals are `panda_hand` poses (the
    dataset's `goal_ik` puts `panda_hand` on them; the TCP is 105 mm further out). The paper's Table II used the
    *cylinder-snapped* target with the TCP frame, which is physically consistent for cylinder-grasp scenes

@@ -11,8 +11,9 @@ matched quality counts and all twelve paired latency ratios within 0.9946–1.00
 - The October 2 neutral driver passed `False` as positional argument eight, which is `refine_fp64`, not
   `write_stats`. Its S=1 measurements are **forced fp32**, not the default fp64. Raw data are preserved.
 - October 3 conservative sphere-model ladder dumps contain 2775 (b10) and 2771 (b15) records instead of
-  2776. Empty outputs were omitted. Those groups require recollection; do not interpret their old
-  returned-record percentages as per-query success. The default-model groups were complete.
+  2776. Empty outputs were omitted. Recollected October 7 with empties (`evidence/fairness_hardsets_2026-10-03/
+  recollection_2026-10-07/`): identical cage rates, and zero sphere/mesh disagreement for the full-cover models.
+  The default-model groups were complete.
 - Visual meshes are an independent environment-only approximation. They exclude the base and self
   collision and shrink obstacles by the reported tolerance. They are not physical ground truth.
 - Shared-GPU latency estimates (including the old conservative-model “3–4×” observation) are not valid

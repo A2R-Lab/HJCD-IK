@@ -1,0 +1,214 @@
+diff --git a/csrc/kernel/hjcd_kernel.cu b/csrc/kernel/hjcd_kernel.cu
+index b3d5324..4a02f48 100644
+--- a/csrc/kernel/hjcd_kernel.cu
++++ b/csrc/kernel/hjcd_kernel.cu
+@@ -552,9 +552,11 @@ __device__ inline void build_ne_and_solve_warp(
+ #if defined(HJCD_HAS_COLLISION)
+ using CCEnv = grid_collision::Environment<float>;
+ constexpr int CC_WARP_POS_FLOATS = grid_collision::warp::W_SCRATCH_FLOATS;
++constexpr int CC_NUM_SPHERES = grid_collision::NUM_SPHERES;
+ #else
+ struct CCEnv { int unused; };
+ constexpr int CC_WARP_POS_FLOATS = 0;
++constexpr int CC_NUM_SPHERES = 0;
+ #endif
+ 
+ template<typename T>
+@@ -574,8 +576,106 @@ struct LMWarpScratch {
+     T q_acc[N];                                     // the accurate-but-colliding config of the repair round
+     T best_free_x[N]; T best_free_pos;              // best collision-free config inside the fallback band
+     float cc_pos[CC_WARP_POS_FLOATS > 0 ? CC_WARP_POS_FLOATS : 1];
++    // nullspace repair (C2): per-sphere env clearance + outward normal, push/nullspace directions
++    float cc_dist[CC_NUM_SPHERES > 0 ? CC_NUM_SPHERES : 1];
++    float cc_normal[CC_WARP_POS_FLOATS > 0 ? CC_WARP_POS_FLOATS : 1];
++    T d_push[N], d_null[N];
++    T ns_scalar[4];                                 // [0] deepest depth, [1] n·v projection, [2] alpha, [3] |d_null|_inf
++    int ns_sphere, repair_action;
+ };
+ 
++#if defined(HJCD_HAS_COLLISION)
++// Nullspace repair (C2, 2026-10-07): for an accurate-but-colliding candidate, push the penetrating spheres
++// out along the environment normals WITHOUT moving the end effector, then let the LM re-project.
++//   d_i   = sum_s depth_s * n_s . (z_i x (p_s - o_i))   over joints i at or before the sphere's anchor
++//   d_n   = d - J^T (J J^T)^-1 J d                      (J = unscaled 6xN geometric EE Jacobian)
++//   alpha = (depth* + margin) / (n* . J_{s*} d_n)        (deepest sphere s* clears by `margin`)
++// Entered by the full warp; every lane returns the same verdict. Writes s_x = clamp(q_acc + alpha d_n) when
++// it succeeds. Fails (returns false) when no sphere penetrates the ENVIRONMENT (self-collision only: no
++// normals), when the nullspace cannot move the deepest sphere outward, or when J J^T is not SPD. Joints
++// are treated as revolute about their z axis, as the LM Jacobian does.
++template<typename T>
++__device__ bool warp_nullspace_repair(LMWarpScratch<T>* st, const CCEnv& env, T margin_m)
++{
++    constexpr int NS = CC_NUM_SPHERES;
++    const int lane = threadIdx.x & 31;
++    const T* s_jointX = st->s_jointX;
++    grid_collision::warp::collision_distance<T>(s_jointX, env, st->cc_dist, st->cc_normal, st->cc_pos);
++    // deepest penetrating sphere (warp argmin over signed clearance)
++    float lmin = 1e30f; uint32_t lidx = UINT32_MAX;
++    for (int sph = lane; sph < NS; sph += WARP_SIZE)
++        if (st->cc_dist[sph] < lmin) { lmin = st->cc_dist[sph]; lidx = (uint32_t)sph; }
++    float wmin;
++    const uint32_t widx = glass::warp::argmin_pair(lmin, lidx, wmin);
++    if (widx == UINT32_MAX || wmin >= 0.0f) return false;          // nothing penetrates the environment
++    // push direction in joint space (lane i owns joint i)
++    if (lane < N) {
++        const T* Xi = &s_jointX[16 * lane];
++        const T zi0 = Xi[8], zi1 = Xi[9], zi2 = Xi[10], oi0 = Xi[12], oi1 = Xi[13], oi2 = Xi[14];
++        T acc = (T)0;
++        for (int sph = 0; sph < NS; ++sph) {
++            const float dist = st->cc_dist[sph];
++            if (dist >= 0.0f || grid_collision::sphere_anchor[sph] < lane) continue;
++            const T r0 = (T)st->cc_pos[3 * sph] - oi0, r1 = (T)st->cc_pos[3 * sph + 1] - oi1, r2 = (T)st->cc_pos[3 * sph + 2] - oi2;
++            const T v0 = zi1 * r2 - zi2 * r1, v1 = zi2 * r0 - zi0 * r2, v2 = zi0 * r1 - zi1 * r0;
++            acc += (T)(-dist) * ((T)st->cc_normal[3 * sph] * v0 + (T)st->cc_normal[3 * sph + 1] * v1 + (T)st->cc_normal[3 * sph + 2] * v2);
++        }
++        st->d_push[lane] = acc;
++        // unscaled geometric EE Jacobian column i (the LM's J is row-scaled; rebuilt at the loop top anyway)
++        const T* Cn = &s_jointX[EE_IDX * 16];
++        const T r0 = Cn[12] - oi0, r1 = Cn[13] - oi1, r2 = Cn[14] - oi2;
++        st->J[0 * N + lane] = zi1 * r2 - zi2 * r1; st->J[1 * N + lane] = zi2 * r0 - zi0 * r2; st->J[2 * N + lane] = zi0 * r1 - zi1 * r0;
++        st->J[3 * N + lane] = zi0; st->J[4 * N + lane] = zi1; st->J[5 * N + lane] = zi2;
++    }
++    __syncwarp(FULL_WARP_MASK);
++    // b = J d (6), A = J J^T (6x6) into the LM's normal-equation scratch (N*N >= 36, N >= 6)
++    if (lane < 6) { T b = (T)0; for (int i = 0; i < N; ++i) b += st->J[lane * N + i] * st->d_push[i]; st->rhsd_sh[lane] = b; }
++    for (int e = lane; e < 36; e += WARP_SIZE) {
++        const int k = e / 6, l = e % 6; T a = (T)0;
++        for (int i = 0; i < N; ++i) a += st->J[k * N + i] * st->J[l * N + i];
++        st->Ad_sh[e] = a;
++    }
++    __syncwarp(FULL_WARP_MASK);
++    glass::warp::posv<T, 6, /*NRHS=*/1, /*REGULARIZE=*/true, /*CHECK=*/true, /*REG_DIAG=*/true>(
++        st->Ad_sh, st->rhsd_sh, (T)1e-6, &st->s_fail);
++    __syncwarp(FULL_WARP_MASK);
++    const bool spd_ok = (st->s_fail == 0);
++    if (lane < N) {
++        T dn = st->d_push[lane];
++        if (spd_ok) for (int k = 0; k < 6; ++k) dn -= st->J[k * N + lane] * st->rhsd_sh[k];
++        st->d_null[lane] = dn;
++    }
++    __syncwarp(FULL_WARP_MASK);
++    // predicted outward motion of the deepest sphere and the step size
++    if (lane == 0) {
++        const int sph = (int)widx;
++        const T px = (T)st->cc_pos[3 * sph], py = (T)st->cc_pos[3 * sph + 1], pz = (T)st->cc_pos[3 * sph + 2];
++        T v0 = (T)0, v1 = (T)0, v2 = (T)0, amax = (T)0;
++        for (int i = 0; i < N; ++i) {
++            const T a = st->d_null[i]; amax = fmax(amax, fabs(a));
++            if (grid_collision::sphere_anchor[sph] < i) continue;
++            const T* Xi = &s_jointX[16 * i];
++            const T r0 = px - Xi[12], r1 = py - Xi[13], r2 = pz - Xi[14];
++            v0 += a * (Xi[9] * r2 - Xi[10] * r1); v1 += a * (Xi[10] * r0 - Xi[8] * r2); v2 += a * (Xi[8] * r1 - Xi[9] * r0);
++        }
++        const T proj = (T)st->cc_normal[3 * sph] * v0 + (T)st->cc_normal[3 * sph + 1] * v1 + (T)st->cc_normal[3 * sph + 2] * v2;
++        const T depth = (T)(-wmin);
++        T alpha = (proj > (T)1e-9) ? (depth + margin_m) / proj : (T)0;
++        if (alpha * amax > (T)0.5) alpha = (T)0.5 / amax;            // never more than 0.5 rad on any joint
++        st->ns_scalar[0] = depth; st->ns_scalar[1] = proj; st->ns_scalar[2] = alpha; st->ns_scalar[3] = amax;
++        st->ns_sphere = sph;
++    }
++    __syncwarp(FULL_WARP_MASK);
++    if (!(st->ns_scalar[2] > (T)0)) return false;                   // uniform: shared scalar
++    if (lane < N) {
++        const double2 L = c_joint_limits[lane];
++        st->s_x[lane] = clamp_val<T>(st->q_acc[lane] + st->ns_scalar[2] * st->d_null[lane], (T)L.x, (T)L.y);
++    }
++    __syncwarp(FULL_WARP_MASK);
++    return true;
++}
++#endif
++
+ template<typename T>
+ __device__ void solve_lm_batched(
+     T* __restrict__ x,
+@@ -592,7 +692,8 @@ __device__ void solve_lm_batched(
+     int stop_on_first,
+     CCEnv env,
+     int cc_stop,              // 1 = collision-aware stop + repair (hard/both collision modes)
+-    int repair_attempts)
++    int repair_attempts,
++    int repair_mode)          // 0 = random kicks only; 1 = nullspace step first (attempts 1-2), kicks after
+ {
+     // Multi-warp LM: one independent candidate per warp, W warps per block. All barriers
+     // inside the iteration loop are warp-scoped (the only __syncthreads are in the one-time
+@@ -929,20 +1030,29 @@ __device__ void solve_lm_batched(
+         if (cc_stop && accurate) {   // uniform across the warp (shared)
+             const bool free = grid_collision::warp::config_free<T>(s_jointX, env, st->cc_pos);
+             if (tid == 0) {
+-                if (free) {
++                st->repair_action = free ? 0 : (attempts < repair_attempts ? 1 : 2);
++                if (st->repair_action == 1) { if (attempts == 0) for (int i = 0; i < N; ++i) st->q_acc[i] = s_x[i]; ++attempts; }
++            }
++            SYNC();
++            // Informed repair round: keep the accurate-but-colliding configuration and move it so the LM can
++            // re-project it onto the pose; the verdict above re-runs when it is accurate again. Attempts 1-2
++            // take the nullspace step along the contact normals (full warp); later attempts (or when the
++            // nullspace cannot resolve it) use a deterministic joint-space kick that grows per attempt.
++            bool stepped = false;
++            if (st->repair_action == 1 && repair_mode == 1 && attempts <= 2)
++                stepped = warp_nullspace_repair<T>(st, env, (T)0.005 * (T)attempts * (T)attempts);   // 5 mm, 20 mm
++            if (tid == 0) {
++                if (st->repair_action == 0) {
+                     atomicCAS(&g_stop, 0, 1); s_break = 1; st->final_free = 1;
+-                } else if (attempts < repair_attempts) {
+-                    // Informed repair round: keep the accurate-but-colliding configuration, kick it with a
+-                    // deterministic joint-space perturbation that grows per attempt, and let the LM re-project
+-                    // it onto the pose; the verdict above re-runs when it is accurate again.
+-                    if (attempts == 0) for (int i = 0; i < N; ++i) st->q_acc[i] = s_x[i];
+-                    ++attempts;
+-                    const T amp = (T)0.04 * (T)attempts;
+-                    for (int i = 0; i < N; ++i) {
+-                        uint32_t seed = make_seed(0x5EEDu, gp, attempts, i);
+-                        const double2 L = c_joint_limits[i];
+-                        const T kick = ((T)2 * (T)u01(seed) - (T)1) * amp * (T)(L.y - L.x);
+-                        s_x[i] = clamp_val<T>(st->q_acc[i] + kick, (T)L.x, (T)L.y);
++                } else if (st->repair_action == 1) {
++                    if (!stepped) {
++                        const T amp = (T)0.04 * (T)attempts;
++                        for (int i = 0; i < N; ++i) {
++                            uint32_t seed = make_seed(0x5EEDu, gp, attempts, i);
++                            const double2 L = c_joint_limits[i];
++                            const T kick = ((T)2 * (T)u01(seed) - (T)1) * amp * (T)(L.y - L.x);
++                            s_x[i] = clamp_val<T>(st->q_acc[i] + kick, (T)L.x, (T)L.y);
++                        }
+                     }
+                     ee_fk_thread<T>(s_jointX, s_XmatsHom, s_x, EE_IDX, s_XmatsHom);
+                     pos_err_m   = compute_pos_err(s_jointX, tp);
+@@ -1336,7 +1446,8 @@ __global__ void lm_tuner(
+     int stop_on_first,
+     CCEnv env,
+     int cc_stop,
+-    int repair_attempts
++    int repair_attempts,
++    int repair_mode
+ ) {
+     // B = total candidates (Krep). grid = ceil(B / warps_per_block); each warp does one candidate.
+     solve_lm_batched<T>(
+@@ -1354,7 +1465,8 @@ __global__ void lm_tuner(
+         stop_on_first,
+         env,
+         cc_stop,
+-        repair_attempts
++        repair_attempts,
++        repair_mode
+     );
+ }
+ 
+@@ -1837,6 +1949,8 @@ Result<T> generate_ik_solutions(
+     const int cc_stop_lm     = (cc_stop && (cc_stop_mask & 2)) ? 1 : 0;
+     int repair_attempts = 4;
+     if (const char* e = std::getenv("HJCD_REPAIR_ATTEMPTS")) { int v = std::atoi(e); if (v >= 0 && v <= 64) repair_attempts = v; }
++    int repair_mode = 1;      // HJCD_REPAIR_MODE: 0 = kicks only (pre-C2 behaviour), 1 = nullspace step first
++    if (const char* e = std::getenv("HJCD_REPAIR_MODE")) { int v = std::atoi(e); if (v == 0 || v == 1) repair_mode = v; }
+ #if defined(HJCD_HAS_COLLISION)
+     if (use_hard) cc_kernel_env = cc_env;
+ #endif
+@@ -2081,7 +2195,7 @@ Result<T> generate_ik_solutions(
+             lm_tuner<RT><<<grid_lm, TPB_lm, lm_smem>>>(
+                 dx64, dpose64, dtgt64, dposmm64, dori64, d_robotModel_rt,
+                 eps_pos, eps_ori, HJCDSettings<RT>::lambda_init, max_iters, Krep, stop_on_first_lm,
+-                cc_kernel_env, cc_stop_lm, repair_attempts
++                cc_kernel_env, cc_stop_lm, repair_attempts, repair_mode
+             );
+             cudaError_t launch_err = cudaGetLastError();
+             if (launch_err == cudaSuccess) break;
