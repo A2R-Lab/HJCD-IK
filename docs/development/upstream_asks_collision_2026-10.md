@@ -11,8 +11,8 @@ The generic fitter uses collision meshes, so it is not a drop-in replacement for
 visual-mesh b10/b15 experiment. GLASS L1/L2 exist, but the generated checker still uses its existing
 point placement/vote code; do not claim helper adoption solely from the newer pin.
 
-The audited pre-pin A/B is [complete](evidence/audit_timing_2026-10-05/README.md); post-pin correctness
-is validated and focused timing is staged separately. Preserve the default foam geometry and solver
+The audited pre-pin A/B is [complete](evidence/audit_timing_2026-10-05/README.md); the post-pin
+confirmation is [complete and performance-neutral](evidence/postpin_timing_2026-10-06/README.md). Preserve the default foam geometry and solver
 policy. See [the current timing protocol](timing_gate.md), not the obsolete launchers named below.
 The old `run_hjcd_variant.sh` swallows worker failures and the old `run_ab.sh` has protocol errors;
 neither is an acceptance/publication gate. Conservative-model query groups need complete recollection.

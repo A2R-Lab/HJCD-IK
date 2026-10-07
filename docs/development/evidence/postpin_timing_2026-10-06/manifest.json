@@ -1,0 +1,82 @@
+{
+  "config": {
+    "rounds": 4,
+    "solutions": [
+      1,
+      4
+    ],
+    "batches": {
+      "table1": [
+        1,
+        2000,
+        8000,
+        32000
+      ],
+      "table2": [
+        100,
+        2000
+      ]
+    },
+    "target_counts": {
+      "table1": 100,
+      "table2": 100
+    },
+    "targets_json": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/audit_gate_2026-10-04/targets.json",
+    "targets_json_sha": "89d2d46ea69d101e4ce65cd54d999ae78814679f950c2fc120dd4a2277de28b4",
+    "problems_json": "/home/plancher/Desktop/HJCD-IK/tests/mb_problems.json",
+    "problems_json_sha": "69a3eae85e68d8cf696280e12407ac870b887b59a2913b52c4214524bc55dc94",
+    "problem_set": "box_panda",
+    "endpoints": {
+      "main": {
+        "repo": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/audit_gate_2026-10-04/branch",
+        "python": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/audit_gate_2026-10-04/branch/.venv/bin/python",
+        "commit": "2302d22ee2c88e138673eff0f82786036360d212",
+        "header_sha": "efc2c7585cb8be991cf136ae0288b94332309a8b44d53453184704f97820af4d",
+        "binary_sha": "a1f5a1631c1dcdf0d113f65965841f4a73dccaf0e1340e3e97423c8650a6d269"
+      },
+      "branch": {
+        "repo": "/home/plancher/Desktop/HJCD-IK",
+        "python": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/upstream_2026-10-05/.venv/bin/python",
+        "commit": "121982de256b8f8876113251e67f364b30aa2670",
+        "header_sha": "602db0639bc408c26f4d57ebf4623fea868b3c45236a3a3e654defcb3d0f0720",
+        "binary_sha": "2c91ca0ad00adae6c1d33dbd2bb29b6b6e2d60efdd6de7ee0b0d5c01c5a7e228"
+      }
+    }
+  },
+  "provenance": {
+    "main": {
+      "build": {
+        "num_joints": 7,
+        "ee_target": "panda_hand_joint",
+        "collision_enabled": true,
+        "grid_header_sha256": "efc2c7585cb8be991cf136ae0288b94332309a8b44d53453184704f97820af4d",
+        "cuda_compiler_version": "13.2.86"
+      },
+      "binary": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/audit_gate_2026-10-04/branch/.venv/lib/python3.12/site-packages/hjcdik/_hjcdik.cpython-312-x86_64-linux-gnu.so",
+      "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+      "numpy": "2.5.3"
+    },
+    "branch": {
+      "build": {
+        "num_joints": 7,
+        "ee_target": "panda_hand_joint",
+        "collision_enabled": true,
+        "grid_header_sha256": "602db0639bc408c26f4d57ebf4623fea868b3c45236a3a3e654defcb3d0f0720",
+        "cuda_compiler_version": "13.2.86"
+      },
+      "binary": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/upstream_2026-10-05/.venv/lib/python3.12/site-packages/hjcdik/_hjcdik.cpython-312-x86_64-linux-gnu.so",
+      "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+      "numpy": "2.5.3"
+    }
+  },
+  "driver_sha": "d5355c3224b854d7cd1366719058e8671526e7b564ec30776297a06ac80e43eb",
+  "correctness_only": false,
+  "helpers": {
+    "query_results.py": "263703fb4f4d86b98dedb051850fd947e35f2ffab4b7f84086228c306d4be97e",
+    "hjcd_ik_bench.py": "ff512e3c21ee072a8e8bb64db0c31d22aac2f2af0a2b4f6a483239a21523640b",
+    "panda_collision.py": "f586d4c234fb0efb75d6b71730caafebd0549623f39aa6df2c0efa76f98d68d2",
+    "panda_model.py": "ff328922ffaf3c25672750f7e8fbd30bcd12400732f16cf4701b991e14142fa6",
+    "collision_check.py": "ffe5e42c2d5898d0476c44fb184dd35d4e432ab938a9345424dff212f0a6aca5",
+    "gen_targets.py": "093bedcee45b240d500188747878ca77c0eec9db6f2698c3ba6ea04a30fc16f7"
+  }
+}

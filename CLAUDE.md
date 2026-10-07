@@ -183,7 +183,9 @@ compiles and runs open-world; the Python API rejects a collision-free request in
 **Performance status (updated October 5).** The completed pre-upstream A/B gate has identical matched
 quality counts, 19/20 cells consistently faster and one approximately unchanged; see
 [`audit_timing_2026-10-05`](docs/development/evidence/audit_timing_2026-10-05/README.md).
-The subsequent GRiD/GLASS pin update is validated separately, not silently included in those measurements.
+The subsequent GRiD/GLASS pin update was confirmed performance-neutral on October 6 (identical matched
+counts, all 12 paired ratios within 0.9946–1.0046; reviewed October 7):
+[`postpin_timing_2026-10-06`](docs/development/evidence/postpin_timing_2026-10-06/README.md).
 Protocol details:
 [`docs/development/timing_gate.md`](docs/development/timing_gate.md). The October 2 A/B driver forced
 fp32 even for S=1, and its results must not be called auto-precision/default-S1 coverage. October 3

@@ -1,0 +1,27 @@
+{
+  "rounds": 4,
+  "solutions": [1, 4],
+  "batches": {"table1": [1, 2000, 8000, 32000], "table2": [100, 2000]},
+  "target_counts": {"table1": 100, "table2": 100},
+  "targets_json": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/audit_gate_2026-10-04/targets.json",
+  "targets_json_sha": "89d2d46ea69d101e4ce65cd54d999ae78814679f950c2fc120dd4a2277de28b4",
+  "problems_json": "/home/plancher/Desktop/HJCD-IK/tests/mb_problems.json",
+  "problems_json_sha": "69a3eae85e68d8cf696280e12407ac870b887b59a2913b52c4214524bc55dc94",
+  "problem_set": "box_panda",
+  "endpoints": {
+    "main": {
+      "repo": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/audit_gate_2026-10-04/branch",
+      "python": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/audit_gate_2026-10-04/branch/.venv/bin/python",
+      "commit": "2302d22ee2c88e138673eff0f82786036360d212",
+      "header_sha": "efc2c7585cb8be991cf136ae0288b94332309a8b44d53453184704f97820af4d",
+      "binary_sha": "a1f5a1631c1dcdf0d113f65965841f4a73dccaf0e1340e3e97423c8650a6d269"
+    },
+    "branch": {
+      "repo": "/home/plancher/Desktop/HJCD-IK",
+      "python": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/upstream_2026-10-05/.venv/bin/python",
+      "commit": "121982de256b8f8876113251e67f364b30aa2670",
+      "header_sha": "602db0639bc408c26f4d57ebf4623fea868b3c45236a3a3e654defcb3d0f0720",
+      "binary_sha": "2c91ca0ad00adae6c1d33dbd2bb29b6b6e2d60efdd6de7ee0b0d5c01c5a7e228"
+    }
+  }
+}

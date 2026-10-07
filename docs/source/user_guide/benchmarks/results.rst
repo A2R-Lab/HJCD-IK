@@ -7,9 +7,11 @@ Runnable examples for the Python API, then the published benchmark results and h
 
    October 5 update: the audit-fixed kernel's same-machine A/B completed with identical matched
    quality counts; 19/20 cells were consistently faster and one approximately unchanged.
-   This is not a rerun against the paper's hardware or competitor baselines, and the later dependency
-   pin update was not part of those measurements. See the repository's
-   ``docs/development/evidence/audit_timing_2026-10-05/`` for exact provenance and ratios.
+   This is not a rerun against the paper's hardware or competitor baselines. The later dependency
+   pin update (GRiD/GLASS) was confirmed separately on October 6: identical matched quality counts and
+   paired latency ratios within 0.9946–1.0046 (unchanged); see the repository's
+   ``docs/development/evidence/audit_timing_2026-10-05/`` and ``evidence/postpin_timing_2026-10-06/``
+   for exact provenance and ratios.
    The October 2 A/B
    driver forced fp32 even for S=1; it did not exercise default S=1 fp64. October 3 conservative-model
    ladder dumps omitted empty outputs (b10: 2775, b15: 2771 of 2776 queries); those groups need
