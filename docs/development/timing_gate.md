@@ -4,7 +4,7 @@ The October 4 audit separates correctness (shared GPU allowed) from performance 
 The pre-upstream A/B completed October 5; see [verified evidence](evidence/audit_timing_2026-10-05/README.md).
 The focused post-pin confirmation completed October 6 and was independently reviewed October 7: identical
 matched quality counts and all twelve paired latency ratios within 0.9946–1.0046 — performance-neutral; see
-[post-pin evidence](evidence/postpin_timing_2026-10-06/README.md). Neither gate is a current competitor/paper rerun.
+[post-pin evidence](evidence/postpin_timing_2026-10-06/README.md). The corrected full competitor/paper campaign ran on October 7 (`evidence/paper_rerun_2026-10-07/`).
 
 ## Evidence corrections
 

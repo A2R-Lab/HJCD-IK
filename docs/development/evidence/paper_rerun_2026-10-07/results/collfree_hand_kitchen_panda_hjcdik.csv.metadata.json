@@ -1,0 +1,21 @@
+{
+  "collision_validation": {
+    "model": "hjcd",
+    "scope": "environment-only; non-base spheres",
+    "finger_joint_origin_y_m": [
+      0.04,
+      -0.04
+    ],
+    "source_sha256": {
+      "csrc/urdf/panda.urdf": "90bb0a412eb12a3af0abb9d5d0f06be3dbbe1a72806b0416dd9769992cb35079",
+      "external/foam/assets/panda/smaller_panda_spherized.urdf": "f90e26dcce184014335ce013f62a563425d8b82ba5fecf8a71480a5e0722853e"
+    }
+  },
+  "solver_build": {
+    "num_joints": 7,
+    "ee_target": "panda_hand_joint",
+    "collision_enabled": true,
+    "grid_header_sha256": "602db0639bc408c26f4d57ebf4623fea868b3c45236a3a3e654defcb3d0f0720",
+    "cuda_compiler_version": "13.2.86"
+  }
+}

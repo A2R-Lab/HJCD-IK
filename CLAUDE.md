@@ -192,9 +192,12 @@ fp32 even for S=1, and its results must not be called auto-precision/default-S1 
 conservative-model dumps omitted some empty queries (2775/2771 of 2776); recollected October 7 (same rates,
 `evidence/fairness_hardsets_2026-10-03/recollection_2026-10-07/`).
 The original measurements below are historical, not measurements of this revision.
-Published numbers are the camera-ready paper's (RTX 4060) and live in
-`docs/source/user_guide/benchmarks/results.rst`; the competitor columns have **not** been re-run on the current
-code. Baselines are installed only in the local staging environment. Tracked evidence on the RTX 5090: the audit timing gate
+**Full campaign on the shipped code, 2026-10-07** (`docs/development/evidence/paper_rerun_2026-10-07/`, results.rst
+*Current code — full campaign*): Panda open-world 1.62–1.65 ms at B ≥ 100 (cuRobo v2 5.9–6.4, PyRoki 6–7.2,
+IKFlow 2.5–6.2); Fetch 0.81–1.10 vs cuRobo 1.8–2.1; DoF 7/12/18/24 1.76/1.87/2.31/2.85 vs cuRobo 2.4/2.2/2.5/2.7;
+MMD 0.098 (best); collision scenes 1.8–3.2 ms at 99–100 % success on all ten sets (cuRobo 2.4–2.5 ms, 98–100 %;
+collision-aware PyRoki 27–38 ms, 99–100 %). Published numbers are the camera-ready paper's (RTX 4060) and live in
+`docs/source/user_guide/benchmarks/results.rst`. Baselines are installed only in the local staging environment. Tracked evidence on the RTX 5090: the audit timing gate
 (`docs/development/evidence/targeted_timing_2026-09-27/`, open-world B=2000 ≈ 1.3 ms fp64, kernel within 1%
 before/after the audit) and the de-vendoring gate + HJCD-only paper rerun
 (`docs/development/evidence/timing_gate_2026-10-02/`: landed code 0.1–1% faster than the previous main in all 18

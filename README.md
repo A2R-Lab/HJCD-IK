@@ -319,8 +319,9 @@ the harness refuses to overwrite earlier evidence. The commands below reproduce 
 not a guarantee of the published numerical results on different hardware or code revisions.
 The completed [October 5 same-machine A/B](docs/development/evidence/audit_timing_2026-10-05/README.md)
 and the [October 6 post-pin confirmation](docs/development/evidence/postpin_timing_2026-10-06/README.md)
-(performance-neutral) are separate from the historical paper/competitor tables; a fresh full comparison
-remains outstanding.
+(performance-neutral) are separate from the historical paper/competitor tables. The
+[October 7 full campaign](docs/development/evidence/paper_rerun_2026-10-07/README.md) re-measured every table
+with all baselines on the shipped code.
 
 ### HJCD-only benchmark (open-world and collision-free)
 

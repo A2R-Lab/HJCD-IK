@@ -1,0 +1,495 @@
+11:52:03 |  | %Cpu(s): 65.6 us,  0.4 sy,  0.0 ni, 34.1
+11:52:06 | 72068, .venv/bin/python; | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+11:52:09 | 72068, .venv/bin/python; | %Cpu(s):  4.7 us,  0.0 sy,  0.0 ni, 95.3
+11:52:12 |  | %Cpu(s):  3.5 us,  0.8 sy,  0.0 ni, 95.7
+11:52:16 |  | %Cpu(s):  4.2 us,  0.4 sy,  0.0 ni, 95.0
+11:52:19 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:52:22 |  | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+11:52:25 |  | %Cpu(s):  8.5 us,  1.9 sy,  0.0 ni, 89.6
+11:52:29 |  | %Cpu(s): 67.4 us,  1.9 sy,  0.0 ni, 30.6
+11:52:32 | 72591, .venv/bin/python; | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+11:52:35 | 72591, .venv/bin/python; | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+11:52:38 | 72591, .venv/bin/python; | %Cpu(s):  2.7 us,  0.4 sy,  0.0 ni, 96.9
+11:52:42 | 72591, .venv/bin/python; | %Cpu(s):  3.5 us,  0.8 sy,  0.0 ni, 95.7
+11:52:45 | 72591, .venv/bin/python; | %Cpu(s): 70.3 us, 26.3 sy,  0.0 ni,  3.4
+11:52:48 | 72591, .venv/bin/python; | %Cpu(s):  7.0 us,  0.4 sy,  0.0 ni, 92.6
+11:52:51 |  | %Cpu(s):  2.7 us,  1.6 sy,  0.0 ni, 95.7
+11:52:55 | 74469, .venv/bin/python; | %Cpu(s):  1.6 us,  2.7 sy,  0.0 ni, 95.7
+11:52:58 | 74469, .venv/bin/python; | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+11:53:01 | 74469, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+11:53:04 | 74715, .venv/bin/python; | %Cpu(s): 31.8 us,  1.8 sy,  0.0 ni, 66.4
+11:53:08 | 74715, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:53:11 |  | %Cpu(s):  5.8 us,  1.6 sy,  0.0 ni, 92.6
+11:53:14 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:53:17 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+11:53:21 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+11:53:24 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:53:27 | 74995, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:53:30 | 75036, .venv/bin/python; | %Cpu(s):  4.6 us,  1.9 sy,  0.0 ni, 93.4
+11:53:34 | 75036, .venv/bin/python; | %Cpu(s):  8.0 us,  0.8 sy,  0.0 ni, 91.2
+11:53:37 | 75036, .venv/bin/python; | %Cpu(s):  4.7 us,  0.4 sy,  0.0 ni, 94.9
+11:53:40 | 75036, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:53:43 | 75036, .venv/bin/python; | %Cpu(s): 71.5 us, 26.4 sy,  0.0 ni,  2.2
+11:53:47 | 75036, .venv/bin/python; | %Cpu(s):  7.0 us,  0.4 sy,  0.0 ni, 92.6
+11:53:50 |  | %Cpu(s): 68.6 us,  0.8 sy,  0.0 ni, 30.6
+11:53:53 | 76862, .venv/bin/python; | %Cpu(s):  3.9 us,  1.2 sy,  0.0 ni, 95.0
+11:53:56 | 76862, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 93.4
+11:53:59 | 77083, .venv/bin/python; | %Cpu(s):  1.6 us,  2.7 sy,  0.0 ni, 95.7
+11:54:03 | 77083, .venv/bin/python; | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+11:54:06 |  | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+11:54:09 |  | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+11:54:12 |  | %Cpu(s):  4.7 us,  0.0 sy,  0.0 ni, 95.3
+11:54:16 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:54:19 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:54:22 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+11:54:25 |  | %Cpu(s):  0.0 us,  5.1 sy,  0.0 ni, 94.9
+11:54:29 | 77383, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:54:32 |  | %Cpu(s):  1.9 us,  3.9 sy,  0.0 ni, 94.2
+11:54:35 | 77435, .venv/bin/python; | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+11:54:38 | 77435, .venv/bin/python; | %Cpu(s):  5.4 us,  0.8 sy,  0.0 ni, 93.9
+11:54:42 | 77435, .venv/bin/python; | %Cpu(s):  4.3 us,  0.8 sy,  0.0 ni, 94.9
+11:54:45 | 77435, .venv/bin/python; | %Cpu(s):  4.2 us,  0.8 sy,  0.0 ni, 95.0
+11:54:48 | 77435, .venv/bin/python; | %Cpu(s): 82.0 us, 13.8 sy,  0.0 ni,  4.2
+11:54:51 | 77435, .venv/bin/python; | %Cpu(s):  4.2 us,  0.4 sy,  0.0 ni, 95.0
+11:54:55 | 77435, .venv/bin/python; | %Cpu(s):  4.2 us,  0.8 sy,  0.0 ni, 95.0
+11:54:58 | 77435, .venv/bin/python; | %Cpu(s):  7.1 us,  0.8 sy,  0.0 ni, 91.8
+11:55:01 | 77435, .venv/bin/python; | %Cpu(s):  3.5 us,  0.4 sy,  0.0 ni, 96.1
+11:55:04 | 77435, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:55:08 | 77435, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:55:11 | 77435, .venv/bin/python; | %Cpu(s): 76.5 us, 18.8 sy,  0.0 ni,  4.7
+11:55:14 | 77435, .venv/bin/python; | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+11:55:17 | 77435, .venv/bin/python; | %Cpu(s):  3.5 us,  1.2 sy,  0.0 ni, 95.3
+11:55:21 | 77435, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:55:24 | 77435, .venv/bin/python; | %Cpu(s): 68.1 us, 15.7 sy,  0.0 ni, 16.1
+11:55:27 | 77435, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:55:30 | 77435, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+11:55:34 |  | %Cpu(s):  3.5 us,  1.2 sy,  0.0 ni, 95.0
+11:55:37 | 81000, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+11:55:40 | 81000, .venv/bin/python; | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+11:55:43 | 81000, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+11:55:47 |  | %Cpu(s):  7.8 us,  1.9 sy,  0.0 ni, 90.3
+11:55:50 |  | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+11:55:53 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:55:56 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+11:56:00 |  | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+11:56:03 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:56:06 | 81427, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:56:09 | 81427, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:56:13 | 81478, .venv/bin/python; | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+11:56:16 | 81478, .venv/bin/python; | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+11:56:19 | 81478, .venv/bin/python; | %Cpu(s): 19.2 us,  6.1 sy,  0.0 ni, 74.7
+11:56:22 | 81478, .venv/bin/python; | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+11:56:26 | 81478, .venv/bin/python; | %Cpu(s):  6.2 us,  1.2 sy,  0.0 ni, 92.7
+11:56:29 | 81478, .venv/bin/python; | %Cpu(s):  8.5 us,  1.9 sy,  0.0 ni, 89.2
+11:56:32 | 81478, .venv/bin/python; | %Cpu(s):  3.5 us,  0.8 sy,  0.0 ni, 95.7
+11:56:35 | 81478, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:56:38 | 81478, .venv/bin/python; | %Cpu(s):  4.7 us,  0.4 sy,  0.0 ni, 95.0
+11:56:42 | 81478, .venv/bin/python; | %Cpu(s):  3.5 us,  0.4 sy,  0.0 ni, 96.1
+11:56:45 | 81478, .venv/bin/python; | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+11:56:48 | 81478, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:56:51 | 81478, .venv/bin/python; | %Cpu(s): 79.8 us, 16.7 sy,  0.0 ni,  3.4
+11:56:55 | 81478, .venv/bin/python; | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+11:56:58 | 81478, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:57:01 | 81478, .venv/bin/python; | %Cpu(s):  5.1 us,  0.8 sy,  0.0 ni, 94.1
+11:57:04 | 81478, .venv/bin/python; | %Cpu(s): 79.1 us, 19.4 sy,  0.0 ni,  1.5
+11:57:08 | 81478, .venv/bin/python; | %Cpu(s):  3.5 us,  0.4 sy,  0.0 ni, 96.1
+11:57:11 | 81478, .venv/bin/python; | %Cpu(s):  3.5 us,  0.4 sy,  0.0 ni, 96.1
+11:57:14 |  | %Cpu(s):  5.1 us,  0.4 sy,  0.0 ni, 94.6
+11:57:17 | 85008, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:57:21 | 85008, .venv/bin/python; | %Cpu(s):  4.6 us,  0.4 sy,  0.0 ni, 95.0
+11:57:24 | 85008, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:57:27 | 85249, .venv/bin/python; | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+11:57:30 | 85249, .venv/bin/python; | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+11:57:34 |  | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+11:57:37 | 85324, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:57:40 | 85324, .venv/bin/python; | %Cpu(s):  7.7 us,  1.2 sy,  0.0 ni, 91.2
+11:57:43 | 85324, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:57:47 | 85324, .venv/bin/python; | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+11:57:50 | 85324, .venv/bin/python; | %Cpu(s):  6.6 us,  0.4 sy,  0.0 ni, 93.0
+11:57:53 | 85324, .venv/bin/python; | %Cpu(s):  3.5 us,  0.4 sy,  0.0 ni, 96.1
+11:57:56 | 85324, .venv/bin/python; | %Cpu(s):  3.5 us,  0.4 sy,  0.0 ni, 95.7
+11:58:00 | 85324, .venv/bin/python; | %Cpu(s):  4.2 us,  0.4 sy,  0.0 ni, 95.4
+11:58:03 | 85324, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:58:06 | 85324, .venv/bin/python; | %Cpu(s):  3.5 us,  0.4 sy,  0.0 ni, 96.1
+11:58:09 | 85324, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:58:13 | 85324, .venv/bin/python; | %Cpu(s):  7.8 us,  0.4 sy,  0.0 ni, 91.8
+11:58:16 | 85324, .venv/bin/python; | %Cpu(s):  4.7 us,  0.0 sy,  0.0 ni, 95.3
+11:58:19 | 85324, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+11:58:22 | 85324, .venv/bin/python; | %Cpu(s):  4.2 us,  0.4 sy,  0.0 ni, 95.4
+11:58:26 | 85324, .venv/bin/python; | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+11:58:29 | 85324, .venv/bin/python; | %Cpu(s): 80.4 us, 15.8 sy,  0.0 ni,  3.8
+11:58:32 | 85324, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:58:35 | 85324, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:58:39 |  | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+11:58:42 | 88913, .venv/bin/python; | %Cpu(s):  1.9 us,  2.3 sy,  0.0 ni, 95.7
+11:58:45 | 88913, .venv/bin/python; | %Cpu(s):  4.6 us,  0.4 sy,  0.0 ni, 95.0
+11:58:48 | 88913, .venv/bin/python; | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+11:58:51 | 88913, .venv/bin/python; | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+11:58:55 | 89173, .venv/bin/python; | %Cpu(s):  4.7 us,  0.0 sy,  0.0 ni, 95.3
+11:58:58 | 89173, .venv/bin/python; | %Cpu(s):  4.7 us,  0.0 sy,  0.0 ni, 95.3
+11:59:01 | 89225, .venv/bin/python; | %Cpu(s):  4.3 us,  1.9 sy,  0.0 ni, 93.8
+11:59:04 | 89225, .venv/bin/python; | %Cpu(s):  3.5 us,  0.8 sy,  0.0 ni, 95.7
+11:59:08 | 89225, .venv/bin/python; | %Cpu(s): 15.0 us,  5.4 sy,  0.0 ni, 79.6
+11:59:11 | 89225, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+11:59:14 | 89225, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.0
+11:59:17 | 89225, .venv/bin/python; | %Cpu(s):  7.3 us,  1.5 sy,  0.0 ni, 90.7
+11:59:21 | 89225, .venv/bin/python; | %Cpu(s):  3.5 us,  0.4 sy,  0.0 ni, 96.1
+11:59:24 | 89225, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.3
+11:59:27 | 89225, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+11:59:30 | 89225, .venv/bin/python; | %Cpu(s): 12.1 us,  3.9 sy,  0.0 ni, 84.0
+11:59:34 | 89225, .venv/bin/python; | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+11:59:37 | 89225, .venv/bin/python; | %Cpu(s):  7.1 us,  0.0 sy,  0.0 ni, 92.9
+11:59:40 | 89225, .venv/bin/python; | %Cpu(s): 84.8 us, 10.4 sy,  0.0 ni,  4.8
+11:59:43 | 89225, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+11:59:47 | 89225, .venv/bin/python; | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+11:59:50 | 89225, .venv/bin/python; | %Cpu(s):  3.5 us,  0.4 sy,  0.0 ni, 94.2
+11:59:53 | 89225, .venv/bin/python; | %Cpu(s): 10.0 us,  0.8 sy,  0.0 ni, 89.3
+11:59:56 | 89225, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:00:00 | 89225, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:00:03 | 89225, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:00:06 |  | %Cpu(s):  0.8 us,  3.1 sy,  0.0 ni, 96.1
+12:00:09 | 92840, .venv/bin/python; | %Cpu(s):  1.6 us,  2.7 sy,  0.0 ni, 95.7
+12:00:13 | 92840, .venv/bin/python; | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:00:16 | 92840, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:00:19 | 92840, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:00:22 | 93095, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:00:26 | 93095, .venv/bin/python; | %Cpu(s):  1.6 us,  2.7 sy,  0.0 ni, 95.7
+12:00:29 | 93145, .venv/bin/python; | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+12:00:32 | 93145, .venv/bin/python; | %Cpu(s):  8.9 us,  0.8 sy,  0.0 ni, 90.3
+12:00:35 | 93145, .venv/bin/python; | %Cpu(s): 49.6 us, 14.7 sy,  0.0 ni, 35.7
+12:00:39 | 93145, .venv/bin/python; | %Cpu(s):  3.5 us,  0.8 sy,  0.0 ni, 95.7
+12:00:42 | 93145, .venv/bin/python; | %Cpu(s):  9.4 us,  2.0 sy,  0.0 ni, 88.6
+12:00:45 | 93145, .venv/bin/python; | %Cpu(s):  5.0 us,  0.0 sy,  0.0 ni, 95.0
+12:00:48 | 93145, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:00:51 | 93145, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:00:55 | 93145, .venv/bin/python; | %Cpu(s): 52.1 us,  7.7 sy,  0.0 ni, 40.2
+12:00:58 | 93145, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:01:01 | 93145, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 94.9
+12:01:04 | 93145, .venv/bin/python; | %Cpu(s):  8.1 us,  0.8 sy,  0.0 ni, 91.1
+12:01:08 | 93145, .venv/bin/python; | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:01:11 | 93145, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.0
+12:01:14 | 93145, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:01:17 | 93145, .venv/bin/python; | %Cpu(s):  7.4 us,  0.8 sy,  0.0 ni, 91.8
+12:01:21 | 93145, .venv/bin/python; | %Cpu(s):  5.0 us,  0.4 sy,  0.0 ni, 94.6
+12:01:24 | 93145, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:01:27 | 93145, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:01:30 |  | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+12:01:34 | 96683, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:01:37 | 96683, .venv/bin/python; | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:01:40 | 96683, .venv/bin/python; | %Cpu(s):  4.3 us,  0.8 sy,  0.0 ni, 95.0
+12:01:43 | 96918, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:01:47 |  | %Cpu(s):  3.5 us,  0.8 sy,  0.0 ni, 95.7
+12:01:50 | 96973, .venv/bin/python; | %Cpu(s):  3.5 us,  0.8 sy,  0.0 ni, 95.7
+12:01:53 | 96973, .venv/bin/python; | %Cpu(s):  6.3 us,  1.2 sy,  0.0 ni, 92.5
+12:01:56 | 96973, .venv/bin/python; | %Cpu(s):  4.3 us,  0.8 sy,  0.0 ni, 94.9
+12:02:00 | 96973, .venv/bin/python; | %Cpu(s):  4.2 us,  1.2 sy,  0.0 ni, 94.6
+12:02:03 | 96973, .venv/bin/python; | %Cpu(s):  7.1 us,  0.8 sy,  0.0 ni, 92.1
+12:02:06 | 96973, .venv/bin/python; | %Cpu(s):  4.2 us,  0.4 sy,  0.0 ni, 95.4
+12:02:09 | 96973, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:02:13 | 96973, .venv/bin/python; | %Cpu(s):  7.4 us,  0.8 sy,  0.0 ni, 91.8
+12:02:16 | 96973, .venv/bin/python; | %Cpu(s):  3.5 us,  0.4 sy,  0.0 ni, 96.1
+12:02:19 | 96973, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:02:22 | 96973, .venv/bin/python; | %Cpu(s):  4.6 us,  0.4 sy,  0.0 ni, 95.0
+12:02:25 | 96973, .venv/bin/python; | %Cpu(s): 76.2 us, 19.2 sy,  0.0 ni,  4.2
+12:02:29 | 96973, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:02:32 | 96973, .venv/bin/python; | %Cpu(s):  4.2 us,  0.4 sy,  0.0 ni, 95.4
+12:02:35 | 96973, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:02:38 | 96973, .venv/bin/python; | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:02:42 | 96973, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:02:45 | 96973, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:02:48 |  | %Cpu(s):  3.5 us,  1.2 sy,  0.0 ni, 95.3
+12:02:51 | 100497, .venv/bin/python; | %Cpu(s):  3.1 us,  1.6 sy,  0.0 ni, 95.3
+12:02:55 | 100497, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:02:58 | 100497, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:03:01 | 100736, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:03:04 | 100736, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:03:08 | 100798, .venv/bin/python; | %Cpu(s):  3.5 us,  1.2 sy,  0.0 ni, 95.4
+12:03:11 | 100798, .venv/bin/python; | %Cpu(s):  5.1 us,  0.4 sy,  0.0 ni, 94.6
+12:03:14 | 100798, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:03:17 | 100798, .venv/bin/python; | %Cpu(s):  3.1 us,  1.2 sy,  0.0 ni, 95.7
+12:03:21 | 100798, .venv/bin/python; | %Cpu(s):  7.0 us,  0.4 sy,  0.0 ni, 92.2
+12:03:24 | 100798, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:03:27 | 100798, .venv/bin/python; | %Cpu(s):  3.5 us,  0.8 sy,  0.0 ni, 95.7
+12:03:30 | 100798, .venv/bin/python; | %Cpu(s): 15.0 us,  3.8 sy,  0.0 ni, 80.8
+12:03:34 | 100798, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:03:37 | 100798, .venv/bin/python; | %Cpu(s):  4.2 us,  0.4 sy,  0.0 ni, 95.4
+12:03:40 | 100798, .venv/bin/python; | %Cpu(s): 61.8 us, 11.2 sy,  0.0 ni, 22.0
+12:03:43 | 100798, .venv/bin/python; | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:03:47 | 100798, .venv/bin/python; | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+12:03:50 | 100798, .venv/bin/python; | %Cpu(s):  5.8 us,  0.4 sy,  0.0 ni, 93.8
+12:03:53 | 100798, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:03:56 | 100798, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:04:00 | 100798, .venv/bin/python; | %Cpu(s):  4.2 us,  0.4 sy,  0.0 ni, 95.4
+12:04:03 | 104079, .venv/bin/python; | %Cpu(s):  4.2 us,  1.9 sy,  0.0 ni, 93.8
+12:04:06 | 104079, .venv/bin/python; | %Cpu(s):  3.1 us,  0.4 sy,  0.0 ni, 94.6
+12:04:09 | 104079, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:04:12 | 104079, .venv/bin/python; | %Cpu(s):  4.7 us,  0.0 sy,  0.0 ni, 95.3
+12:04:16 | 104318, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:04:19 | 104318, .venv/bin/python; | %Cpu(s):  4.7 us,  0.0 sy,  0.0 ni, 95.3
+12:04:22 | 104369, .venv/bin/python; | %Cpu(s):  3.5 us,  1.2 sy,  0.0 ni, 95.3
+12:04:25 | 104369, .venv/bin/python; | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+12:04:29 | 104369, .venv/bin/python; | %Cpu(s): 69.4 us, 15.1 sy,  0.0 ni, 15.5
+12:04:32 | 104369, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:04:35 | 104369, .venv/bin/python; | %Cpu(s):  3.9 us,  1.2 sy,  0.0 ni, 95.0
+12:04:38 | 104369, .venv/bin/python; | %Cpu(s):  5.9 us,  0.8 sy,  0.0 ni, 93.3
+12:04:42 | 104369, .venv/bin/python; | %Cpu(s):  3.5 us,  0.4 sy,  0.0 ni, 96.1
+12:04:45 | 104369, .venv/bin/python; | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+12:04:48 | 104369, .venv/bin/python; | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:04:51 | 104369, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:04:55 | 104369, .venv/bin/python; | %Cpu(s):  3.5 us,  0.8 sy,  0.0 ni, 95.7
+12:04:58 | 104369, .venv/bin/python; | %Cpu(s):  9.8 us,  0.8 sy,  0.0 ni, 89.4
+12:05:01 | 104369, .venv/bin/python; | %Cpu(s): 80.1 us, 14.1 sy,  0.0 ni,  5.9
+12:05:04 | 104369, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:05:08 | 104369, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:05:11 | 104369, .venv/bin/python; | %Cpu(s):  5.4 us,  0.4 sy,  0.0 ni, 93.8
+12:05:14 | 104369, .venv/bin/python; | %Cpu(s): 83.3 us, 11.6 sy,  0.0 ni,  5.1
+12:05:17 | 104369, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:05:21 | 104369, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:05:24 | 104369, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:05:27 |  | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:05:30 | 107963, .venv/bin/python; | %Cpu(s):  3.9 us,  1.2 sy,  0.0 ni, 95.0
+12:05:34 | 107963, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:05:37 | 107963, .venv/bin/python; | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:05:40 |  | %Cpu(s):  2.3 us,  2.3 sy,  0.0 ni, 95.3
+12:05:43 | 108198, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:05:47 |  | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:05:50 | 108264, .venv/bin/python; | %Cpu(s):  4.7 us,  0.8 sy,  0.0 ni, 94.6
+12:05:53 | 108264, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:05:56 | 108264, .venv/bin/python; | %Cpu(s):  4.3 us,  0.8 sy,  0.0 ni, 95.0
+12:06:00 | 108264, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:06:03 | 108264, .venv/bin/python; | %Cpu(s):  4.6 us,  0.4 sy,  0.0 ni, 95.0
+12:06:06 | 108264, .venv/bin/python; | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+12:06:09 | 108264, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:06:13 | 108264, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:06:16 | 108264, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:06:19 | 108264, .venv/bin/python; | %Cpu(s):  3.5 us,  0.4 sy,  0.0 ni, 96.1
+12:06:22 | 108264, .venv/bin/python; | %Cpu(s): 12.2 us,  1.5 sy,  0.0 ni, 85.9
+12:06:25 | 108264, .venv/bin/python; | %Cpu(s): 82.0 us, 12.9 sy,  0.0 ni,  5.1
+12:06:29 | 108264, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:06:32 | 108264, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:06:35 | 108264, .venv/bin/python; | %Cpu(s):  4.7 us,  0.0 sy,  0.0 ni, 95.3
+12:06:38 | 108264, .venv/bin/python; | %Cpu(s):  5.0 us,  0.8 sy,  0.0 ni, 94.2
+12:06:42 | 108264, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:06:45 | 108264, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:06:48 | 108264, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:06:51 |  | %Cpu(s):  1.9 us,  2.7 sy,  0.0 ni, 95.3
+12:06:55 | 111816, .venv/bin/python; | %Cpu(s):  2.3 us,  2.7 sy,  0.0 ni, 95.0
+12:06:58 | 111816, .venv/bin/python; | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:07:01 | 111816, .venv/bin/python; | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:07:04 | 112058, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:07:08 | 112058, .venv/bin/python; | %Cpu(s):  4.7 us,  0.0 sy,  0.0 ni, 95.3
+12:07:11 |  | %Cpu(s):  3.5 us,  0.8 sy,  0.0 ni, 95.7
+12:07:14 | 112111, .venv/bin/python; | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+12:07:17 | 112111, .venv/bin/python; | %Cpu(s):  5.4 us,  0.4 sy,  0.0 ni, 94.2
+12:07:21 | 112111, .venv/bin/python; | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+12:07:24 | 112111, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:07:27 | 112111, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:07:30 | 112111, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:07:34 | 112111, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 94.2
+12:07:37 | 112111, .venv/bin/python; | %Cpu(s):  4.2 us,  0.8 sy,  0.0 ni, 95.0
+12:07:40 | 112111, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:07:43 | 112111, .venv/bin/python; | %Cpu(s):  3.5 us,  0.4 sy,  0.0 ni, 96.1
+12:07:47 | 112111, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:07:50 | 112111, .venv/bin/python; | %Cpu(s):  6.6 us,  0.8 sy,  0.0 ni, 91.5
+12:07:53 | 112111, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:07:56 | 112111, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:08:00 | 112111, .venv/bin/python; | %Cpu(s):  4.2 us,  0.4 sy,  0.0 ni, 95.4
+12:08:03 | 112111, .venv/bin/python; | %Cpu(s):  5.4 us,  0.8 sy,  0.0 ni, 93.8
+12:08:06 | 112111, .venv/bin/python; | %Cpu(s): 78.5 us, 18.0 sy,  0.0 ni,  3.4
+12:08:09 | 112111, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:08:12 | 112111, .venv/bin/python; | %Cpu(s):  3.5 us,  0.4 sy,  0.0 ni, 96.1
+12:08:16 | 112111, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:08:19 |  | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:08:22 | 115661, .venv/bin/python; | %Cpu(s):  4.2 us,  0.4 sy,  0.0 ni, 95.4
+12:08:25 | 115661, .venv/bin/python; | %Cpu(s):  4.7 us,  0.0 sy,  0.0 ni, 95.3
+12:08:29 | 115661, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:08:32 | 115661, .venv/bin/python; | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+12:08:35 | 115914, .venv/bin/python; | %Cpu(s):  4.7 us,  0.0 sy,  0.0 ni, 95.3
+12:08:38 | 115914, .venv/bin/python; | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:08:42 | 115966, .venv/bin/python; | %Cpu(s):  4.3 us,  1.6 sy,  0.0 ni, 94.2
+12:08:45 | 115966, .venv/bin/python; | %Cpu(s):  3.5 us,  0.8 sy,  0.0 ni, 95.7
+12:08:48 | 115966, .venv/bin/python; | %Cpu(s):  7.7 us,  1.5 sy,  0.0 ni, 90.7
+12:08:51 | 115966, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:08:55 | 115966, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:08:58 | 115966, .venv/bin/python; | %Cpu(s): 82.6 us, 12.7 sy,  0.0 ni,  4.6
+12:09:01 | 115966, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:09:04 | 115966, .venv/bin/python; | %Cpu(s):  4.2 us,  0.8 sy,  0.0 ni, 95.0
+12:09:08 | 115966, .venv/bin/python; | %Cpu(s):  5.8 us,  0.8 sy,  0.0 ni, 93.4
+12:09:11 | 115966, .venv/bin/python; | %Cpu(s):  5.1 us,  0.4 sy,  0.0 ni, 94.6
+12:09:14 | 115966, .venv/bin/python; | %Cpu(s):  4.2 us,  0.8 sy,  0.0 ni, 95.0
+12:09:17 | 115966, .venv/bin/python; | %Cpu(s):  6.6 us,  0.8 sy,  0.0 ni, 92.6
+12:09:21 | 115966, .venv/bin/python; | %Cpu(s):  4.6 us,  0.4 sy,  0.0 ni, 95.0
+12:09:24 | 115966, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:09:27 | 115966, .venv/bin/python; | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+12:09:30 | 115966, .venv/bin/python; | %Cpu(s):  9.3 us,  1.2 sy,  0.0 ni, 89.1
+12:09:34 | 115966, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:09:37 | 115966, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:09:40 | 115966, .venv/bin/python; | %Cpu(s):  4.6 us,  0.4 sy,  0.0 ni, 95.0
+12:09:43 |  | %Cpu(s):  0.4 us,  4.3 sy,  0.0 ni, 95.3
+12:09:47 | 119514, .venv/bin/python; | %Cpu(s):  2.7 us,  1.9 sy,  0.0 ni, 95.3
+12:09:50 | 119514, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.3
+12:09:53 | 119514, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:09:56 |  | %Cpu(s):  5.8 us,  2.3 sy,  0.0 ni, 91.5
+12:09:59 |  | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:10:03 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:10:06 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:10:09 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:10:13 |  | %Cpu(s):  3.5 us,  0.8 sy,  0.0 ni, 95.7
+12:10:16 | 119992, .venv/bin/python; | %Cpu(s): 10.3 us,  1.1 sy,  0.0 ni, 88.5
+12:10:19 | 119992, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:10:22 | 120697, .venv/bin/python; | %Cpu(s):  4.3 us,  1.9 sy,  0.0 ni, 93.8
+12:10:25 | 120697, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:10:29 |  | %Cpu(s):  7.8 us,  0.8 sy,  0.0 ni, 91.5
+12:10:32 |  | %Cpu(s):  3.5 us,  0.8 sy,  0.0 ni, 95.7
+12:10:35 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:10:38 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:10:42 |  | %Cpu(s):  4.7 us,  0.0 sy,  0.0 ni, 95.3
+12:10:45 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:10:48 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:10:51 |  | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+12:10:55 | 121160, .venv/bin/python; | %Cpu(s):  5.0 us,  0.4 sy,  0.0 ni, 94.6
+12:10:58 | 121160, .venv/bin/python; | %Cpu(s):  3.5 us,  0.8 sy,  0.0 ni, 95.7
+12:11:01 |  | %Cpu(s):  0.4 us,  4.3 sy,  0.0 ni, 95.3
+12:11:04 | 121876, .venv/bin/python; | %Cpu(s):  4.2 us,  0.4 sy,  0.0 ni, 95.4
+12:11:08 |  | %Cpu(s):  3.1 us,  1.2 sy,  0.0 ni, 95.7
+12:11:11 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:11:14 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:11:17 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:11:21 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.0
+12:11:24 |  | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:11:27 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:11:30 |  | %Cpu(s):  4.6 us,  0.4 sy,  0.0 ni, 95.0
+12:11:34 |  | %Cpu(s):  3.5 us,  1.2 sy,  0.0 ni, 95.3
+12:11:37 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:11:40 |  | %Cpu(s):  3.5 us,  2.3 sy,  0.0 ni, 94.2
+12:11:43 |  | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:11:47 | 122417, .venv/bin/python; | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:11:50 | 122417, .venv/bin/python; | %Cpu(s):  3.5 us,  0.8 sy,  0.0 ni, 95.7
+12:11:53 |  | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+12:11:56 | 123238, .venv/bin/python; | %Cpu(s):  3.9 us,  0.0 sy,  0.0 ni, 96.1
+12:12:00 |  | %Cpu(s):  7.0 us,  1.2 sy,  0.0 ni, 91.8
+12:12:03 |  | %Cpu(s):  3.5 us,  1.2 sy,  0.0 ni, 95.3
+12:12:06 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:12:09 |  | %Cpu(s):  4.3 us,  0.8 sy,  0.0 ni, 95.0
+12:12:13 |  | %Cpu(s):  4.7 us,  0.0 sy,  0.0 ni, 95.3
+12:12:16 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:12:19 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:12:22 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:12:26 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:12:29 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:12:32 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:12:35 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:12:39 |  | %Cpu(s):  3.9 us,  0.0 sy,  0.0 ni, 96.1
+12:12:42 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:12:45 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:12:48 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:12:52 |  | %Cpu(s):  4.2 us,  0.8 sy,  0.0 ni, 95.0
+12:12:55 |  | %Cpu(s):  4.3 us,  0.8 sy,  0.0 ni, 95.0
+12:12:58 |  | %Cpu(s):  3.5 us,  0.8 sy,  0.0 ni, 95.7
+12:13:02 | 123871, .venv/bin/python; | %Cpu(s):  4.2 us,  0.8 sy,  0.0 ni, 95.0
+12:13:05 | 123871, .venv/bin/python; | %Cpu(s):  7.8 us,  5.1 sy,  0.0 ni, 86.4
+12:13:08 |  | %Cpu(s):  3.5 us,  1.2 sy,  0.0 ni, 95.3
+12:13:11 | 124701, .venv/bin/python; | %Cpu(s): 17.0 us,  0.8 sy,  0.0 ni, 82.2
+12:13:14 |  | %Cpu(s):  7.4 us,  1.6 sy,  0.0 ni, 91.1
+12:13:18 |  | %Cpu(s):  3.5 us,  0.8 sy,  0.0 ni, 95.7
+12:13:21 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:13:24 |  | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:13:27 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:13:31 | 125108, .venv/bin/python; | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:13:34 | 125156, .venv/bin/python; | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+12:13:37 | 125156, .venv/bin/python; | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+12:13:40 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:13:44 | 125776, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:13:47 |  | %Cpu(s):  3.5 us,  1.2 sy,  0.0 ni, 95.3
+12:13:50 | 125991, .venv/bin/python; | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:13:53 |  | %Cpu(s):  7.8 us,  0.4 sy,  0.0 ni, 91.8
+12:13:57 |  | %Cpu(s):  7.8 us,  0.8 sy,  0.0 ni, 91.4
+12:14:00 |  | %Cpu(s):  7.8 us,  0.0 sy,  0.0 ni, 92.2
+12:14:03 |  | %Cpu(s):  8.2 us,  0.4 sy,  0.0 ni, 91.4
+12:14:06 |  | %Cpu(s):  8.6 us,  0.0 sy,  0.0 ni, 91.4
+12:14:10 |  | %Cpu(s):  7.8 us,  0.4 sy,  0.0 ni, 91.8
+12:14:13 |  | %Cpu(s):  7.8 us,  0.4 sy,  0.0 ni, 91.8
+12:14:16 |  | %Cpu(s):  7.8 us,  0.0 sy,  0.0 ni, 92.2
+12:14:19 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:14:23 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:14:26 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:14:29 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 94.2
+12:14:32 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:14:36 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:14:39 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:14:42 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:14:45 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:14:49 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:14:52 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:14:55 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:14:58 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:15:02 |  | %Cpu(s):  4.7 us,  0.0 sy,  0.0 ni, 95.3
+12:15:05 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:15:08 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:15:11 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:15:15 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:15:18 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:15:21 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:15:24 |  | %Cpu(s):  3.9 us,  0.0 sy,  0.0 ni, 94.1
+12:15:28 |  | %Cpu(s):  4.7 us,  0.0 sy,  0.0 ni, 95.3
+12:15:31 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:15:34 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:15:37 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:15:41 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:15:44 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:15:47 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:15:50 |  | %Cpu(s):  4.7 us,  0.4 sy,  0.0 ni, 95.0
+12:15:54 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:15:57 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:16:00 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:16:03 |  | %Cpu(s):  3.9 us,  0.0 sy,  0.0 ni, 96.1
+12:16:07 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:16:10 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:16:13 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:16:16 |  | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:16:20 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:16:23 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:16:26 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:16:29 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:16:33 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:16:36 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:16:39 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:16:42 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:16:46 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:16:49 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:16:52 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:16:55 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:16:59 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:17:02 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:17:05 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:17:08 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:17:12 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:17:15 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:17:18 |  | %Cpu(s):  4.7 us,  0.0 sy,  0.0 ni, 95.3
+12:17:22 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:17:25 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:17:28 |  | %Cpu(s):  4.7 us,  0.4 sy,  0.0 ni, 94.9
+12:17:31 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:17:35 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:17:38 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:17:41 |  | %Cpu(s):  4.7 us,  0.4 sy,  0.0 ni, 95.0
+12:17:44 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:17:48 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:17:51 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:17:54 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:17:57 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:18:01 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.0
+12:18:04 |  | %Cpu(s):  4.7 us,  0.0 sy,  0.0 ni, 95.3
+12:18:07 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:18:10 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:18:14 |  | %Cpu(s):  3.9 us,  0.4 sy,  0.0 ni, 95.7
+12:18:17 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:18:20 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:18:23 |  | %Cpu(s):  4.3 us,  0.0 sy,  0.0 ni, 95.7
+12:18:27 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:18:30 |  | %Cpu(s):  3.9 us,  0.8 sy,  0.0 ni, 95.3
+12:18:33 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:18:36 |  | %Cpu(s):  4.6 us,  0.4 sy,  0.0 ni, 95.0
+12:18:40 |  | %Cpu(s):  4.3 us,  0.8 sy,  0.0 ni, 95.0
+12:18:43 |  | %Cpu(s):  4.3 us,  0.4 sy,  0.0 ni, 95.3
+12:18:46 |  | %Cpu(s): 12.0 us,  0.8 sy,  0.0 ni, 87.2

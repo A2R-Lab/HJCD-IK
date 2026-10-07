@@ -1,0 +1,2 @@
+solver,Batch-Size,time_ms,pos_err_mm,ori_err_rad,collision_free(%),queries,pose_success(%)
+hjcdik,1000,1.870407534,2.7628201e-06,2.24908472e-09,,100,100.0

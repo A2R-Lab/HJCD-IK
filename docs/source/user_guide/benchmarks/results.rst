@@ -5,8 +5,10 @@ Runnable examples for the Python API, then the published benchmark results and h
 
 .. important::
 
-   October 5 update: the audit-fixed kernel's same-machine A/B completed with identical matched
-   quality counts; 19/20 cells were consistently faster and one approximately unchanged.
+   October 7 update: the complete corrected campaign with all baselines ran on the shipped code in a quiet
+   window — see *Current code — full campaign* below. October 5: the audit-fixed kernel's same-machine A/B
+   completed with identical matched quality counts; 19/20 cells were consistently faster and one
+   approximately unchanged.
    This is not a rerun against the paper's hardware or competitor baselines. The later dependency
    pin update (GRiD/GLASS) was confirmed separately on October 6: identical matched quality counts and
    paired latency ratios within 0.9946–1.0046 (unchanged); see the repository's
@@ -456,6 +458,120 @@ ground-truth samples, over 100 target poses — lower is a closer match to the f
 
    Distribution of collision-free IK solutions for a representative target — cuRobo (left), PyRoki
    (center), HJCD-IK (right). HJCD-IK returns a broader, more diverse spread of locally-optimal solutions.
+
+Current code — full campaign, RTX 5090, 2026-10-07
+--------------------------------------------------
+
+.. note::
+
+   This is the complete, corrected campaign on the **shipped code** (``main`` at ``f4dc1b5``; solver
+   identical to the pushed ``dd4c350``) with every baseline installed and collision-constrained, run in a
+   user-announced quiet window (exit 0, 1604 s, no stage skipped, no foreign GPU process; see
+   ``docs/development/evidence/paper_rerun_2026-10-07/``). Different GPU, different cuRobo generation and
+   a corrected protocol from the camera-ready tables above — never mix the two. Time is the mean per-call
+   wall time; position error is the mean over 100 queries.
+
+Open-world, Panda (100 Halton targets, ``panda_hand``): time in ms / position error in mm.
+
+.. list-table::
+   :header-rows: 1
+   :stub-columns: 1
+
+   * - Batch
+     - HJCD-IK
+     - cuRobo v2
+     - PyRoki
+     - IKFlow
+   * - 1
+     - 3.30 / 2.80 (95/100 within 5 mm)
+     - 8.52 / 1.8e-2
+     - 3.30 / 371
+     - 2.60 / 16.0
+   * - 10
+     - 2.04 / 5.8e-5
+     - 5.90 / 1.7e-2
+     - 5.62 / 5.2
+     - 2.48 / 3.3
+   * - 100
+     - **1.65** / 1.8e-5
+     - 5.93 / 1.8e-2
+     - 6.02 / 0.39
+     - 2.76 / 1.7
+   * - 1000
+     - **1.62** / 4.2e-5
+     - 6.14 / 2.1e-2
+     - 7.04 / 1.1e-4
+     - 5.10 / 0.77
+   * - 2000
+     - **1.65** / 2.5e-5
+     - 6.35 / 2.1e-2
+     - 7.19 / 1.2e-4
+     - 6.15 / 0.70
+
+Fetch open-world: HJCD-IK 0.81–1.10 ms (100 % within 5 mm at every batch), cuRobo v2 1.81–2.10 ms,
+PyRoki 2.8–6.0 ms, IKFlow 2.5–6.2 ms (30–160 mm error). DoF scaling at B = 1000 (7 / 12 / 18 / 24 DoF):
+HJCD-IK 1.76 / 1.87 / 2.31 / 2.85 ms, cuRobo v2 2.38 (median; its mean of 8.74 contains one 591 ms kernel
+JIT on the first problem) / 2.19 / 2.45 / 2.67 ms, PyRoki 6.8 / 8.2 / 10.7 / 12.7 ms. MMD (lower is
+better): HJCD-IK **0.098**, PyRoki 0.124, cuRobo v2 0.143, IKFlow 0.211.
+
+Collision-free, every solver collision-constrained, B = 2000, 100 problems per set: mean ms / success
+(pose < 5 mm and < 0.05 rad **and** collision-free under the visual-mesh judge at 1 mm, on the stored
+configurations). PyRoki here runs its world/self-collision costs on the foam spheres (the October 3 PyRoki
+latencies were plain IK and are not comparable).
+
+.. list-table::
+   :header-rows: 1
+   :stub-columns: 1
+
+   * - Set (dataset protocol unless noted)
+     - HJCD-IK
+     - cuRobo v2
+     - PyRoki
+   * - box (paper protocol: TCP, cylinder-snapped)
+     - **1.82** / 100 %
+     - 2.45 / 100 %
+     - 29.1 / 100 %
+   * - box
+     - **2.10** / 100 %
+     - 2.44 / 100 %
+     - 30.3 / 100 %
+   * - bookshelf_small
+     - **2.10** / 100 %
+     - 2.49 / 98 %
+     - 29.1 / 100 %
+   * - bookshelf_tall
+     - **2.07** / 100 %
+     - 2.46 / 100 %
+     - 30.6 / 100 %
+   * - bookshelf_thin
+     - **1.82** / 100 %
+     - 2.45 / 100 %
+     - 32.9 / 100 %
+   * - cage
+     - **1.86** / 100 %
+     - 2.46 / 100 %
+     - 26.9 / 100 %
+   * - table_pick
+     - 2.64 / 100 %
+     - **2.43** / 99 %
+     - 32.5 / 100 %
+   * - table_under_pick
+     - **2.34** / 100 %
+     - 2.44 / 98 %
+     - 30.9 / 100 %
+   * - kitchen
+     - **1.83** / 99 %
+     - 2.44 / 99 %
+     - 37.7 / 99 %
+   * - table_bars
+     - 3.22 / 100 %
+     - **2.47** / 100 %
+     - 27.1 / 100 %
+
+At B = 100, HJCD-IK is 98–100 % on every set (cuRobo 97–100 %, PyRoki 95–100 %) at 1.7–3.0 ms. With one
+candidate (B = 1) HJCD-IK's collision-free success is 5–95 % depending on the set: the single-candidate
+regime is not where a batched solver is meant to run. The harder clearance-ladder results, the judges and
+the sphere-model analysis are in the fairness section further down; they were not re-timed.
 
 Historical rerun — RTX 5090, 2026-10-03
 --------------------------------------
