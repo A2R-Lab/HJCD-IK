@@ -20,7 +20,7 @@
   },
   "fingerprint": {
     "algorithm": "sha256-manifest-v2",
-    "digest": "9524d61c74aae16b45cf69a4c5433247ab0c1c83b4e9d82677ba543703c8140a",
+    "digest": "3c32e592526eb4ab1358b5e5c76e7ee292bfe3bff0530c092f05927ac5cc3718",
     "excluded_paths": [
       "gpu-proof.json"
     ],
@@ -44,14 +44,14 @@
   "mode": "local",
   "repo": {
     "branch": "main",
-    "commit_sha": "300ae350ce33502809d9648e8a9a3575a6bae4ff",
+    "commit_sha": "8bc562f600745a1a594712181f17a31ab39bd8ac",
     "dirty": false,
     "github_username": "plancherb1",
     "remote_url": "git@github.com:A2R-Lab/HJCD-IK.git"
   },
   "schema_version": "3",
   "session": {
-    "ended_at": "2026-10-07T06:40:23Z",
+    "ended_at": "2026-10-07T16:21:41Z",
     "node_ids": [
       "tests/test_api.py::test_positive_sizes_required[0-1]",
       "tests/test_api.py::test_positive_sizes_required[-1-1]",
@@ -255,10 +255,10 @@
       "--gpu-proof-enable",
       "--gpu-proof-out=gpu-proof.json"
     ],
-    "started_at": "2026-10-07T06:40:13Z"
+    "started_at": "2026-10-07T16:21:31Z"
   },
   "signature": {
-    "value": "FrVZrRGfxzjHQszbl3zl8viUssIJMpEt3ggi9KqLG2a77BdAhTaQ+cly32MWuDX+r52RJML+GE9sFcyXtAaIAg=="
+    "value": "Q+Bn23hlRxPCwOqIUAMGLN+N4MwB5XYgDVmwuDuqT0z87YbTRSOINC2MlUVvnO4eONv5wEM4mw/zkrMWN9plCA=="
   },
   "signer": {
     "algorithm": "ed25519",
@@ -353,7 +353,7 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0,
       "node_id": "tests/test_api.py::test_collision_mode_is_validated[auto]",
       "outcome": "passed",
       "phase": "call"
@@ -381,7 +381,7 @@
     },
     {
       "checks": [],
-      "duration_s": 0.2723,
+      "duration_s": 0.2773,
       "node_id": "tests/test_api.py::test_target_quaternion_is_normalized_at_boundary",
       "outcome": "passed",
       "phase": "call"
@@ -409,14 +409,14 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0431,
+      "duration_s": 0.0422,
       "node_id": "tests/test_api.py::test_no_visible_gpu_raises_without_terminating_python",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0053,
+      "duration_s": 0.0052,
       "node_id": "tests/test_api.py::test_stats_append_across_precision_modes_and_existing_calls",
       "outcome": "passed",
       "phase": "call"
@@ -437,7 +437,7 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0032,
+      "duration_s": 0.0033,
       "node_id": "tests/test_api.py::test_gpu_entry_points_are_thread_safe",
       "outcome": "passed",
       "phase": "call"
@@ -451,14 +451,14 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0001,
+      "duration_s": 0.0,
       "node_id": "tests/test_api.py::test_sample_targets_requires_positive_count[-1]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0306,
+      "duration_s": 0.0308,
       "node_id": "tests/test_api.py::test_sample_targets_rejects_launch_index_overflow_before_cuda",
       "outcome": "passed",
       "phase": "call"
@@ -507,7 +507,7 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0293,
+      "duration_s": 0.0294,
       "node_id": "tests/test_api.py::test_build_metadata_matches_header_without_a_visible_gpu",
       "outcome": "passed",
       "phase": "call"
@@ -549,28 +549,28 @@
     },
     {
       "checks": [],
-      "duration_s": 0.6651,
+      "duration_s": 0.6675,
       "node_id": "tests/test_benchmark_setup.py::test_paper_workflow_selects_collision_builds_without_running_benchmarks[True]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.2219,
+      "duration_s": 0.2207,
       "node_id": "tests/test_benchmark_smoke.py::test_open_world_harness_runs",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.3273,
+      "duration_s": 0.3105,
       "node_id": "tests/test_benchmark_smoke.py::test_collision_free_harness_runs",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0031,
+      "duration_s": 0.003,
       "node_id": "tests/test_benchmark_tools.py::test_box_mesh_exports_as_one_exact_cuboid",
       "outcome": "passed",
       "phase": "call"
@@ -605,70 +605,70 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0093,
+      "duration_s": 0.0094,
       "node_id": "tests/test_benchmark_tools.py::test_curobo_sphere_model_from_frozen_asset",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.031,
+      "duration_s": 0.0308,
       "node_id": "tests/test_benchmark_tools.py::test_exported_problem_schema_matches_dataset",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0327,
+      "duration_s": 0.0333,
       "node_id": "tests/test_codegen.py::test_failed_codegen_preserves_previous_header[flags0-fixed-base serial chain]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0319,
+      "duration_s": 0.0309,
       "node_id": "tests/test_codegen.py::test_failed_codegen_preserves_previous_header[flags1-grid namespace]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.3701,
+      "duration_s": 0.3638,
       "node_id": "tests/test_codegen.py::test_failed_codegen_preserves_previous_header[flags2-None]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.1577,
+      "duration_s": 0.1585,
       "node_id": "tests/test_codegen.py::test_generation_failure_after_partial_write_preserves_header",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.3644,
+      "duration_s": 0.3667,
       "node_id": "tests/test_codegen.py::test_unsupported_joint_geometry_is_rejected[prismatic-independent revolute]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.3744,
+      "duration_s": 0.3746,
       "node_id": "tests/test_codegen.py::test_unsupported_joint_geometry_is_rejected[negative_axis-local +Z]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.344,
+      "duration_s": 0.3213,
       "node_id": "tests/test_codegen.py::test_explicit_glass_provenance_is_archive_reproducible",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.1264,
+      "duration_s": 0.1275,
       "node_id": "tests/test_codegen.py::test_wrong_glass_provenance_preserves_previous_header",
       "outcome": "passed",
       "phase": "call"
@@ -794,21 +794,21 @@
     },
     {
       "checks": [],
-      "duration_s": 0.1199,
+      "duration_s": 0.1205,
       "node_id": "tests/test_collision.py::test_collision_free_runs_and_solves",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0269,
+      "duration_s": 0.0273,
       "node_id": "tests/test_collision.py::test_collision_free_matches_unconstrained_reach",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0334,
+      "duration_s": 0.0347,
       "node_id": "tests/test_collision.py::test_hard_mode_returns_no_solution_when_every_candidate_collides",
       "outcome": "passed",
       "phase": "call"
@@ -822,28 +822,28 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0442,
+      "duration_s": 0.0446,
       "node_id": "tests/test_collision.py::test_collision_problem_index_is_checked",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0419,
+      "duration_s": 0.0404,
       "node_id": "tests/test_collision.py::test_collision_cache_includes_environment_contents",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.033,
+      "duration_s": 0.0325,
       "node_id": "tests/test_collision.py::test_document_switch_and_failed_scene_selection_do_not_reuse_geometry[0]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0668,
+      "duration_s": 0.0676,
       "node_id": "tests/test_collision.py::test_document_switch_and_failed_scene_selection_do_not_reuse_geometry[1]",
       "outcome": "passed",
       "phase": "call"
@@ -857,7 +857,7 @@
     },
     {
       "checks": [],
-      "duration_s": 0.004,
+      "duration_s": 0.0039,
       "node_id": "tests/test_collision_model.py::test_all_reference_joint_frames_match_kinematic_urdf",
       "outcome": "passed",
       "phase": "call"
@@ -920,7 +920,7 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0005,
+      "duration_s": 0.0004,
       "node_id": "tests/test_collision_model.py::test_result_sidecar_records_validation_model_and_compiled_header",
       "outcome": "passed",
       "phase": "call"
@@ -941,49 +941,49 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0362,
+      "duration_s": 0.0365,
       "node_id": "tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[0-0-0-3]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0433,
+      "duration_s": 0.0436,
       "node_id": "tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[0-0-1-3]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0434,
+      "duration_s": 0.0441,
       "node_id": "tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[0-0-1-4]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.036,
+      "duration_s": 0.0369,
       "node_id": "tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[1-0-0-1]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.036,
+      "duration_s": 0.0365,
       "node_id": "tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[1-0-0-3]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0436,
+      "duration_s": 0.0435,
       "node_id": "tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[1-0-1-3]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0434,
+      "duration_s": 0.0437,
       "node_id": "tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[1-0-1-4]",
       "outcome": "passed",
       "phase": "call"
@@ -997,28 +997,28 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0357,
+      "duration_s": 0.0361,
       "node_id": "tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[2-4-0-3]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0432,
+      "duration_s": 0.0442,
       "node_id": "tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[2-4-1-3]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0436,
+      "duration_s": 0.044,
       "node_id": "tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[2-4-1-4]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0362,
+      "duration_s": 0.0368,
       "node_id": "tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[3-4-0-1]",
       "outcome": "passed",
       "phase": "call"
@@ -1032,14 +1032,14 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0434,
+      "duration_s": 0.0435,
       "node_id": "tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[3-4-1-3]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0436,
+      "duration_s": 0.0439,
       "node_id": "tests/test_collision_refinement.py::test_collision_refinement_partial_blocks[3-4-1-4]",
       "outcome": "passed",
       "phase": "call"
@@ -1053,7 +1053,7 @@
     },
     {
       "checks": [],
-      "duration_s": 0.009,
+      "duration_s": 0.0091,
       "node_id": "tests/test_collision_refinement.py::test_collision_repair_never_returns_a_blocked_fallback[0-1]",
       "outcome": "passed",
       "phase": "call"
@@ -1081,14 +1081,14 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0466,
+      "duration_s": 0.0474,
       "node_id": "tests/test_examples.py::test_examples_run_from_another_directory[02_collision_free_solve]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0072,
+      "duration_s": 0.0069,
       "node_id": "tests/test_examples.py::test_examples_run_from_another_directory[03_batch_sweep]",
       "outcome": "passed",
       "phase": "call"
@@ -1102,7 +1102,7 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0247,
+      "duration_s": 0.0241,
       "node_id": "tests/test_examples.py::test_examples_handle_no_candidates[02_collision_free_solve]",
       "outcome": "passed",
       "phase": "call"
@@ -1123,7 +1123,7 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0017,
+      "duration_s": 0.0018,
       "node_id": "tests/test_examples.py::test_documented_quickstarts[docs/source/user_guide/getting_started/installation.md-## Quickstart]",
       "outcome": "passed",
       "phase": "call"
@@ -1151,7 +1151,7 @@
     },
     {
       "checks": [],
-      "duration_s": 0.034,
+      "duration_s": 0.0344,
       "node_id": "tests/test_fk_equivalence.py::test_ee_position_matches_reference",
       "outcome": "passed",
       "phase": "call"
@@ -1193,14 +1193,14 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0002,
+      "duration_s": 0.0003,
       "node_id": "tests/test_fk_equivalence.py::test_cp_seed_changes_sequence",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0002,
+      "duration_s": 0.0003,
       "node_id": "tests/test_fk_equivalence.py::test_cp_unit_interval_and_index_convention",
       "outcome": "passed",
       "phase": "call"
@@ -1242,77 +1242,77 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0149,
+      "duration_s": 0.0148,
       "node_id": "tests/test_gpu_proof_policy.py::test_kernel_and_dependency_pin_changes_invalidate_fingerprint",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.1817,
+      "duration_s": 0.1859,
       "node_id": "tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[1-cudaMalloc(d_joint_limits)-sample]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.2245,
+      "duration_s": 0.2072,
       "node_id": "tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[1-cudaMalloc(d_joint_limits)-solve]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.1917,
+      "duration_s": 0.1957,
       "node_id": "tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[2-cudaMemcpy(d_joint_limits)-sample]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.2128,
+      "duration_s": 0.2097,
       "node_id": "tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[2-cudaMemcpy(d_joint_limits)-solve]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.1823,
+      "duration_s": 0.1824,
       "node_id": "tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[3-cudaMalloc(d_XImats)-sample]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.2126,
+      "duration_s": 0.2087,
       "node_id": "tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[3-cudaMalloc(d_XImats)-solve]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.1899,
+      "duration_s": 0.18,
       "node_id": "tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[4-cudaMemcpy(d_XImats)-sample]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.225,
+      "duration_s": 0.2096,
       "node_id": "tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[4-cudaMemcpy(d_XImats)-solve]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.1828,
+      "duration_s": 0.1822,
       "node_id": "tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[5-cudaMalloc(d_robotModel)-sample]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.208,
+      "duration_s": 0.2139,
       "node_id": "tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[5-cudaMalloc(d_robotModel)-solve]",
       "outcome": "passed",
       "phase": "call"
@@ -1326,7 +1326,7 @@
     },
     {
       "checks": [],
-      "duration_s": 0.2095,
+      "duration_s": 0.2093,
       "node_id": "tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[6-cudaMemcpy(d_robotModel)-solve]",
       "outcome": "passed",
       "phase": "call"
@@ -1340,7 +1340,7 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0224,
+      "duration_s": 0.0223,
       "node_id": "tests/test_multiwarp.py::test_multiwarp_matches_w1[4]",
       "outcome": "passed",
       "phase": "call"
@@ -1361,14 +1361,14 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0057,
+      "duration_s": 0.006,
       "node_id": "tests/test_multiwarp.py::test_partial_last_block_no_crash[0]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0353,
+      "duration_s": 0.0354,
       "node_id": "tests/test_multiwarp.py::test_partial_last_block_no_crash[1]",
       "outcome": "passed",
       "phase": "call"
@@ -1389,21 +1389,21 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0217,
+      "duration_s": 0.0218,
       "node_id": "tests/test_precision.py::test_fp32_refine_accuracy",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0843,
+      "duration_s": 0.0842,
       "node_id": "tests/test_precision.py::test_fp64_refine_accuracy",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0576,
+      "duration_s": 0.0578,
       "node_id": "tests/test_precision.py::test_auto_select_matches_explicit",
       "outcome": "passed",
       "phase": "call"
@@ -1417,7 +1417,7 @@
     },
     {
       "checks": [],
-      "duration_s": 0.941,
+      "duration_s": 0.9319,
       "node_id": "tests/test_problem_document.py::test_exact_document_cache_and_failure_recovery",
       "outcome": "passed",
       "phase": "call"
@@ -1459,21 +1459,21 @@
     },
     {
       "checks": [],
-      "duration_s": 0.1172,
+      "duration_s": 0.1168,
       "node_id": "tests/test_regression.py::test_no_regression_vs_baseline",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.4786,
+      "duration_s": 0.4752,
       "node_id": "tests/test_regression.py::test_no_collision_free_regression_vs_baseline",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0181,
+      "duration_s": 0.018,
       "node_id": "tests/test_regression.py::test_solver_runs_and_returns_solutions",
       "outcome": "passed",
       "phase": "call"
@@ -1487,7 +1487,7 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0089,
+      "duration_s": 0.0087,
       "node_id": "tests/test_stats.py::test_collision_stats_use_the_selected_checks[hard]",
       "outcome": "passed",
       "phase": "call"
@@ -1529,35 +1529,35 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0312,
+      "duration_s": 0.0313,
       "node_id": "tests/test_stats_summary.py::test_summary_uses_only_measured_denominators[32,100,-1,100,-1\\n-expected0]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0303,
+      "duration_s": 0.0308,
       "node_id": "tests/test_stats_summary.py::test_summary_uses_only_measured_denominators[32,2,1,4,1\\n-expected1]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0303,
+      "duration_s": 0.0298,
       "node_id": "tests/test_stats_summary.py::test_summary_uses_only_measured_denominators[32,2,1,4,1\\n32,100,-1,100,-1\\n-expected2]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0299,
+      "duration_s": 0.0301,
       "node_id": "tests/test_stats_summary.py::test_summary_uses_only_measured_denominators[32,0,0,0,0\\n-expected3]",
       "outcome": "passed",
       "phase": "call"
     },
     {
       "checks": [],
-      "duration_s": 0.0305,
+      "duration_s": 0.0302,
       "node_id": "tests/test_stats_summary.py::test_summary_skips_truncated_rows",
       "outcome": "passed",
       "phase": "call"
@@ -1592,7 +1592,7 @@
     },
     {
       "checks": [],
-      "duration_s": 0.0009,
+      "duration_s": 0.001,
       "node_id": "tests/test_timing_contract.py::test_gate_preflight_checks_provenance_without_gpu_work[commit]",
       "outcome": "passed",
       "phase": "call"
