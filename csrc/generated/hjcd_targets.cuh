@@ -15,10 +15,10 @@ static_assert(NUM_TARGETS <= MAX_TARGETS, "too many targets");
 static_assert(grid::NUM_JOINTS <= 32, "ancestor masks are uint32_t: one bit per joint");
 
 // Ordered target set (index == device-side target id):
-//   [0] left_hand    anchor=left_wrist_yaw_joint (jid 21), tool from identity
-//   [1] right_hand   anchor=right_wrist_yaw_joint (jid 28), tool from identity
-//   [2] left_foot    anchor=left_ankle_roll_joint (jid 5), tool from explicit xyz=[0.035, 0.0, -0.035] rpy=[0.0, 0.0, 0.0]
-//   [3] right_foot   anchor=right_ankle_roll_joint (jid 11), tool from explicit xyz=[0.035, 0.0, -0.035] rpy=[0.0, 0.0, 0.0]
+//   [0] left_hand    anchor=left_wrist_yaw_joint (jid 21), tool from fixed joint 'left_hand_contact_joint'
+//   [1] right_hand   anchor=right_wrist_yaw_joint (jid 28), tool from fixed joint 'right_hand_contact_joint'
+//   [2] left_foot    anchor=left_ankle_roll_joint (jid 5), tool from fixed joint 'left_foot_contact_joint'
+//   [3] right_foot   anchor=right_ankle_roll_joint (jid 11), tool from fixed joint 'right_foot_contact_joint'
 
 __device__ constexpr int TARGET_ANCHOR_JID[NUM_TARGETS] = {21, 28, 5, 11};
 
@@ -32,15 +32,15 @@ __device__ constexpr int TARGET_ANCHOR_JID[NUM_TARGETS] = {21, 28, 5, 11};
 __device__ constexpr double TARGET_TOOL_XFORM[NUM_TARGETS * 16] = {
     1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,   // left_hand
     1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,   // right_hand
-    1, 0, -0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.035000000000000003, 0, -0.035000000000000003, 1,   // left_foot
-    1, 0, -0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.035000000000000003, 0, -0.035000000000000003, 1,   // right_foot
+    1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.035000000000000003, 0, -0.035000000000000003, 1,   // left_foot
+    1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.035000000000000003, 0, -0.035000000000000003, 1,   // right_foot
 };
 
 __device__ constexpr float TARGET_TOOL_XFORM_F[NUM_TARGETS * 16] = {
     1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f,   // left_hand
     1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f,   // right_hand
-    1.0f, 0.0f, -0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.035f, 0.0f, -0.035f, 1.0f,   // left_foot
-    1.0f, 0.0f, -0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.035f, 0.0f, -0.035f, 1.0f,   // right_foot
+    1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.035f, 0.0f, -0.035f, 1.0f,   // left_foot
+    1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.035f, 0.0f, -0.035f, 1.0f,   // right_foot
 };
 
 // The tool transform in the kernel's own compute type. Specialised, never converted.

@@ -5465,8 +5465,6 @@ static int seg_block_size(int S) {
     return 256;                 // production default for larger S (benchmarked in the M3 report)
 }
 
-template<typename CT>
-
 // ---------------------------------------------------------------------------
 // CRAG-HJCD-CONTACT-MANIFOLD-ALIGNMENT-0 -- install the contact-semantics
 // tables into __constant__ memory.
@@ -5501,6 +5499,7 @@ void hjcd_install_contact_semantics(const double* tool, const double* twist) {
     CUDA_OK(cudaMemcpyToSymbol(hjcd_rt::TWIST_SPEC_F, sf, sizeof(sf)));
 }
 
+template<typename CT>
 static SolveProblemsOutputs launch_solve_problems(
     const SolveInputs& in, int B, int num_solutions,
     double eps_pos, double eps_ori,

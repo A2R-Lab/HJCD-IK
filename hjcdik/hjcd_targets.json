@@ -42,23 +42,23 @@
   "target_orientation_axes": [
     [
       0.0,
-      -1.0,
-      0.0
-    ],
-    [
       0.0,
-      1.0,
       0.0
     ],
     [
       0.0,
       0.0,
-      -1.0
+      0.0
     ],
     [
       0.0,
       0.0,
-      -1.0
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      0.0
     ]
   ],
   "targets": [
@@ -92,13 +92,9 @@
           1.0
         ]
       ],
-      "source": "identity",
-      "fixed_joint": null,
-      "orientation_axis": [
-        0.0,
-        -1.0,
-        0.0
-      ]
+      "source": "fixed joint 'left_hand_contact_joint'",
+      "fixed_joint": "left_hand_contact_joint",
+      "orientation_axis": null
     },
     {
       "name": "right_hand",
@@ -130,13 +126,9 @@
           1.0
         ]
       ],
-      "source": "identity",
-      "fixed_joint": null,
-      "orientation_axis": [
-        0.0,
-        1.0,
-        0.0
-      ]
+      "source": "fixed joint 'right_hand_contact_joint'",
+      "fixed_joint": "right_hand_contact_joint",
+      "orientation_axis": null
     },
     {
       "name": "left_foot",
@@ -156,25 +148,21 @@
           0.0
         ],
         [
-          -0.0,
+          0.0,
           0.0,
           1.0,
           -0.035
         ],
         [
-          0,
-          0,
-          0,
-          1
+          0.0,
+          0.0,
+          0.0,
+          1.0
         ]
       ],
-      "source": "explicit xyz=[0.035, 0.0, -0.035] rpy=[0.0, 0.0, 0.0]",
-      "fixed_joint": null,
-      "orientation_axis": [
-        0.0,
-        0.0,
-        -1.0
-      ]
+      "source": "fixed joint 'left_foot_contact_joint'",
+      "fixed_joint": "left_foot_contact_joint",
+      "orientation_axis": null
     },
     {
       "name": "right_foot",
@@ -194,25 +182,21 @@
           0.0
         ],
         [
-          -0.0,
+          0.0,
           0.0,
           1.0,
           -0.035
         ],
         [
-          0,
-          0,
-          0,
-          1
+          0.0,
+          0.0,
+          0.0,
+          1.0
         ]
       ],
-      "source": "explicit xyz=[0.035, 0.0, -0.035] rpy=[0.0, 0.0, 0.0]",
-      "fixed_joint": null,
-      "orientation_axis": [
-        0.0,
-        0.0,
-        -1.0
-      ]
+      "source": "fixed joint 'right_foot_contact_joint'",
+      "fixed_joint": "right_foot_contact_joint",
+      "orientation_axis": null
     }
   ],
   "target_ancestor_mask": [
