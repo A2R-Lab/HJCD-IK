@@ -1109,8 +1109,19 @@ void target_residual(const T* __restrict__ X, const T* __restrict__ tgt_p,
         e_R[0] = n_tgt[0] - n_cur[0];
         e_R[1] = n_tgt[1] - n_cur[1];
         e_R[2] = n_tgt[2] - n_cur[2];
-        const T d = n_cur[0]*n_tgt[0] + n_cur[1]*n_tgt[1] + n_cur[2]*n_tgt[2];
-        *ang = acos(d < (T)-1 ? (T)-1 : (d > (T)1 ? (T)1 : d));
+        // The reported angle is recovered FROM THE CHORD, theta = 2 asin(clamp(|e_R|/2, 0, 1)),
+        // which is exact for unit n (|e_R| = 2 sin(theta/2)). It used to be acos(n_cur . n_tgt):
+        // acos'(1) is infinite, so near alignment it turned dot-product rounding into angle. In
+        // float32 the dot of two aligned unit vectors lands k ulps below 1, i.e. on the ladder
+        // acos(1 - k 2^-24) = 3.5e-4, 4.9e-4, ..., 9.8e-4 (k=8), 1.04e-3 (k=9): an EXACT solution
+        // read 6e-4..1.4e-3 rad and failed a 1e-3 tolerance about a third of the time with two
+        // AXIS hands. In float64 the same clamp under-reported tilts below ~3e-4 rad as exactly 0.
+        // The chord form is well conditioned at 0 (d theta / d|e_R| = 1) and reports the actual
+        // chord/FK error (~1e-7 in float32). Near pi both forms amplify rounding by ~1/(pi-theta);
+        // that is inherent to reporting an angle at anti-alignment (see the antipodal tests).
+        // Only the REPORTED angle changes: e_R, its Jacobian and the cost are untouched.
+        const T half_chord = (T)0.5 * sqrt(e_R[0]*e_R[0] + e_R[1]*e_R[1] + e_R[2]*e_R[2]);
+        *ang = (T)2 * asin(half_chord < (T)1 ? half_chord : (T)1);
         return;
     }
 
@@ -1192,6 +1203,13 @@ T target_cost(T pnorm, T onorm, T wp, T wo) {
 
 // Normalization denominator epsilon (reporting only; never divides anything in an optimizer).
 template<typename T> __device__ __forceinline__ T cost_norm_eps() { return (T)1e-12; }
+
+// LM null-column pin threshold, RELATIVE and on SQUARED unscaled column norms: a joint whose
+// column satisfies c_j <= eps * max_i c_i over the active rows is frozen for that iteration. See
+// the pin block in lm_multi_target_kernel for the measured margins behind these values.
+template<typename T> __device__ __forceinline__ T lm_null_column_eps();
+template<> __device__ __forceinline__ double lm_null_column_eps<double>() { return 1e-12; }
+template<> __device__ __forceinline__ float  lm_null_column_eps<float>()  { return 1e-10f; }
 
 // Standalone diagnostic kernel: one block (one warp) per problem. Full FK -> target frames ->
 // per-target unweighted residuals -> weighted costs -> per-target and all-target success.
@@ -1446,13 +1464,21 @@ void accumulate_normal_equations_warp(
     const T* __restrict__ s_scale,           // NT*6 row preconditioner (nullptr => all ones)
     unsigned int active,
     const int* __restrict__ s_mode, const T* __restrict__ s_axis,
-    const T* __restrict__ s_tgt_q = nullptr)   // see compute_row_scales_warp
+    const T* __restrict__ s_tgt_q = nullptr,   // see compute_row_scales_warp
+    // Optional N-vector out: c_j = sum_k [ w_p,k |Jv_kj|^2 + w_R,k |Jo_kj|^2 ], the squared norm
+    // of joint j's column BEFORE row preconditioning, with the same mode-dependent orientation
+    // weight the assembly uses (ORI_NONE => 0). This is what the LM's null-column pin tests (see
+    // lm_multi_target_kernel). It is deliberately NOT diag(A): the row scale s = 1/||J_row|| can
+    // reach ~1e4 on an AXIS row along the current normal, which would lift a rounding-level
+    // column into the range of genuinely weak joints. Lane j writes only entry j.
+    T* __restrict__ colnorm2 = nullptr)
 {
     const unsigned m = FULL_WARP_MASK;
     const int lane = threadIdx.x & 31;
 
     for (int idx = lane; idx < N * N; idx += WARP_SIZE) A[idx] = (T)0;
     if (lane < N) b[lane] = (T)0;
+    if (colnorm2 != nullptr && lane < N) colnorm2[lane] = (T)0;
     __syncwarp(m);
 
     #pragma unroll
@@ -1509,6 +1535,9 @@ void accumulate_normal_equations_warp(
 
             b[lane] += Wp[0]*jv0*s_e_pos[3*k+0] + Wp[1]*jv1*s_e_pos[3*k+1] + Wp[2]*jv2*s_e_pos[3*k+2]
                      + Wo[0]*jw0*s_e_ori[3*k+0] + Wo[1]*jw1*s_e_ori[3*k+1] + Wo[2]*jw2*s_e_ori[3*k+2];
+            if (colnorm2 != nullptr)
+                colnorm2[lane] += wp * (jv0*jv0 + jv1*jv1 + jv2*jv2)
+                                + wo * (jw0*jw0 + jw1*jw1 + jw2*jw2);
         }
 
         // Row i of A: broadcast lane j's column to every lane, then lane i accumulates A[i][j].
@@ -2259,27 +2288,78 @@ __global__ void lm_multi_target_kernel(
         weighted_cost_warp<T>(st->s_e_pos, st->s_e_ori, st->s_wp, st->s_wo, st->s_scale,
                               st->active, &st->cost);
 
+        // st->diagA doubles as the per-joint UNSCALED column-norm^2 scratch for the null-column pin
+        // below; it is not read again until the snapshot further down overwrites it with diag(A).
         accumulate_normal_equations_warp<T>(st->A, st->b, st->s_jointX, st->s_target_X,
                                             st->s_e_pos, st->s_e_ori, st->s_wp, st->s_wo,
                                             st->s_scale, st->active, st->s_mode, st->s_axis,
-                                            st->s_tgt_q);
-        // Pin joints that cannot move ANY active target.
+                                            st->s_tgt_q, /*colnorm2=*/st->diagA);
+        // Pin joints that cannot move ANY active residual.
         //
-        // Such a joint has an all-zero row AND column in A (by the ancestor mask) and a zero b --
-        // including a ZERO DIAGONAL. Marquardt damping is lambda*diag(A), so it adds nothing there:
-        // A + lambda*diag(A) stays singular, the Cholesky CHECK trips, dq collapses to 0 and the
-        // whole solve freezes. (This is exactly why "both hands" and "both feet" failed on G1 while
-        // "all four" passed -- with every limb active, every joint has a nonzero diagonal.)
-        // A unit diagonal makes A positive-definite and gives such a joint a step of exactly zero,
-        // which is the correct semantics: it is frozen, not merely undamped.
+        // Such a joint has an all-zero row AND column in A and a zero b -- including a ZERO
+        // DIAGONAL. Marquardt damping is lambda*diag(A), so it adds nothing there: A +
+        // lambda*diag(A) stays singular, the Cholesky CHECK trips, dq collapses to 0 and the whole
+        // solve freezes. A unit diagonal makes A positive-definite and gives such a joint a step of
+        // exactly zero, which is the correct semantics: it is frozen, not merely undamped.
+        //
+        // Two ways to get there:
+        //  (a) STRUCTURAL: the joint is not an ancestor of any active target. (This is why "both
+        //      hands" and "both feet" failed on G1 while "all four" passed.)
+        //  (b) NUMERICAL: the joint IS an ancestor but its column is null over the ACTIVE rows.
+        //      On G1 the hand contact frame is the wrist-yaw frame: its origin is on the yaw axis
+        //      (position column = axis x 0 = 0) and its +z IS the yaw axis, so under ORI_AXIS(+z)
+        //      the orientation column is n x n = 0 too -- AXIS frees exactly that twist. ORI_NONE
+        //      and orientation_weights = 0 leave only the (zero) position column, and the
+        //      bounded-twist mode zeroes it inside its arc. Before (b) existed an AXIS hand froze
+        //      the WHOLE-BODY LM (0 / 4096 on CRAG-shaped G1 batches;
+        //      temp/hjcd_ori_axis_investigation).
+        //
+        // Test for (b):  c_j <= eps * max_{i in (a)-active} c_i,  c_j = unscaled column norm^2.
+        //  * Unscaled, not diag(A): the row preconditioner can amplify a rounding-level column by
+        //    ~1e8 in c (see accumulate_normal_equations_warp).
+        //  * eps (on SQUARED norms; sqrt(eps) on column norms) -- measured on G1, every mode:
+        //      genuine columns  >= 1.2e-3 (AXIS/FULL), >= 1.0e-7 (ORI_NONE wrist roll near its
+        //                          axis-through-contact singularity) relative to the max;
+        //      null columns      ~ 0 in float64 (3e-35 FMA residue), and <~ 1e-14 in float32
+        //                          (one rounding of a cross product of identical vectors, ~eps_f32
+        //                          per entry, squared).
+        //    float  1e-10: 3 decades below the weakest genuine column, 4 above the fp32 residue.
+        //    double 1e-12: 5 decades below the weakest genuine column; the fp64 residue is far
+        //                  under either. A column 1e-6 of the strongest would need ~1e6x its
+        //                  motion to matter, so freezing it loses nothing reachable.
+        //  * max c == 0 (no weighted active row at all) or non-finite (NaN/inf state): there is no
+        //    scale to be relative to, so (b) is skipped and only (a) applies -- exactly the
+        //    behaviour before (b) existed.
+        //
+        // Pinning zeroes the joint's whole row and column (lane i owns row i, so every lane clears
+        // its own entries of the pinned columns) and b_i, then sets A_ii = 1: dq_i is exactly 0 and
+        // the joint keeps its seed / coarse-search value. For (a) those entries are already exactly
+        // zero, so (a)-only problems -- every ORI_FULL problem on G1 -- are bit-identical.
+        // Done BEFORE the diagA / g snapshot below, so the gain ratio sees the pinned system.
         {
             unsigned int act_joints = 0u;
             #pragma unroll
             for (int k = 0; k < K; ++k)
                 if ((st->active >> k) & 1u) act_joints |= hjcd_gen::TARGET_ANCESTOR_MASK[k];
-            if (lane < N && !((act_joints >> lane) & 1u)) {
-                st->A[lane * N + lane] = (T)1;
-                st->b[lane] = (T)0;
+            const bool anc = (lane < N) && ((act_joints >> lane) & 1u);
+            const T cj = anc ? st->diagA[lane] : (T)0;
+            T cmax = cj;
+            #pragma unroll
+            for (int off = 16; off > 0; off >>= 1)
+                cmax = fmax(cmax, __shfl_xor_sync(FULL_WARP_MASK, cmax, off));
+            const bool scaled = (cmax > (T)0) && isfinite(cmax);
+            const bool null_col = anc && scaled && (cj <= lm_null_column_eps<T>() * cmax);
+            const bool pin = (lane < N) && (!anc || null_col);
+            const unsigned int pinned = __ballot_sync(FULL_WARP_MASK, pin);
+            if (lane < N) {
+                if (pin) {
+                    for (int j = 0; j < N; ++j) st->A[lane * N + j] = (T)0;
+                    st->A[lane * N + lane] = (T)1;
+                    st->b[lane] = (T)0;
+                } else {
+                    for (unsigned int p = pinned; p != 0u; p &= p - 1u)
+                        st->A[lane * N + (__ffs(p) - 1)] = (T)0;
+                }
             }
         }
         __syncwarp(FULL_WARP_MASK);

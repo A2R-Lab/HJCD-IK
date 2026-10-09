@@ -12,9 +12,12 @@ The optimizer minimizes the CHORD residual
     e_axis = n_target - n_current,      ||e_axis|| = 2 sin(theta/2)
 
 because its Jacobian is exact and free of the 0/pi singularities that Log-style tangent residuals
-carry, while the PUBLIC error is the angle
+carry, while the PUBLIC error is the angle, recovered from that same chord
 
-    theta = acos(clamp(n_current . n_target, -1, 1))    radians.
+    theta = 2 asin(clamp(||e_axis|| / 2, 0, 1))    radians.
+
+(It was acos(n_current . n_target), which is ill-conditioned at alignment: in float32 an exact
+solution read 3.5e-4..1.4e-3 rad. See test_axis_null_column_lm.py.)
 
 Both are monotonically increasing in theta on [0, pi], so "smaller residual" and "smaller reported
 error" never disagree about which of two candidates is better; they are simply different
