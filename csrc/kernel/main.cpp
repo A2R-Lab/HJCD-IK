@@ -250,7 +250,7 @@ int main(int argc, char** argv) try {
     if (args.mode == "single" || args.mode == "sweep") {
         // "single" is a one-target sweep.
         const int T = args.mode == "single" ? 1 : args.num_targets;
-        auto targets = sample_random_target_poses<double>(nullptr, T, /*seed=*/0ull);
+        auto targets = sample_random_target_poses<double>(T, /*seed=*/0ull);
         if ((int)targets.size() < T) {
             std::cerr << "Failed to sample " << T << " target poses.\n";
             return 1;

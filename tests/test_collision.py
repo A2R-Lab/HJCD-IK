@@ -71,7 +71,6 @@ def _goal7(entry):
 
 @pytest.mark.skipif(not MB_PATH.exists(), reason="tests/mb_problems.json missing")
 def test_collision_free_runs_and_solves(monkeypatch):
-    monkeypatch.delenv("HJCD_CC_MODE", raising=False)
     text = MB_PATH.read_text()
     problems = json.loads(text)["problems"]
     set_name = sorted(problems.keys())[0]          # e.g. bookshelf_small_panda
@@ -109,7 +108,6 @@ def test_collision_free_matches_unconstrained_reach():
 
 @pytest.mark.skipif(not MB_PATH.exists(), reason="tests/mb_problems.json missing")
 def test_hard_mode_returns_no_solution_when_every_candidate_collides(monkeypatch):
-    monkeypatch.delenv("HJCD_CC_MODE", raising=False)
     source = json.loads(MB_PATH.read_text())["problems"]
     base = dict(source[sorted(source.keys())[0]][0])
     base["obstacles"] = {"cuboid": {"all": {
@@ -156,7 +154,6 @@ def test_collision_problem_index_is_checked():
 @pytest.mark.skipif(not MB_PATH.exists(), reason="tests/mb_problems.json missing")
 def test_collision_cache_includes_environment_contents(monkeypatch):
     """The same set/index with changed JSON must not reuse device geometry from the first call."""
-    monkeypatch.delenv("HJCD_CC_MODE", raising=False)
     source = json.loads(MB_PATH.read_text())["problems"]
     base = dict(source[sorted(source.keys())[0]][0])
     blocked = dict(base)

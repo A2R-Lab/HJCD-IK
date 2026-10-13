@@ -102,7 +102,7 @@ HJCD-IK's speed comes from warp-per-candidate parallelism. When refactoring math
 ## 5. Performance learnings (measured on RTX 5090 sm_120, CUDA 13)
 The raw multi-warp / perf-attribution sweeps (June 2026) were local notes and are not tracked; the
 tracked timing evidence is `docs/development/evidence/targeted_timing_2026-09-27/` and the
-audit record `docs/development/audit_hardening_validation.md`.
+audit record `docs/development/history/audit_hardening_validation.md`.
 
 - **⚠️ STALE-BINARY TRAP (the #1 perf-methodology bug — it invalidated an entire timing/correctness pass):**
   `ninja -C build` rebuilds `build/_hjcdik*.so`, but Python imports the **editable-install copy** under
@@ -135,7 +135,7 @@ audit record `docs/development/audit_hardening_validation.md`.
 - **Timing-harness gotcha (self-contention false-positive):** a quiet-GPU guard that samples
   `nvidia-smi utilization.gpu` *between configs of its own sweep* will read its OWN recently-run kernels
   (util is time-averaged) and abort as if another process were contending. Likewise the compute-apps list
-  includes the sweep's own ~0.5 GB CUDA context. Fix (in `scripts/perf/time_multiwarp_sweep.py`): exclude
+  includes the sweep's own ~0.5 GB CUDA context. Fix (in the since-removed `time_multiwarp_sweep.py`; `scripts/perf/run_audit_gate.py` keeps the rule): exclude
   `os.getpid()` from the foreign-apps check, and only util-gate at STARTUP (before any solving) — mid-sweep,
   gate on foreign *apps* only. *Lesson: a process can't use util to tell if IT is the one keeping the GPU
   busy; gate on foreign pids, not aggregate util, once you're running.*
@@ -143,7 +143,7 @@ audit record `docs/development/audit_hardening_validation.md`.
 - **⚠️ nsys-SPLIT before attributing a high-DoF / scaling cost to a kernel.** When 24-DoF was ~13× slower
   than 7-DoF, the "obvious" suspect was the fp64 O(DoF³) warp-Cholesky in `lm_tuner` — **wrong.** A
   fp32-vs-fp64 A/B (fp32 came out *slower* at every DoF) refuted it, and the per-kernel nsys split
-  (`scripts/perf/dof_scaling_ab.sh --nsys`) showed `coarse_search` was **88%** of the 24-DoF wall and scaled
+  (the since-removed `dof_scaling_ab.sh --nsys`) showed `coarse_search` was **88%** of the 24-DoF wall and scaled
   ~O(N³), while `lm_tuner` only grew 2.5×. Root cause (since fixed): the greedy candidate loop ran O(N³)
   work **serialized on `lane==0`** with **two full O(N) `ee_fk_thread` chains per candidate**. The fix is
   the current lane-parallel sweep + `ee_fk_suffix_thread` (recompute only the suffix from the perturbed

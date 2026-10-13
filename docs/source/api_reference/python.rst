@@ -82,8 +82,7 @@ Interactive ``help(hjcdik.generate_solutions)`` documents parameters, units, and
 Collision scenes use
 ``problems_json_text``, ``problem_set_name``, and ``problem_idx``; see :doc:`collision`.
 ``collision_mode`` accepts exactly ``"hard"`` (default), ``"soft"`` or ``"both"``; the API
-never reads environment variables (the benchmark CLI alone keeps ``HJCD_CC_MODE`` as the
-default for its ``--collision-mode`` flag).
+never reads environment variables.
 
 .. code-block:: python
 

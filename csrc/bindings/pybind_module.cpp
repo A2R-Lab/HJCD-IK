@@ -91,7 +91,7 @@ std::vector<std::array<double,7>> py_sample_targets(int num_targets, std::uint64
   std::vector<std::array<double,7>> targets;
   {
     py::gil_scoped_release release;
-    targets = sample_random_target_poses<double>(nullptr, num_targets, seed);
+    targets = sample_random_target_poses<double>(num_targets, seed);
   }
   return targets;
 }

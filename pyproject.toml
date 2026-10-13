@@ -52,7 +52,7 @@ plots = [
 dev = [
   "pytest>=7.0",
   "scipy>=1.7",
-  "pytest-gpu-proof>=0.4.0; python_version >= '3.11'", # receipt generation requires Python >=3.11
+  "pytest-gpu-proof>=0.4.1; python_version >= '3.11'", # receipt generation requires Python >=3.11
   "pyyaml>=5.4",               # read the YAML policy (tests/gpu-proof-policy.yaml); pytest-gpu-proof doesn't pull it in
 ]
 

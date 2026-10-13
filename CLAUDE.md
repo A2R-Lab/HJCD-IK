@@ -122,8 +122,8 @@ out = generate_solutions(targets[0], batch_size=2000, num_solutions=4)
   is the A/B knob. GRiD owns the tables and warp checker; HJCD has no duplicate collision sidecar.
 - **Collision policy.** Python exposes `collision_mode="hard"|"soft"|"both"`; `hard` is the
   default and strictly excludes colliding candidates (self **+** environment). `soft` is a penetration-cost
-  ranking mode and does not guarantee collision freedom; `both` ranks and filters. Neither the API nor the
-  native solver reads `HJCD_CC_MODE`; only the benchmark CLI keeps it as the default of `--collision-mode`.
+  ranking mode and does not guarantee collision freedom; `both` ranks and filters. Nothing reads
+  `HJCD_CC_MODE` any more (API, native solver or benchmark CLI); pass `--collision-mode` to the benchmark.
   Final filtering/ranking is post-solve; hard/both additionally check collision during refinement.
   Obstacle JSON uses `pose` (`[x,y,z,qw,qx,qy,qz]`); the legacy
   Euler `box` schema is gone.
@@ -157,7 +157,7 @@ got a move-only `Result<T>`, checked CUDA/GRiD initialization that raises instea
 a per-device parsed-document + environment cache (scene switches ~14x faster on the host, kernel unchanged).
 The build compiles the CUDA core once (`hjcdik_core`) for both front ends; native CTest + CLI contract tests,
 `build_info()`, the typed stub and the signed GPU-proof manifest were added. Full record:
-[`docs/development/audit_hardening_validation.md`](docs/development/audit_hardening_validation.md).
+[`docs/development/history/audit_hardening_validation.md`](docs/development/history/audit_hardening_validation.md).
 
 **2026-10 — de-vendored GLASS + tidy-up.** `grid.cuh` is generated with `vendor_glass=False` (one GLASS per
 translation unit, header ~6k lines instead of ~15k). Dead helpers, duplicate host logic, the ignored native
@@ -180,126 +180,62 @@ a `#define HJCD_HAS_COLLISION 1` sentinel and the kernel + `grid_env.cuh` guard 
 it. A no-collision header (e.g. the DoF-scaling regens, or any BYO-URDF built without `--collision`) still
 compiles and runs open-world; the Python API rejects a collision-free request in that build.
 
-**Performance status (updated October 5).** The completed pre-upstream A/B gate has identical matched
-quality counts, 19/20 cells consistently faster and one approximately unchanged; see
-[`audit_timing_2026-10-05`](docs/development/evidence/audit_timing_2026-10-05/README.md).
-The subsequent GRiD/GLASS pin update was confirmed performance-neutral on October 6 (identical matched
-counts, all 12 paired ratios within 0.9946–1.0046; reviewed October 7):
-[`postpin_timing_2026-10-06`](docs/development/evidence/postpin_timing_2026-10-06/README.md).
-Protocol details:
-[`docs/development/timing_gate.md`](docs/development/timing_gate.md). The October 2 A/B driver forced
-fp32 even for S=1, and its results must not be called auto-precision/default-S1 coverage. October 3
-conservative-model dumps omitted some empty queries (2775/2771 of 2776); recollected October 7 (same rates,
-`evidence/fairness_hardsets_2026-10-03/recollection_2026-10-07/`).
-The original measurements below are historical, not measurements of this revision.
-**Full campaign on the shipped code, 2026-10-07** (`docs/development/evidence/paper_rerun_2026-10-07/`, results.rst
-*Current code — full campaign*): Panda open-world 1.62–1.65 ms at B ≥ 100 (cuRobo v2 5.9–6.4, PyRoki 6–7.2,
-IKFlow 2.5–6.2); Fetch 0.81–1.10 vs cuRobo 1.8–2.1; DoF 7/12/18/24 1.76/1.87/2.31/2.85 vs cuRobo 2.4/2.2/2.5/2.7;
-MMD 0.098 (best); collision scenes 1.8–3.2 ms at 99–100 % success on all ten sets (cuRobo 2.4–2.5 ms, 98–100 %;
-collision-aware PyRoki 27–38 ms, 99–100 %). Published numbers are the camera-ready paper's (RTX 4060) and live in
-`docs/source/user_guide/benchmarks/results.rst`. Baselines are installed only in the local staging environment. Tracked evidence on the RTX 5090: the audit timing gate
-(`docs/development/evidence/targeted_timing_2026-09-27/`, open-world B=2000 ≈ 1.3 ms fp64, kernel within 1%
-before/after the audit) and the de-vendoring gate + HJCD-only paper rerun
-(`docs/development/evidence/timing_gate_2026-10-02/`: landed code 0.1–1% faster than the previous main in all 18
-A/B cells up to B=32000; Panda open-world 1.67–1.74 ms at B=100–2000, box_panda collision-free 1.9–2.3 ms, DoF
-7/12/18/24 at B=1000 = 1.85/1.95/2.42/3.01 ms). `scripts/bench/run_paper_experiments.sh` (with `HJCD_REGEN=1`)
-regenerates the paper protocol (~4.5 min HJCD-only; ~15 min with all baselines and `RUN_HARD=1`, see
-`docs/development/evidence/paper_rerun_2026-10-03/`); `scripts/perf/timing_driver.py` is the
-neutral two-endpoint A/B driver (alternate rounds, compare paired per-round medians);
-`scripts/perf/run_all_timing_sweeps.sh` is the HJCD-only timing capture.
+**Performance status (October 2026).** Every claim below is a same-machine (RTX 5090, CUDA 13) quiet-window
+measurement with the protocol in [`docs/development/timing_gate.md`](docs/development/timing_gate.md)
+(`scripts/perf/timing_driver.py` two-endpoint A/B, `scripts/perf/run_audit_gate.py`). Published paper numbers
+(RTX 4060) live in `docs/source/user_guide/benchmarks/results.rst` and are historical.
+- Audit A/B ([`audit_timing_2026-10-05`](docs/development/evidence/audit_timing_2026-10-05/README.md)): identical
+  matched quality counts, 19/20 cells faster, one unchanged. GRiD/GLASS re-pin confirmed performance-neutral
+  ([`postpin_timing_2026-10-06`](docs/development/evidence/postpin_timing_2026-10-06/README.md), 12 paired ratios
+  within 0.9946–1.0046). The 2026-10-12 re-pin to GRiD v0.5.1 changed only a block-checker race fix; no A/B owed.
+- Full campaign on the shipped code, all baselines ([`paper_rerun_2026-10-07`](docs/development/evidence/paper_rerun_2026-10-07/README.md),
+  results.rst *Current code — full campaign*): Panda open-world 1.62–1.65 ms at B ≥ 100 (cuRobo v2 5.9–6.4,
+  PyRoki 6–7.2, IKFlow 2.5–6.2); Fetch 0.81–1.10 vs cuRobo 1.8–2.1; DoF 7/12/18/24 1.76/1.87/2.31/2.85 vs
+  2.4/2.2/2.5/2.7; MMD 0.098 (best); collision scenes 1.8–3.2 ms at 99–100 % on all ten sets (cuRobo 2.4–2.5 ms
+  at 98–100 %; collision-aware PyRoki 27–38 ms). `scripts/bench/run_paper_experiments.sh` reproduces the protocol
+  (`docs/source/user_guide/benchmarks/reproduction.md`).
+- Caveats on record: the 2026-10-02 A/B forced fp32 at S=1 (not auto-precision coverage); the 2026-10-03
+  conservative-model dumps omitted empties and were recollected 2026-10-07 (same rates); shared-GPU latency
+  observations are never performance claims.
 
 > **Build/test gotcha:** `ninja -C build` does NOT update the imported `.so` (it's the editable copy in
 > site-packages). Always rebuild with **`scripts/setup/rebuild.sh`** (or `pip install -e . --no-build-isolation`).
 
-## What next
+## Status and what next (updated 2026-10-12)
 
-**Current priority (2026-10-05):** finish release closeout, not another kernel/model redesign. GRiD
-8dccbfa and matching GLASS 9e57178 are integrated and correctness-validated. The pre-upstream A/B is
-complete; the already compiled post-pin endpoint awaits a focused host/API timing confirmation in the
-overnight coordinator's quiet slot. Its 26 GPU functions have identical instruction/encoding streams to
-the measured audit build, and native-core host text matches, but final linked-library text differs.
-This is strong evidence of unchanged solver work, not a substitute for end-to-end timing. No timing
-while agents share the box; no push without user approval.
+**Where the code is.** `origin/main` carries the closed fairness/hardening arc (2026-10-03 → 10-07) and the
+re-pin to GRiD **v0.5.1** (`d3be3f6`, the PyPI `grid-rbd` 0.5.1 release; GLASS `9e57178`, top-level and nested).
+All six upstream asks (G1–G6, `docs/development/upstream_asks_collision_2026-10.md`) are in GRiD; HJCD has no
+collision sidecar. GRiD's G5 fidelity report measures against collision (convex-hull) meshes, so
+`benchmark/make_bounded_bulge_spheres.py --report` remains the visual-mesh fidelity tool of record.
 
-The running roadmap is `docs/open-tasks/TODO.md` (local, gitignored agent scratch — recreate it from this list
-if missing). Tracked project docs: this file, `docs/development/agent_debugging_guide.md`,
-`docs/development/STARTUP_PROMPT.md`, `docs/source/user_guide/upgrading.md`,
-`docs/source/user_guide/benchmarks/results.rst`, and the sphinx docs.
+**Rulings that are not derivable from the code** (keep; they explain the benchmark design):
+- Two collision-scene protocols: the paper's cylinder-snapped TCP target on `box_panda` for continuity, and the
+  MotionBenchMaker dataset protocol (`panda_hand` goals, every set, `RUN_HARD=1`) as the honest benchmark.
+- The true-geometry (`visual` FCL mesh) judge is the headline; every sphere model is optimistic somewhere, so
+  solvers are compared on identical spheres and the sphere model's bulge/coverage is stated.
+- Foam stays the default sphere model. Conservative full-cover models (b10/b15) lower success and were not
+  adopted; a broad→fine cascade (GRiD G3) is the route if one is ever wanted.
+- Nullspace repair (C2) was implemented, measured and NOT shipped: the solver never returns an accurate
+  configuration its own spheres reject (`docs/development/evidence/repair_nullspace_2026-10-07/`). Success is
+  monotone in B with the collision-aware stop (`c1_batch_monotonic_2026-10-07/`).
+- Non-determinism is accepted; `write_stats` (library-side `ik_stats.csv`) is scheduled to move into the
+  benchmark with the API redesign, not before.
 
-### Release closeout
+**What next — make HJCD-IK a usable package** (user ruling 2026-10-07; the local ledgers under
+`docs/open-tasks/` hold the detail and are gitignored):
+1. **User-shaped API (P1).** `hjcdik.Solver(robot, ee_link, spheres)`, batched `solve(poses)`, `set_world`
+   from plain arrays, typed result with paired errors and `count`; robots compiled at first use through the
+   installed `grid-rbd` codegen and cached per content key, mirroring `grid_rbd.register_robot`. Clean break
+   (`generate_solutions` goes). Gated on the user's ruling on the proposal.
+2. **Robots/presets (P2):** Panda, Fetch from `fetch_description` (HJCD's `csrc/urdf/fetch.urdf` differs from it
+   by up to 37 cm — do not reuse it for collision sets), UR/iiwa/xArm/Gen3; prismatic joints in the coarse search.
+3. **In-kernel multi-target (P3)** — needs a timing window to claim anything.
+4. **Distribution (P4):** wheels, self-hosted GPU runner for `test.yml`, versioned API docs, DLPack interop.
+5. **Robustness (P5):** cascade for conservative models, exposed margins.
+Housekeeping runs alongside (de-bloat, docs truth, one receipt per batch).
 
-1. Keep README/examples/API docs consistent with the current contract: one target per call, AUTO precision,
-   frame identity, hard filtering, possible empty/approximate results, paired errors and model limitations.
-2. Run the staged focused post-pin A/B in the assigned quiet slot; preserve the completed October 5 archive.
-3. Review the final diff and verify the full signed receipt; refresh it after fingerprinted edits.
-4. Obtain user approval before pushing. Nothing in the research backlog below blocks the default-model
-   release by itself, provided unmeasured performance is not claimed.
-
-### Publication and research (separate from release)
-
-- Re-run the full paper/baseline campaign with the corrected fail-closed harness in an isolated checkout,
-  fresh outputs, matched frames/precision/geometry and complete per-query scoring. Existing competitor
-  results are historical snapshots; the same-machine audit A/B is not a current paper speedup claim.
-- Recollect b10/b15 conservative-model groups before republishing their rates: old dumps omitted empties.
-- G1–G4 are integrated; no HJCD collision sidecar or duplicate warp checker remains. G5's upstream generic
-  spherizer/report uses **collision** meshes, unlike HJCD's historical **visual**-mesh fitter. G6 provides
-  the foam preset mechanism, not the entire proposed model catalog. Keep the explicit default foam path.
-- GLASS point-transform/vote helpers are available, but the generated GRiD checker does not call them.
-  Adopt optional helpers/models only as separately validated changes; do not change numerical policy here.
-- Visual-mesh judges are environment-only approximations with obstacle-shrink tolerances, not physical
-  ground truth. Model substitution informs geometry effects without isolating all solver-policy differences.
-- Fetch collision scenes, procedural clutter, branched-chain support, additional upstream math/FK helpers
-  and a self-hosted GPU runner remain research/infrastructure work.
-
-### Historical roadmap (October 3; superseded by the current sections above)
-
-The numbered record below explains earlier decisions and measurements; it is not today's task queue.
-
-1. **Re-record the GPU proof** after any `csrc/`/`tests/`/docs change (see *Testing and the GPU-proof gate*).
-2. **Paper protocol rerun with baselines: DONE 2026-10-03** (`docs/development/evidence/paper_rerun_2026-10-03/`,
-   summarised in `docs/source/user_guide/benchmarks/results.rst` "Rerun on the current code"). cuRobo v2 is a
-   much stronger baseline than the paper's v0.7 and, once its collision spheres are active (the URDF-built robot
-   had none — a harness defect fixed in `486b547`), it matches HJCD on the hard collision sets at similar
-   latency. HJCD leads on open-world Panda latency (1.7 vs 6.4 ms), Fetch is cuRobo's, MMD is HJCD's.
-   `benchmark/score_collision_oracles.py` re-scores stored configurations under sphere and FCL-mesh oracles;
-   use it (not a single oracle) for any collision claim. **Fairness pass (same day, evening):** PyRoki is now
-   collision-aware (foam spheres through its own API), the judges are `hull` (franka's convex collision
-   meshes = MoveIt's geometry) / `visual` (true shape, the headline) / `hjcd`, `paper`, `curobo` spheres;
-   `kitchen` + `table_bars` exported from the public MBM dataset (`benchmark/mbm_export.py`,
-   `benchmark/problems/mb_extra_panda.json`); clearance ladder (`benchmark/make_clearance_ladder.py`). Under
-   the true geometry every solver is 94–100 % on every set; on tight clearance the foam sphere model — not the
-   search — is HJCD's limit (HJCD compiled on cuRobo's spheres, `benchmark/make_curobo_sphere_urdf.py`,
-   matches cuRobo in the cage), and a residual ~10-point gap on the table sets is the post-solve filtering
-   vs. collision-in-the-loop difference. Evidence: `docs/development/evidence/fairness_hardsets_2026-10-03/`.
-   **Kernel follow-up (same night):** collision-aware early stop + seed ranking + repair round + success-band
-   fallback (see *Conventions*) — the three dataset sets with misses went to 100 % and the ladder's table
-   levels are within 0–4 points of cuRobo on foam's spheres; on cuRobo's spheres HJCD = cuRobo everywhere.
-   Sphere-model fidelity tool `benchmark/make_bounded_bulge_spheres.py` (bulge/coverage vs the true meshes):
-   conservative full-cover models (200–377 spheres) reduced observed success; their shared-GPU latency
-   observations are not a valid performance claim. Foam
-   stays the default; a broad→fine cascade (GRiD supports it) is the route if a conservative model is ever
-   wanted. The quiet-window A/B is done (`audit_timing_2026-10-05`, `postpin_timing_2026-10-06`). **Closed
-   2026-10-07:** success is monotone in B with the collision-aware stop
-   (`docs/development/evidence/c1_batch_monotonic_2026-10-07/`); a nullspace repair step (contact normals →
-   EE-Jacobian nullspace → LM re-projection) was implemented, measured on the ladder and NOT shipped — a
-   wash, because the solver never returns an accurate configuration its own spheres reject; the remaining
-   misses are the sphere model's (`docs/development/evidence/repair_nullspace_2026-10-07/`).
-3. **Two collision-scene protocols (ruled 2026-10-03).** MotionBenchMaker goals are `panda_hand` poses (the
-   dataset's `goal_ik` puts `panda_hand` on them; the TCP is 105 mm further out). The paper's Table II used the
-   *cylinder-snapped* target with the TCP frame, which is physically consistent for cylinder-grasp scenes
-   (box, bookshelf, table) but not for `cage_panda` (no cylinders) or `box_panda_flipped` (goal 38 cm from
-   any cylinder). `run_paper_experiments.sh` therefore runs Table II twice: the **paper protocol** on
-   `box_panda` for continuity (`--target-mode cylinder`, TCP builds) and the **dataset protocol** on every set
-   (`--target-mode goal`, `panda_hand` builds, `RUN_HARD=1`), all solvers validated by the same `hjcd` sphere
-   oracle. The dataset protocol is the harder, honest benchmark: with the default TCP build and raw goals
-   the accurate-rate over 64 problems was 47/64 (cage 0/8); at `panda_hand` it is 60/64 and the remaining
-   misses are found at B=16000. Robustness work (informed second round, collision-aware refinement) is future
-   work alongside floating-base support.
-4. **Consume upstream collision primitives/models** — spec in
-   `docs/development/upstream_asks_collision_2026-10.md` (G1 expose sphere tables, G2 warp-scoped `config_free`, G3
-   broad→fine cascade, G4 parallel block path, G5 bounded-bulge spherizer + fidelity report, G6 named Panda presets);
-   G1–G4 are integrated and HJCD's duplicate sidecar/checker are removed. G5/G6 remain upstream follow-ups.
-5. **Upstream candidates (older):** grasptarget-offset FK (`ee_fk_warp`/`ee_fk_thread`/`ee_fk_suffix_thread`) and the
-   batched pose-7 FK kernel → GRiD; the warp dogleg step and a `gn_step` variant that exposes diag(A)/g → GLASS.
-6. **Branched-chain support** in `ee_fk_suffix_thread` (needs the parent table; the GRiD primitive is general).
-7. **Self-hosted GPU runner** so `.github/workflows/test.yml` can leave manual-only mode.
+**Standing rules.** Timing only on an empty GPU in a user-announced window (`timing_gate.md`); correctness
+collection may share the GPU. Receipt discipline: commit → `scripts/setup/run_gpu_proof.sh` on a byte-clean
+checkout → verify → commit `gpu-proof.json` (`update_gpu_proof_manifest.py` when test IDs change). Push only
+with the user's say-so, over SSH. Never hand-edit generated headers. Kill by PID only.

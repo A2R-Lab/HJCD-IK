@@ -129,13 +129,11 @@ Result<T> generate_ik_solutions(
  * T may be float or double. The result uses [x,y,z,qw,qx,qy,qz], meters and
  * scalar-first quaternions. Sampling respects joint limits but does not check collision.
  * Calls share the solver lock and use the calling thread's current CUDA device.
- * @param d_robotModel Device model matching the compiled robot and T, or nullptr for the cache.
  * @param num_configs Positive target count bounded by CUDA launch indexing.
  * @param seed Unsigned seed used to shift the Halton sequence.
  */
 template<typename T>
 std::vector<std::array<T, 7>> sample_random_target_poses(
-    const grid::robotModel<T>* d_robotModel,
     int num_configs,
     std::uint64_t seed
 );

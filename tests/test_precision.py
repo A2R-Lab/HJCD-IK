@@ -42,8 +42,8 @@ def test_fp64_refine_accuracy():
 def test_auto_select_matches_explicit():
     """Default (auto, refine_fp64=-1) must produce results consistent with the precision it auto-picks
     (fp64 at ns=1, fp32 at ns>=2) within fp run-to-run noise. NOTE: fp32 and fp64 are BOTH sub-micron, so
-    accuracy cannot prove which precision ran — that (the 5-7x speed) is verified by the timing sweep
-    (scripts/perf/time_multiwarp_sweep.py). This guards that auto isn't broken / mis-wired."""
+    accuracy cannot prove which precision ran — that (the 5-7x speed) is a timing-window measurement
+    (scripts/perf/timing_driver.py). This guards that auto isn't broken / mis-wired."""
     band_mm, band_rad = 5e-3, 5e-4   # run-to-run fp noise band (same scale as the W-match test)
     targets = hjcdik.sample_targets(num_targets=8, seed=1)
     for t in targets:

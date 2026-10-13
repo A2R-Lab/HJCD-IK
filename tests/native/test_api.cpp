@@ -42,7 +42,7 @@ int main(int argc, char** argv) try {
         generate_ik_solutions<double>(nullptr, 32);
         throw std::runtime_error("null target accepted");
     } catch (const std::invalid_argument&) {}
-    auto targets = sample_random_target_poses<double>(nullptr, 2, 17);
+    auto targets = sample_random_target_poses<double>(2, 17);
     require(targets.size() == 2, "sampling failed");
 
     auto result = generate_ik_solutions<double>(targets[0].data(), 2000, 2);
@@ -65,7 +65,7 @@ int main(int argc, char** argv) try {
     check_result(fp32.get(), targets[0], 1);
     check_result(fp64.get(), targets[1], 1);
 
-    auto float_targets = sample_random_target_poses<float>(nullptr, 1, 19);
+    auto float_targets = sample_random_target_poses<float>(1, 19);
     auto float_result = generate_ik_solutions<float>(float_targets[0].data(), 512);
     check_result(float_result, float_targets[0], 1);
     if (!grid_has_collision()) {

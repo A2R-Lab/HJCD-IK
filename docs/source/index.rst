@@ -84,6 +84,7 @@ Quick start
    :caption: Examples & Results
 
    user_guide/benchmarks/results
+   user_guide/benchmarks/reproduction
 
 .. toctree::
    :hidden:

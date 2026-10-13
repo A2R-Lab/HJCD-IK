@@ -312,8 +312,8 @@ def main() -> None:
                     help="Post-hoc Panda environment geometry: paper (historical +/-65 mm fingers) "
                          "or hjcd (current URDF +/-40 mm fingers). Does not change solver geometry.")
     ap.add_argument("--collision-mode", choices=("hard", "soft", "both"),
-                    default=os.environ.get("HJCD_CC_MODE", "hard"),
-                    help="Collision policy (default: hard; HJCD_CC_MODE remains a benchmark compatibility fallback).")
+                    default="hard",
+                    help="Collision policy (default: hard). No environment variable is read.")
     ap.add_argument( "--problems-json", type=str, default=str(ROOT / "tests" / "mb_problems.json"),help="Path to problems JSON (e.g., mb_problems.json).")
     ap.add_argument("--problem-set", type=str, default="box_panda",help="Problem set name in JSON (paper Table II scene).")
     ap.add_argument("--problem-idx", type=int, default=-1,help="If >=0, run only this problem index; if -1 run all.")

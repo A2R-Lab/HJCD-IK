@@ -1475,13 +1475,12 @@ T* sample_ik_config_halton(hjcd::DeviceAllocations& allocations,
 
 template<typename T>
 std::vector<std::array<T,7>>
-sample_random_target_poses(const grid::robotModel<T>* d_robotModel,
-                           int num_configs, uint64_t seed) {
+sample_random_target_poses(int num_configs, uint64_t seed) {
     std::lock_guard<std::recursive_mutex> lock(solver_mutex());
     if (num_configs <= 0 || num_configs > std::numeric_limits<int>::max() - 255)
         throw std::invalid_argument("num_configs must be positive and fit CUDA launch indexing");
     init_joint_limits_from_grid();
-    if (!d_robotModel) d_robotModel = cached_robot_model<T>();
+    const grid::robotModel<T>* d_robotModel = cached_robot_model<T>();
     hjcd::DeviceAllocations allocations;
     std::vector<std::array<T,7>> out;
 
@@ -2344,13 +2343,11 @@ template Result<float> generate_ik_solutions<float>(
 );
 
 template std::vector<std::array<double, 7>> sample_random_target_poses(
-    const grid::robotModel<double>* d_robotModel,
     int num_configs,
     uint64_t seed
 );
 
 template std::vector<std::array<float, 7>> sample_random_target_poses(
-    const grid::robotModel<float>* d_robotModel,
     int num_configs,
     uint64_t seed
 );
