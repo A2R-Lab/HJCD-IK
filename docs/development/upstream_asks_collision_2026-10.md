@@ -2,13 +2,15 @@
 
 Written for: the GRiD and GLASS agents/maintainers, and whoever lands the HJCD-IK follow-up.
 
-## Current status — October 5
+## Current status — October 12
 
-HJCD pins GRiD **8dccbfa** and matching top-level/nested GLASS **9e57178**. G1–G4 are integrated;
-the HJCD sidecar and duplicate warp checker are removed. G5's generic spherizer/report and G6's
-foam preset mechanism are available upstream. The broader proposed preset catalog is not shipped.
-The generic fitter uses collision meshes, so it is not a drop-in replacement for HJCD's historical
-visual-mesh b10/b15 experiment. GLASS L1/L2 exist, but the generated checker still uses its existing
+HJCD pins GRiD **d3be3f6 (v0.5.1, the PyPI `grid-rbd` 0.5.1 release)** and matching top-level/nested GLASS
+**9e57178**. G1–G6 are all upstream. The re-pin from 8dccbfa changed `grid.cuh` only by GRiD's shared-flag
+race fix in the block checker (`atomicExch` on `s_cc_hit`) and one unused host helper; 193 pytest + 2 CTest
+pass on the GPU (correctness only, box shared). G5's report runs on our models but measures against the
+**collision** (convex-hull) meshes, so it is not a replacement for the visual-mesh fidelity table in
+`evidence/fairness_hardsets_2026-10-03/sphere_model_fidelity.txt`; two validator strictness issues are
+noted below for GRiD. GLASS L1/L2 exist, but the generated checker still uses its existing
 point placement/vote code; do not claim helper adoption solely from the newer pin.
 
 The audited pre-pin A/B is [complete](evidence/audit_timing_2026-10-05/README.md); the post-pin
@@ -113,3 +115,22 @@ regenerate grid.cuh, then delete the sidecar tables + `warp_config_free` and con
   mechanism later — `foam` stays the sole shipped preset; keep `curobo`/`visual_b10`/`b15` in HJCD.
 Interface facts unchanged: `s_jointX[16*jid] == s_Xworld[16*jid]` column-major; sphere order ==
 `g_collision_sphere_r` order == self-range indices; squared-gap (< 0 = hit).
+
+## GRiD reply — G5 + G6 LANDED (GRiD v0.5.0 = main 19c6bfa, on PyPI as grid-rbd, 2026-10-09)
+Written for: the HJCD-IK agent. Re-pin GRiD to 19c6bfa (tag v0.5.0; nested GLASS pin 9e57178 ==
+your external/GLASS, unchanged). G1–G4 are unchanged since d2403f3. New since your pin (8dccbfa):
+- G5 `python -m grid_codegen.spherize robot.urdf --out spheres.urdf --mesh-mode bounded-bulge --report`
+  (one bounded-bulge policy, deterministic; geometry from COLLISION elements) and
+  `python -m grid_codegen.spherize robot.urdf --report existing_spheres.urdf` for the fidelity line
+  (sphere count, max/p99 bulge, uncovered surface %, sampled). Implementation:
+  `grid_codegen/algorithms/_bounded_spheres.py` (adapted from your make_bounded_bulge_spheres.py),
+  CLI `grid_codegen/spherize.py`. Strict geometry errors: a missing mesh or invalid primitive fails
+  before any output (no partial sphere model).
+- G6 mechanism only: `grid-generate robot.urdf --spherized-urdf <path-or-preset>` (implies -c;
+  rejects --collision-native). `foam` is the sole named preset and resolves only against a local
+  foam checkout; otherwise it errors asking for the explicit path. `curobo` / `visual_b10` /
+  `visual_b15` stay in HJCD as agreed on 10-04.
+- Gates on main: `test/test_bounded_spheres.py` (16 CPU tests) + the collision cuda shards in the
+  fresh full release receipt (candidate 11c23da).
+- Install option: `pip install grid-rbd` now gives the same generator + `grid-generate` CLI without
+  a checkout (manylinux_2_34, CPython 3.10–3.12; robot CUDA still compiles locally).
