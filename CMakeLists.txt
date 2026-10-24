@@ -93,7 +93,6 @@ message(STATUS "HJCD-IK: using GRiD header ${GRID_HEADER}")
 set(HJCDIK_HEADERS
   csrc/kernel/hjcd_settings.h
   csrc/kernel/device_utils.cuh
-  csrc/kernel/grid_env.cuh
 )
 
 set(HJCDIK_COMMON_SOURCES

@@ -55,25 +55,28 @@ grid::robotModel<T>* cached_robot_model() {
 }
 
 // Collision checking (grid_collision: URDF-driven spheres baked into grid.cuh)
-#include "kernel/grid_env.cuh"   // requires grid.cuh (via hjcd_settings.h) already included above
-
-// Owning device world. Made on the current device; DeviceAllocations frees on that device.
+// Owning device world: GRiD's DeviceEnvironment (validated rows, device recorded, freed on its device).
 struct CollisionWorld {
-    int device = 0;
+    int device = -1;
     std::array<int, 3> counts{0, 0, 0};   // spheres, capsules, boxes
 #if defined(HJCD_HAS_COLLISION)
-    hjcd_env::DeviceEnv device_env;
+    grid_collision::DeviceEnvironment<float> device_env;
 #endif
 };
 
 std::shared_ptr<CollisionWorld> make_collision_world(const WorldSpec& spec) {
 #if defined(HJCD_HAS_COLLISION)
+    if (spec.spheres.size() % 4 || spec.capsules.size() % 7 || spec.boxes.size() % 10)
+        throw std::invalid_argument("world arrays must be whole rows: spheres 4, capsules 7, boxes 10 values");
     std::lock_guard<std::recursive_mutex> lock(solver_mutex());
-    const hjcd_env::HostEnv host = hjcd_env::host_env_from_spec(spec);   // validates before CUDA
     auto world = std::make_shared<CollisionWorld>();
-    CUDA_OK(cudaGetDevice(&world->device));
+    // make_host_environment validates every row before any CUDA call (std::invalid_argument names the row).
+    world->device_env = grid_collision::make_device_environment<float>(
+        spec.spheres.data(), spec.num_spheres(), spec.capsules.data(), spec.num_capsules(),
+        spec.boxes.data(), spec.num_boxes());
+    world->device = world->device_env.device();
+    if (world->device < 0) CUDA_OK(cudaGetDevice(&world->device));   // an empty world uploads nothing
     world->counts = {spec.num_spheres(), spec.num_capsules(), spec.num_boxes()};
-    world->device_env = hjcd_env::upload_env(host);
     return world;
 #else
     (void)spec;
@@ -1806,7 +1809,7 @@ Result<T> generate_ik_solutions(
     grid_collision::Environment<float> cc_env{nullptr, 0, nullptr, 0, nullptr, 0};
     const grid::robotModel<float>* d_robotModel_cc = nullptr;
     if (do_cc) {
-        if (world != nullptr) cc_env = world->device_env.env;
+        if (world != nullptr) cc_env = world->device_env.view();
         d_robotModel_cc = cached_robot_model<float>();
     }
 #endif  // HJCD_HAS_COLLISION

@@ -39,13 +39,12 @@ joints. Target indices and transform counts are generated constants; the default
 |---|---|
 | `csrc/kernel/hjcd_kernel.cu` | The solver: block-cooperative coarse search + warp-scoped LM refine + host orchestration (`generate_ik_solutions`). **The file you'll edit most.** |
 | `csrc/kernel/hjcd_settings.h` | `HJCDSettings<T>` (coarse/LM tolerances, `lambda_init`), `mat4_mul`, FK helpers (`ee_fk_warp`/`ee_fk_thread`/`ee_fk_suffix_thread`), `#include "grid.cuh"`, `N`/`FLANGE_JID`/`GRASP_FIXED_IDX`. |
-| `csrc/kernel/hjcd_kernel.h` | Native host API: move-only `Result<T>` (with `SolveStats`), `CollisionMode`, `WorldSpec` → `make_collision_world` (owning device world), `generate_ik_solutions<T,RT>(target, batch, num_solutions, mode, world, collect_stats)`, `sample_random_target_poses`. |
+| `csrc/kernel/hjcd_kernel.h` | Native host API: move-only `Result<T>` (with `SolveStats`), `CollisionMode`, `WorldSpec` → `make_collision_world` (owning device world = GRiD's `grid_collision::DeviceEnvironment`), `generate_ik_solutions<T,RT>(target, batch, num_solutions, mode, world, collect_stats)`, `sample_random_target_poses`. |
 | `csrc/kernel/main.cpp` | Native CLI (`single`/`sweep`/`from_csv`), open-world only; CTest-covered by `tests/native/`. |
 | `csrc/generated/grid.cuh` | **Generated** GRiD kinematics + collision header. Do **not** hand-edit. Generated with `vendor_glass=False`, so it `#include "glass.cuh"`s the top-level GLASS instead of vendoring a copy (~6k lines, was ~15k). |
 | `external/GRiD/` | Submodule: GRiD codegen (emits `grid.cuh` from a URDF). Its nested GLASS pin must equal `external/GLASS`. |
 | `external/GLASS/` | Submodule: GLASS single-block / warp / thread linear algebra (`glass::warp::`, `glass::thread::`, `glass::block::`). |
 | `external/foam/` | Submodule: pre-spherized Panda collision URDF (`assets/panda/smaller_panda_spherized.urdf`). |
-| `csrc/kernel/grid_env.cuh` | `WorldSpec` arrays → `grid_collision::Environment` (device obstacle set) for the collision kernels; marked "move to GRiD (ask G8)". No JSON in the native layer any more. |
 | `csrc/bindings/pybind_module.cpp` | Low-level bindings (`_hjcdik`: `World`, `solve_one`, `sample_targets`, `current_device`, `build_info`); every call runs on the solver's device and restores the caller's. The user API is pure Python: `hjcdik/_solver.py` (`Solver`, `Result`, `TargetResult`, `Stats`, `Info`, `SolveError`) and `hjcdik/worlds.py` (MotionBenchMaker JSON → `set_world` arrays). |
 | `tests/` | pytest suite (API contracts, FK equivalence, collision policy, codegen, stats, regression vs `baseline_metrics.json`); `tests/native/` = CTest native API + CLI contracts. `gpu-proof-tests.txt` is the signed-receipt manifest. |
 | `gpu-proof.json` | Signed pytest-gpu-proof receipt of the last full GPU run; verified by CPU-only CI. |
@@ -189,8 +188,9 @@ measurement with the protocol in [`docs/development/timing_gate.md`](docs/develo
 - Audit A/B ([`audit_timing_2026-10-05`](docs/development/evidence/audit_timing_2026-10-05/README.md)): identical
   matched quality counts, 19/20 cells faster, one unchanged. GRiD/GLASS re-pin confirmed performance-neutral
   ([`postpin_timing_2026-10-06`](docs/development/evidence/postpin_timing_2026-10-06/README.md), 12 paired ratios
-  within 0.9946–1.0046). The 2026-10-12 re-pin to GRiD v0.5.1 changed only a block-checker race fix, and the 2026-10-23 re-pin to
-  v0.5.5 changed no kernel code HJCD executes (header diff: linalg-argument removal and plant-menu templates); no A/B owed.
+  within 0.9946–1.0046). The 2026-10-12 re-pin to GRiD v0.5.1 changed only a block-checker race fix; the 2026-10-23 re-pin to v0.5.5 and the
+  2026-10-24 re-pin to v0.6.0 changed no kernel code HJCD executes (linalg-argument removal; plant block dropped from the
+  kinematics header; checker defaults `margin=0`, `check_self=true` are the old verdict); no A/B owed.
 - Full campaign on the shipped code, all baselines ([`paper_rerun_2026-10-07`](docs/development/evidence/paper_rerun_2026-10-07/README.md),
   results.rst *Current code — full campaign*): Panda open-world 1.62–1.65 ms at B ≥ 100 (cuRobo v2 5.9–6.4,
   PyRoki 6–7.2, IKFlow 2.5–6.2); Fetch 0.81–1.10 vs cuRobo 1.8–2.1; DoF 7/12/18/24 1.76/1.87/2.31/2.85 vs
@@ -207,8 +207,9 @@ measurement with the protocol in [`docs/development/timing_gate.md`](docs/develo
 ## Status and what next (updated 2026-10-23)
 
 **Where the code is.** `origin/main` carries the closed fairness/hardening arc (2026-10-03 → 10-07) and the
-re-pin to GRiD **v0.5.5** (`76a0736`, the PyPI `grid-rbd` 0.5.5 release, 2026-10-23; nested URDFParser `f391741`;
-GLASS `9e57178`, top-level and nested, unchanged since 10-03; pytest-gpu-proof 0.4.1 is still the latest release).
+re-pin to GRiD **v0.6.0** (commit `712df1c`, the PyPI `grid-rbd` 0.6.0 release, 2026-10-24, which shipped every HJCD ask:
+G7 margin, G10 self toggle, G8a `DeviceEnvironment`, G9 `build_artifact`/`load_artifact`, V1 rebind, V2, V3, E1;
+nested URDFParser `f391741`; GLASS `9e57178`, top-level and nested; pytest-gpu-proof 0.4.1 is still the latest release).
 All six upstream asks (G1–G6, `docs/development/upstream_asks_collision_2026-10.md`) are in GRiD; HJCD has no
 collision sidecar. GRiD's G5 fidelity report measures against collision (convex-hull) meshes, so
 `benchmark/make_bounded_bulge_spheres.py --report` remains the visual-mesh fidelity tool of record.
