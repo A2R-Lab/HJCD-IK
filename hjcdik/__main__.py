@@ -19,6 +19,7 @@ def main(argv=None) -> int:
     b.add_argument("--force", action="store_true", help="recompile every unit")
     b.add_argument("--plan", action="store_true", help="report what a build would use without building")
     sub.add_parser("list", help="prepared builds in the store").add_argument("--cache-dir", default=None)
+    sub.add_parser("presets", help="robots shipped with the package (URDF, end-effector frame, sphere model)")
     sub.add_parser("info", help="the packaged robot's build metadata")
     args = parser.parse_args(argv)
 
@@ -26,6 +27,10 @@ def main(argv=None) -> int:
     if args.command == "info":
         from ._hjcdik import build_info
         print(json.dumps(build_info(), indent=2))
+        return 0
+    if args.command == "presets":
+        for name, preset in _build.presets().items():
+            print(json.dumps({"name": name, **{k: str(v) for k, v in preset.items()}}, sort_keys=True))
         return 0
     try:
         if args.command == "list":

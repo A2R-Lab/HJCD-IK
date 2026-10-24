@@ -70,7 +70,27 @@ def source_root() -> Path:
 
 def sphere_presets() -> dict:
     """Named, validated sphere models shipped with the package (keyed by preset name)."""
-    return {"panda_foam": source_root() / "collision" / "panda_foam_rebound.urdf"}
+    root = source_root()
+    return {
+        "panda_foam": root / "collision" / "panda_foam_rebound.urdf",
+        "iiwa14": root / "collision" / "iiwa14_spheres.urdf",
+    }
+
+
+def presets() -> dict:
+    """Robots shipped with the package as URDF + end-effector frame + sphere model.
+
+    `Solver("<preset>")` builds the preset on first use (or loads it when already built); the
+    packaged robot ("panda") is compiled into the wheel and needs no build. Every preset is a
+    fixed-base serial chain whose joints rotate about their local +Z, the solver's model.
+    """
+    root = source_root()
+    return {
+        "panda": dict(urdf=root / "urdf" / "panda.urdf", ee_link="panda_grasptarget_hand",
+                      spheres="panda_foam", source="franka_description (panda_arm_hand.urdf.xacro)"),
+        "iiwa14": dict(urdf=root / "urdf" / "iiwa14.urdf", ee_link="iiwa_joint_ee", spheres="iiwa14",
+                       source="Drake manipulation/models/iiwa_description (iiwa14_primitive_collision.urdf)"),
+    }
 
 
 def robot_name(urdf_path) -> str:
@@ -176,7 +196,12 @@ def _build_inputs(name: str, urdf_path: Path, ee_link: str, spheres: Optional[Pa
         headers=sorted(p for p in (root / "kernel").iterdir() if p.suffix in (".h", ".cuh")),
         include_dirs=[root, include, pybind11.get_include()],
         defines=[f"{k}={v}" for k, v in defines.items()],
-        extra_flags=["-use_fast_math", "-Xptxas=-O3", "--expt-relaxed-constexpr"],
+        # Hidden visibility and no STB_GNU_UNIQUE: every artifact is its own module in one process, and
+        # default-visibility template statics (the cached robot model, the solver mutex, GRiD's pools)
+        # would otherwise bind process-wide across modules and make a second robot solve with the first
+        # robot's kinematics.
+        extra_flags=["-use_fast_math", "-Xptxas=-O3", "--expt-relaxed-constexpr",
+                     "--compiler-options=-fvisibility=hidden,-fvisibility-inlines-hidden,-fno-gnu-unique"],
         link_flags=["--cudart=shared", f"-Xlinker=-rpath={cuda_lib}"],
         artifact_name=f"hjcdik_{_module_name(name)[8:]}.so",   # store file name; the init symbol is the module name
     )

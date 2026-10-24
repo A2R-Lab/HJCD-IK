@@ -216,8 +216,9 @@ class Solver:
     """IK solver for one compiled robot: the packaged one, or a runtime build from the artifact store.
 
     `Solver()` is the packaged robot. `Solver("<name>")` is the packaged robot when the name matches it,
-    otherwise a prepared build of that name (`hjcdik.build` / `hjcdik build`). `Solver("<path>.urdf",
-    ee_link=..., spheres=...)` builds the robot on first use (`allow_build=False` only loads). One
+    a shipped preset (`hjcdik.presets()`, built on first use) or a prepared build of that name
+    (`hjcdik.build` / `hjcdik build`). `Solver("<path>.urdf", ee_link=..., spheres=...)` builds the
+    robot on first use (`allow_build=False` only loads). One
     instance binds to a CUDA device at construction and owns one obstacle world. Calls from several
     threads are safe and serialised; they are not concurrent on the GPU.
     """
@@ -262,7 +263,13 @@ class Solver:
         else:
             if ee_link is not None or spheres is not None:
                 raise ValueError("ee_link and spheres apply to a URDF build; a build name is already complete")
-            self._artifact = _load_artifact(text, cache_dir=cache_dir)
+            from ._build import presets
+            preset = presets().get(text)
+            if preset is not None and allow_build:
+                self._artifact = _build_artifact(preset["urdf"], ee_link=preset["ee_link"],
+                                                 spheres=preset["spheres"], name=text, cache_dir=cache_dir)
+            else:
+                self._artifact = _load_artifact(text, cache_dir=cache_dir)
         return import_artifact(self._artifact)
 
     # ----------------------------------------------------------------------------- world

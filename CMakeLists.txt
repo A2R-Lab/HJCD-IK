@@ -127,13 +127,22 @@ set(HJCDIK_CUDA_FLAGS
   $<$<COMPILE_LANGUAGE:CUDA>:-use_fast_math>
   $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-O3>
 )
+# Hidden visibility and no STB_GNU_UNIQUE on every host object: the packaged module shares a process
+# with per-robot artifacts (hjcdik.build), and default-visibility template statics would bind
+# process-wide across those modules (one robot's cached model serving another robot's solves).
+if(NOT MSVC)
+  set(HJCDIK_VISIBILITY_FLAGS
+    $<$<COMPILE_LANGUAGE:CXX>:-fvisibility=hidden;-fvisibility-inlines-hidden;-fno-gnu-unique>
+    $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-fvisibility=hidden,-fvisibility-inlines-hidden,-fno-gnu-unique>
+  )
+endif()
 
 # Compile the CUDA solver once and reuse the object code in both front ends. Keeping bindings and
 # CLI code out of this target means ordinary wrapper edits do not trigger the expensive CUDA compile.
 add_library(hjcdik_core OBJECT ${HJCDIK_COMMON_SOURCES})
 target_sources(hjcdik_core PRIVATE ${GRID_HEADER})
 target_include_directories(hjcdik_core PUBLIC ${HJCDIK_INCLUDE_DIRS})
-target_compile_options(hjcdik_core PRIVATE ${HJCDIK_WARN_FLAGS} ${HJCDIK_CUDA_FLAGS})
+target_compile_options(hjcdik_core PRIVATE ${HJCDIK_WARN_FLAGS} ${HJCDIK_CUDA_FLAGS} ${HJCDIK_VISIBILITY_FLAGS})
 target_link_libraries(hjcdik_core PUBLIC CUDA::cudart Threads::Threads)
 set_target_properties(hjcdik_core PROPERTIES
   CUDA_SEPARABLE_COMPILATION OFF
@@ -184,7 +193,7 @@ if(BUILD_PYTHON)
     HJCDIK_ROBOT_NAME="${HJCDIK_ROBOT_NAME}"
     HJCDIK_CUDA_COMPILER_VERSION="${CMAKE_CUDA_COMPILER_VERSION}"
   )
-  target_compile_options(_hjcdik PRIVATE ${HJCDIK_WARN_FLAGS})
+  target_compile_options(_hjcdik PRIVATE ${HJCDIK_WARN_FLAGS} ${HJCDIK_VISIBILITY_FLAGS})
   target_link_libraries(_hjcdik PRIVATE hjcdik_core)
   set_target_properties(_hjcdik PROPERTIES CUDA_RUNTIME_LIBRARY Shared)
 

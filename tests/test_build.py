@@ -122,6 +122,11 @@ def test_two_robots_in_one_process_are_isolated(panda_rt, fetch_rt):
     assert fetch.solve(fetch.sample_targets(2, seed=3), batch_size=512).count.tolist() == [1, 1]   # default None
     packaged = hjcdik.Solver()
     runtime = hjcdik.Solver("test-panda-cc", cache_dir=CACHE)
+    # Each module keeps its own kinematics: a second robot must not solve with the first robot's cached
+    # model (template statics bound process-wide once; hidden visibility and -fno-gnu-unique prevent it).
+    fetch_targets = fetch.sample_targets(4, seed=3)
+    assert not np.allclose(fetch_targets[:, :3], packaged.sample_targets(4, seed=3)[:, :3])
+    assert (fetch.solve(fetch_targets, batch_size=512, collision=None).pos_err_mm[:, 0] < 0.01).all()
     target = packaged.sample_targets(1, seed=5)[0]
     packaged.set_world(spheres=[[0, 0, 0, 100]])
     runtime.set_world(spheres=[[10, 10, 10, 0.1]])

@@ -30,7 +30,8 @@ Solver
 
 ``Solver(robot=None, *, ee_link=None, spheres=None, device=None, allow_build=True, cache_dir=None)``
    ``Solver()`` is the packaged robot (``"panda"`` in the shipped wheel; ``Solver("panda")`` is the
-   same). Any other name is a prepared runtime build of that name (see *Runtime robot builds*). A
+   same). Any other name is a shipped preset (``hjcdik.presets()``; built through the artifact store on
+   first use, loaded afterwards) or a prepared runtime build of that name (see *Runtime robot builds*). A
    URDF path with ``ee_link`` (the fixed joint naming the end-effector frame) and optionally
    ``spheres`` builds the robot on first use; ``allow_build=False`` only loads a prepared build and
    raises ``BuildError`` naming the command otherwise. ``device`` defaults to the current CUDA
@@ -252,9 +253,34 @@ URDF, the sphere model, the codegen options and tree, GLASS, our sources and hea
 defines, flags, toolchain and CUDA architecture; per-unit object reuse; atomic publish). Artifacts
 live under ``<cache_dir>/consumers/hjcdik/`` (default ``~/.cache/grid-rbd``, ``GRID_RBD_CACHE_DIR``).
 ``hjcdik.load(name)`` returns a prepared ``Artifact`` with no toolchain, checking only the artifact
-schema and that the current GPU can run it; ``hjcdik.list_builds()`` lists the store. Each
+schema and that the current GPU can run it; ``hjcdik.list_builds()`` lists the store.
+
+``hjcdik.presets()`` (``hjcdik presets`` on the command line) names the robots the package ships as a
+URDF, an end-effector frame and a sphere model, each a fixed-base serial chain with local-+Z joints:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Preset
+     - End-effector frame
+     - Sphere model
+     - Source
+   * - ``panda``
+     - ``panda_grasptarget_hand``
+     - ``panda_foam`` (foam, rebound to our URDF)
+     - franka_description; compiled into the wheel
+   * - ``iiwa14``
+     - ``iiwa_joint_ee``
+     - ``iiwa14`` (GRiD spherizer on Drake's collision model)
+     - Drake ``iiwa_description``; built on first use
+
+The fidelity of each shipped sphere model (sampled bulge and uncovered surface per link, from
+``grid-spherize --report``) is recorded at the top of the sphere URDF under ``csrc/collision/``.
+Robots whose joints are not local-+Z (Unitree Z1, the UR series as distributed) wait for the general
+joint-axis solver; xacro-only descriptions (UR, Kinova Gen3, xArm) need their xacro expanded first. Each
 artifact is its own extension module, so several robots can be solved in one process with
-independent worlds and locks. A build that changes after it was imported into a process cannot be
+independent worlds and locks; the modules are compiled with hidden symbol visibility so no static
+state binds across them. A build that changes after it was imported into a process cannot be
 re-imported there; restart the process.
 
 Build metadata
