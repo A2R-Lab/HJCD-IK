@@ -10,12 +10,19 @@ import numpy as np
 POS_OK_MM, ORI_OK_RAD = 5.0, 0.05
 
 
+def candidate_arrays(result):
+    """(count, q, pos_err_mm, ori_err_rad) from a ``hjcdik.TargetResult`` or a legacy result dict."""
+    if isinstance(result, dict):
+        return (int(result["count"]), np.asarray(result.get("joint_config", [])),
+                np.asarray(result["pos_errors"]), np.asarray(result["ori_errors"]))
+    return int(result.count), np.asarray(result.q), np.asarray(result.pos_err_mm), np.asarray(result.ori_err_rad)
+
+
 def best_candidate(result):
     """Prefer a jointly accurate candidate, then minimum position/orientation error."""
-    n = int(result["count"])
+    n, _, pe, oe = candidate_arrays(result)
     if n == 0:
         return None
-    pe, oe = np.asarray(result["pos_errors"]), np.asarray(result["ori_errors"])
     if pe.shape != (n,) or oe.shape != (n,) or not np.isfinite(pe).all() or not np.isfinite(oe).all():
         raise ValueError("invalid candidate error arrays")
     return min(range(n), key=lambda i: (not (pe[i] < POS_OK_MM and oe[i] < ORI_OK_RAD), pe[i], oe[i]))
@@ -23,13 +30,14 @@ def best_candidate(result):
 
 def query_record(result, *, solver, problem_set, problem_idx, batch, target, ee_target, elapsed_ms):
     i = best_candidate(result)
+    n, q, pe, oe = candidate_arrays(result)
     return dict(schema_version=1, solver=solver, problem_set=problem_set,
-                problem_idx=int(problem_idx), batch=int(batch), count=int(result["count"]),
+                problem_idx=int(problem_idx), batch=int(batch), count=n,
                 status="returned" if i is not None else "empty", target=list(map(float, target)),
                 ee_target=ee_target, time_ms=None if elapsed_ms is None else float(elapsed_ms),
-                q=None if i is None else np.asarray(result["joint_config"][i], float).tolist(),
-                pos_err_mm=None if i is None else float(result["pos_errors"][i]),
-                ori_err_rad=None if i is None else float(result["ori_errors"][i]))
+                q=None if i is None else np.asarray(q[i], float).tolist(),
+                pos_err_mm=None if i is None else float(pe[i]),
+                ori_err_rad=None if i is None else float(oe[i]))
 
 
 def append_record(path, record):

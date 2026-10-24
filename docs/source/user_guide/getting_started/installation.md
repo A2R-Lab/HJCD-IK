@@ -11,15 +11,9 @@ promising ones, with optional collision avoidance. Kinematics come from [GRiD](h
 - Linux, a CUDA 12.x or 13.x toolkit (`nvcc`), and an NVIDIA GPU
 - CMake ≥ 3.24, a C++17 host compiler
 - Python ≥ 3.9
-- System header library: **nlohmann-json** (the collision environment parser includes it)
 
-### System dependencies (Debian/Ubuntu)
-
-```bash
-sudo apt install -y nlohmann-json3-dev
-```
-
-On other platforms install `nlohmann-json` via your package manager.
+No system libraries beyond the CUDA toolkit are needed (the former `nlohmann-json` dependency went
+with the native JSON parser in October 2026; obstacle worlds are plain arrays now).
 
 ## Build
 
@@ -58,34 +52,37 @@ the base package supports Python 3.9+.
 ## Quickstart
 
 ```python
-from hjcdik import generate_solutions, sample_targets, num_joints
+import hjcdik
 
-print("DOF:", num_joints())
+solver = hjcdik.Solver()
+print("robot:", solver.info.robot, "DOF:", solver.info.dof)
 
 # Sample a reachable target: [x, y, z, qw, qx, qy, qz]
-target = sample_targets(num_targets=1, seed=0)[0]
+target = solver.sample_targets(1, seed=0)[0]
 
-# Generate a batch of candidate IK solutions
-out = generate_solutions(
+# Explore a batch of candidates for this target; collision=None is an open-world solve
+out = solver.solve(
     target,
     batch_size=2000,     # candidates explored in parallel
-    num_solutions=4,     # distinct solutions to return
+    num_solutions=4,     # result capacity per target
+    collision=None,
 )
-print("returned:", out["count"])
-if out["count"]:
-    print("best position error (mm):", out["pos_errors"].min())
-    print("best orientation error (rad):", out["ori_errors"].min())
-print("joint configs shape:", out["joint_config"].shape)
+r = out[0]
+print("returned:", r.count)
+if r.count:
+    print("best position error (mm):", r.pos_err_mm.min())
+    print("best orientation error (rad):", r.ori_err_rad.min())
+print("joint configs shape:", r.q.shape)
 ```
 
-`batch_size` counts candidate configurations for one target, not independent targets.
-Targets/returned poses use meters and `wxyz` quaternions; returned errors use millimeters
+`batch_size` counts candidate configurations for one target, not independent targets; `solve`
+accepts a `(T, 7)` batch of targets and returns `(T, num_solutions, ...)` arrays, NaN-padded beyond
+`count`. Targets/returned poses use meters and `wxyz` quaternions; returned errors use millimeters
 and radians. Check both errors against your application's tolerances, even when `count > 0`.
-The result arrays have `count` rows, not necessarily `num_solutions` rows.
 
-For collision-free solving, pass `collision_free=True` with a MotionBenchMaker problem set — see the
-{doc}`../benchmarks/results` page (runnable examples + benchmarks). To target a different robot or
-end-effector frame, see {doc}`../tutorials/custom_robot`.
+For collision-free solving, install the obstacles with `solver.set_world(...)` and solve with the
+default `collision="hard"`; `examples/02_collision_free_solve.py` loads a MotionBenchMaker scene.
+To target a different robot or end-effector frame, see {doc}`../tutorials/custom_robot`.
 
 ## Native executable and checks
 

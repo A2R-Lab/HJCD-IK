@@ -21,16 +21,15 @@ GLASS_BRANCH="${GLASS_BRANCH:-main}"
 PYTHON="${PYTHON:-python3}"
 "$PYTHON" -c 'import sys; sys.exit("Development setup requires Python 3.11 or newer") if sys.version_info < (3, 11) else None'
 
-# System (C++/CUDA) build dependencies. The build needs the CUDA toolkit (nvcc) and
-# nlohmann-json headers for the collision environment parser.
+# System build dependencies: the CUDA toolkit (nvcc); Doxygen only for the docs.
 # Set SKIP_APT=1 to skip the apt step (e.g. on non-Debian systems — install the equivalents
-# manually: cuda-toolkit, nlohmann-json3-dev).
+# manually: cuda-toolkit, doxygen).
 if [ "${SKIP_APT:-0}" != "1" ] && command -v apt-get >/dev/null 2>&1; then
-  echo "[setup] (0/4) system deps (nlohmann-json, Doxygen) via apt ..."
-  sudo apt-get install -y --no-install-recommends nlohmann-json3-dev doxygen \
-    || echo "[setup] WARNING: apt install failed; install nlohmann-json3-dev + doxygen manually"
+  echo "[setup] (0/4) system deps (Doxygen) via apt ..."
+  sudo apt-get install -y --no-install-recommends doxygen \
+    || echo "[setup] WARNING: apt install failed; install doxygen manually (docs only)"
 else
-  echo "[setup] (0/4) skipping apt; ensure these are installed: cuda-toolkit, nlohmann-json3-dev, doxygen (for docs)"
+  echo "[setup] (0/4) skipping apt; ensure these are installed: cuda-toolkit, doxygen (for docs)"
 fi
 
 if [ "${SKIP_SUBMODULES:-0}" != "1" ]; then

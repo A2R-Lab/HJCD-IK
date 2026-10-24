@@ -16,7 +16,6 @@ more robot configurations for a target end-effector pose.
 - Python 3.9 or newer
 - CMake 3.24 or newer
 - GCC or Clang
-- nlohmann-json
 
 ## Installation
 
@@ -89,24 +88,24 @@ collision-enabled command below only when changing the URDF or end-effector targ
 ```python
 import hjcdik
 
-target = hjcdik.sample_targets(num_targets=1, seed=0)[0]
+solver = hjcdik.Solver()                      # the compiled robot; solver.info says which
+targets = solver.sample_targets(4, seed=0)    # (4, 7) reachable poses
 
-result = hjcdik.generate_solutions(
-    target,
-    batch_size=2000,
-    num_solutions=1,
-)
+result = solver.solve(targets, batch_size=2000, num_solutions=1, collision=None)
 
-print("solutions:", result["count"])
-print("joint configurations:", result["joint_config"])
-print("position errors:", result["pos_errors"])
-print("orientation errors:", result["ori_errors"])
+print("solutions per target:", result.count)
+best = result[0]                               # un-padded view of the first target
+print("joint configuration:", best.q)
+print("position error (mm):", best.pos_err_mm)
+print("orientation error (rad):", best.ori_err_rad)
 ```
 
-Each call solves **one target**. `batch_size` is the number of candidate configurations,
-not the number of target poses. A wheel contains one compiled robot; use `build_info()`
-to confirm its identity. See [upgrading and verified scope](docs/source/user_guide/upgrading.md)
-for changes to collision defaults, native ownership, and error handling.
+`solve` takes one pose or a batch of poses. `batch_size` is the number of candidate configurations
+explored per target, not the number of target poses. On a collision build the default policy is
+`collision="hard"` (self and environment filtering against the installed world); `collision=None` is
+an open-world solve. A wheel contains one compiled robot; `solver.info` and `hjcdik.build_info()`
+identify it. See [upgrading and verified scope](docs/source/user_guide/upgrading.md) for the move
+from the earlier function API.
 
 Target poses use:
 
@@ -115,14 +114,15 @@ Target poses use:
 ```
 
 Target and returned pose positions are in meters; quaternions use `wxyz` order and are normalized on input.
-Returned `pos_errors` are in **millimeters** and `ori_errors` are in **radians**. Check these errors against
+Returned `pos_err_mm` are in **millimeters** and `ori_err_rad` are in **radians**. Check these errors against
 your tolerances; the solver can return approximate candidates for unreachable targets. Collision filtering
-can return fewer solutions, including zero. See [the Python API](docs/source/api_reference/python.rst).
+can leave fewer valid rows than requested, including zero (`result.count`, `result.valid`). See
+[the Python API](docs/source/api_reference/python.rst).
 
 In hard/both mode, collision-aware refinement may retain a free fallback within 5 mm / 0.05 rad
 when this run finds no exactly converged free candidate. A nonempty result is not an accuracy
 certificate: check both errors for the same candidate against your application's tolerances.
-`build_info()["ee_target"]` identifies the compiled tool frame. MotionBenchMaker goals are
+`solver.info.ee_frame` identifies the compiled tool frame. MotionBenchMaker goals are
 hand-frame poses, 105 mm from the default Panda TCP; the collision example converts them explicitly.
 The benchmark's `--target-mode goal` requires a `panda_hand_joint` build, whereas `--target-mode cylinder`
 uses the default `panda_grasptarget_hand` build. Do not pass hand poses directly to a TCP build.

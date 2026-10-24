@@ -27,15 +27,17 @@ def test_driver_accepts_neutral_generator_target_schema(tmp_path):
 
 def test_driver_names_precision_and_never_times_correctness(monkeypatch):
     m = module("timing_driver")
-    calls = []
-    def solve(target, **kwargs):
-        calls.append(kwargs)
-        return dict(count=1, joint_config=np.zeros((1, 7)), pos_errors=[0], ori_errors=[0])
-    monkeypatch.setattr(m.hjcdik, "generate_solutions", solve)
+    made = []
+    def make_solve(batch, num_solutions, collision_free, pj_text, set_name, precision):
+        made.append(dict(batch=batch, precision=precision, collision_free=collision_free))
+        result = dict(count=1, joint_config=np.zeros((1, 7)), pos_errors=[0], ori_errors=[0])
+        return (lambda i: None), (lambda i, t: result)
+    monkeypatch.setattr(m, "make_solve", make_solve)
     monkeypatch.setattr(m, "pose_errors", lambda *args: (0, 0))
     monkeypatch.setattr(m.time, "perf_counter", lambda: pytest.fail("correctness read a clock"))
     assert m.time_leg([[0]*7], 8, 1, False, "", "", 1, correctness_only=True) == ([], 1, 0, 1)
-    assert all(c["refine_fp64"] == -1 and c["write_stats"] is False for c in calls)
+    assert made == [dict(batch=8, precision=-1, collision_free=False)]
+    assert m.PRECISION == {-1: "auto", 0: "fp32", 1: "fp64"}
 
 
 def test_gate_rejects_missing_duplicate_and_mixed_protocol_cells():

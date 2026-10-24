@@ -1,29 +1,26 @@
 #pragma once
 // Runtime collision environment for the grid_collision path.
 //
-// Parses a MotionBenchMaker-style problem JSON into host arrays of grid_collision primitives
-// (Sphere / Capsule / Cuboid), uploads them to the device, and hands back an Environment<float>
-// carrying the DEVICE pointers so it can be passed by value straight into the scoring kernel
-// (grid_collision::collision_distance). Replaces the bespoke pRRTC env-from-json + device upload.
+// Converts a host WorldSpec (plain arrays of spheres, capsules and boxes in the robot base frame) into
+// grid_collision primitives (Sphere / Capsule / Cuboid), uploads them to the device, and hands back an
+// Environment<float> carrying the DEVICE pointers so it can be passed by value straight into the scoring
+// kernel (grid_collision::collision_distance).
+//
+// Move to GRiD (ask G8): every consumer needs arrays -> owning device environment; this file is HJCD's
+// interim copy and is deleted when GRiD ships the builder.
 //
 // REQUIRES grid.cuh to be included FIRST (hjcd_settings.h does this) so grid_collision::{Sphere,
-// Capsule,Cuboid,Environment} are visible. No Eigen dependency: pose -> body axes is plain math.
-//
-// Obstacle pose convention is MotionBenchMaker's: [x, y, z, qw, qx, qy, qz] (position + unit
-// quaternion). cuboid = {dims, pose}; cylinder = {radius, height|length, pose} (modeled as a
-// capsule); sphere = {radius, pose|position}.
+// Capsule,Cuboid,Environment} are visible. No Eigen dependency: quaternion -> body axes is plain math.
 #include <array>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
-#include <string>
 #include <vector>
 
 #include <cuda_runtime.h>
 #include "kernel/util.h"
 #include "kernel/cuda_memory.h"
-#include "kernel/problem_document.h"
-#include <nlohmann/json.hpp>
+#include "kernel/hjcd_kernel.h"
 
 // The grid_collision primitives (Sphere/Capsule/Cuboid/Environment) exist only when grid.cuh was
 // generated with --collision (sentinel HJCD_HAS_COLLISION). Without it this header is empty, so a
@@ -33,7 +30,6 @@
 namespace hjcd_env {
 
 namespace gc = grid_collision;
-using json = nlohmann::json;
 
 struct HostEnv {
     std::vector<gc::Sphere<float>>  spheres;
@@ -44,16 +40,13 @@ struct HostEnv {
 
 namespace detail {
 
-inline float finite_number(const json& value) {
-    if (!value.is_number())
-        throw std::invalid_argument("obstacle geometry must contain finite numbers");
-    const double number = value.get<double>();
-    if (!std::isfinite(number) || std::abs(number) > std::numeric_limits<float>::max())
+inline float finite_number(float value) {
+    if (!std::isfinite(value) || std::abs(value) > std::numeric_limits<float>::max())
         throw std::invalid_argument("obstacle geometry must contain finite fp32 numbers");
-    return static_cast<float>(number);
+    return value;
 }
 
-inline float positive_number(const json& value) {
+inline float positive_number(float value) {
     const float number = finite_number(value);
     if (!(number > 0))
         throw std::invalid_argument("obstacle dimensions, radius, and length must be positive");
@@ -72,28 +65,6 @@ inline void quat_to_basis(float qw, float qx, float qy, float qz,
     w[0] = 2.f * (qx * qz + qy * qw); w[1] = 2.f * (qy * qz - qx * qw); w[2] = 1.f - 2.f * (qx * qx + qy * qy);
 }
 
-inline std::array<float, 3> arr3(const json& a) {
-    if (!a.is_array() || a.size() != 3)
-        throw std::invalid_argument("obstacle vector must have exactly three values");
-    return {finite_number(a.at(0)), finite_number(a.at(1)), finite_number(a.at(2))};
-}
-
-inline std::array<float, 3> dimensions(const json& a) {
-    auto result = arr3(a);
-    for (float value : result)
-        if (!(value > 0)) throw std::invalid_argument("obstacle dimensions must be positive");
-    return result;
-}
-
-// pose [x,y,z,qw,qx,qy,qz] -> center + body axes.
-inline void pose_to_frame(const json& pose, float c[3], float u[3], float v[3], float w[3]) {
-    if (!pose.is_array() || pose.size() != 7)
-        throw std::invalid_argument("expected pose as [x, y, z, qw, qx, qy, qz]");
-    c[0] = finite_number(pose.at(0)); c[1] = finite_number(pose.at(1)); c[2] = finite_number(pose.at(2));
-    quat_to_basis(finite_number(pose.at(3)), finite_number(pose.at(4)),
-                  finite_number(pose.at(5)), finite_number(pose.at(6)), u, v, w);
-}
-
 inline gc::Cuboid<float> make_cuboid(const float c[3], const float u[3], const float v[3],
                                      const float w[3], const float half[3]) {
     return gc::Cuboid<float>{c[0], c[1], c[2],
@@ -102,89 +73,33 @@ inline gc::Cuboid<float> make_cuboid(const float c[3], const float u[3], const f
                              w[0], w[1], w[2], half[2]};
 }
 
-// Cylinder (center, local-z axis w, radius, length) -> capsule with endpoints c +/- (L/2) w.
-inline gc::Capsule<float> make_cylinder_capsule(const float c[3], const float w[3],
-                                                float radius, float length) {
-    const float h = 0.5f * length;
-    return gc::Capsule<float>{c[0] - h * w[0], c[1] - h * w[1], c[2] - h * w[2],
-                              c[0] + h * w[0], c[1] + h * w[1], c[2] + h * w[2], radius};
-}
-
-template <typename Fn>
-inline void for_each_shape(const json& collection, Fn&& fn) {
-    if (collection.is_array()) {
-        for (const auto& obj : collection) fn(obj);
-    } else if (collection.is_object()) {
-        for (auto it = collection.begin(); it != collection.end(); ++it) fn(it.value());
-    } else {
-        throw std::invalid_argument("expected shape collection to be an array or object");
-    }
-}
-
-inline float cylinder_length(const json& obj) {
-    if (obj.contains("height")) return positive_number(obj.at("height"));
-    if (obj.contains("length")) return positive_number(obj.at("length"));
-    throw std::invalid_argument("cylinder obstacle is missing height/length");
-}
-
-// Required field of a shape object; a missing key is a schema error (ValueError at the Python
-// boundary), not an internal failure. Names the shape so legacy forms (e.g. a cuboid with
-// position + orientation_euler_xyz and no pose) get a pointed message.
-inline const json& field(const json& shape, const char* key, const char* shape_name) {
-    if (!shape.is_object() || !shape.contains(key))
-        throw std::invalid_argument(std::string(shape_name) + " obstacle requires '" + key + "'");
-    return shape.at(key);
-}
-
 }  // namespace detail
 
-// Parse one problem instance's obstacles into host grid_collision primitives.
-inline HostEnv problem_dict_to_env(const json& problem) {
+// Validate a WorldSpec and convert it to host grid_collision primitives.
+inline HostEnv host_env_from_spec(const WorldSpec& spec) {
     using namespace detail;
+    if (spec.spheres.size() % 4 || spec.capsules.size() % 7 || spec.boxes.size() % 10)
+        throw std::invalid_argument("world arrays must be whole rows: spheres 4, capsules 7, boxes 10 values");
     HostEnv env;
-    if (!problem.is_object())
-        throw std::invalid_argument("collision problem must be an object");
-    const bool wrapped = problem.contains("obstacles");
-    const json& root = wrapped ? problem.at("obstacles") : problem;
-    if (!root.is_object())
-        throw std::invalid_argument("obstacles must be an object");
-    if (!wrapped && root.empty())
-        throw std::invalid_argument("collision problem must specify obstacles (use {} for an empty scene)");
-    for (auto it = root.begin(); it != root.end(); ++it) {
-        if (it.key() != "sphere" && it.key() != "cuboid" && it.key() != "cylinder")
-            throw std::invalid_argument("unsupported obstacle type: " + it.key());
+    for (int i = 0; i < spec.num_spheres(); ++i) {
+        const float* s = spec.spheres.data() + 4 * i;
+        env.spheres.push_back(gc::Sphere<float>{finite_number(s[0]), finite_number(s[1]), finite_number(s[2]),
+                                                positive_number(s[3])});
     }
-
-    if (root.contains("sphere")) {
-        for_each_shape(root.at("sphere"), [&](const json& o) {
-            std::array<float, 3> p;
-            if (o.contains("pose")) {
-                float u[3], v[3], w[3];
-                pose_to_frame(o.at("pose"), p.data(), u, v, w);
-            } else p = arr3(field(o, "position", "sphere"));
-            env.spheres.push_back(gc::Sphere<float>{p[0], p[1], p[2], positive_number(field(o, "radius", "sphere"))});
-        });
+    for (int i = 0; i < spec.num_capsules(); ++i) {
+        const float* c = spec.capsules.data() + 7 * i;
+        env.capsules.push_back(gc::Capsule<float>{finite_number(c[0]), finite_number(c[1]), finite_number(c[2]),
+                                                  finite_number(c[3]), finite_number(c[4]), finite_number(c[5]),
+                                                  positive_number(c[6])});
     }
-
-    if (root.contains("cuboid")) {
-        for_each_shape(root.at("cuboid"), [&](const json& o) {
-            float c[3], u[3], v[3], w[3];
-            pose_to_frame(field(o, "pose", "cuboid"), c, u, v, w);
-            const auto dims = dimensions(field(o, "dims", "cuboid"));
-            const float half[3] = {0.5f * dims[0], 0.5f * dims[1], 0.5f * dims[2]};
-            env.cuboids.push_back(make_cuboid(c, u, v, w, half));
-        });
+    for (int i = 0; i < spec.num_boxes(); ++i) {
+        const float* b = spec.boxes.data() + 10 * i;
+        const float c[3] = {finite_number(b[0]), finite_number(b[1]), finite_number(b[2])};
+        float u[3], v[3], w[3];
+        quat_to_basis(finite_number(b[3]), finite_number(b[4]), finite_number(b[5]), finite_number(b[6]), u, v, w);
+        const float half[3] = {0.5f * positive_number(b[7]), 0.5f * positive_number(b[8]), 0.5f * positive_number(b[9])};
+        env.cuboids.push_back(make_cuboid(c, u, v, w, half));
     }
-
-    if (root.contains("cylinder")) {
-        for_each_shape(root.at("cylinder"), [&](const json& o) {
-            float c[3], u[3], v[3], w[3];
-            pose_to_frame(field(o, "pose", "cylinder"), c, u, v, w);
-            env.capsules.push_back(
-                make_cylinder_capsule(c, w, positive_number(field(o, "radius", "cylinder")), cylinder_length(o)));
-        });
-    }
-
     return env;
 }
 
@@ -212,11 +127,6 @@ inline DeviceEnv upload_env(const HostEnv& h) {
     const int nb = up(h.cuboids, d.d_cuboids);
     d.env = gc::Environment<float>{d.d_spheres, ns, d.d_capsules, nc, d.d_cuboids, nb};
     return d;
-}
-
-inline void free_env(DeviceEnv& d) {
-    d.allocations.clear();
-    d = DeviceEnv{};
 }
 
 }  // namespace hjcd_env

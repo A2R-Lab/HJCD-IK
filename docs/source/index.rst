@@ -56,14 +56,16 @@ Quick start
 
 .. code-block:: python
 
-   from hjcdik import generate_solutions, sample_targets, num_joints
+   import hjcdik
 
-   target = sample_targets(num_targets=1, seed=0)[0]   # [x, y, z, qw, qx, qy, qz]
-   out = generate_solutions(target, batch_size=2000, num_solutions=4)
-   print(out["count"], "candidates")
-   if out["count"]:
-       print("best position error (mm):", out["pos_errors"].min())
-       print("best orientation error (rad):", out["ori_errors"].min())
+   solver = hjcdik.Solver()
+   target = solver.sample_targets(1, seed=0)[0]        # [x, y, z, qw, qx, qy, qz]
+   out = solver.solve(target, batch_size=2000, num_solutions=4, collision=None)
+   r = out[0]
+   print(r.count, "candidates")
+   if r.count:
+       print("best position error (mm):", r.pos_err_mm.min())
+       print("best orientation error (rad):", r.ori_err_rad.min())
 
 .. toctree::
    :hidden:

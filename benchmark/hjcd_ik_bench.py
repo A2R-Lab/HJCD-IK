@@ -337,7 +337,7 @@ def main() -> None:
     ap.add_argument("--solutions-target-idx", type=int, default=0,help="0-based target index to dump solutions for (default: 0 = first target).")
     ap.add_argument("--solutions-batch", type=int, default=-1,help="Batch size to dump solutions from. If -1, uses the last batch in --batches.")
     ap.add_argument("--solutions-count", type=int, default=50,help="Max number of solutions to write (default 50).")
-    ap.add_argument("--write-stats", action="store_true", help="Append full per-call statistics to ik_stats.csv (see scripts/ik_stats_summary.py).")
+    ap.add_argument("--write-stats", action="store_true", help="Collect per-call solver statistics and append them to ik_stats.csv in the working directory (see scripts/ik_stats_summary.py).")
 
     ap.add_argument("--mmd-dump", type=str, default="", help="Write a per-target joint-config dump (JSON) for MMD/Table IV (see benchmark/run_mmd.py), then exit.")
     ap.add_argument("--mmd-batch", type=int, default=2000, help="Batch size for the MMD dump (paper: 50 best of 2000).")
@@ -364,15 +364,14 @@ def main() -> None:
 
     import importlib
     hjcdik = importlib.import_module("hjcdik")
-    try:
-        print("[build info]", hjcdik.build_info())
-    except Exception:
-        pass
+    print("[build info]", hjcdik.build_info())
+    solver = hjcdik.Solver()
+    collision = args.collision_mode if args.collision_free else None
 
-    problems_text = ""
     targets = []
     problem_indices = []
     world_by_pidx: Dict[int, dict] = {}   # pidx -> world_dict for post-hoc collision validation (Panda only)
+    instance_by_pidx: Dict[int, dict] = {}   # pidx -> problem instance (its obstacles become the solver world)
 
     if args.collision_free:
         expected_target = "panda_hand_joint" if args.target_mode == "goal" else "panda_grasptarget_hand"
@@ -383,8 +382,7 @@ def main() -> None:
         from panda_collision import panda_config_collision_free, mb_instance_to_world_dict
         from panda_model import collision_model_metadata, write_collision_model_metadata
         print("[collision validation]", collision_model_metadata(args.collision_validation_model))
-        problems_text = _load_text(Path(args.problems_json))
-        D = json.loads(problems_text)
+        D = json.loads(_load_text(Path(args.problems_json)))
         P = num_problems(D, args.problem_set)
 
         if args.problem_idx is None or args.problem_idx < 0:
@@ -413,6 +411,7 @@ def main() -> None:
                 targets.append(goal_target)
             problem_indices.append(pidx)
             world_by_pidx[pidx] = mb_instance_to_world_dict(inst)
+            instance_by_pidx[pidx] = inst
 
         if args.max_targets and args.max_targets > 0:
             targets = targets[: args.max_targets]
@@ -424,11 +423,7 @@ def main() -> None:
     else:
         # Non-collision (open-world): a shared targets file (fair head-to-head with the baselines;
         # see benchmark/gen_targets.py) or random targets sampled from the model.
-        try:
-            N = int(hjcdik.num_joints())
-            print(f"[info] robot with {N} joints")
-        except Exception:
-            print("[info] loaded hjcdik")
+        print(f"[info] robot {solver.info.robot} with {solver.info.dof} joints")
 
         if args.filtered_targets:
             targets, _ = _load_filtered_targets(Path(args.filtered_targets))
@@ -436,10 +431,15 @@ def main() -> None:
             print(f"[info] loaded {len(targets)} shared targets from {args.filtered_targets}")
         else:
             T = int(args.num_targets)
-            targets = hjcdik.sample_targets(T, seed=0)
+            targets = [list(map(float, t)) for t in solver.sample_targets(T, seed=0)]
             problem_indices = [None] * T
 
-    print(f"[info] running {len(targets)} targets, batches={batches}, num_solutions={S}, collision_free={args.collision_free}")
+    print(f"[info] running {len(targets)} targets, batches={batches}, num_solutions={S}, collision={collision}")
+
+    def install_world(pidx):
+        """Make the problem's obstacles the solver world (outside every timed region)."""
+        if args.collision_free and pidx is not None:
+            solver.set_world(**hjcdik.worlds.from_mbm_problem(instance_by_pidx[pidx]))
 
     # MMD / Table IV: dump up to K solutions per target (paper: 50 best of a batch of 2000), then exit.
     if args.mmd_dump:
@@ -448,20 +448,10 @@ def main() -> None:
         Bd = int(args.mmd_batch)
         per_target = []
         for ti, target in enumerate(targets):
-            # problem_idx is ignored in open-world solves but must be non-negative.
-            eff_pidx = int(problem_indices[ti]) if (args.collision_free and problem_indices[ti] is not None) else 0
-            res = hjcdik.generate_solutions(
-                target, batch_size=Bd, num_solutions=K,
-                collision_free=args.collision_free, problems_json_text=problems_text,
-                problem_set_name=args.problem_set, problem_idx=eff_pidx,
-                collision_mode=args.collision_mode,
-            )
-            jc = res.get("joint_config")
-            if jc is None:
-                jc = []
-            cnt = int(res.get("count", len(jc)))
-            per_target.append([list(jc[r]) for r in range(min(cnt, K, len(jc)))])
-        save_config_dump(args.mmd_dump, args.solver, per_target, num_dof=int(hjcdik.num_joints()))
+            install_world(problem_indices[ti])
+            res = solver.solve(target, batch_size=Bd, num_solutions=K, collision=collision)[0]
+            per_target.append([list(map(float, res.q[r])) for r in range(min(res.count, K))])
+        save_config_dump(args.mmd_dump, args.solver, per_target, num_dof=solver.info.dof)
         print(f"[OK] wrote MMD dump {args.mmd_dump} ({len(per_target)} targets x up to {K} configs)")
         return
 
@@ -473,59 +463,36 @@ def main() -> None:
     y_cfree = []   # per-solution collision-free (True/False; None when not validated)
 
     for i, (target, pidx) in enumerate(zip(targets, problem_indices)):
+        install_world(pidx)
+        eff_pidx = int(pidx) if pidx is not None else 0
         for B in batches:
-            if args.collision_free:
-                if pidx is not None:
-                    eff_pidx = int(pidx)
-                elif args.problem_idx is not None and args.problem_idx >= 0:
-                    eff_pidx = int(args.problem_idx)
-                else:
-                    eff_pidx = 0
-            else:
-                eff_pidx = 0  # ignored in open-world solves, but the API requires a non-negative index
+            # Warmup (the world is already resident; only the solve is timed below)
+            solver.solve(target, batch_size=B, num_solutions=S, collision=collision)
 
-            # Warmup
-            _ = hjcdik.generate_solutions(
-                target,
-                batch_size=B,
-                num_solutions=S,
-                collision_free=args.collision_free,
-                problems_json_text=problems_text,
-                problem_set_name=args.problem_set,
-                problem_idx=eff_pidx,
-                write_stats=False,
-                collision_mode=args.collision_mode,
-            )
-
-            # Timed run
+            # Timed run: one solve call for one target
             t0 = time.perf_counter()
-            res = hjcdik.generate_solutions(
-                target,
-                batch_size=B,
-                num_solutions=S,
-                collision_free=args.collision_free,
-                problems_json_text=problems_text,
-                problem_set_name=args.problem_set,
-                problem_idx=eff_pidx,
-                write_stats=args.write_stats,
-                collision_mode=args.collision_mode,
-            )
+            full = solver.solve(target, batch_size=B, num_solutions=S, collision=collision,
+                                stats=args.write_stats)
             dt_ms = (time.perf_counter() - t0) * 1e3
+            if args.write_stats:
+                from _results_io import append_stats_csv
+                append_stats_csv("ik_stats.csv", full)
+            res = full[0]
 
-            count = int(res.get("count", S))
-            pos_err = res["pos_errors"]
-            ori_err = res["ori_errors"]
+            count = int(res.count)
+            pos_err = res.pos_err_mm
+            ori_err = res.ori_err_rad
             from query_results import best_candidate, query_record, append_record
             best = best_candidate(res)
             if args.configs_out and args.collision_free:
                 append_record(args.configs_out, query_record(
                     res, solver=args.solver, problem_set=args.problem_set, problem_idx=eff_pidx,
-                    batch=B, target=target, ee_target=hjcdik.build_info()["ee_target"], elapsed_ms=dt_ms))
+                    batch=B, target=target, ee_target=solver.info.ee_frame, elapsed_ms=dt_ms))
 
             # Post-hoc collision-free validation of HJCD's OWN returned q against the shared sphere model
             # (computed AFTER dt_ms is captured, so it never enters the timed region). Panda only: gated on
             # a world_dict being present for this problem (open-world / non-Panda -> None).
-            jc = res.get("joint_config") if (args.collision_free and pidx in world_by_pidx) else None
+            jc = res.q if (args.collision_free and pidx in world_by_pidx) else None
             world_dict = world_by_pidx.get(pidx) if jc is not None else None
 
             # One timing/error row per ATTEMPT, never weighted by returned count.
@@ -543,19 +510,13 @@ def main() -> None:
                     y_cfree.append(None)
 
             if args.print_solutions:
-                joint_cfg = res.get("joint_config", None)
-                if joint_cfg is not None:
-                    for r in range(count):
-                        sol = joint_cfg[r]
-                        print("[joint_config] " + ", ".join([f"{v:.6f}" for v in sol]))
+                for r in range(count):
+                    print("[joint_config] " + ", ".join([f"{v:.6f}" for v in res.q[r]]))
 
             if args.solutions_out and (not dumped) and (i == dump_idx) and (B == dump_B):
-                joint_cfg = res.get("joint_config", None)
-                if joint_cfg is not None:
-                    count = int(res.get("count", len(joint_cfg)))
-                    for r in range(min(count, len(joint_cfg), dump_limit)):
-                        dump_solutions.append([float(v) for v in joint_cfg[r]])
-                    dumped = True
+                for r in range(min(count, dump_limit)):
+                    dump_solutions.append([float(v) for v in res.q[r]])
+                dumped = True
 
         if (i % 50) == 0 or i == len(targets):
             print(f"[info] processed {i}/{len(targets)} targets")

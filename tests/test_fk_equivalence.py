@@ -5,7 +5,7 @@ reference computed in pure numpy directly from the URDF (no GRiD codegen involve
 the FK migration (bespoke ``X_warp`` -> stock ``grid::ee_pose_inner_warp`` + grasptarget tool
 offset) against silent convention / tool-offset bugs.
 
-``generate_solutions`` returns both the solved joint configuration and the EE pose the kernel
+``Solver.solve`` returns both the solved joint configuration and the EE pose the kernel
 computes for it; we recompute the grasptarget world pose from the URDF and compare position +
 orientation (quaternion, with sign disambiguation).
 
@@ -111,12 +111,13 @@ def _kernel_qpose_pairs(num=12, seed=7, batch_size=4000):
     if not os.path.exists(URDF):
         pytest.skip(f"URDF not found at {URDF}")
     pairs = []
-    for t in hjcdik.sample_targets(num_targets=num, seed=seed):
-        out = hjcdik.generate_solutions(t, batch_size=batch_size, num_solutions=1)
-        if out["count"] < 1:
+    solver = hjcdik.Solver()
+    for t in solver.sample_targets(num, seed=seed):
+        out = solver.solve(t, batch_size=batch_size, num_solutions=1, collision=None)[0]
+        if out.count < 1:
             continue
-        q = np.asarray(out["joint_config"])[0]
-        pose = np.asarray(out["pose"])[0]  # [x,y,z, qw,qx,qy,qz]
+        q = np.asarray(out.q)[0]
+        pose = np.asarray(out.pose)[0]  # [x,y,z, qw,qx,qy,qz]
         if not np.all(np.isfinite(q)) or not np.all(np.isfinite(pose)):
             continue
         pairs.append((q, pose))
@@ -129,7 +130,7 @@ def test_ee_position_matches_reference():
     worst = 0.0
     for q, pose in _kernel_qpose_pairs():
         T, used = _fk_grasptarget(q)
-        assert used == hjcdik.num_joints(), f"actuated-joint count mismatch: {used}"
+        assert used == hjcdik.build_info()["num_joints"], f"actuated-joint count mismatch: {used}"
         worst = max(worst, float(np.linalg.norm(T[:3, 3] - pose[:3])))
     assert worst < POS_ATOL_M, f"max EE position error {worst*1e3:.4f} mm exceeds {POS_ATOL_M*1e3:.4f} mm"
 

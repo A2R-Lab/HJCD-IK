@@ -39,14 +39,14 @@ joints. Target indices and transform counts are generated constants; the default
 |---|---|
 | `csrc/kernel/hjcd_kernel.cu` | The solver: block-cooperative coarse search + warp-scoped LM refine + host orchestration (`generate_ik_solutions`). **The file you'll edit most.** |
 | `csrc/kernel/hjcd_settings.h` | `HJCDSettings<T>` (coarse/LM tolerances, `lambda_init`), `mat4_mul`, FK helpers (`ee_fk_warp`/`ee_fk_thread`/`ee_fk_suffix_thread`), `#include "grid.cuh"`, `N`/`FLANGE_JID`/`GRASP_FIXED_IDX`. |
-| `csrc/kernel/hjcd_kernel.h` | Native host API: move-only `Result<T>`, `generate_ik_solutions<T,RT>(target, batch, ...)`, `sample_random_target_poses`. |
+| `csrc/kernel/hjcd_kernel.h` | Native host API: move-only `Result<T>` (with `SolveStats`), `CollisionMode`, `WorldSpec` → `make_collision_world` (owning device world), `generate_ik_solutions<T,RT>(target, batch, num_solutions, mode, world, collect_stats)`, `sample_random_target_poses`. |
 | `csrc/kernel/main.cpp` | Native CLI (`single`/`sweep`/`from_csv`), open-world only; CTest-covered by `tests/native/`. |
 | `csrc/generated/grid.cuh` | **Generated** GRiD kinematics + collision header. Do **not** hand-edit. Generated with `vendor_glass=False`, so it `#include "glass.cuh"`s the top-level GLASS instead of vendoring a copy (~6k lines, was ~15k). |
 | `external/GRiD/` | Submodule: GRiD codegen (emits `grid.cuh` from a URDF). Its nested GLASS pin must equal `external/GLASS`. |
 | `external/GLASS/` | Submodule: GLASS single-block / warp / thread linear algebra (`glass::warp::`, `glass::thread::`, `glass::block::`). |
 | `external/foam/` | Submodule: pre-spherized Panda collision URDF (`assets/panda/smaller_panda_spherized.urdf`). |
-| `csrc/kernel/grid_env.cuh` | Parses a MotionBenchMaker problem JSON → `grid_collision::Environment` (device obstacle set) for the collision kernels; `problem_document.h` caches the parsed document. |
-| `csrc/bindings/pybind_module.cpp` | Python bindings → `generate_solutions`, `sample_targets`, `num_joints`, `collision_enabled`, `build_info`. `hjcdik/__init__.pyi` is the typed stub. |
+| `csrc/kernel/grid_env.cuh` | `WorldSpec` arrays → `grid_collision::Environment` (device obstacle set) for the collision kernels; marked "move to GRiD (ask G8)". No JSON in the native layer any more. |
+| `csrc/bindings/pybind_module.cpp` | Low-level bindings (`_hjcdik`: `World`, `solve_one`, `sample_targets`, `current_device`, `build_info`); every call runs on the solver's device and restores the caller's. The user API is pure Python: `hjcdik/_solver.py` (`Solver`, `Result`, `TargetResult`, `Stats`, `Info`, `SolveError`) and `hjcdik/worlds.py` (MotionBenchMaker JSON → `set_world` arrays). |
 | `tests/` | pytest suite (API contracts, FK equivalence, collision policy, codegen, stats, regression vs `baseline_metrics.json`); `tests/native/` = CTest native API + CLI contracts. `gpu-proof-tests.txt` is the signed-receipt manifest. |
 | `gpu-proof.json` | Signed pytest-gpu-proof receipt of the last full GPU run; verified by CPU-only CI. |
 | `benchmark/hjcd_ik_bench.py` | HJCD-IK benchmark harness: solved-rate, position/orientation error, timing. |
@@ -66,7 +66,6 @@ joints. Target indices and transform counts are generated constants; the default
 CMake 3.24+ / CUDA 12.x or 13.x / pybind11 (scikit-build-core). GRiD codegen runs at configure time when enabled.
 
 ```bash
-sudo apt install -y nlohmann-json3-dev   # collision environment JSON header dependency
 git submodule update --init --recursive          # GRiD + GLASS
 python -m pip install -e .                        # builds the _hjcdik extension (CUDA arch auto-detected)
 python benchmark/hjcd_ik_bench.py --skip-grid-codegen   # run the solver
@@ -86,13 +85,16 @@ Native checks: `cmake -S . -B build-native -DBUILD_PYTHON=OFF -DHJCDIK_BUILD_NAT
 build-native && ctest --test-dir build-native`. `hjcdik.build_info()` reports the compiled header's SHA-256 so a
 stale install or wrong-robot wheel can be detected without initializing CUDA.
 
-Python API:
+Python API (since 2026-10-23; `docs/source/api_reference/python.rst` is the contract):
 ```python
-from hjcdik import generate_solutions, sample_targets, num_joints
-targets = sample_targets(num_targets=10, seed=0)         # list of [x,y,z, qw,qx,qy,qz]
-out = generate_solutions(targets[0], batch_size=2000, num_solutions=4)
-# out = {joint_config, pose, pos_errors, ori_errors, count}; count may be < num_solutions (even 0)
-# pos_errors are mm, ori_errors are rad; refine_fp64=-1 (default) = fp64 for one solution, fp32 for several
+import hjcdik
+solver = hjcdik.Solver()                                  # the compiled robot, bound to the current device
+targets = solver.sample_targets(10, seed=0)              # (10, 7) [x,y,z, qw,qx,qy,qz]
+solver.set_world(boxes=..., capsules=..., spheres=..., cylinders=...)   # robot base frame, metres, wxyz
+out = solver.solve(targets, batch_size=2000, num_solutions=4)          # Result: (T, S, ...) NaN-padded
+# out.count (T,), out.valid (T,S), out.ok(pos_mm, ori_rad), out[i] = un-padded TargetResult
+# collision omitted = "hard" on a collision build (self + env filtering); None = open-world; "soft"
+# ranks only (needs a world); "both" ranks + filters. precision="auto"|"fp32"|"fp64"; stats=True → out.stats
 ```
 
 ## Conventions / discipline
@@ -221,15 +223,16 @@ collision sidecar. GRiD's G5 fidelity report measures against collision (convex-
 - Nullspace repair (C2) was implemented, measured and NOT shipped: the solver never returns an accurate
   configuration its own spheres reject (`docs/development/evidence/repair_nullspace_2026-10-07/`). Success is
   monotone in B with the collision-aware stop (`c1_batch_monotonic_2026-10-07/`).
-- Non-determinism is accepted; `write_stats` (library-side `ik_stats.csv`) is scheduled to move into the
-  benchmark with the API redesign, not before.
+- Non-determinism is accepted; diagnostics come back as `Result.stats` and the benchmark writes the legacy
+  `ik_stats.csv` columns from them (`benchmark/_results_io.py`); the solver never opens files.
 
 **What next — make HJCD-IK a usable package** (user ruling 2026-10-07; the local ledgers under
 `docs/open-tasks/` hold the detail and are gitignored):
-1. **User-shaped API (P1).** `hjcdik.Solver(robot, ee_link, spheres)`, batched `solve(poses)`, `set_world`
-   from plain arrays, typed result with paired errors and `count`; robots compiled at first use through the
-   installed `grid-rbd` codegen and cached per content key, mirroring `grid_rbd.register_robot`. Clean break
-   (`generate_solutions` goes). Gated on the user's ruling on the proposal.
+1. **User-shaped API (P1).** Stage 0 (contract) and Stage 1 (`Solver` over the installed robot, array
+   worlds, padded `Result`, `precision`, `Result.stats`; `generate_solutions` removed) landed 2026-10-23.
+   Stage 2 = runtime robot builds (gated on GRiD ask G9, consumer-artifact build API; re-scope, never copy
+   GRiD's store, if declined); Stage 3 = clearance margin (GRiD G7), self-collision toggle (GRiD G10), warm
+   starts and seeds. Plan: local `docs/open-tasks/api_proposal_v2_2026-10-13.md` (v2.2).
 2. **Robots/presets (P2):** Panda, Fetch from `fetch_description` (HJCD's `csrc/urdf/fetch.urdf` differs from it
    by up to 37 cm — do not reuse it for collision sets), UR/iiwa/xArm/Gen3; prismatic joints in the coarse search.
 3. **In-kernel multi-target (P3)** — needs a timing window to claim anything.

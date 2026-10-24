@@ -62,10 +62,10 @@ python benchmark/hjcd_ik_bench.py \
   --batches "1,10,100,1000,2000"
 ```
 
-Select the policy explicitly with `collision_mode="hard"`, `"soft"`, or `"both"`:
+Select the policy explicitly with `collision="hard"`, `"soft"`, or `"both"`:
 
 ```python
-result = hjcdik.generate_solutions(..., collision_free=True, collision_mode="hard")
+result = solver.solve(..., collision="hard")
 ```
 
 The benchmark accepts the same policy through `--collision-mode`. Nothing reads an environment variable.

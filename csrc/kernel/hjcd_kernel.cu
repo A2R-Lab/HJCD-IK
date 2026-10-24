@@ -17,7 +17,6 @@
 #include <numeric>
 #include <vector>
 #include <chrono>
-#include <fstream>
 #include <limits>
 #include <type_traits>
 #include <cstdlib>
@@ -56,8 +55,37 @@ grid::robotModel<T>* cached_robot_model() {
 }
 
 // Collision checking (grid_collision: URDF-driven spheres baked into grid.cuh)
-#include <nlohmann/json.hpp>
 #include "kernel/grid_env.cuh"   // requires grid.cuh (via hjcd_settings.h) already included above
+
+// Owning device world. Made on the current device; DeviceAllocations frees on that device.
+struct CollisionWorld {
+    int device = 0;
+    std::array<int, 3> counts{0, 0, 0};   // spheres, capsules, boxes
+#if defined(HJCD_HAS_COLLISION)
+    hjcd_env::DeviceEnv device_env;
+#endif
+};
+
+std::shared_ptr<CollisionWorld> make_collision_world(const WorldSpec& spec) {
+#if defined(HJCD_HAS_COLLISION)
+    std::lock_guard<std::recursive_mutex> lock(solver_mutex());
+    const hjcd_env::HostEnv host = hjcd_env::host_env_from_spec(spec);   // validates before CUDA
+    auto world = std::make_shared<CollisionWorld>();
+    CUDA_OK(cudaGetDevice(&world->device));
+    world->counts = {spec.num_spheres(), spec.num_capsules(), spec.num_boxes()};
+    world->device_env = hjcd_env::upload_env(host);
+    return world;
+#else
+    (void)spec;
+    throw std::runtime_error("collision worlds require grid.cuh generated with --collision");
+#endif
+}
+
+int collision_world_device(const CollisionWorld& world) { return world.device; }
+bool collision_world_empty(const CollisionWorld& world) {
+    return world.counts[0] == 0 && world.counts[1] == 0 && world.counts[2] == 0;
+}
+std::array<int, 3> collision_world_counts(const CollisionWorld& world) { return world.counts; }
 
 enum : int {
     N = grid::NUM_JOINTS
@@ -1649,7 +1677,7 @@ __global__ void score_environment_costs(
 // Hard collision constraint: per candidate config, one block, write valid[i] =
 // grid_collision::config_free (SELF + environment; note the soft path is env-only). The boolean is
 // thread-invariant, so lane 0 publishes it. Same dynamic-smem contract as score_environment_costs.
-// Selected by collision_mode = hard | both (see generate_ik_solutions).
+// Selected by CollisionMode hard | both (see generate_ik_solutions).
 __global__ void mark_collisions(
     const double* __restrict__ q_in,                 // K x N
     int K,
@@ -1729,15 +1757,12 @@ Dst* device_cast(hjcd::DeviceAllocations& allocations, Src* src, size_t n) {
 // (Default RT=double is declared in the header; not repeated here.)
 template<typename T, typename RT>
 Result<T> generate_ik_solutions(
-    T* target_pose,
+    const T* target_pose,
     int b_size,
     int num_solutions,
-    bool collision_free,
-    const char* problems_json_text,
-    const char* problem_set_name,
-    int problem_idx,
-    bool write_stats,
-    int collision_mode
+    CollisionMode collision,
+    const CollisionWorld* world,
+    bool collect_stats
 )
 {
     std::lock_guard<std::recursive_mutex> lock(solver_mutex());
@@ -1746,15 +1771,23 @@ Result<T> generate_ik_solutions(
         throw std::invalid_argument("batch_size must be positive and fit CUDA indexing");
     if (num_solutions <= 0)
         throw std::invalid_argument("num_solutions must be positive");
-    if (collision_mode < 0 || collision_mode > 2)
-        throw std::invalid_argument("invalid collision mode (0 = soft, 1 = hard, 2 = both)");
-    if (problem_idx < 0) throw std::invalid_argument("problem_idx must be non-negative");
+    if (collision != CollisionMode::none && collision != CollisionMode::hard &&
+        collision != CollisionMode::soft && collision != CollisionMode::both)
+        throw std::invalid_argument("invalid collision mode (0 = none, 1 = hard, 2 = soft, 3 = both)");
+    const bool do_cc = collision != CollisionMode::none;
+    const bool world_empty = world == nullptr || collision_world_empty(*world);
+    if (do_cc && !grid_has_collision())
+        throw std::runtime_error("collision checking requires grid.cuh generated with --collision");
+    if (collision == CollisionMode::soft && world_empty)
+        throw std::invalid_argument("soft collision mode ranks by environment penetration and needs a non-empty world");
     const auto normalized_target = normalized_target_pose(target_pose);
     double target_pose64[7];
     for (int i = 0; i < 7; ++i) target_pose64[i] = static_cast<double>(normalized_target[i]);
     init_joint_limits_from_grid();
     int device = 0;
     CUDA_OK(cudaGetDevice(&device));
+    if (world != nullptr && collision_world_device(*world) != device)
+        throw std::invalid_argument("collision world was uploaded on a different CUDA device");
     hjcd::DeviceAllocations allocations;
 
     using std::chrono::high_resolution_clock;
@@ -1763,66 +1796,26 @@ Result<T> generate_ik_solutions(
 
     Result<T> result{};
 
-    // Collision environment (grid_collision). Cache exact problem contents and the fp32 robot model
-    // per CUDA device. Collision requests fail explicitly when their scene is unusable; they never
-    // degrade silently to an open-world solve. The path exists only in --collision-generated headers.
+    // Collision environment (grid_collision). The caller owns the uploaded world (CollisionWorld);
+    // nullptr or an empty world means "no obstacles": hard/both then check self-collision only.
+    // Collision requests never degrade silently to an open-world solve. The path exists only in
+    // --collision-generated headers.
     const bool stop_on_first = true;   // coarse blocks stop once any block hits the coarse tolerance
 
 #if defined(HJCD_HAS_COLLISION)
-    struct CachedCollisionEnvironment {
-        hjcd_env::DeviceEnv device_env;
-        hjcd_env::ProblemDocument document;
-        std::string problem_set;
-        int problem_idx = -1;
-        bool ready = false;
-    };
-    static std::unordered_map<int, CachedCollisionEnvironment> g_cc_env_by_device;
     grid_collision::Environment<float> cc_env{nullptr, 0, nullptr, 0, nullptr, 0};
     const grid::robotModel<float>* d_robotModel_cc = nullptr;
-
-    if (collision_free) {
-        if (!problems_json_text || !problem_set_name)
-            throw std::invalid_argument(
-                "collision-free solving requires problem JSON and a problem-set name");
-
-        int cc_device = 0;
-        CUDA_OK(cudaGetDevice(&cc_device));
-        auto& cached = g_cc_env_by_device[cc_device];
-        const bool changed = cached.document.update(problems_json_text);
-        if (changed || !cached.ready || cached.problem_set != problem_set_name ||
-            cached.problem_idx != problem_idx) {
-            // Invalidate BEFORE selection/validation: a new document may fail here.
-            // Retained allocations remain owned and are released on replacement.
-            cached.ready = false;
-            const auto& data = cached.document.select(problem_set_name, problem_idx);
-            if (data.contains("valid") && !bool(data["valid"]))
-                throw std::runtime_error("collision problem is marked invalid");
-
-            const hjcd_env::HostEnv host_env = hjcd_env::problem_dict_to_env(data);
-            std::string selected_set(problem_set_name);
-            hjcd_env::free_env(cached.device_env);
-            cached.device_env = hjcd_env::upload_env(host_env);
-            cached.problem_set = std::move(selected_set);
-            cached.problem_idx = problem_idx;
-            cached.ready = true;
-        }
-
-        cc_env = cached.device_env.env;
+    if (do_cc) {
+        if (world != nullptr) cc_env = world->device_env.env;
         d_robotModel_cc = cached_robot_model<float>();
     }
-#else
-    if (collision_free)
-        throw std::runtime_error(
-            "collision-free solving requires grid.cuh generated with --collision");
 #endif  // HJCD_HAS_COLLISION
-
-    const bool do_cc = collision_free;
 
     // Collision policy: "hard" (1, default) filters colliding candidates outright; "soft" (0) is a
     // penetration cost that only biases selection; "both" (2) = soft cost + hard filter. Strict
-    // filtering is what makes collision_free=True truthful.
-    const bool use_soft = do_cc && (collision_mode == 0 || collision_mode == 2);
-    const bool use_hard = do_cc && (collision_mode == 1 || collision_mode == 2);
+    // filtering is what makes a hard solve truthful.
+    const bool use_soft = collision == CollisionMode::soft || collision == CollisionMode::both;
+    const bool use_hard = collision == CollisionMode::hard || collision == CollisionMode::both;
 
     // Collision-aware early stop + LM repair round (hard/both modes): the stop flag is raised only by
     // a collision-free accurate candidate, and an accurate-but-colliding LM candidate gets
@@ -2199,7 +2192,7 @@ Result<T> generate_ik_solutions(
         select_from(std::move(coarse));
     }
 
-    if (write_stats) {
+    if (collect_stats) {
         // Diagnostic work stays off the normal solve path. Unmeasured values are -1,
         // not zero or "collision-free". In soft-only mode clearance is environment-only.
         constexpr double POS_THR_MM = 5.0, ORI_THR_RAD = 1e-3;
@@ -2243,40 +2236,26 @@ Result<T> generate_ik_solutions(
             n_out_cf += coll_free;
             n_out_feasible += ik_good && coll_free;
         }
-        constexpr const char* CSV_PATH = "ik_stats.csv";
-        std::ofstream csv(CSV_PATH, std::ios::app | std::ios::ate);
-        if (!csv) throw std::runtime_error("cannot open ik_stats.csv for append");
-        {
-            if (csv.tellp() == std::streampos(0)) {
-                csv << "b_size,krep"
-                       ",n_ik_accurate,n_coll_free_refined,n_feasible,n_ik_lost"
-                       ",n_coll_in_refined,n_coll_in_coarse"
-                       ",env_cost_min_mm,env_cost_max_mm,env_cost_mean_mm"
-                       ",n_returned,n_returned_ik_accurate,n_returned_coll_free"
-                       ",pct_returned_coll_free,n_returned_feasible\n";
-            }
+        const double pct_cf = chosen.empty() ? 0.0 : 100.0 * n_out_cf / (double)chosen.size();
 
-            const double pct_cf = chosen.empty() ? 0.0
-                                                  : 100.0 * n_out_cf / (double)chosen.size();
-            csv << B           << ',' << Krep
-                << ',' << n_ik_good_ref
-                << ',' << (do_cc ? n_coll_free_ref : -1)
-                << ',' << (do_cc ? n_feasible_ref : -1)
-                << ',' << (do_cc ? n_ik_lost : -1)
-                << ',' << (do_cc ? n_cc_in_refined : -1)
-                << ',' << (do_cc ? n_cc_in_coarse  : -1)
-                << ',' << (use_soft ? env_cost_min  : -1.f)
-                << ',' << (use_soft ? env_cost_max  : -1.f)
-                << ',' << (use_soft ? env_cost_mean : -1.0)
-                << ',' << (int)chosen.size()
-                << ',' << n_out_ik
-                << ',' << (do_cc ? n_out_cf : -1)
-                << ',' << (do_cc ? pct_cf : -1.0)
-                << ',' << (do_cc ? n_out_feasible : -1)
-                << '\n';
-            csv.close();
-            if (!csv) throw std::runtime_error("cannot write ik_stats.csv");
-        }
+        SolveStats& s = result.stats;
+        s.batch_size = B;
+        s.n_refined = Krep;
+        s.n_ik_accurate = n_ik_good_ref;
+        s.n_coll_free_refined = do_cc ? n_coll_free_ref : -1;
+        s.n_feasible = do_cc ? n_feasible_ref : -1;
+        s.n_ik_lost = do_cc ? n_ik_lost : -1;
+        s.n_coll_in_refined = do_cc ? n_cc_in_refined : -1;
+        s.n_coll_in_coarse = do_cc ? n_cc_in_coarse : -1;
+        s.env_cost_min_mm = use_soft ? (double)env_cost_min : -1.0;
+        s.env_cost_max_mm = use_soft ? (double)env_cost_max : -1.0;
+        s.env_cost_mean_mm = use_soft ? env_cost_mean : -1.0;
+        s.n_returned = (int)chosen.size();
+        s.n_returned_ik_accurate = n_out_ik;
+        s.n_returned_coll_free = do_cc ? n_out_cf : -1;
+        s.pct_returned_coll_free = do_cc ? pct_cf : -1.0;
+        s.n_returned_feasible = do_cc ? n_out_feasible : -1;
+        result.has_stats = true;
     }
 
     // PACK OUTPUTS
@@ -2307,40 +2286,16 @@ Result<T> generate_ik_solutions(
 }
 
 template Result<double> generate_ik_solutions<double>(   // RT=double (full fp64, default)
-    double* target_pose,
-    int b_size,
-    int num_solutions,
-    bool collision_free,
-    const char* problems_json_text,
-    const char* problem_set_name,
-    int problem_idx,
-    bool write_stats,
-    int collision_mode
-);
+    const double* target_pose, int b_size, int num_solutions,
+    CollisionMode collision, const CollisionWorld* world, bool collect_stats);
 
 template Result<double> generate_ik_solutions<double, float>(   // RT=float (fp32 refine knob)
-    double* target_pose,
-    int b_size,
-    int num_solutions,
-    bool collision_free,
-    const char* problems_json_text,
-    const char* problem_set_name,
-    int problem_idx,
-    bool write_stats,
-    int collision_mode
-);
+    const double* target_pose, int b_size, int num_solutions,
+    CollisionMode collision, const CollisionWorld* world, bool collect_stats);
 
 template Result<float> generate_ik_solutions<float>(
-    float* target_pose,
-    int b_size,
-    int num_solutions,
-    bool collision_free,
-    const char* problems_json_text,
-    const char* problem_set_name,
-    int problem_idx,
-    bool write_stats,
-    int collision_mode
-);
+    const float* target_pose, int b_size, int num_solutions,
+    CollisionMode collision, const CollisionWorld* world, bool collect_stats);
 
 template std::vector<std::array<double, 7>> sample_random_target_poses(
     int num_configs,

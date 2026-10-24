@@ -49,7 +49,7 @@ def test_open_world_harness_runs(tmp_path):
     assert "[build info]" in run.stdout
 
 
-@pytest.mark.skipif(not hjcdik.collision_enabled(), reason="needs a collision-enabled grid.cuh build")
+@pytest.mark.skipif(not hjcdik.build_info()["collision_enabled"], reason="needs a collision-enabled grid.cuh build")
 def test_collision_free_harness_runs(tmp_path):
     rows, _ = _run(tmp_path, "--collision-free", "--target-mode", "cylinder", "--problem-set", "box_panda", "--problem-idx", "0",
                    "--collision-mode", "hard", "--collision-validation-model", "hjcd")

@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <cstdint>
+#include <memory>
 #include <utility>
 #include <algorithm>
 #include <cmath>
@@ -12,6 +13,37 @@
 namespace grid {
     template<typename T> struct robotModel;
 }
+
+/// Collision policy of one solve. `none` is an open-world solve. `hard` filters self and environment
+/// collisions against the compiled sphere model; `soft` ranks candidates by environment penetration
+/// only (no self-collision check, no filtering) and requires a non-empty world; `both` ranks and filters.
+enum class CollisionMode : int { none = 0, hard = 1, soft = 2, both = 3 };
+
+/**
+ * @brief Per-solve diagnostics, collected only when requested. Unmeasured fields stay -1.
+ *
+ * Accuracy tallies use position error < 5 mm and orientation error < 1e-3 rad. In hard/both mode the
+ * collision tallies include self and environment checks; in soft mode they count environment
+ * penetration only. env_cost_* are refined-candidate penetration summaries in soft/both mode.
+ */
+struct SolveStats {
+    int batch_size = -1;             ///< Coarse candidates (B).
+    int n_refined = -1;              ///< LM-refined candidates (K x repeats).
+    int n_ik_accurate = -1;          ///< Refined candidates inside the accuracy band.
+    int n_coll_free_refined = -1;    ///< Refined candidates passing the selected collision check.
+    int n_feasible = -1;             ///< Accurate and collision-free refined candidates.
+    int n_ik_lost = -1;              ///< Accurate refined candidates rejected by the collision check.
+    int n_coll_in_refined = -1;      ///< Refined candidates rejected by the collision check.
+    int n_coll_in_coarse = -1;       ///< Coarse candidates rejected by the collision check.
+    double env_cost_min_mm = -1;     ///< Minimum refined environment penetration cost (soft/both).
+    double env_cost_max_mm = -1;     ///< Maximum refined environment penetration cost (soft/both).
+    double env_cost_mean_mm = -1;    ///< Mean refined environment penetration cost (soft/both).
+    int n_returned = -1;             ///< Returned candidates.
+    int n_returned_ik_accurate = -1; ///< Returned candidates inside the accuracy band.
+    int n_returned_coll_free = -1;   ///< Returned candidates passing the selected collision check.
+    double pct_returned_coll_free = -1; ///< 100 * n_returned_coll_free / n_returned (0 when none returned).
+    int n_returned_feasible = -1;    ///< Returned candidates accurate and collision-free.
+};
 
 /**
  * @brief Move-only owner of a native solve's row-major host buffers.
@@ -29,6 +61,8 @@ struct Result {
     T* ori_errors = nullptr;    ///< count orientation errors, radians.
     T elapsed_time{};          ///< Host-observed solve duration, milliseconds (not per candidate).
     int count = 0;              ///< Number of returned candidates, possibly less than requested.
+    bool has_stats = false;     ///< True when stats was collected for this solve.
+    SolveStats stats{};         ///< Diagnostics; meaningful only when has_stats.
 
     Result() = default;
     ~Result() { reset(); }
@@ -45,8 +79,12 @@ struct Result {
             ori_errors = std::exchange(other.ori_errors, nullptr);
             elapsed_time = other.elapsed_time;
             count = other.count;
+            has_stats = other.has_stats;
+            stats = other.stats;
             other.elapsed_time = T{};
             other.count = 0;
+            other.has_stats = false;
+            other.stats = SolveStats{};
         }
         return *this;
     }
@@ -60,8 +98,47 @@ struct Result {
         joint_config = pose = pos_errors = ori_errors = nullptr;
         elapsed_time = T{};
         count = 0;
+        has_stats = false;
+        stats = SolveStats{};
     }
 };
+
+/**
+ * @brief Host description of an obstacle world in the robot base frame, metres, scalar-first quaternions.
+ *
+ * Row-major flat arrays: spheres rows are [cx cy cz r]; capsules rows are [x0 y0 z0 x1 y1 z1 r]
+ * (segment endpoints and radius); boxes rows are [cx cy cz qw qx qy qz sx sy sz] with full side
+ * lengths. Cylinders are not a native primitive: callers convert them to capsules first.
+ */
+struct WorldSpec {
+    std::vector<float> spheres;   ///< 4 floats per sphere.
+    std::vector<float> capsules;  ///< 7 floats per capsule.
+    std::vector<float> boxes;     ///< 10 floats per box.
+    int num_spheres() const { return static_cast<int>(spheres.size() / 4); }
+    int num_capsules() const { return static_cast<int>(capsules.size() / 7); }
+    int num_boxes() const { return static_cast<int>(boxes.size() / 10); }
+    bool empty() const { return spheres.empty() && capsules.empty() && boxes.empty(); }
+};
+
+/// Owning device copy of a WorldSpec, bound to the CUDA device current when it was made. Opaque.
+struct CollisionWorld;
+
+/**
+ * @brief Validate and upload a world to the calling thread's current CUDA device.
+ *
+ * Requires a collision-enabled build. Values must be finite and within fp32 range; radii and side
+ * lengths positive; quaternions non-zero (they are normalised). The returned object frees its device
+ * memory on destruction, on the device it was made on, and may be shared between solves.
+ * @throws std::invalid_argument For invalid geometry. @throws std::runtime_error Without collision
+ * geometry in the build, or on CUDA failures.
+ */
+std::shared_ptr<CollisionWorld> make_collision_world(const WorldSpec& spec);
+/// CUDA device the world lives on.
+int collision_world_device(const CollisionWorld& world);
+/// True when the world holds no primitive.
+bool collision_world_empty(const CollisionWorld& world);
+/// Primitive counts: spheres, capsules, boxes.
+std::array<int, 3> collision_world_counts(const CollisionWorld& world);
 
 // Validate before touching CUDA; scale first so finite extreme quaternions normalize safely.
 template<typename T>
@@ -97,30 +174,25 @@ std::array<T, 7> normalized_target_pose(const T* pose) {
  * quaternion. Finite nonzero quaternions are normalized without mutating this input.
  * @param b_size Positive candidate count (not a target count), bounded by CUDA indexing.
  * @param num_solutions Positive maximum number of distinct candidates requested.
- * @param collision_free Enable post-solve collision processing; requires a collision build.
- * @param problems_json_text MotionBenchMaker-style JSON, required with collision_free.
- * @param problem_set_name Key under the JSON "problems" object.
- * @param problem_idx Nonnegative index within the selected problem set.
- * @param write_stats Append diagnostics to ik_stats.csv; write failures throw.
- * @param collision_mode 0 = environment-only soft ranking, 1 = hard self/environment
- * filtering (default), 2 = both. Ignored in open-world solves.
+ * @param collision Collision policy; anything but none requires a collision-enabled build.
+ * @param world Uploaded obstacle world on the current device, or nullptr for an empty environment.
+ * hard/both with an empty world check self-collision only; soft with an empty world is rejected.
+ * @param collect_stats Fill Result::stats (sets Result::has_stats). Never changes the solution.
  * @return Owning result. Candidates may be approximate, fewer than requested, or empty.
  * Collision checks describe configurations, never paths.
- * @throws std::invalid_argument For invalid scalar/pose values.
- * @throws std::runtime_error For checked CUDA or output failures. Scene errors also throw.
+ * @throws std::invalid_argument For invalid scalar/pose values, a soft solve without obstacles, or
+ * a world made on another device.
+ * @throws std::runtime_error For checked CUDA failures or a collision request on an open-world build.
  * Generated model/limit initialization uses GRiD's checked APIs and raises on failure.
  */
 template<typename T, typename RT = double>
 Result<T> generate_ik_solutions(
-    T* target_pose,
+    const T* target_pose,
     int b_size,
     int num_solutions = 1,
-    bool collision_free = false,
-    const char* problems_json_text = nullptr,
-    const char* problem_set_name = nullptr,
-    int problem_idx = 0,
-    bool write_stats = false,
-    int collision_mode = 1
+    CollisionMode collision = CollisionMode::none,
+    const CollisionWorld* world = nullptr,
+    bool collect_stats = false
 );
 
 /**

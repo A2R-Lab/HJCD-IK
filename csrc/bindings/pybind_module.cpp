@@ -1,74 +1,131 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
+#include <cuda_runtime.h>
 #include <cstring>
+#include <memory>
 #include "kernel/hjcd_kernel.h"
+
+// Low-level bindings. The user-facing API (hjcdik.Solver, Result, worlds) is pure Python on top of
+// these; nothing here is re-exported by the package. Every entry point that touches CUDA takes the
+// solver's device, runs on it and restores the caller's current device afterwards.
 
 namespace py = pybind11;
 
+namespace {
 
-py::dict py_generate_solutions(const std::array<double,7>& target_pose,
-                               int batch_size,
-                               int num_solutions,
-                               bool collision_free,
-                               const std::string& problems_json_text,
-                               const std::string& problem_set_name,
-                               int problem_idx,
-                               int refine_fp64,
-                               bool write_stats,
-                               const std::string& collision_mode) {
-  // Size/index validation lives in the native layer (std::invalid_argument -> ValueError);
-  // only the Python-specific arguments are checked here.
-  if (refine_fp64 < -1 || refine_fp64 > 1)
-    throw py::value_error("refine_fp64 must be -1 (auto), 0 (fp32), or 1 (fp64)");
-  if (collision_free && problems_json_text.empty())
-    throw py::value_error("collision_free=True requires problems_json_text");
-  if (collision_free && problem_set_name.empty())
-    throw py::value_error("collision_free=True requires problem_set_name");
-  if (collision_free && !grid_has_collision())
-    throw py::value_error("collision_free=True requires a collision-enabled grid.cuh build");
+struct DeviceScope {
+    int previous = -1;
+    bool switched = false;
+    explicit DeviceScope(int device) {
+        if (device < 0) return;
+        if (cudaGetDevice(&previous) != cudaSuccess) {
+            (void)cudaGetLastError();
+            throw std::runtime_error("CUDA device query failed (no usable CUDA runtime or device)");
+        }
+        if (previous != device) {
+            if (cudaSetDevice(device) != cudaSuccess) {
+                (void)cudaGetLastError();   // clear the sticky error so later calls on the valid device run
+                throw std::runtime_error("cudaSetDevice failed for the solver's device " + std::to_string(device));
+            }
+            switched = true;
+        }
+    }
+    ~DeviceScope() { if (switched) (void)cudaSetDevice(previous); }
+};
 
-  int collision_mode_code = 1;
-  if (collision_mode == "soft") collision_mode_code = 0;
-  else if (collision_mode == "hard") collision_mode_code = 1;
-  else if (collision_mode == "both") collision_mode_code = 2;
-  else throw py::value_error("collision_mode must be one of: hard, soft, both");
+int current_device() {
+    int device = 0;
+    cudaError_t e = cudaGetDevice(&device);
+    if (e != cudaSuccess) {
+        (void)cudaGetLastError();
+        throw std::runtime_error(std::string("CUDA device query failed: ") + cudaGetErrorString(e));
+    }
+    return device;
+}
 
+std::vector<float> rows(const py::array_t<double, py::array::c_style | py::array::forcecast>& a,
+                        int width, const char* name) {
+    if (a.ndim() != 2 || a.shape(1) != width)
+        throw py::value_error(std::string(name) + " must have shape (M, " + std::to_string(width) + ")");
+    std::vector<float> out(static_cast<size_t>(a.shape(0)) * width);
+    const double* src = a.data();
+    for (size_t i = 0; i < out.size(); ++i) {
+        if (!std::isfinite(src[i])) throw py::value_error(std::string(name) + " must contain finite values");
+        out[i] = static_cast<float>(src[i]);
+    }
+    return out;
+}
+
+// Owning device world (RAII through shared_ptr<CollisionWorld>); kernels receive a view by value.
+class World {
+public:
+    World(py::array_t<double, py::array::c_style | py::array::forcecast> spheres,
+          py::array_t<double, py::array::c_style | py::array::forcecast> capsules,
+          py::array_t<double, py::array::c_style | py::array::forcecast> boxes,
+          int device) {
+        WorldSpec spec;
+        spec.spheres = rows(spheres, 4, "spheres");
+        spec.capsules = rows(capsules, 7, "capsules");
+        spec.boxes = rows(boxes, 10, "boxes");
+        py::gil_scoped_release release;
+        DeviceScope scope(device);
+        world_ = make_collision_world(spec);
+    }
+    const CollisionWorld* get() const { return world_.get(); }
+    int device() const { return collision_world_device(*world_); }
+    bool empty() const { return collision_world_empty(*world_); }
+    std::array<int, 3> counts() const { return collision_world_counts(*world_); }
+private:
+    std::shared_ptr<CollisionWorld> world_;
+};
+
+py::dict stats_dict(const SolveStats& s) {
+    py::dict d;
+    d["batch_size"] = s.batch_size;
+    d["n_refined"] = s.n_refined;
+    d["n_ik_accurate"] = s.n_ik_accurate;
+    d["n_coll_free_refined"] = s.n_coll_free_refined;
+    d["n_feasible"] = s.n_feasible;
+    d["n_ik_lost"] = s.n_ik_lost;
+    d["n_coll_in_refined"] = s.n_coll_in_refined;
+    d["n_coll_in_coarse"] = s.n_coll_in_coarse;
+    d["env_cost_min_mm"] = s.env_cost_min_mm;
+    d["env_cost_max_mm"] = s.env_cost_max_mm;
+    d["env_cost_mean_mm"] = s.env_cost_mean_mm;
+    d["n_returned"] = s.n_returned;
+    d["n_returned_ik_accurate"] = s.n_returned_ik_accurate;
+    d["n_returned_coll_free"] = s.n_returned_coll_free;
+    d["pct_returned_coll_free"] = s.pct_returned_coll_free;
+    d["n_returned_feasible"] = s.n_returned_feasible;
+    return d;
+}
+
+py::dict solve_one(const std::array<double, 7>& target_pose,
+                   int batch_size, int num_solutions, int collision, bool fp64, bool stats,
+                   const World* world, int device) {
+  if (collision < 0 || collision > 3)
+    throw py::value_error("collision code must be 0 (none), 1 (hard), 2 (soft) or 3 (both)");
+  const auto mode = static_cast<CollisionMode>(collision);
+  const CollisionWorld* native_world = world ? world->get() : nullptr;
   auto tp = target_pose;  // The native boundary validates and normalizes before touching CUDA.
 
-  const char* json_cstr = problems_json_text.empty() ? nullptr : problems_json_text.c_str();
-  const char* set_cstr  = problem_set_name.empty() ? nullptr : problem_set_name.c_str();
-
-  // refine_fp64 = the LM-refine precision knob (speed/accuracy), TRI-STATE:
-  //   -1 = AUTO (default): pick by regime. num_solutions==1 uses early-stop and is LATENCY-bound
-  //        where fp32 is ~1.2x slower -> fp64; num_solutions>=2 runs every candidate to convergence
-  //        and is THROUGHPUT-bound where fp32 is 5-7x faster (5090 1/64 fp64) -> fp32.
-  //        (measured 2026-06-18 on an RTX 5090; see docs/development/agent_debugging_guide.md §5.)
-  //    1 = force fp64 (RT=double, sub-micron).   0 = force fp32 (RT=float, faster, ~fp32 accuracy).
-  // Either way I/O stays double, and the Cholesky solve precision follows the compute type.
-  const bool use_fp64 = (refine_fp64 < 0) ? (num_solutions <= 1) : (refine_fp64 != 0);
   Result<double> res{};
   {
     py::gil_scoped_release release;
-    res = use_fp64
-        ? generate_ik_solutions<double, double>(
-              tp.data(), batch_size, num_solutions, collision_free, json_cstr, set_cstr,
-              problem_idx, write_stats, collision_mode_code)
-        : generate_ik_solutions<double, float>(
-              tp.data(), batch_size, num_solutions, collision_free, json_cstr, set_cstr,
-              problem_idx, write_stats, collision_mode_code);
+    DeviceScope scope(device);
+    res = fp64
+        ? generate_ik_solutions<double, double>(tp.data(), batch_size, num_solutions, mode, native_world, stats)
+        : generate_ik_solutions<double, float>(tp.data(), batch_size, num_solutions, mode, native_world, stats);
   }
 
   const int N = grid_num_joints();
-
-  // The solver may return fewer solutions after collision filtering.
-  int S = res.count;
+  const int S = res.count;   // may be smaller than requested after filtering and duplicate removal
 
   py::array_t<double> joint_config({S, N});
   py::array_t<double> pose({S, 7});
   py::array_t<double> pos_errors({S});
   py::array_t<double> ori_errors({S});
-
   if (S > 0) {
     std::memcpy(joint_config.mutable_data(), res.joint_config, sizeof(double) * S * N);
     std::memcpy(pose.mutable_data(),         res.pose,         sizeof(double) * S * 7);
@@ -76,84 +133,56 @@ py::dict py_generate_solutions(const std::array<double,7>& target_pose,
     std::memcpy(ori_errors.mutable_data(),   res.ori_errors,   sizeof(double) * S);
   }
 
-
   py::dict out;
   out["joint_config"] = std::move(joint_config);
   out["pose"]         = std::move(pose);
   out["pos_errors"]   = std::move(pos_errors);
   out["ori_errors"]   = std::move(ori_errors);
   out["count"]        = S;
+  out["elapsed_ms"]   = res.elapsed_time;
+  if (res.has_stats) out["stats"] = stats_dict(res.stats); else out["stats"] = py::none();
   return out;
 }
 
-std::vector<std::array<double,7>> py_sample_targets(int num_targets, std::uint64_t seed) {
+std::vector<std::array<double, 7>> sample_targets(int num_targets, std::uint64_t seed, int device) {
   if (num_targets <= 0) throw py::value_error("num_targets must be positive");
-  std::vector<std::array<double,7>> targets;
+  std::vector<std::array<double, 7>> targets;
   {
     py::gil_scoped_release release;
+    DeviceScope scope(device);
     targets = sample_random_target_poses<double>(num_targets, seed);
   }
   return targets;
 }
 
+}  // namespace
+
 PYBIND11_MODULE(_hjcdik, m) {
-  m.doc() = "Python bindings for the HJCD-IK CUDA solver";
-  m.def("generate_solutions", &py_generate_solutions,
-      py::arg("target_pose"),
-      py::arg("batch_size") = 2000,
-      py::arg("num_solutions") = 1,
-      py::arg("collision_free") = false,
-      py::arg("problems_json_text") = "",
-      py::arg("problem_set_name") = "",
-      py::arg("problem_idx") = 0,
-      py::arg("refine_fp64") = -1,    // -1=auto (fp64 if num_solutions==1 else fp32); 1=fp64; 0=fp32
-      py::arg("write_stats") = false,   // append a row to ik_stats.csv
-      py::arg("collision_mode") = "hard",
-      R"doc(Solve one end-effector target using a GPU batch of candidate configurations.
-
-target_pose is [x, y, z, qw, qx, qy, qz], in meters with a scalar-first
-quaternion. Finite nonzero quaternions are normalized. batch_size is the
-number of candidates, not the number of target poses.
-
-Returns a dict containing independent, owning float64 NumPy arrays:
-joint_config (count, num_joints()) in radians; pose (count, 7) in the
-input convention; pos_errors (count,) in millimeters; ori_errors (count,)
-in radians; and the integer count. count may be smaller than num_solutions,
-including zero. Check both errors: returning a candidate does not certify
-that the requested target was reached.
-
-collision_free=True requires a collision-enabled build plus
-problems_json_text, problem_set_name, and a nonnegative problem_idx.
-collision_mode='hard' filters self/environment collisions against the
-compiled sphere model; 'soft' only ranks by penetration and does NOT
-guarantee collision freedom; 'both' ranks and filters. These modes apply
-only when collision_free=True, and do not check the path to a returned
-configuration.
-
-refine_fp64=-1 chooses fp64 for one requested solution, otherwise fp32;
-1 forces fp64 and 0 forces fp32. I/O remains float64. write_stats=True
-appends diagnostics to ik_stats.csv in the current working directory.
-
-Argument conversion errors raise TypeError; invalid values raise
-ValueError. Scene and CUDA failures raise exceptions. Calls release the
-GIL but serialize access to shared native state. Keep the CUDA context
-alive between calls; cudaDeviceReset invalidates cached models.
-)doc");
-  m.def("sample_targets", &py_sample_targets,
-        py::arg("num_targets"), py::arg("seed") = 0,
-        R"doc(Sample reachable poses from a seeded Halton sequence within joint limits.
-
-Returns num_targets lists of [x, y, z, qw, qx, qy, qz], using meters and
-scalar-first quaternions. num_targets must be positive and seed must fit
-an unsigned 64-bit integer. Sampling does not filter self/environment
-collisions. The GIL is released while native sampling runs.
-)doc");
+  m.doc() = "Low-level bindings for the HJCD-IK CUDA solver; use hjcdik.Solver.";
+  py::class_<World>(m, "World")
+      .def(py::init<py::array_t<double, py::array::c_style | py::array::forcecast>,
+                    py::array_t<double, py::array::c_style | py::array::forcecast>,
+                    py::array_t<double, py::array::c_style | py::array::forcecast>, int>(),
+           py::arg("spheres"), py::arg("capsules"), py::arg("boxes"), py::arg("device"),
+           "Validate and upload a world (spheres (M,4), capsules (M,7), boxes (M,10)) to a device.")
+      .def_property_readonly("device", &World::device)
+      .def_property_readonly("empty", &World::empty)
+      .def_property_readonly("counts", &World::counts);
+  m.def("solve_one", &solve_one,
+        py::arg("target_pose"), py::arg("batch_size"), py::arg("num_solutions"), py::arg("collision"),
+        py::arg("fp64"), py::arg("stats"), py::arg("world").none(true), py::arg("device"),
+        "Solve one target on a device; collision 0 none, 1 hard, 2 soft, 3 both. Releases the GIL.");
+  m.def("sample_targets", &sample_targets,
+        py::arg("num_targets"), py::arg("seed"), py::arg("device"),
+        "Seeded Halton samples over the joint limits, mapped through the compiled FK. Releases the GIL.");
+  m.def("current_device", &current_device, "The calling thread's current CUDA device.");
   m.def("num_joints", &grid_num_joints,
         "Return the compiled robot's actuated joint count without initializing CUDA.");
   m.def("collision_enabled", &grid_has_collision,
         "Report whether this build includes robot collision geometry, without initializing CUDA.");
   m.def("build_info", [] {
     py::dict info;
+    info["robot"] = HJCDIK_ROBOT_NAME;
     info["num_joints"] = grid_num_joints();
     info["ee_target"] = HJCDIK_EE_TARGET;
     info["collision_enabled"] = grid_has_collision();
@@ -162,7 +191,7 @@ collisions. The GIL is released while native sampling runs.
     return info;
   }, R"doc(Return compiled model/build metadata without initializing CUDA.
 
-Includes num_joints, collision_enabled, grid_header_sha256 (the SHA-256 of
+Includes robot, num_joints, ee_target, collision_enabled, grid_header_sha256 (the SHA-256 of
 the selected generated grid.cuh), and cuda_compiler_version (the build
 toolkit compiler, not the currently installed driver). Compare the header
 hash to detect a stale install or a wheel built for a different robot.

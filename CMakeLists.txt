@@ -33,7 +33,6 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 find_package(CUDAToolkit REQUIRED)
 find_package(Threads REQUIRED)
-find_package(nlohmann_json CONFIG REQUIRED)
 
 # Note: the CLI (csrc/kernel/main.cpp) emits its results YAML by hand via std::ofstream and
 # nothing in the project includes the yaml-cpp library, so it is not a dependency.
@@ -136,7 +135,7 @@ add_library(hjcdik_core OBJECT ${HJCDIK_COMMON_SOURCES})
 target_sources(hjcdik_core PRIVATE ${GRID_HEADER})
 target_include_directories(hjcdik_core PUBLIC ${HJCDIK_INCLUDE_DIRS})
 target_compile_options(hjcdik_core PRIVATE ${HJCDIK_WARN_FLAGS} ${HJCDIK_CUDA_FLAGS})
-target_link_libraries(hjcdik_core PUBLIC nlohmann_json::nlohmann_json CUDA::cudart Threads::Threads)
+target_link_libraries(hjcdik_core PUBLIC CUDA::cudart Threads::Threads)
 set_target_properties(hjcdik_core PROPERTIES
   CUDA_SEPARABLE_COMPILATION OFF
   CUDA_RESOLVE_DEVICE_SYMBOLS OFF
@@ -173,10 +172,17 @@ if(BUILD_PYTHON)
   if(NOT HJCDIK_EE_TARGET)
     message(FATAL_ERROR "Generated header is missing the named EE target metadata; regenerate it")
   endif()
+  file(STRINGS "${GRID_HEADER}" HJCDIK_ROBOT_LINE REGEX "optimized for the urdf:")
+  string(REGEX MATCH "optimized for the urdf: *([A-Za-z0-9_.-]+)" HJCDIK_ROBOT_MATCH "${HJCDIK_ROBOT_LINE}")
+  set(HJCDIK_ROBOT_NAME "${CMAKE_MATCH_1}")
+  if(NOT HJCDIK_ROBOT_NAME)
+    message(FATAL_ERROR "Generated header is missing the robot name line; regenerate it")
+  endif()
   pybind11_add_module(_hjcdik MODULE csrc/bindings/pybind_module.cpp)
   target_compile_definitions(_hjcdik PRIVATE
     HJCDIK_GRID_SHA256="${HJCDIK_GRID_SHA256}"
     HJCDIK_EE_TARGET="${HJCDIK_EE_TARGET}"
+    HJCDIK_ROBOT_NAME="${HJCDIK_ROBOT_NAME}"
     HJCDIK_CUDA_COMPILER_VERSION="${CMAKE_CUDA_COMPILER_VERSION}"
   )
   target_compile_options(_hjcdik PRIVATE ${HJCDIK_WARN_FLAGS})

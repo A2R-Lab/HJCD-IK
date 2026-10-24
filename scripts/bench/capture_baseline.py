@@ -8,7 +8,7 @@ asserts later builds do not regress against the recorded numbers (with a small s
 Two suites:
   sampled_unconstrained  64 sampled open-world targets, B=2000, one solution each.
   collision_free_mb      the first PROBLEMS_PER_SET goal poses of every MotionBenchMaker set in
-                         tests/mb_problems.json, B=2000, one solution, collision_mode="hard";
+                         tests/mb_problems.json, B=2000, one solution, collision="hard";
                          every returned configuration is also checked by the independent NumPy
                          sphere oracle (benchmark/panda_collision.py, URDF-derived "hjcd" model).
 
@@ -51,22 +51,23 @@ def _aggregate(num_targets, solved, pos_errs, ori_errs, **extra):
 
 def run_suite(num_targets=64, seed=0, batch_size=2000, num_solutions=1):
     """Open-world: solve sampled targets; return aggregate solved-rate and best-candidate errors."""
-    targets = hjcdik.sample_targets(num_targets=num_targets, seed=seed)
+    solver = hjcdik.Solver()
+    targets = solver.sample_targets(num_targets, seed=seed)
     solved, pos_errs, ori_errs = 0, [], []
     for t in targets:
-        out = hjcdik.generate_solutions(t, batch_size=batch_size, num_solutions=num_solutions)
-        if out["count"] > 0:
+        out = solver.solve(t, batch_size=batch_size, num_solutions=num_solutions, collision=None)[0]
+        if out.count > 0:
             solved += 1
-            pos_errs.append(float(np.min(out["pos_errors"])))
-            ori_errs.append(float(np.min(out["ori_errors"])))
+            pos_errs.append(float(np.min(out.pos_err_mm)))
+            ori_errs.append(float(np.min(out.ori_err_rad)))
     return _aggregate(num_targets, solved, pos_errs, ori_errs, batch_size=batch_size)
 
 
 def run_collision_suite(problems_per_set=PROBLEMS_PER_SET, batch_size=2000, num_solutions=1,
                         collision_mode="hard"):
     """Collision-free over tests/mb_problems.json; also counts oracle-verified collision-free returns."""
-    text = MB_PATH.read_text()
-    problems = json.loads(text)["problems"]
+    problems = json.loads(MB_PATH.read_text())["problems"]
+    solver = hjcdik.Solver()
     solved, pos_errs, ori_errs = 0, [], []
     num_targets, returned, oracle_free = 0, 0, 0
     for set_name in sorted(problems):
@@ -74,20 +75,19 @@ def run_collision_suite(problems_per_set=PROBLEMS_PER_SET, batch_size=2000, num_
             inst = problems[set_name][i]
             gp = inst["goal_pose"]
             target = list(gp["position_xyz"]) + list(gp["quaternion_wxyz"])
-            target = panda_hand_target(target, hjcdik.build_info()["ee_target"])
-            out = hjcdik.generate_solutions(
-                target, batch_size=batch_size, num_solutions=num_solutions, collision_free=True,
-                problems_json_text=text, problem_set_name=set_name, problem_idx=i,
-                collision_mode=collision_mode)
+            target = panda_hand_target(target, solver.info.ee_frame)
+            solver.set_world(**hjcdik.worlds.from_mbm_problem(inst))
+            out = solver.solve(target, batch_size=batch_size, num_solutions=num_solutions,
+                               collision=collision_mode)[0]
             num_targets += 1
             world = mb_instance_to_world_dict(inst)
-            for q in np.asarray(out["joint_config"]):
+            for q in np.asarray(out.q):
                 returned += 1
                 oracle_free += bool(panda_config_collision_free(q, world, model="hjcd"))
-            if out["count"] > 0:
+            if out.count > 0:
                 solved += 1
-                best = int(np.argmin(out["pos_errors"]))
-                pe, oe = float(out["pos_errors"][best]), float(out["ori_errors"][best])
+                best = int(np.argmin(out.pos_err_mm))
+                pe, oe = float(out.pos_err_mm[best]), float(out.ori_err_rad[best])
                 if pe < ACCURATE_POS_MM and oe < ACCURATE_ORI_RAD:   # errors are averaged over accurate solves only
                     pos_errs.append(pe)
                     ori_errs.append(oe)

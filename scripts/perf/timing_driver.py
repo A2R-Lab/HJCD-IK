@@ -4,8 +4,11 @@
 Runs against WHICHEVER hjcdik the invoking interpreter resolves — invoke it once
 with endpoint A's venv and once with endpoint B's venv, alternating rounds
 (A/B/A/B) to cancel boost-clock drift (sequential blocks drift ~9% on the 5090).
-All solver options are named: the eighth positional argument is refine_fp64,
-NOT write_stats. Auto precision is fp64 for S=1 and fp32 for S>1.
+Auto precision is fp64 for S=1 and fp32 for S>1. The driver speaks both HJCD-IK APIs so that the
+Stage 1 matched-settings comparison can run: `hjcdik.Solver` (current) and the removed
+`generate_solutions` (an endpoint built before 2026-10-23). Collision settings are matched: open-world
+legs use collision=None / collision_free=False; table2 uses "hard" on both. One `solve` call per
+target is the timing boundary on both APIs.
 Both endpoints must be compiled for panda_hand_joint with verified header hashes.
 
 Legs:
@@ -16,7 +19,7 @@ Legs:
 
 Output: appends one CSV row per (leg, batch) to --out:
   label,leg,batch,round,n_targets,median_ms,mean_ms,min_ms,p95_ms
-Timing = per-call wall time of generate_solutions across targets in the round.
+Timing = per-call wall time of one solve across targets in the round.
 """
 import argparse, csv, json, statistics, sys, time
 from pathlib import Path
@@ -51,19 +54,51 @@ def goal_pose_targets(problems_json_path, set_name):
     return out
 
 
-def time_leg(targets, batch, num_solutions, collision_free, pj_text, set_name, warmup,
-             precision=-1, correctness_only=False, configs_out=None, label="hjcdik"):
+NEW_API = hasattr(hjcdik, "Solver")
+PRECISION = {-1: "auto", 0: "fp32", 1: "fp64"}
+
+
+def make_solve(batch, num_solutions, collision_free, pj_text, set_name, precision):
+    """(prepare, solve) closures with matched settings on either API.
+
+    prepare(i) makes target i's world resident untimed (new API: set_world; old API: one untimed
+    call, which fills its scene cache), so the timed boundary on both APIs is one solve with the
+    world already on the device.
+    """
+    problems = json.loads(pj_text)["problems"][set_name] if collision_free else None
+    if NEW_API:
+        solver = hjcdik.Solver()
+        def prepare(i):
+            if collision_free:
+                solver.set_world(**hjcdik.worlds.from_mbm_problem(problems[i]))
+        def solve(i, t):
+            return solver.solve(t, batch_size=batch, num_solutions=num_solutions,
+                                collision="hard" if collision_free else None,
+                                precision=PRECISION[precision])[0]
+        return prepare, solve
     def solve(i, t):
         return hjcdik.generate_solutions(t, batch_size=batch, num_solutions=num_solutions,
             collision_free=collision_free, problems_json_text=pj_text, problem_set_name=set_name,
             problem_idx=i if collision_free else 0, refine_fp64=precision, write_stats=False,
             collision_mode="hard")
+    def prepare(i):
+        if collision_free:
+            solve(i, [0.3, 0, 0.5, 1, 0, 0, 0])
+    return prepare, solve
+
+
+def time_leg(targets, batch, num_solutions, collision_free, pj_text, set_name, warmup,
+             precision=-1, correctness_only=False, configs_out=None, label="hjcdik"):
+    from query_results import candidate_arrays
+    prepare, solve = make_solve(batch, num_solutions, collision_free, pj_text, set_name, precision)
     for i, t in enumerate(targets[:warmup]):
+        prepare(i)
         solve(i, t)
     times = []
     solved = empty = returned = 0
     problems = json.loads(pj_text)["problems"][set_name] if collision_free else None
     for i, t in enumerate(targets):
+        prepare(i)
         t0 = None if correctness_only else time.perf_counter()
         result = solve(i, t)
         if t0 is not None:
@@ -72,15 +107,16 @@ def time_leg(targets, batch, num_solutions, collision_free, pj_text, set_name, w
             append_record(configs_out, query_record(result, solver=label, problem_set=set_name,
                 problem_idx=i, batch=batch, target=t, ee_target="panda_hand_joint",
                 elapsed_ms=None if correctness_only else times[-1]))
-        returned += result["count"]
+        count, qs, pes, oes = candidate_arrays(result)
+        returned += count
         best = best_candidate(result)
         if best is None:
             empty += 1
             continue
         good = False
-        for j, q in enumerate(result["joint_config"]):
+        for j, q in enumerate(qs):
             pe, oe = pose_errors(q, t, "panda_hand_joint")
-            if abs(pe - result["pos_errors"][j]) > .001 or abs(oe - result["ori_errors"][j]) > 1e-5:
+            if abs(pe - pes[j]) > .001 or abs(oe - oes[j]) > 1e-5:
                 raise ValueError("reported errors disagree with independent FK")
             good |= pe < 5 and oe < .05
             if collision_free:

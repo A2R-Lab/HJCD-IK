@@ -45,7 +45,7 @@ sizes.
 
 ## Collision avoidance
 
-With `collision_free=True`, the refined candidates are scored against the environment *after* optimization
+With `collision="hard"` (the default on a collision build), the refined candidates are scored against the environment *after* optimization
 (never on the hot solver loop) using GRiD's URDF-driven `grid_collision`. The robot is approximated by
 covering spheres baked into `grid.cuh` at codegen (`--collision`); obstacles (spheres / cuboids / cylinders)
 come from the problem set. `hard` mode (default) filters colliding candidates with
@@ -57,5 +57,5 @@ the benchmark also accepts `--collision-mode`.
 Collision geometry is generated from URDF shapes or supplied pre-spherized geometry and bound to
 the kinematic robot's frames. Adding a supported robot needs no
 hand-written collision code — see {doc}`../tutorials/custom_robot`. Python rejects
-`collision_free=True` when `grid.cuh` was built without `--collision` instead of silently running
+a collision policy when `grid.cuh` was built without `--collision` instead of silently running
 open-world.

@@ -54,12 +54,12 @@ shim = ctypes.CDLL(sys.argv[1])
 nth, operation, entrypoint = int(sys.argv[2]), sys.argv[3], sys.argv[4]
 shim.hjcd_test_arm.argtypes = [ctypes.c_int]
 shim.hjcd_test_arm.restype = None
-assert hjcdik.num_joints() == 7, "fault ordering assumes the default Panda model"
+assert hjcdik.build_info()["num_joints"] == 7, "fault ordering assumes the default Panda model"
+solver = hjcdik.Solver(device=0)   # binding to a device number does not touch CUDA
 def call():
     if entrypoint == "sample":
-        return hjcdik.sample_targets(1, seed=17)
-    return hjcdik.generate_solutions([0.3, 0, 0.5, 1, 0, 0, 0],
-                                     batch_size=32, refine_fp64=0)
+        return solver.sample_targets(1, seed=17)
+    return solver.solve([0.3, 0, 0.5, 1, 0, 0, 0], batch_size=32, precision="fp32", collision=None)
 assert shim.hjcd_test_outstanding() == 0
 for attempt in range(3):
     # After a model failure the limits were successfully initialized once, so those
@@ -77,7 +77,7 @@ for attempt in range(3):
     assert shim.hjcd_test_resets() == 0
 shim.hjcd_test_arm(0)
 result = call()
-assert len(result) == 1 if entrypoint == "sample" else result["count"] == 1
+assert len(result) == 1 if entrypoint == "sample" else int(result.count[0]) == 1
 retained = shim.hjcd_test_outstanding()
 assert retained == 2, "only the successful model and its nested transforms remain cached"
 call()

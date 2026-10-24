@@ -78,6 +78,6 @@ python scripts/codegen/generate_grid.py path/to/robot.urdf -t <ee_target> --coll
   `scripts/setup/bootstrap.sh` initializes both at the committed revisions.
 - The default codegen profile emits kinematics and optional collision only. Use `--profile all`
   only when the generated header is also needed by an external dynamics consumer.
-- Without `--collision` the build runs open-world; the Python API rejects `collision_free=True`
+- Without `--collision` the build runs open-world; the Python API rejects any `collision` other than `None`
   (the collision path is compiled out via the `HJCD_HAS_COLLISION` sentinel).
 - Keep the EE-target frame consistent with `FLANGE_IDX` usage in the kernel.

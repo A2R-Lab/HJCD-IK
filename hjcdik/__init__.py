@@ -1,3 +1,10 @@
+"""HJCD-IK: GPU-parallel inverse kinematics for one compiled robot.
+
+    import hjcdik
+    solver = hjcdik.Solver()
+    targets = solver.sample_targets(10, seed=0)
+    result = solver.solve(targets, num_solutions=4)
+"""
 import os
 
 if os.name == "nt":
@@ -13,18 +20,18 @@ if os.name == "nt":
         if os.path.isdir(conda_bin):
             os.add_dll_directory(conda_bin)
 
-from ._hjcdik import (
-    build_info,
-    collision_enabled,
-    generate_solutions,
-    num_joints,
-    sample_targets,
-)
+from ._hjcdik import build_info
+from ._solver import Info, Result, SolveError, Solver, Stats, TargetResult, world_arrays
+from . import worlds
 
 __all__ = [
+    "Solver",
+    "Result",
+    "TargetResult",
+    "Stats",
+    "Info",
+    "SolveError",
     "build_info",
-    "collision_enabled",
-    "generate_solutions",
-    "num_joints",
-    "sample_targets",
+    "world_arrays",
+    "worlds",
 ]

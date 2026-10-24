@@ -71,10 +71,32 @@ int main(int argc, char** argv) try {
     if (!grid_has_collision()) {
         bool rejected = false;
         try {
-            generate_ik_solutions<double>(targets[0].data(), 32, 1, true,
-                "{\"problems\":{\"empty\":[{\"obstacles\":{}}]}}", "empty");
+            generate_ik_solutions<double>(targets[0].data(), 32, 1, CollisionMode::hard);
         } catch (const std::runtime_error&) { rejected = true; }
         require(rejected, "collision request accepted by a no-collision build");
+        rejected = false;
+        try { make_collision_world(WorldSpec{}); } catch (const std::runtime_error&) { rejected = true; }
+        require(rejected, "world upload accepted by a no-collision build");
+    } else {
+        // Hard mode with no world checks self-collision only; soft needs obstacles; worlds own device memory.
+        auto hard = generate_ik_solutions<double>(targets[0].data(), 512, 1, CollisionMode::hard);
+        check_result(hard, targets[0], 1);
+        bool rejected = false;
+        try { generate_ik_solutions<double>(targets[0].data(), 32, 1, CollisionMode::soft); }
+        catch (const std::invalid_argument&) { rejected = true; }
+        require(rejected, "soft mode accepted an empty world");
+        WorldSpec blocked;
+        blocked.spheres = {0.f, 0.f, 0.f, 100.f};   // a sphere that swallows the workspace
+        auto world = make_collision_world(blocked);
+        require(!collision_world_empty(*world) && collision_world_counts(*world)[0] == 1, "world counts");
+        auto none = generate_ik_solutions<double>(targets[0].data(), 64, 2, CollisionMode::hard, world.get(), true);
+        require(none.count == 0 && none.has_stats && none.stats.n_coll_in_coarse == 64,
+                "blocked world still returned candidates or stats were not collected");
+        WorldSpec bad;
+        bad.boxes = {0, 0, 0, 0, 0, 0, 0, 1, 1, 1};   // zero quaternion
+        rejected = false;
+        try { make_collision_world(bad); } catch (const std::invalid_argument&) { rejected = true; }
+        require(rejected, "zero quaternion accepted");
     }
     std::cout << "native API passed: dof=" << dof
               << ", collision=" << grid_has_collision() << '\n';

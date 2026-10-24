@@ -1,51 +1,63 @@
 # Upgrading and verified scope
 
-This guide describes the audit-hardening changes relative to the earlier paper-era
-API. Published paper tables and the research landing page remain historical results;
-they are not benchmark measurements of every subsequent code revision.
+This page records the API contract of the current release and how to move code written against
+the earlier function API. Published paper tables and the research landing page remain historical
+results; they are not benchmark measurements of every subsequent code revision.
 
-## Changes callers should account for
+## The object API (October 2026)
+
+`generate_solutions`, `sample_targets`, `num_joints`, `collision_enabled` and `write_stats` are gone.
+The package exposes `Solver`, `Result`, `TargetResult`, `Stats`, `Info`, `SolveError`, `build_info`,
+`world_arrays` and the `worlds` loaders; see {doc}`../api_reference/python` for every field.
 
 | Area | Current contract / migration |
 | --- | --- |
-| Collision policy | Python defaults to explicit `collision_mode="hard"`: filter self/environment collisions. `soft` ranks environment penetration but does not promise collision freedom; `both` ranks and filters. |
-| Collision-aware refinement (2026-10) | In `hard`/`both` modes the solver's early stop, LM-seed ranking and refinement are collision-aware: an accurate-but-colliding candidate gets a repair round (`HJCD_REPAIR_ATTEMPTS`, default 4; 0 disables), and when this run finds no exactly converged collision-free configuration the solver returns the best collision-free one inside the success band (5 mm / 0.05 rad) — read `pos_errors`/`ori_errors`, they report it. `HJCD_CC_STOP` (0–3, default 3) is a diagnostic/A-B knob for the coarse (bit 0) and LM (bit 1) stages. `soft` mode and open-world solves are unchanged. |
-| Environment variable | Nothing reads `HJCD_CC_MODE` any more: not the Python API, not the native solver, and since 2026-10-12 not the benchmark CLI either (pass `--collision-mode`). The former `collision_mode="auto"` is gone. |
-| Returned count | Read `count`, and use arrays of shape `(count, ...)`. Filtering and duplicate removal may return fewer candidates than requested, including zero. |
-| Pose/units | Targets and returned pose positions are meters; quaternions are `wxyz`. Position errors are **millimeters**, orientation errors **radians**. Finite nonzero target quaternions are normalized. |
-| Success | Check both errors for the **same candidate**. A nonempty result is not a pose-accuracy certificate; collision checks certify neither a trajectory nor mesh-level safety. |
-| Invalid input | Invalid sizes, poses, unsupported scenes and unavailable collision builds raise exceptions. Requests never silently fall back to open-world solving. Use `"obstacles": {}` for an explicit empty environment. |
-| Native ownership | `Result<T>` is move-only and owns its host buffers. Remove manual `delete[]` calls; keep the result alive while reading its pointers. Recompile native callers against the new header. |
-| Native signature | `generate_ik_solutions(target, batch, ...)` no longer takes the ignored `d_robotModel` argument; drop that `nullptr` from native callers. `collision_mode` is `0` (soft), `1` (hard, default) or `2` (both). Obstacle JSON must use `pose`; the legacy Euler `box`/`orientation_euler_xyz` forms are rejected. |
-| CUDA failures | Checked runtime/model initialization failures raise exceptions, with best-effort cleanup. A context-invalidating CUDA error may still require restarting the process. |
-| Concurrency | Python releases the GIL; native sampling/solving serialize shared state. This is safe concurrent calling, not concurrent GPU solve execution. Keep the CUDA context alive; `cudaDeviceReset` invalidates caches. |
-| Determinism | Candidate identity is not run-to-run stable: identical calls may return different, equally valid candidates (the coarse search and single-solution refinement stop on a cross-block flag). Aggregate over targets or pin tolerances, never a specific configuration. |
-| Statistics | Unmeasured collision/feasibility fields use `-1`, not a fabricated zero. The summary tool excludes these values. Do not combine soft and hard/both rows as one collision-success metric. |
+| Entry point | `solver = hjcdik.Solver()` wraps the installed, statically compiled robot and binds to the current CUDA device. `Solver("panda")` must match `build_info()`. |
+| One call, many targets | `solver.solve(poses)` takes `(7,)` or `(T, 7)`; `batch_size` is still the number of candidates per target. The whole batch is validated before any GPU work. |
+| Collision default | Omitted `collision` means `"hard"` on a collision build (self and environment filtering) and `None` on an open-world build. The old default was collision checking off: pass `collision=None` to keep it. `"soft"` ranks without filtering and raises on an empty world; `"both"` ranks and filters. |
+| Worlds | Obstacles are arrays installed once with `solver.set_world(boxes=, capsules=, spheres=, cylinders=)`, not JSON passed on every call. `hjcdik.worlds.from_mbm_problem` converts a MotionBenchMaker instance. A failed `set_world` leaves the previous world intact; `clear_world()` installs the empty world. |
+| Results | `Result` arrays are `(T, S, ...)`, NaN-padded to `S = num_solutions`, read-only, with `count`, `valid`, `ok(pos_mm, ori_rad)` and `result[i]` for the un-padded view. Filtering and duplicate removal may leave fewer valid rows than requested, including zero. |
+| Precision | `precision="auto" \| "fp32" \| "fp64"` replaces `refine_fp64=-1 \| 0 \| 1`. Auto is fp64 for one solution and fp32 otherwise; I/O stays float64. |
+| Diagnostics | `solve(..., stats=True)` returns `Result.stats`; the solver no longer writes `ik_stats.csv`. The benchmark writes the same CSV columns from `Result.stats` (`benchmark/_results_io.py`). Unmeasured fields are `-1`. |
+| Errors | `ValueError` for shapes, values, geometry and unsupported collision requests; `SolveError` (a `RuntimeError`, with `target_index` and `completed`) for CUDA failures, after best-effort cleanup. |
+| Devices and threads | Every operation runs on the solver's device and restores the caller's current device. Calls are serialised; `set_world` waits for a solve in flight, so one world applies to a whole batched call. |
+| Pose/units | Targets and returned poses are metres and `wxyz` quaternions; position errors are **millimetres**, orientation errors **radians**. Finite nonzero target quaternions are normalised. |
+| Success | Check both errors for the **same candidate**. A valid row is not a pose-accuracy certificate; collision checks certify neither a trajectory nor mesh-level safety. |
+| Native API | `generate_ik_solutions(target, batch, num_solutions, CollisionMode, const CollisionWorld*, collect_stats)` replaces the JSON triple and `write_stats`; worlds come from `make_collision_world(WorldSpec)`. `Result<T>` is move-only and carries `stats`. The JSON parser left the native layer. |
+| Determinism | Candidate identity is not run-to-run stable: identical calls may return different, equally valid candidates. Aggregate over targets or pin tolerances, never a specific configuration. |
 
-The Python result dictionary and float64 I/O remain unchanged. `refine_fp64=-1`
-uses fp64 refinement for one requested solution and fp32 for multiple solutions;
-`0`/`1` force the precision. This is a policy, not a speed guarantee on every GPU.
-
-For example, accept only candidates meeting both application tolerances:
+## Migrating a call
 
 ```python
 import hjcdik
 
-target = hjcdik.sample_targets(1, seed=0)[0]
-out = hjcdik.generate_solutions(target, batch_size=2000, num_solutions=4)
-acceptable = (out["pos_errors"] < 1.0) & (out["ori_errors"] < 0.001)
-print("candidates within 1 mm and 0.001 rad:", out["joint_config"][acceptable])
+solver = hjcdik.Solver()
+target = solver.sample_targets(1, seed=0)[0]
+# old: out = hjcdik.generate_solutions(target, batch_size=2000, num_solutions=4)
+out = solver.solve(target, batch_size=2000, num_solutions=4, collision=None)
+r = out[0]
+acceptable = r.ok(pos_mm=1.0, ori_rad=0.001)
+print("candidates within 1 mm and 0.001 rad:", r.q[acceptable])
 ```
 
-This open-world example does not check collisions. Sampling reachable targets does
-not guarantee that they are collision-free either.
+A collision-free call used to pass the problem JSON, set name and index on every solve. Now the
+scene is installed once:
+
+```python
+problem = hjcdik.worlds.select_problem(document, "box_panda", 0)
+solver.set_world(**hjcdik.worlds.from_mbm_problem(problem))
+out = solver.solve(target, batch_size=2000, num_solutions=4)      # "hard" by default here
+```
+
+The open-world example above does not check collisions. Sampling reachable targets does not
+guarantee that they are collision-free either.
 
 ## Robot and collision identity
 
-A wheel contains one compiled robot. `hjcdik.build_info()` reports its joint count,
+A wheel contains one compiled robot. `hjcdik.build_info()` reports its name, joint count,
 collision capability, named EE target, generated-header SHA256 and CUDA compiler version without
-initializing CUDA. Regenerate and rebuild to change the model; use separate build
-directories and environments when comparing robots.
+initializing CUDA; `solver.info` repeats them. Regenerate and rebuild to change the model; use
+separate build directories and environments when comparing robots.
 
 The supported solver model is a fixed-base serial chain of 1–32 independent
 revolute/continuous local-+Z joints, plus fixed links/tool frames. Other GRiD robot
@@ -57,11 +69,6 @@ post-hoc checking; `hjcd` selects the independent URDF-derived current geometry.
 Neither flag changes the compiled solver. Both Python checks are environment-only;
 hard/both solver modes also check self-collision using generated exclusions.
 Collision CSV/YAML sidecars identify the selected model and compiled header.
-
-Exact-content scene caching now reuses the parsed JSON when changing scenes, while
-rejecting stale geometry after changed contents or failed selection. It retains one
-document/environment per device and precision specialization, not every scene ever
-visited. Runtime improvement needs measurement on a quiet machine.
 
 ## Validation and limits
 
@@ -83,14 +90,14 @@ CTest, sanitizer and build checks are separate evidence, not implied by that rec
 ## Performance and paper comparisons
 
 The CUDA core is compiled once for Python and the CLI; the default generated profile
-omits unneeded dynamics. These reduce duplicated build work, but do not establish a
-measured clean-build speedup. No new headline performance or MMD claim accompanies
-the correctness changes.
+omits unneeded dynamics. No new headline performance or MMD claim accompanies the API
+change: the kernel is unchanged, and the latency comparison between `Solver.solve` and the
+removed `generate_solutions` runs with matched collision settings in an announced timing window
+(`docs/development/timing_gate.md`).
 
 For before/after timing, use matched release builds on the same idle machine. Record
 targets, robot/EE frame, geometry, precision, tolerances, output counts, initialization,
-and error/success metrics alongside latency. Test repeated scenes and changing scenes
-with both full and compact JSON. Do not equate a per-returned-solution collision
+and error/success metrics alongside latency. Do not equate a per-returned-solution collision
 percentage with per-query success, or compare a median with the paper's mean.
 See {doc}`benchmarks/results` for the unchanged published results.
 

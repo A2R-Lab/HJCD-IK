@@ -1,8 +1,8 @@
 """02 — Collision-free IK against a MotionBenchMaker scene.
 
-Solve IK while the GPU filters candidates against the obstacles in a problem set. The scene + goal come
-from ``tests/mb_problems.json`` (the same sets the benchmark uses). Requires HJCD-IK built with the
-``panda_grasptarget_hand`` frame (the committed default). Dataset goals describe panda_hand;
+Install the obstacles of one dataset problem as the solver's world, then solve with the default
+collision policy (``"hard"``: self- and environment-collision filtering). The scene and goal come
+from ``tests/mb_problems.json`` (the sets the benchmark uses). Dataset goals describe ``panda_hand``;
 the fixed tool offset is applied explicitly below to preserve the requested hand pose.
 
 Run: ``python examples/02_collision_free_solve.py``
@@ -11,7 +11,7 @@ import json
 import sys
 from pathlib import Path
 
-from hjcdik import generate_solutions, build_info
+import hjcdik
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmark"))
 from query_results import panda_hand_target, best_candidate
@@ -20,30 +20,23 @@ PROBLEMS = Path(__file__).resolve().parents[1] / "tests" / "mb_problems.json"
 PROBLEM_SET = "box_panda"
 PROBLEM_IDX = 0
 
-problems_text = PROBLEMS.read_text()
-problem = json.loads(problems_text)["problems"][PROBLEM_SET][PROBLEM_IDX]
+problem = hjcdik.worlds.select_problem(json.loads(PROBLEMS.read_text()), PROBLEM_SET, PROBLEM_IDX)
 
-# Goal pose for this problem: [x, y, z, qw, qx, qy, qz].
-gp = problem["goal_pose"]
-target = [*gp["position_xyz"], *gp["quaternion_wxyz"]]
-target = panda_hand_target(target, build_info()["ee_target"])
+solver = hjcdik.Solver()
+solver.set_world(**hjcdik.worlds.from_mbm_problem(problem))    # boxes, cylinders, spheres -> GPU
+print("world:", solver.world_counts)
 
-out = generate_solutions(
-    target,
-    batch_size=2000,
-    num_solutions=4,
-    collision_free=True,
-    collision_mode="hard",
-    problems_json_text=problems_text,   # the GPU reads obstacles from this set...
-    problem_set_name=PROBLEM_SET,
-    problem_idx=PROBLEM_IDX,             # ...for this specific scene
-)
+# Goal pose for this problem, expressed for the compiled tool frame.
+target = panda_hand_target(hjcdik.worlds.goal_pose(problem), solver.info.ee_frame)
 
-print(f"set={PROBLEM_SET} idx={PROBLEM_IDX}: {out['count']} collision-free solutions")
-if out["count"]:
-    best = best_candidate(out)
-    print("selected candidate position error (mm):  ", float(out["pos_errors"][best]))
-    print("selected candidate orientation error (rad):", float(out["ori_errors"][best]))
-    print("within 5 mm and 0.05 rad:", bool(out["pos_errors"][best] < 5 and out["ori_errors"][best] < .05))
+out = solver.solve(target, batch_size=2000, num_solutions=4, collision="hard")
+r = out[0]
+
+print(f"set={PROBLEM_SET} idx={PROBLEM_IDX}: {r.count} collision-free solutions")
+if r.count:
+    best = best_candidate(r)
+    print("selected candidate position error (mm):  ", float(r.pos_err_mm[best]))
+    print("selected candidate orientation error (rad):", float(r.ori_err_rad[best]))
+    print("within 5 mm and 0.05 rad:", bool(r.ok(pos_mm=5, ori_rad=0.05)[best]))
 else:
     print("No collision-free candidate was found in this batch.")
