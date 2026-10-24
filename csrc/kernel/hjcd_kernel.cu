@@ -587,13 +587,21 @@ using CCEnv = grid_collision::Environment<float>;
 // ENVIRONMENT pairs only; the baked self pairs are checked at zero margin (GRiD's single margin also
 // widens every self pair, and a tight sphere model such as foam's Panda then fails every configuration
 // above about a centimetre; GRiD ask G7b asks for a separate self margin). At margin 0 this is one call.
+// One call site only: the checker is a large force-inlined device function, and a second inlined copy at
+// each of the five call sites multiplied the kernel's compile time by eight (measured 2026-10-24).
 template<typename T>
 __device__ __forceinline__ bool cc_free_warp(const T* s_jointX, const CCEnv& env, float* scratch,
                                              float margin, bool check_self) {
-    if (margin <= 0.0f) return grid_collision::warp::config_free<T>(s_jointX, env, scratch, 0.0f, check_self);
-    if (!grid_collision::warp::config_free<T>(s_jointX, env, scratch, margin, false)) return false;
-    if (!check_self) return true;
-    return grid_collision::warp::config_free<T>(s_jointX, CCEnv{}, scratch, 0.0f, true);
+    const bool split = margin > 0.0f;           // environment at the margin, then self pairs at zero
+    bool ok = true;
+    for (int pass = 0; pass < 2 && ok; ++pass) {
+        if (pass == 1 && !(split && check_self)) break;
+        const bool self_pass = (pass == 1);
+        ok = grid_collision::warp::config_free<T>(s_jointX, self_pass ? CCEnv{} : env, scratch,
+                                                  self_pass ? 0.0f : margin,
+                                                  self_pass ? true : (split ? false : check_self));
+    }
+    return ok;
 }
 constexpr int CC_WARP_POS_FLOATS = grid_collision::warp::W_SCRATCH_FLOATS;
 #else
@@ -1178,7 +1186,10 @@ __global__ void coarse_search(
     // dead cells whose shared storage nvcc can reuse for another warp's scores.
     for (int m = lane; m < N * 16; m += WARP_SIZE) l_tmp[m] = s_XmatsHom[m];
     __syncthreads();
-    for (int k = 0; k < HJCDSettings<T>::k_max && !s_skip; ++k) {
+    // Read the skip flag once into a register: a __shared__ read in this loop's condition made nvcc take
+    // eight times longer on the kernel (150 s instead of 19 s, measured 2026-10-24) for identical semantics.
+    const bool skip_descent = (s_skip != 0);
+    for (int k = 0; k < HJCDSettings<T>::k_max && !skip_descent; ++k) {
         if (stop_on_first && s_stop) break;
 
         if ((threadIdx.x >> 5) == 0) { // warp 0
@@ -1749,13 +1760,15 @@ __global__ void mark_collisions(
     for (int j = tid; j < N; j += blockDim.x) s_q[j] = (float)q_in[(size_t)i * N + j];
     __syncthreads();
 
-    // Same margin semantics as cc_free_warp: the margin widens environment pairs only.
-    bool ok;
-    if (margin <= 0.0f) {
-        ok = gc::config_free<float>(s_q, d_robotModel, env, s_pos, s_r, nullptr, 0.0f, check_self);
-    } else {
-        ok = gc::config_free<float>(s_q, d_robotModel, env, s_pos, s_r, nullptr, margin, false);
-        if (ok && check_self) ok = gc::config_free<float>(s_q, d_robotModel, gc::Environment<float>{}, s_pos, s_r, nullptr, 0.0f, true);
+    // Same margin semantics as cc_free_warp (environment pairs at the margin, self pairs at zero), one call site.
+    const bool split = margin > 0.0f;
+    bool ok = true;
+    for (int pass = 0; pass < 2 && ok; ++pass) {
+        if (pass == 1 && !(split && check_self)) break;
+        const bool self_pass = (pass == 1);
+        ok = gc::config_free<float>(s_q, d_robotModel, self_pass ? gc::Environment<float>{} : env, s_pos, s_r, nullptr,
+                                    self_pass ? 0.0f : margin, self_pass ? true : (split ? false : check_self));
+        __syncthreads();   // the block checker's shared scratch is reused by the second pass
     }
     if (tid == 0) valid[i] = ok ? 1 : 0;
 }
