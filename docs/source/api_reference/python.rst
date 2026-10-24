@@ -28,12 +28,16 @@ success certificate: inspect both errors against your application's tolerances.
 Solver
 ------
 
-``Solver(robot=None, *, device=None)``
-   Wraps the installed, statically compiled robot. ``robot`` may name it (``"panda"`` for the
-   shipped build) and must then match ``build_info()``; anything else raises. ``device`` defaults to
-   the current CUDA device. ``solver.info`` is an ``Info`` with ``robot``, ``dof``, ``ee_frame``,
-   ``collision_enabled``, ``grid_header_sha256``, ``cuda_compiler_version``, ``device`` and
-   ``max_batch_size``.
+``Solver(robot=None, *, ee_link=None, spheres=None, device=None, allow_build=True, cache_dir=None)``
+   ``Solver()`` is the packaged robot (``"panda"`` in the shipped wheel; ``Solver("panda")`` is the
+   same). Any other name is a prepared runtime build of that name (see *Runtime robot builds*). A
+   URDF path with ``ee_link`` (the fixed joint naming the end-effector frame) and optionally
+   ``spheres`` builds the robot on first use; ``allow_build=False`` only loads a prepared build and
+   raises ``BuildError`` naming the command otherwise. ``device`` defaults to the current CUDA
+   device. ``solver.info`` is an ``Info`` with ``robot``, ``dof``, ``ee_frame``,
+   ``collision_enabled``, ``grid_header_sha256``, ``cuda_compiler_version``, ``device``,
+   ``max_batch_size`` and ``artifact`` (the store path of a runtime build, ``None`` for the packaged
+   robot).
 
 ``solver.solve(poses, *, num_solutions=1, batch_size=2000, collision=<omitted>, precision="auto", stats=False)``
    Solve one pose ``(7,)`` or a batch ``(T, 7)``; returns a ``Result`` with ``T`` targets (a single
@@ -190,11 +194,45 @@ percentage. The solver never opens files; the benchmark's ``benchmark/_results_i
 legacy ``ik_stats.csv`` rows and ``python scripts/ik_stats_summary.py path/to/ik_stats.csv``
 summarises them.
 
+Runtime robot builds
+--------------------
+
+The base package solves with the packaged robot and loads prepared builds with numpy only. With
+the ``hjcdik[build]`` extra (GRiD's ``grid-rbd`` and ``pybind11``) and ``nvcc`` on the machine,
+any fixed-base serial-chain URDF becomes a solver:
+
+.. code-block:: text
+
+   hjcdik build my_arm.urdf --ee-link tool_frame_joint                 # open-world
+   hjcdik build panda.urdf --ee-link panda_grasptarget_hand --spheres panda_foam --name panda-cc
+   hjcdik list
+
+``hjcdik.build(urdf, *, ee_link, spheres=None, name=None, collision_res=0.05, cache_dir=None,
+cuda_arch=None, force_rebuild=False, plan_only=False)`` is the same operation from Python and
+returns an ``Artifact`` (``name``, ``robot``, ``ee_frame``, ``collision_enabled``, ``path``,
+``header``, ``content_key``, ``cuda_arch``, ``compiled``). ``spheres`` is a preset name
+(``hjcdik.sphere_presets()``; ``"panda_foam"`` ships) or a spherized URDF whose kinematic frames
+match the robot URDF; GRiD validates it, and ``grid-spherize --rebind-to`` adapts a model made for
+another URDF of the same robot. ``name`` defaults to ``<robot>-<ee_link>`` with ``-cc`` when
+collision geometry is baked.
+
+The build runs through ``grid_rbd.build_artifact``: GRiD generates ``grid.cuh`` for the URDF and
+compiles HJCD-IK's two translation units against it under the store's rules (an identity over the
+URDF, the sphere model, the codegen options and tree, GLASS, our sources and headers by content,
+defines, flags, toolchain and CUDA architecture; per-unit object reuse; atomic publish). Artifacts
+live under ``<cache_dir>/consumers/hjcdik/`` (default ``~/.cache/grid-rbd``, ``GRID_RBD_CACHE_DIR``).
+``hjcdik.load(name)`` returns a prepared ``Artifact`` with no toolchain, checking only the artifact
+schema and that the current GPU can run it; ``hjcdik.list_builds()`` lists the store. Each
+artifact is its own extension module, so several robots can be solved in one process with
+independent worlds and locks. A build that changes after it was imported into a process cannot be
+re-imported there; restart the process.
+
 Build metadata
 --------------
 
 ``hjcdik.build_info()`` returns ``robot``, ``num_joints``, ``ee_target``, ``collision_enabled``,
-``grid_header_sha256`` and ``cuda_compiler_version`` without initialising CUDA. The header hash
+``grid_header_sha256``, ``cuda_compiler_version`` and ``binding_abi`` for the packaged robot without
+initialising CUDA. The header hash
 identifies the generated model compiled into the loaded extension; compare it with your selected
 ``grid.cuh`` to detect stale installs or a different robot wheel. The compiler version describes the
 build toolkit, not the driver. ``solver.info`` repeats these for the bound solver.

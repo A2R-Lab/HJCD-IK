@@ -21,6 +21,7 @@ if os.name == "nt":
             os.add_dll_directory(conda_bin)
 
 from ._hjcdik import build_info
+from ._build import Artifact, BuildError, build, list_builds, load, sphere_presets
 from ._solver import Info, Result, SolveError, Solver, Stats, TargetResult, world_arrays
 from . import worlds
 
@@ -31,6 +32,12 @@ __all__ = [
     "Stats",
     "Info",
     "SolveError",
+    "BuildError",
+    "Artifact",
+    "build",
+    "load",
+    "list_builds",
+    "sphere_presets",
     "build_info",
     "world_arrays",
     "worlds",

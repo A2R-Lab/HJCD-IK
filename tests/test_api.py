@@ -52,10 +52,10 @@ def test_collision_mode_is_validated(solver, mode):
         solver.solve(POSE, collision=mode)
 
 
-def test_wrong_robot_name_is_rejected():
-    with pytest.raises(ValueError, match="panda"):
-        hjcdik.Solver("fetch")
-    assert hjcdik.Solver("panda").info.robot == "panda"
+def test_unknown_robot_name_names_the_build_command():
+    with pytest.raises(hjcdik.BuildError, match="hjcdik build"):
+        hjcdik.Solver("no-such-robot")
+    assert hjcdik.Solver("panda").info.robot == "panda" and hjcdik.Solver("panda").info.artifact is None
 
 
 def test_target_quaternion_is_normalized_at_boundary(solver):

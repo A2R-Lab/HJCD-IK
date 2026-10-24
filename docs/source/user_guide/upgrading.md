@@ -12,7 +12,7 @@ The package exposes `Solver`, `Result`, `TargetResult`, `Stats`, `Info`, `SolveE
 
 | Area | Current contract / migration |
 | --- | --- |
-| Entry point | `solver = hjcdik.Solver()` wraps the installed, statically compiled robot and binds to the current CUDA device. `Solver("panda")` must match `build_info()`. |
+| Entry point | `solver = hjcdik.Solver()` is the packaged robot, bound to the current CUDA device. `Solver("<name>")` loads a prepared runtime build; `Solver("arm.urdf", ee_link=...)` builds one through GRiD's artifact store (`hjcdik[build]` extra, `hjcdik build`). |
 | One call, many targets | `solver.solve(poses)` takes `(7,)` or `(T, 7)`; `batch_size` is still the number of candidates per target. The whole batch is validated before any GPU work. |
 | Collision default | Omitted `collision` means `"hard"` on a collision build (self and environment filtering) and `None` on an open-world build. The old default was collision checking off: pass `collision=None` to keep it. `"soft"` ranks without filtering and raises on an empty world; `"both"` ranks and filters. |
 | Worlds | Obstacles are arrays installed once with `solver.set_world(boxes=, capsules=, spheres=, cylinders=)`, not JSON passed on every call. `hjcdik.worlds.from_mbm_problem` converts a MotionBenchMaker instance. A failed `set_world` leaves the previous world intact; `clear_world()` installs the empty world. |
@@ -23,7 +23,8 @@ The package exposes `Solver`, `Result`, `TargetResult`, `Stats`, `Info`, `SolveE
 | Devices and threads | Every operation runs on the solver's device and restores the caller's current device. Calls are serialised; `set_world` waits for a solve in flight, so one world applies to a whole batched call. |
 | Pose/units | Targets and returned poses are metres and `wxyz` quaternions; position errors are **millimetres**, orientation errors **radians**. Finite nonzero target quaternions are normalised. |
 | Success | Check both errors for the **same candidate**. A valid row is not a pose-accuracy certificate; collision checks certify neither a trajectory nor mesh-level safety. |
-| Native API | `generate_ik_solutions(target, batch, num_solutions, CollisionMode, const CollisionWorld*, collect_stats)` replaces the JSON triple and `write_stats`; worlds come from `make_collision_world(WorldSpec)`. `Result<T>` is move-only and carries `stats`. The JSON parser left the native layer. |
+| Native API | `generate_ik_solutions(target, batch, num_solutions, CollisionMode, const CollisionWorld*, collect_stats)` replaces the JSON triple and `write_stats`; worlds come from `make_collision_world(WorldSpec)`, which wraps GRiD's `grid_collision::DeviceEnvironment`. `Result<T>` is move-only and carries `stats`. The JSON parser and the `nlohmann-json` dependency left the native layer. |
+| Other robots | Regenerating the committed header and rebuilding the package is no longer the only route: `hjcdik build <urdf> --ee-link <joint> [--spheres <preset or spherized URDF>]` compiles the robot once into GRiD's store and `Solver("<name>")` loads it without a compiler. The committed Panda header and the submodules stay the fixture of the packaged build. |
 | Determinism | Candidate identity is not run-to-run stable: identical calls may return different, equally valid candidates. Aggregate over targets or pin tolerances, never a specific configuration. |
 
 ## Migrating a call

@@ -103,9 +103,12 @@ print("orientation error (rad):", best.ori_err_rad)
 `solve` takes one pose or a batch of poses. `batch_size` is the number of candidate configurations
 explored per target, not the number of target poses. On a collision build the default policy is
 `collision="hard"` (self and environment filtering against the installed world); `collision=None` is
-an open-world solve. A wheel contains one compiled robot; `solver.info` and `hjcdik.build_info()`
-identify it. See [upgrading and verified scope](docs/source/user_guide/upgrading.md) for the move
-from the earlier function API.
+an open-world solve. The wheel ships one compiled robot (Panda); other robots are built from a URDF
+through GRiD's artifact store with the `hjcdik[build]` extra (`hjcdik build arm.urdf --ee-link
+<tool joint>`, then `hjcdik.Solver("<name>")`; see
+[the Python API](docs/source/api_reference/python.rst)). `solver.info` identifies the robot in use.
+See [upgrading and verified scope](docs/source/user_guide/upgrading.md) for the move from the
+earlier function API.
 
 Target poses use:
 

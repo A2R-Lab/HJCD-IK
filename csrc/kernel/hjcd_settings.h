@@ -26,7 +26,13 @@ namespace hjcd {
     // (its end_effector_pose_inner_<target> epilogue chains s_Xhom[16*EE_FIXED_FRAME_IDX] onto joint
     // FLANGE_JID). This index is ROBOT-SPECIFIC and shifts with DoF, so it is resolved at codegen time
     // and injected into grid.cuh by scripts/codegen/generate_grid.py (Panda grasptarget=10, etc.) — never hardcode.
+    // A runtime build through grid_rbd.build_artifact cannot post-process the header, so hjcdik/_build.py
+    // resolves the index from a kinematics-only generation and passes it as -DHJCDIK_EE_FIXED_FRAME_IDX.
+#if defined(HJCDIK_EE_FIXED_FRAME_IDX)
+    static constexpr int GRASP_FIXED_IDX = HJCDIK_EE_FIXED_FRAME_IDX;
+#else
     static constexpr int GRASP_FIXED_IDX = grid::EE_FIXED_FRAME_IDX;
+#endif
 }
 
 // 4x4 column-major homogeneous product C = A * B on one thread (C must not alias A or B).

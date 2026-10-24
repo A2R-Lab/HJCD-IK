@@ -32,7 +32,7 @@ tests/test_api.py::test_target_requires_seven_vectors[target2]
 tests/test_api.py::test_target_values_must_be_finite[-inf]
 tests/test_api.py::test_target_values_must_be_finite[inf]
 tests/test_api.py::test_target_values_must_be_finite[nan]
-tests/test_api.py::test_wrong_robot_name_is_rejected
+tests/test_api.py::test_unknown_robot_name_names_the_build_command
 tests/test_api.py::test_zero_quaternion_is_rejected
 tests/test_benchmark_setup.py::test_benchmark_codegen_failure_propagates
 tests/test_benchmark_setup.py::test_benchmark_codegen_skip_and_custom_target
@@ -49,6 +49,13 @@ tests/test_benchmark_tools.py::test_grow_cuboids_shrinks_clearance_by_delta_per_
 tests/test_benchmark_tools.py::test_link_sphere_loader_reproduces_the_foam_model
 tests/test_benchmark_tools.py::test_rectilinear_l_shape_decomposes_exactly_and_keeps_the_notch_free
 tests/test_benchmark_tools.py::test_regular_prism_exports_as_cylinder_with_circumradius
+tests/test_build.py::test_damaged_entry_is_rebuilt
+tests/test_build.py::test_identity_changes_with_every_input_class
+tests/test_build.py::test_load_needs_no_toolchain_and_names_the_build_command
+tests/test_build.py::test_plan_reports_identity_without_building
+tests/test_build.py::test_runtime_panda_matches_the_packaged_build
+tests/test_build.py::test_solver_argument_contract
+tests/test_build.py::test_two_robots_in_one_process_are_isolated
 tests/test_codegen.py::test_explicit_glass_provenance_is_archive_reproducible
 tests/test_codegen.py::test_failed_codegen_preserves_previous_header[flags0-fixed-base serial chain]
 tests/test_codegen.py::test_failed_codegen_preserves_previous_header[flags1-grid namespace]

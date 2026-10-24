@@ -45,7 +45,8 @@ joints. Target indices and transform counts are generated constants; the default
 | `external/GRiD/` | Submodule: GRiD codegen (emits `grid.cuh` from a URDF). Its nested GLASS pin must equal `external/GLASS`. |
 | `external/GLASS/` | Submodule: GLASS single-block / warp / thread linear algebra (`glass::warp::`, `glass::thread::`, `glass::block::`). |
 | `external/foam/` | Submodule: pre-spherized Panda collision URDF (`assets/panda/smaller_panda_spherized.urdf`). |
-| `csrc/bindings/pybind_module.cpp` | Low-level bindings (`_hjcdik`: `World`, `solve_one`, `sample_targets`, `current_device`, `build_info`); every call runs on the solver's device and restores the caller's. The user API is pure Python: `hjcdik/_solver.py` (`Solver`, `Result`, `TargetResult`, `Stats`, `Info`, `SolveError`) and `hjcdik/worlds.py` (MotionBenchMaker JSON → `set_world` arrays). |
+| `csrc/bindings/pybind_module.cpp` | Low-level bindings (`World`, `solve_one`, `sample_targets`, `current_device`, `build_info`); every call runs on the solver's device and restores the caller's. Compiled by CMake into the packaged `_hjcdik` AND by `grid_rbd.build_artifact` into per-robot artifacts (`HJCDIK_MODULE_NAME` define = unique init symbol; `HJCDIK_BINDING_ABI` checked on import). The user API is pure Python: `hjcdik/_solver.py` (`Solver`, `Result`, `TargetResult`, `Stats`, `Info`, `SolveError`), `hjcdik/worlds.py` (MotionBenchMaker JSON → `set_world` arrays), `hjcdik/_build.py` (`build`/`load`/`list_builds` over GRiD's consumer-artifact store; `-DHJCDIK_EE_FIXED_FRAME_IDX` resolved from a kinematics-only generation), `hjcdik/__main__.py` (`hjcdik build|list|info`). |
+| `csrc/collision/panda_foam_rebound.urdf` | foam's Panda spheres re-attached to `csrc/urdf/panda.urdf` by `grid-spherize --rebind-to` (GRiD V1); validated strictly; generates a header byte-identical to the foam path; the `"panda_foam"` preset for runtime builds. The wheel ships `csrc/` (minus `generated/`) as `hjcdik/_csrc` for runtime builds. |
 | `tests/` | pytest suite (API contracts, FK equivalence, collision policy, codegen, stats, regression vs `baseline_metrics.json`); `tests/native/` = CTest native API + CLI contracts. `gpu-proof-tests.txt` is the signed-receipt manifest. |
 | `gpu-proof.json` | Signed pytest-gpu-proof receipt of the last full GPU run; verified by CPU-only CI. |
 | `benchmark/hjcd_ik_bench.py` | HJCD-IK benchmark harness: solved-rate, position/orientation error, timing. |
@@ -231,9 +232,11 @@ collision sidecar. GRiD's G5 fidelity report measures against collision (convex-
 `docs/open-tasks/` hold the detail and are gitignored):
 1. **User-shaped API (P1).** Stage 0 (contract) and Stage 1 (`Solver` over the installed robot, array
    worlds, padded `Result`, `precision`, `Result.stats`; `generate_solutions` removed) landed 2026-10-23.
-   Stage 2 = runtime robot builds (gated on GRiD ask G9, consumer-artifact build API; re-scope, never copy
-   GRiD's store, if declined); Stage 3 = clearance margin (GRiD G7), self-collision toggle (GRiD G10), warm
-   starts and seeds. Plan: local `docs/open-tasks/api_proposal_v2_2026-10-13.md` (v2.2).
+   Stage 2 (runtime robot builds over GRiD 0.6.0's `grid_rbd.build_artifact`/`load_artifact`: `hjcdik build`,
+   `Solver("<name>")`, `Solver("<urdf>", ee_link=...)`, `hjcdik[build]` extra, packaged Panda unchanged)
+   landed 2026-10-24. Stage 3 = clearance margin and self-collision toggle (GRiD 0.6.0 ships `config_free(...,
+   margin, check_self)`; HJCD threads them through ranking/stop/repair/filter), warm starts and seeds.
+   Plan: local `docs/open-tasks/api_proposal_v2_2026-10-13.md` (v2.2).
 2. **Robots/presets (P2):** Panda, Fetch from `fetch_description` (HJCD's `csrc/urdf/fetch.urdf` differs from it
    by up to 37 cm — do not reuse it for collision sets), UR/iiwa/xArm/Gen3; prismatic joints in the coarse search.
 3. **In-kernel multi-target (P3)** — needs a timing window to claim anything.

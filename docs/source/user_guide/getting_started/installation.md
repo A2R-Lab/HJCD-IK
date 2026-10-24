@@ -82,7 +82,26 @@ and radians. Check both errors against your application's tolerances, even when 
 
 For collision-free solving, install the obstacles with `solver.set_world(...)` and solve with the
 default `collision="hard"`; `examples/02_collision_free_solve.py` loads a MotionBenchMaker scene.
-To target a different robot or end-effector frame, see {doc}`../tutorials/custom_robot`.
+
+## Other robots
+
+Install the build extra and point the solver at a URDF; the robot is compiled once through GRiD's
+artifact store (about twenty seconds on an RTX 5090) and reused afterwards:
+
+```bash
+python -m pip install -e ".[dev,build]" --no-build-isolation
+hjcdik build path/to/arm.urdf --ee-link <fixed joint of the tool frame> --name my-arm
+```
+
+```python
+import hjcdik
+solver = hjcdik.Solver("my-arm")                       # a prepared build, no compiler needed to load
+# or, building on first use:
+solver = hjcdik.Solver("path/to/arm.urdf", ee_link="tool_joint", spheres=None)
+```
+
+See {doc}`../tutorials/custom_robot` for sphere models, end-effector frames and the limits of the
+solver model.
 
 ## Native executable and checks
 

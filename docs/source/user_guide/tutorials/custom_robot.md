@@ -1,10 +1,41 @@
-# Custom robot (GRiD codegen workflow)
+# Custom robot
 
-HJCD-IK's kinematics are generated from a URDF by GRiD into `csrc/generated/grid.cuh`.
+Two routes lead from a URDF to a solver. The runtime build is the one to use; regenerating the
+committed header is the workflow of the packaged Panda build and of isolated native builds.
+
+## Runtime build (recommended)
+
+Install the build extra (`python -m pip install -e ".[build]"` adds GRiD's `grid-rbd` and
+`pybind11`; `nvcc` must be on the path) and build once:
+
+```bash
+hjcdik build path/to/robot.urdf --ee-link <fixed joint of the tool frame> --name my-robot
+hjcdik build path/to/robot.urdf --ee-link <joint> --spheres path/to/robot_spherized.urdf   # with collision
+hjcdik list
+```
+
+`hjcdik.Solver("my-robot")` then loads the prepared build with no compiler. The build goes through
+`grid_rbd.build_artifact`: GRiD generates the robot's `grid.cuh`, validates the sphere model against
+the URDF when one is given, and compiles HJCD-IK's translation units against it into its store
+(`~/.cache/grid-rbd/consumers/hjcdik/`), keyed by everything that shapes the binary. A second build
+with the same inputs is a lookup; an edited URDF, sphere model, option or source re-keys it.
+
+The sphere model must be expressed in the robot URDF's own frames. A model made for another URDF
+of the same robot (foam's Panda, whose finger frames differ from ours) is adapted with
+`grid-spherize --rebind-to robot.urdf spheres.urdf --out rebound.urdf`, which re-attaches each
+sphere by link name and validates the result; `csrc/collision/panda_foam_rebound.urdf` is that file
+for the packaged Panda and the `"panda_foam"` preset. Without a sphere model the build is
+open-world and `collision` must be `None`.
+
+The solver model is a fixed-base serial chain of 1 to 32 revolute or continuous local-+Z joints plus
+fixed frames; prismatic joints, floating bases and branched chains are not supported yet.
+
+# Regenerating the committed header (GRiD codegen workflow)
 
 Install the codegen dependencies first: `python -m pip install -e '.[codegen]'`.
-Each wheel contains one robot model; switching a Python variable or URDF filename at
-runtime does not change the compiled solver. Check `hjcdik.build_info()` after rebuilding.
+The generated `grid.cuh` fixes the packaged robot, its named end-effector target and its collision
+geometry at build time; nothing at runtime changes the compiled solver. Check `hjcdik.build_info()`
+after rebuilding.
 
 ## Regenerate `grid.cuh`
 ```bash

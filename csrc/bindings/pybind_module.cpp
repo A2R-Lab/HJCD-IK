@@ -9,6 +9,29 @@
 // Low-level bindings. The user-facing API (hjcdik.Solver, Result, worlds) is pure Python on top of
 // these; nothing here is re-exported by the package. Every entry point that touches CUDA takes the
 // solver's device, runs on it and restores the caller's current device afterwards.
+//
+// The same translation unit is compiled twice: by CMake into the packaged `_hjcdik` (the installed
+// robot, with the build metadata below defined by CMake) and by `grid_rbd.build_artifact` into a
+// per-robot artifact (hjcdik/_build.py passes the defines; HJCDIK_MODULE_NAME keeps the Python init
+// symbol unique per artifact). Metadata CMake does not know about defaults to an empty string and the
+// Python side fills it in from the artifact record.
+#ifndef HJCDIK_MODULE_NAME
+#define HJCDIK_MODULE_NAME _hjcdik
+#endif
+#ifndef HJCDIK_GRID_SHA256
+#define HJCDIK_GRID_SHA256 ""
+#endif
+#ifndef HJCDIK_EE_TARGET
+#define HJCDIK_EE_TARGET ""
+#endif
+#ifndef HJCDIK_ROBOT_NAME
+#define HJCDIK_ROBOT_NAME ""
+#endif
+#ifndef HJCDIK_CUDA_COMPILER_VERSION
+#define HJCDIK_CUDA_COMPILER_VERSION ""
+#endif
+// Bump when the Python package and this binding disagree on names or argument lists.
+#define HJCDIK_BINDING_ABI 1
 
 namespace py = pybind11;
 
@@ -157,8 +180,9 @@ std::vector<std::array<double, 7>> sample_targets(int num_targets, std::uint64_t
 
 }  // namespace
 
-PYBIND11_MODULE(_hjcdik, m) {
+PYBIND11_MODULE(HJCDIK_MODULE_NAME, m) {
   m.doc() = "Low-level bindings for the HJCD-IK CUDA solver; use hjcdik.Solver.";
+  m.attr("BINDING_ABI") = HJCDIK_BINDING_ABI;
   py::class_<World>(m, "World")
       .def(py::init<py::array_t<double, py::array::c_style | py::array::forcecast>,
                     py::array_t<double, py::array::c_style | py::array::forcecast>,
@@ -188,6 +212,7 @@ PYBIND11_MODULE(_hjcdik, m) {
     info["collision_enabled"] = grid_has_collision();
     info["grid_header_sha256"] = HJCDIK_GRID_SHA256;
     info["cuda_compiler_version"] = HJCDIK_CUDA_COMPILER_VERSION;
+    info["binding_abi"] = HJCDIK_BINDING_ABI;
     return info;
   }, R"doc(Return compiled model/build metadata without initializing CUDA.
 

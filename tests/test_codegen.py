@@ -11,6 +11,22 @@ pytest.importorskip("sympy")
 pytest.importorskip("bs4")
 pytest.importorskip("lxml")
 
+
+@pytest.fixture(autouse=True)
+def submodule_codegen(monkeypatch):
+    """These tests exercise the submodule's codegen; a pip-installed grid_codegen (the [build]
+    extra) imported earlier in the session would otherwise shadow it through sys.modules."""
+    saved = {name: module for name, module in sys.modules.items()
+             if name == "grid_codegen" or name.startswith("grid_codegen.")
+             or name == "URDFParser" or name.startswith("URDFParser.")}
+    for name in saved:
+        monkeypatch.delitem(sys.modules, name)
+    yield
+    for name in [n for n in sys.modules if n == "grid_codegen" or n.startswith("grid_codegen.")
+                 or n == "URDFParser" or n.startswith("URDFParser.")]:
+        sys.modules.pop(name, None)
+    sys.modules.update(saved)
+
 ROOT = Path(__file__).resolve().parents[1]
 GEN = ROOT / "scripts/codegen/generate_grid.py"
 PANDA = ROOT / "csrc/urdf/panda.urdf"

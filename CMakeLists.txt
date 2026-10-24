@@ -193,4 +193,11 @@ if(BUILD_PYTHON)
     RUNTIME DESTINATION hjcdik
     ARCHIVE DESTINATION hjcdik
   )
+  # Runtime robot builds (hjcdik.build / `hjcdik build`) compile these same sources through
+  # grid_rbd.build_artifact, so the wheel carries them beside the package. The committed Panda header
+  # is not needed there: GRiD regenerates grid.cuh for every artifact.
+  install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/csrc/" DESTINATION hjcdik/_csrc
+    PATTERN "generated" EXCLUDE
+    PATTERN "__pycache__" EXCLUDE
+  )
 endif()

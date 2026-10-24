@@ -6,13 +6,15 @@ fixed-capacity, NaN-padded host arrays that never reference device memory.
 """
 from __future__ import annotations
 
+import os
 import threading
 from dataclasses import dataclass, fields
 from typing import Optional, Sequence, Union
 
 import numpy as np
 
-from . import _hjcdik as _native
+from . import _hjcdik as _native   # the packaged robot; artifacts bring their own module
+from ._build import Artifact, BuildError, build as _build_artifact, import_artifact, load as _load_artifact
 
 _COLLISION_CODES = {None: 0, "hard": 1, "soft": 2, "both": 3}
 _OMITTED = object()
@@ -46,6 +48,7 @@ class Info:
     device: int
     max_batch_size: int
     precisions: tuple = ("fp32", "fp64")
+    artifact: Optional[str] = None   # store path of a runtime build; None for the packaged robot
 
 
 @dataclass(frozen=True)
@@ -210,28 +213,57 @@ def _readonly(array: np.ndarray) -> np.ndarray:
 
 
 class Solver:
-    """IK solver for the robot the installed extension was compiled for.
+    """IK solver for one compiled robot: the packaged one, or a runtime build from the artifact store.
 
-    One instance binds to a CUDA device at construction and owns one obstacle world. Calls from
-    several threads are safe and serialised; they are not concurrent on the GPU.
+    `Solver()` is the packaged robot. `Solver("<name>")` is the packaged robot when the name matches it,
+    otherwise a prepared build of that name (`hjcdik.build` / `hjcdik build`). `Solver("<path>.urdf",
+    ee_link=..., spheres=...)` builds the robot on first use (`allow_build=False` only loads). One
+    instance binds to a CUDA device at construction and owns one obstacle world. Calls from several
+    threads are safe and serialised; they are not concurrent on the GPU.
     """
 
-    def __init__(self, robot: Optional[str] = None, *, device: Optional[int] = None):
-        info = _native.build_info()
-        if robot is not None and robot != info["robot"]:
-            raise ValueError(
-                f"this build solves {info['robot']!r}, not {robot!r}; runtime robot builds arrive in Stage 2")
+    def __init__(self, robot=None, *, ee_link: Optional[str] = None, spheres=None,
+                 device: Optional[int] = None, allow_build: bool = True, cache_dir=None):
+        self._artifact: Optional[Artifact] = None
+        self._native = self._resolve(robot, ee_link, spheres, allow_build, cache_dir)
+        info = self._native.build_info()
         dof = int(info["num_joints"])
-        self._device = _native.current_device() if device is None else int(device)
+        self._device = self._native.current_device() if device is None else int(device)
         self._lock = threading.RLock()
         self._world = None
+        artifact = self._artifact
         self.info = Info(
             robot=info["robot"], dof=dof, ee_frame=info["ee_target"],
             collision_enabled=bool(info["collision_enabled"]),
-            grid_header_sha256=info["grid_header_sha256"],
-            cuda_compiler_version=info["cuda_compiler_version"],
+            grid_header_sha256=info["grid_header_sha256"] or (artifact.grid_header_sha256 if artifact else ""),
+            cuda_compiler_version=info["cuda_compiler_version"] or (artifact.cuda_compiler_version if artifact else ""),
             device=self._device, max_batch_size=(_INT_MAX - 255) // (16 * dof),
+            artifact=None if artifact is None else str(artifact.path),
         )
+
+    def _resolve(self, robot, ee_link, spheres, allow_build, cache_dir):
+        packaged = _native.build_info()
+        if robot is None or robot == packaged["robot"]:
+            if ee_link is not None and ee_link != packaged["ee_target"]:
+                raise ValueError(f"the packaged {packaged['robot']!r} solves the {packaged['ee_target']!r} frame, "
+                                 f"not {ee_link!r}; build it from a URDF: Solver('<robot>.urdf', ee_link=...)")
+            return _native
+        if not isinstance(robot, (str, os.PathLike)):
+            raise TypeError("robot is None, a build name, or a URDF path")
+        text = str(robot)
+        if text.lower().endswith(".urdf") or os.sep in text:
+            if ee_link is None:
+                raise ValueError("building from a URDF needs ee_link=<fixed joint of the end-effector frame>")
+            if allow_build:
+                self._artifact = _build_artifact(text, ee_link=ee_link, spheres=spheres, cache_dir=cache_dir)
+            else:
+                from ._build import default_name, _resolve_spheres
+                self._artifact = _load_artifact(default_name(text, ee_link, _resolve_spheres(spheres)), cache_dir=cache_dir)
+        else:
+            if ee_link is not None or spheres is not None:
+                raise ValueError("ee_link and spheres apply to a URDF build; a build name is already complete")
+            self._artifact = _load_artifact(text, cache_dir=cache_dir)
+        return import_artifact(self._artifact)
 
     # ----------------------------------------------------------------------------- world
     def set_world(self, *, boxes=None, capsules=None, spheres=None, cylinders=None) -> None:
@@ -245,7 +277,7 @@ class Solver:
         if not self.info.collision_enabled:
             raise ValueError("this build has no collision geometry; worlds cannot be installed")
         arrays = world_arrays(boxes=boxes, capsules=capsules, spheres=spheres, cylinders=cylinders)
-        world = _native.World(arrays["spheres"], arrays["capsules"], arrays["boxes"], self._device)
+        world = self._native.World(arrays["spheres"], arrays["capsules"], arrays["boxes"], self._device)
         with self._lock:
             self._world = world
 
@@ -275,7 +307,7 @@ class Solver:
         if int(num_targets) > _INT_MAX - 255:
             raise ValueError("num_targets must fit CUDA launch indexing")
         with self._lock:
-            poses = _native.sample_targets(int(num_targets), int(seed), self._device)
+            poses = self._native.sample_targets(int(num_targets), int(seed), self._device)
         return np.asarray(poses, dtype=np.float64).reshape(-1, 7)
 
     # ------------------------------------------------------------------------------ solve
@@ -314,8 +346,8 @@ class Solver:
             raw = []
             for index, pose in enumerate(poses):
                 try:
-                    raw.append(_native.solve_one(tuple(float(v) for v in pose), batch_size, num_solutions,
-                                                 code, fp64, bool(stats), world, self._device))
+                    raw.append(self._native.solve_one(tuple(float(v) for v in pose), batch_size, num_solutions,
+                                                      code, fp64, bool(stats), world, self._device))
                 except RuntimeError as error:
                     raise SolveError(f"target {index}: {error}", target_index=index,
                                      completed=index) from error
