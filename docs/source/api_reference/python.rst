@@ -39,13 +39,14 @@ Solver
    ``max_batch_size`` and ``artifact`` (the store path of a runtime build, ``None`` for the packaged
    robot).
 
-``solver.solve(poses, *, num_solutions=1, batch_size=2000, collision=<omitted>, precision="auto", stats=False)``
+``solver.solve(poses, *, num_solutions=1, batch_size=2000, collision=<omitted>, precision="auto", stats=False, collision_margin_m=0.0, self_collision=True, q_init=None, seed=None)``
    Solve one pose ``(7,)`` or a batch ``(T, 7)``; returns a ``Result`` with ``T`` targets (a single
    pose keeps the leading dimension; ``T == 0`` is legal). ``batch_size`` is the number of candidate
    configurations explored per target, not a target count; ``num_solutions`` is the fixed result
    capacity per target. The whole batch is validated before any GPU work. ``precision`` is
    ``"auto"`` (fp64 refinement for one solution, fp32 otherwise), ``"fp32"`` or ``"fp64"``; I/O is
    float64 either way. ``stats=True`` collects per-target diagnostics without changing the solution.
+   The remaining four knobs are described under *Clearance, self-collision, warm starts and seeds*.
 
 ``solver.set_world(*, boxes=None, capsules=None, spheres=None, cylinders=None)``
    Replace the obstacle world. Arrays are float64, one row per primitive, in the robot base frame,
@@ -99,6 +100,35 @@ Collision checks describe configurations, never paths, and the compiled sphere m
 In ``"hard"`` and ``"both"`` mode the solver's early stop and refinement are collision-aware: an
 accurate but colliding candidate gets a repair round, and when no exactly converged free candidate
 exists the best free one inside 5 mm / 0.05 rad is returned; read the errors.
+
+Clearance, self-collision, warm starts and seeds
+------------------------------------------------
+
+``collision_margin_m`` (metres, default 0, ``"hard"`` and ``"both"`` only) is the clearance below
+which a robot sphere and an obstacle count as a hit; zero is the contact-free rule. The margin applies
+to environment pairs only. The baked self pairs are always checked at zero clearance: a sphere model
+such as foam's Panda has neighbouring spheres a centimetre apart in every configuration, so a margin on
+self pairs would reject everything. The margin enters every collision-aware step (early stop, repair,
+fallback, final filter and the ``stats`` tallies); the ``"soft"`` penetration cost is unchanged.
+
+``self_collision=False`` (``"hard"`` and ``"both"`` only) skips the self pairs so the verdict reflects
+the environment alone.
+
+``q_init`` warm-starts the coarse search with ``(K, N)`` configurations shared by every target or
+``(T, K, N)`` per target, ``K <= batch_size``, clamped to the joint limits; the other ``batch_size - K``
+candidates start from the seeded random initialisation. A warm start that already meets the coarse
+tolerance skips coordinate descent and goes straight to refinement, and one that is already exact
+(position error below 1 µm, orientation error below 1 µrad) is returned as it is, under fp32 refinement
+too. With a warm start, the candidates
+that converged (position error below 1 mm and orientation error below 1e-3 rad) are ranked by
+joint-space distance to the nearest supplied configuration, so ``result[i].q[0]`` is the valid solution
+nearest the warm start and the following rows are the next nearest; candidates outside that band keep
+the accuracy ranking behind them. Collision filtering still applies.
+
+``seed`` (an unsigned 32-bit integer; default 1337, the historical constant) shifts the random
+initialisation. Seeds and warm starts change which valid candidates are found, never their validity;
+with ``batch_size=1`` a given seed is reproducible, with larger batches the cross-block early stop makes
+candidate identity run-to-run unstable as before.
 
 Geometry
 --------

@@ -582,6 +582,19 @@ __device__ inline void build_ne_and_solve_warp(
 // Open-world solves pass cc_stop = 0 and never enter this code.
 #if defined(HJCD_HAS_COLLISION)
 using CCEnv = grid_collision::Environment<float>;
+
+// Warp-uniform collision-free verdict with HJCD's margin semantics: the clearance margin applies to the
+// ENVIRONMENT pairs only; the baked self pairs are checked at zero margin (GRiD's single margin also
+// widens every self pair, and a tight sphere model such as foam's Panda then fails every configuration
+// above about a centimetre; GRiD ask G7b asks for a separate self margin). At margin 0 this is one call.
+template<typename T>
+__device__ __forceinline__ bool cc_free_warp(const T* s_jointX, const CCEnv& env, float* scratch,
+                                             float margin, bool check_self) {
+    if (margin <= 0.0f) return grid_collision::warp::config_free<T>(s_jointX, env, scratch, 0.0f, check_self);
+    if (!grid_collision::warp::config_free<T>(s_jointX, env, scratch, margin, false)) return false;
+    if (!check_self) return true;
+    return grid_collision::warp::config_free<T>(s_jointX, CCEnv{}, scratch, 0.0f, true);
+}
 constexpr int CC_WARP_POS_FLOATS = grid_collision::warp::W_SCRATCH_FLOATS;
 #else
 struct CCEnv { int unused; };
@@ -623,7 +636,11 @@ __device__ void solve_lm_batched(
     int stop_on_first,
     CCEnv env,
     int cc_stop,              // 1 = collision-aware stop + repair (hard/both collision modes)
-    int repair_attempts)
+    int repair_attempts,
+    float cc_margin,          // clearance margin for every checked pair (metres)
+    bool cc_check_self,       // false: environment pairs only
+    T warm_entry_pos,         // warm starts: a candidate entering inside this band (m / rad) is
+    T warm_entry_ori)         // returned as it is; 0 for cold solves (the exact tolerances apply)
 {
     // Multi-warp LM: one independent candidate per warp, W warps per block. All barriers
     // inside the iteration loop are warp-scoped (the only __syncthreads are in the one-time
@@ -723,12 +740,15 @@ __device__ void solve_lm_batched(
     if (tid < N) best_x_pos[tid] = s_x[tid];
     // Already accurate on entry: done — unless the collision-aware stop finds it colliding, in which
     // case it enters the loop so the repair round below can act on it.
-    if (tid == 0) accurate = (pos_err_m < eps_pos && ori_err_rad < eps_ori) ? 1 : 0;
+    // fp32 refinement cannot reach the 1e-8 tolerances, so an already exact warm start would iterate
+    // until it stalls and wander along the nullspace; the warm entry band returns it unchanged instead.
+    if (tid == 0) accurate = ((pos_err_m < eps_pos && ori_err_rad < eps_ori) ||
+                              (pos_err_m < warm_entry_pos && ori_err_rad < warm_entry_ori)) ? 1 : 0;
     SYNC();
     if (accurate) {   // uniform (warp-shared)
 #if defined(HJCD_HAS_COLLISION)
         if (cc_stop) {
-            const bool free = grid_collision::warp::config_free<T>(s_jointX, env, st->cc_pos);
+            const bool free = cc_free_warp<T>(s_jointX, env, st->cc_pos, cc_margin, cc_check_self);
             if (tid == 0 && free) { s_break = 1; st->final_free = 1; }
         } else
 #endif
@@ -950,7 +970,7 @@ __device__ void solve_lm_batched(
         if (cc_stop && !accurate) {   // uniform: track the best collision-free config in the fallback band
             if (pos_err_m < HJCDSettings<T>::cc_fallback_pos && ori_err_rad < HJCDSettings<T>::cc_fallback_ori
                 && pos_err_m < st->best_free_pos) {
-                const bool free = grid_collision::warp::config_free<T>(s_jointX, env, st->cc_pos);
+                const bool free = cc_free_warp<T>(s_jointX, env, st->cc_pos, cc_margin, cc_check_self);
                 if (tid == 0 && free) {
                     st->have_free = 1; st->best_free_pos = pos_err_m;
                     for (int i = 0; i < N; ++i) st->best_free_x[i] = s_x[i];
@@ -958,7 +978,7 @@ __device__ void solve_lm_batched(
             }
         }
         if (cc_stop && accurate) {   // uniform across the warp (shared)
-            const bool free = grid_collision::warp::config_free<T>(s_jointX, env, st->cc_pos);
+            const bool free = cc_free_warp<T>(s_jointX, env, st->cc_pos, cc_margin, cc_check_self);
             if (tid == 0) {
                 if (free) {
                     atomicCAS(&g_stop, 0, 1); s_break = 1; st->final_free = 1;
@@ -1059,7 +1079,12 @@ __global__ void coarse_search(
     bool stop_on_first,
     CCEnv env,
     int cc_stop,              // 1 = only a collision-free accurate candidate raises the stop flag
-    unsigned char* __restrict__ coarse_free   // cc_stop: per-block verdict of the returned candidate
+    unsigned char* __restrict__ coarse_free,  // cc_stop: per-block verdict of the returned candidate
+    float cc_margin,          // clearance margin for every checked pair (metres)
+    bool cc_check_self,       // false: environment pairs only
+    uint32_t seed_base,       // shifts the random initial configurations
+    const T* __restrict__ q_init,   // num_init x N warm starts (blocks 0..num_init-1), or nullptr
+    int num_init
 ) {
     const int gp   = blockIdx.x;
     const int tid  = threadIdx.x;
@@ -1084,6 +1109,7 @@ __global__ void coarse_search(
     __shared__ int  s_allow_ori;
     __shared__ int  s_last_joint_o, s_last_joint_p;
     __shared__ int  s_accurate;
+    __shared__ int  s_skip;      // warm start already inside the coarse tolerance: no descent
 
     __shared__ T s_x[N];
     __shared__ T s_pose[7];
@@ -1103,12 +1129,17 @@ __global__ void coarse_search(
     if (tid == 0) { s_last_joint_o = -1; s_last_joint_p = -1; }
     __syncthreads();
 
-    // Random initial config in limits
+    // Initial configuration: a caller-supplied warm start for the first num_init blocks, otherwise a
+    // seeded random configuration inside the joint limits.
     if (tid < N) {
-        uint32_t st = make_seed(1337u, gp, 0, tid);
-        float r = u01(st);
         const double2 L = c_joint_limits[tid];
-        s_x[tid] = (T)(L.x + r * (L.y - L.x));
+        if (q_init != nullptr && gp < num_init) {
+            s_x[tid] = clamp_val<T>(q_init[(size_t)gp * N + tid], (T)L.x, (T)L.y);
+        } else {
+            uint32_t st = make_seed(seed_base, gp, 0, tid);
+            float r = u01(st);
+            s_x[tid] = (T)(L.x + r * (L.y - L.x));
+        }
         s_pos_theta1[tid] = (T)0;
         s_ori_theta1[tid] = (T)0;
         s_pos_err[tid]    = (T)1e9;
@@ -1128,6 +1159,12 @@ __global__ void coarse_search(
         s_glob_pos_err = compute_pos_err(s_jointXforms, target_pose_local);
         s_glob_ori_err = compute_ori_err(s_jointXforms, q_t);
         store_ee_pose7(&s_jointXforms[EE_IDX * 16], s_pose);
+        // A warm start that already meets the coarse tolerance is handed to the LM as it is: coordinate
+        // descent would otherwise wander along the redundant arm's nullspace while staying accurate.
+        const bool warm = (q_init != nullptr && gp < num_init);
+        s_skip = (warm && s_glob_pos_err < HJCDSettings<T>::epsilon && s_glob_ori_err < HJCDSettings<T>::nu) ? 1 : 0;
+        s_accurate = s_skip;
+        if (s_skip && stop_on_first && !cc_stop) atomicCAS(&g_stop, 0, 1);
     }
     __syncthreads();
 
@@ -1141,7 +1178,7 @@ __global__ void coarse_search(
     // dead cells whose shared storage nvcc can reuse for another warp's scores.
     for (int m = lane; m < N * 16; m += WARP_SIZE) l_tmp[m] = s_XmatsHom[m];
     __syncthreads();
-    for (int k = 0; k < HJCDSettings<T>::k_max; ++k) {
+    for (int k = 0; k < HJCDSettings<T>::k_max && !s_skip; ++k) {
         if (stop_on_first && s_stop) break;
 
         if ((threadIdx.x >> 5) == 0) { // warp 0
@@ -1314,7 +1351,7 @@ __global__ void coarse_search(
         if (cc_stop) {   // uniform: collision-aware stop. warp 0's dead per-warp scratch holds the spheres.
             if (stop_on_first && s_accurate) {
                 if (warp == 0) {
-                    const bool free = grid_collision::warp::config_free<T>(s_jointXforms, env, reinterpret_cast<float*>(warp_base));
+                    const bool free = cc_free_warp<T>(s_jointXforms, env, reinterpret_cast<float*>(warp_base), cc_margin, cc_check_self);
                     if (lane == 0 && free) atomicCAS(&g_stop, 0, 1);
                 }
                 __syncthreads();
@@ -1343,7 +1380,7 @@ __global__ void coarse_search(
     // s_jointXforms holds the FK of the returned s_x (refreshed at the end of every iteration).
     if (cc_stop) {   // uniform
         if (warp == 0) {
-            const bool free = grid_collision::warp::config_free<T>(s_jointXforms, env, reinterpret_cast<float*>(warp_base));
+            const bool free = cc_free_warp<T>(s_jointXforms, env, reinterpret_cast<float*>(warp_base), cc_margin, cc_check_self);
             if (lane == 0) coarse_free[gp] = free ? 1 : 0;
         }
     }
@@ -1367,7 +1404,11 @@ __global__ void lm_tuner(
     int stop_on_first,
     CCEnv env,
     int cc_stop,
-    int repair_attempts
+    int repair_attempts,
+    float cc_margin,
+    bool cc_check_self,
+    T warm_entry_pos,
+    T warm_entry_ori
 ) {
     // B = total candidates (Krep). grid = ceil(B / warps_per_block); each warp does one candidate.
     solve_lm_batched<T>(
@@ -1385,7 +1426,11 @@ __global__ void lm_tuner(
         stop_on_first,
         env,
         cc_stop,
-        repair_attempts
+        repair_attempts,
+        cc_margin,
+        cc_check_self,
+        warm_entry_pos,
+        warm_entry_ori
     );
 }
 
@@ -1686,7 +1731,9 @@ __global__ void mark_collisions(
     int K,
     unsigned char* __restrict__ valid,               // K bytes (1 = collision-free)
     const grid::robotModel<float>* d_robotModel,
-    grid_collision::Environment<float> env)          // device pointers, by value
+    grid_collision::Environment<float> env,          // device pointers, by value
+    float margin,                                    // clearance margin for every checked pair (metres)
+    bool check_self)                                 // false: environment pairs only
 {
     namespace gc = grid_collision;
     constexpr int NS = gc::NUM_COLLISION_SPHERES;
@@ -1702,7 +1749,14 @@ __global__ void mark_collisions(
     for (int j = tid; j < N; j += blockDim.x) s_q[j] = (float)q_in[(size_t)i * N + j];
     __syncthreads();
 
-    const bool ok = gc::config_free<float>(s_q, d_robotModel, env, s_pos, s_r, nullptr);
+    // Same margin semantics as cc_free_warp: the margin widens environment pairs only.
+    bool ok;
+    if (margin <= 0.0f) {
+        ok = gc::config_free<float>(s_q, d_robotModel, env, s_pos, s_r, nullptr, 0.0f, check_self);
+    } else {
+        ok = gc::config_free<float>(s_q, d_robotModel, env, s_pos, s_r, nullptr, margin, false);
+        if (ok && check_self) ok = gc::config_free<float>(s_q, d_robotModel, gc::Environment<float>{}, s_pos, s_r, nullptr, 0.0f, true);
+    }
     if (tid == 0) valid[i] = ok ? 1 : 0;
 }
 #endif  // HJCD_HAS_COLLISION
@@ -1765,10 +1819,17 @@ Result<T> generate_ik_solutions(
     int num_solutions,
     CollisionMode collision,
     const CollisionWorld* world,
-    bool collect_stats
+    bool collect_stats,
+    const SolveOptions& options
 )
 {
     std::lock_guard<std::recursive_mutex> lock(solver_mutex());
+    if (!std::isfinite(options.margin_m) || options.margin_m < 0.0f)
+        throw std::invalid_argument("margin_m must be finite and non-negative");
+    if (options.num_init < 0 || (options.num_init > 0 && options.q_init == nullptr))
+        throw std::invalid_argument("q_init must point to num_init rows");
+    if (options.num_init > b_size)
+        throw std::invalid_argument("num_init (warm starts) must not exceed batch_size");
     if (!target_pose) throw std::invalid_argument("target_pose must not be null");
     if (b_size <= 0 || b_size > (std::numeric_limits<int>::max() - 255) / (16 * N))
         throw std::invalid_argument("batch_size must be positive and fit CUDA indexing");
@@ -1819,6 +1880,10 @@ Result<T> generate_ik_solutions(
     // filtering is what makes a hard solve truthful.
     const bool use_soft = collision == CollisionMode::soft || collision == CollisionMode::both;
     const bool use_hard = collision == CollisionMode::hard || collision == CollisionMode::both;
+    if ((options.margin_m > 0.0f || !options.check_self) && !use_hard)
+        throw std::invalid_argument("margin_m and check_self apply to the hard and both collision modes");
+    const float cc_margin_f = options.margin_m;
+    const bool cc_check_self = options.check_self;
 
     // Collision-aware early stop + LM repair round (hard/both modes): the stop flag is raised only by
     // a collision-free accurate candidate, and an accurate-but-colliding LM candidate gets
@@ -1861,6 +1926,16 @@ Result<T> generate_ik_solutions(
 
     // float coarse targets, one row per candidate block
     TC* d_targets_coarse_c = upload_replicated_target<TC>(allocations, target_pose64, B);
+    TC* d_q_init_c = nullptr;   // warm starts for the first num_init coarse blocks
+    if (options.num_init > 0) {
+        std::vector<TC> h_q_init((size_t)options.num_init * N);
+        for (size_t i = 0; i < h_q_init.size(); ++i) {
+            if (!std::isfinite(options.q_init[i])) throw std::invalid_argument("q_init values must be finite");
+            h_q_init[i] = (TC)options.q_init[i];
+        }
+        allocations.allocate(d_q_init_c, sizeof(TC) * h_q_init.size());
+        CUDA_OK(cudaMemcpy(d_q_init_c, h_q_init.data(), sizeof(TC) * h_q_init.size(), cudaMemcpyHostToDevice));
+    }
     reset_stop_flag();
     unsigned char* d_coarse_free = nullptr;          // cc_stop only: per-block collision verdict
     if (cc_stop_coarse) allocations.allocate(d_coarse_free, (size_t)B);
@@ -1914,7 +1989,8 @@ Result<T> generate_ik_solutions(
             coarse_search<TC><<<B, TPB, scratchBytes>>>(
                 d_x_c, d_pose_c, d_targets_coarse_c,
                 d_pos_mm_c, d_ori_r_c, d_robotModel_f,
-                stop_on_first, cc_kernel_env, cc_stop_coarse, d_coarse_free
+                stop_on_first, cc_kernel_env, cc_stop_coarse, d_coarse_free,
+                cc_margin_f, cc_check_self, (uint32_t)options.seed, d_q_init_c, options.num_init
             );
             cudaError_t e = cudaGetLastError();
             if (e == cudaSuccess) break;
@@ -2076,7 +2152,8 @@ Result<T> generate_ik_solutions(
             lm_tuner<RT><<<grid_lm, TPB_lm, lm_smem>>>(
                 dx64, dpose64, dtgt64, dposmm64, dori64, d_robotModel_rt,
                 eps_pos, eps_ori, HJCDSettings<RT>::lambda_init, max_iters, Krep, stop_on_first_lm,
-                cc_kernel_env, cc_stop_lm, repair_attempts
+                cc_kernel_env, cc_stop_lm, repair_attempts, cc_margin_f, cc_check_self,
+                (RT)(options.num_init > 0 ? 1e-6 : 0.0), (RT)(options.num_init > 0 ? 1e-6 : 0.0)
             );
             cudaError_t launch_err = cudaGetLastError();
             if (launch_err == cudaSuccess) break;
@@ -2106,7 +2183,7 @@ Result<T> generate_ik_solutions(
 
         // Run one per-config collision kernel over the refined pool and the coarse pool, and read
         // both result arrays back to the host.
-        auto score_pools = [&](auto kernel, auto& h_refined, auto& h_coarse) {
+        auto score_pools = [&](auto kernel, auto& h_refined, auto& h_coarse, auto... extra) {
             using Out = typename std::decay_t<decltype(h_refined)>::value_type;
             Out* d_refined = nullptr;
             Out* d_coarse = nullptr;
@@ -2114,15 +2191,15 @@ Result<T> generate_ik_solutions(
             allocations.allocate(d_coarse, sizeof(Out) * (size_t)B);
             CUDA_OK(cudaFuncSetAttribute((const void*)kernel,
                                          cudaFuncAttributeMaxDynamicSharedMemorySize, (int)cc_smem));
-            kernel<<<Krep, CC_TPB, cc_smem>>>(dq_ref, Krep, d_refined, d_robotModel_cc, cc_env);
-            kernel<<<B, CC_TPB, cc_smem>>>(dq_coarse, B, d_coarse, d_robotModel_cc, cc_env);
+            kernel<<<Krep, CC_TPB, cc_smem>>>(dq_ref, Krep, d_refined, d_robotModel_cc, cc_env, extra...);
+            kernel<<<B, CC_TPB, cc_smem>>>(dq_coarse, B, d_coarse, d_robotModel_cc, cc_env, extra...);
             CUDA_OK(cudaGetLastError());
             CUDA_OK(cudaDeviceSynchronize());
             CUDA_OK(cudaMemcpy(h_refined.data(), d_refined, sizeof(Out) * (size_t)Krep, cudaMemcpyDeviceToHost));
             CUDA_OK(cudaMemcpy(h_coarse.data(), d_coarse, sizeof(Out) * (size_t)B, cudaMemcpyDeviceToHost));
         };
         if (use_soft) score_pools(score_environment_costs, h_env_cost_refined, h_env_cost_coarse);
-        if (use_hard) score_pools(mark_collisions, h_valid_refined, h_valid_coarse);
+        if (use_hard) score_pools(mark_collisions, h_valid_refined, h_valid_coarse, cc_margin_f, cc_check_self);
     }
 #endif  // HJCD_HAS_COLLISION
 
@@ -2158,10 +2235,30 @@ Result<T> generate_ik_solutions(
         return idx >= 0 ? h_x64[(size_t)idx * N + joint]
                         : h_x_coarse_f[(size_t)coarse_row(idx) * N + joint];
     };
+    // Warm starts rank the converged candidates (inside WARM_POS_MM / WARM_ORI_RAD) by joint-space
+    // distance to the nearest supplied configuration, so the first returned row is the valid solution
+    // nearest the warm start; everything else keeps the accuracy ranking behind them.
+    constexpr double WARM_POS_MM = 1.0, WARM_ORI_RAD = 1e-3;
+    const bool warm = options.num_init > 0;
+    auto init_distance = [&](int idx)->double {
+        double best = std::numeric_limits<double>::infinity();
+        for (int r = 0; r < options.num_init; ++r) {
+            double d = 0;
+            for (int j = 0; j < N; ++j)
+                d = std::max(d, std::fabs(joint_value(idx, j) - options.q_init[(size_t)r * N + j]));
+            best = std::min(best, d);
+        }
+        return best;
+    };
     auto score = [&](int idx)->double {
         double s = rank_score(pos_mm(idx), ori_rad(idx));
         if (use_soft) s += ENV_COLLISION_COST_W * (double)env_cost(idx);
-        return std::isfinite(s) ? s : std::numeric_limits<double>::infinity();
+        if (!std::isfinite(s)) return std::numeric_limits<double>::infinity();
+        if (warm) {
+            const bool converged = pos_mm(idx) < WARM_POS_MM && ori_rad(idx) < WARM_ORI_RAD;
+            return converged ? init_distance(idx) : 1e6 + s;
+        }
+        return s;
     };
     const double DUP_TOL = 1e-7;
     auto is_dup = [&](int ia, int ib)->bool {
@@ -2290,15 +2387,15 @@ Result<T> generate_ik_solutions(
 
 template Result<double> generate_ik_solutions<double>(   // RT=double (full fp64, default)
     const double* target_pose, int b_size, int num_solutions,
-    CollisionMode collision, const CollisionWorld* world, bool collect_stats);
+    CollisionMode collision, const CollisionWorld* world, bool collect_stats, const SolveOptions& options);
 
 template Result<double> generate_ik_solutions<double, float>(   // RT=float (fp32 refine knob)
     const double* target_pose, int b_size, int num_solutions,
-    CollisionMode collision, const CollisionWorld* world, bool collect_stats);
+    CollisionMode collision, const CollisionWorld* world, bool collect_stats, const SolveOptions& options);
 
 template Result<float> generate_ik_solutions<float>(
     const float* target_pose, int b_size, int num_solutions,
-    CollisionMode collision, const CollisionWorld* world, bool collect_stats);
+    CollisionMode collision, const CollisionWorld* world, bool collect_stats, const SolveOptions& options);
 
 template std::vector<std::array<double, 7>> sample_random_target_poses(
     int num_configs,

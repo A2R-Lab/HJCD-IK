@@ -234,8 +234,10 @@ collision sidecar. GRiD's G5 fidelity report measures against collision (convex-
    worlds, padded `Result`, `precision`, `Result.stats`; `generate_solutions` removed) landed 2026-10-23.
    Stage 2 (runtime robot builds over GRiD 0.6.0's `grid_rbd.build_artifact`/`load_artifact`: `hjcdik build`,
    `Solver("<name>")`, `Solver("<urdf>", ee_link=...)`, `hjcdik[build]` extra, packaged Panda unchanged)
-   landed 2026-10-24. Stage 3 = clearance margin and self-collision toggle (GRiD 0.6.0 ships `config_free(...,
-   margin, check_self)`; HJCD threads them through ranking/stop/repair/filter), warm starts and seeds.
+   landed 2026-10-24. Stage 3 (`collision_margin_m` on environment pairs only, self pairs at zero; `self_collision=
+   False`; `q_init` warm starts (accurate ones skip coarse descent, converged candidates ranked by proximity);
+   `seed`) landed 2026-10-24 too. GRiD's single `config_free` margin also widens self pairs, which rejects every
+   Panda configuration above ~1 cm, so HJCD calls it twice when a margin is set (ask G7b: separate self margin).
    Plan: local `docs/open-tasks/api_proposal_v2_2026-10-13.md` (v2.2).
 2. **Robots/presets (P2):** Panda, Fetch from `fetch_description` (HJCD's `csrc/urdf/fetch.urdf` differs from it
    by up to 37 cm — do not reuse it for collision sets), UR/iiwa/xArm/Gen3; prismatic joints in the coarse search.

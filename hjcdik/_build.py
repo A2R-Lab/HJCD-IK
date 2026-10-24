@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 CONSUMER = "hjcdik"
-BINDING_ABI = 1   # must equal HJCDIK_BINDING_ABI in csrc/bindings/pybind_module.cpp
+BINDING_ABI = 2   # must equal HJCDIK_BINDING_ABI in csrc/bindings/pybind_module.cpp
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")

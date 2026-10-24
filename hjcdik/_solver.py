@@ -312,7 +312,9 @@ class Solver:
 
     # ------------------------------------------------------------------------------ solve
     def solve(self, poses, *, num_solutions: int = 1, batch_size: int = 2000,
-              collision=_OMITTED, precision: str = "auto", stats: bool = False) -> Result:
+              collision=_OMITTED, precision: str = "auto", stats: bool = False,
+              collision_margin_m: float = 0.0, self_collision: bool = True,
+              q_init=None, seed: Optional[int] = None) -> Result:
         """Solve IK for one pose `(7,)` or a batch `(T, 7)`; returns a `Result` with `T` targets.
 
         `batch_size` is the number of candidate configurations explored per target, not a target count.
@@ -321,6 +323,15 @@ class Solver:
         build and `None` on an open-world build. `precision` is `"auto"` (fp64 refinement for one
         solution, fp32 otherwise), `"fp32"` or `"fp64"`; I/O is float64 either way. `stats=True`
         collects per-target diagnostics without changing the solution.
+
+        `collision_margin_m` (metres, `hard`/`both` only) is the clearance below which a checked pair
+        counts as a hit, for environment pairs and, while `self_collision` is true, self pairs; zero is
+        the contact-free rule. `self_collision=False` (`hard`/`both` only) skips the self pairs.
+        `q_init` warm-starts the coarse search: `(K, N)` configurations shared by every target or
+        `(T, K, N)` per target, `K <= batch_size`, clamped to the joint limits; the remaining
+        `batch_size - K` candidates start from the seeded random initialisation. `seed` (unsigned
+        32-bit; default 1337, the historical constant) shifts that initialisation. Seeds and warm
+        starts change which valid candidates are found, never their validity.
         """
         poses = self._validate_poses(poses)
         num_solutions, batch_size = int(num_solutions), int(batch_size)
@@ -338,6 +349,16 @@ class Solver:
             raise ValueError("precision must be 'auto', 'fp32' or 'fp64'")
         fp64 = (num_solutions == 1) if precision == "auto" else precision == "fp64"
         code = _COLLISION_CODES[collision]
+        margin = float(collision_margin_m)
+        if not np.isfinite(margin) or margin < 0:
+            raise ValueError("collision_margin_m must be finite and non-negative")
+        if (margin > 0 or not self_collision) and collision not in ("hard", "both"):
+            raise ValueError("collision_margin_m and self_collision apply to collision='hard' or 'both'")
+        if seed is None:
+            seed = 1337
+        if int(seed) != seed or not 0 <= int(seed) < 2**32:
+            raise ValueError("seed must be an integer in [0, 2**32)")
+        inits = self._validate_q_init(q_init, len(poses), batch_size)
 
         with self._lock:
             world = self._world
@@ -347,11 +368,32 @@ class Solver:
             for index, pose in enumerate(poses):
                 try:
                     raw.append(self._native.solve_one(tuple(float(v) for v in pose), batch_size, num_solutions,
-                                                      code, fp64, bool(stats), world, self._device))
+                                                      code, fp64, bool(stats), world, self._device,
+                                                      margin, bool(self_collision), int(seed),
+                                                      None if inits is None else inits[index]))
                 except RuntimeError as error:
                     raise SolveError(f"target {index}: {error}", target_index=index,
                                      completed=index) from error
         return self._assemble(raw, num_solutions, bool(stats))
+
+    def _validate_q_init(self, q_init, T: int, batch_size: int):
+        """`(K, N)` shared or `(T, K, N)` per target -> list of T contiguous `(K, N)` float64 arrays."""
+        if q_init is None:
+            return None
+        N = self.info.dof
+        array = np.array(q_init, dtype=np.float64, copy=True)
+        if array.ndim == 2 and array.shape[1] == N:
+            per_target = [array] * T
+        elif array.ndim == 3 and array.shape[0] == T and array.shape[2] == N:
+            per_target = [array[t] for t in range(T)]
+        else:
+            raise ValueError(f"q_init must have shape (K, {N}) or (T={T}, K, {N}); got {array.shape}")
+        if not np.isfinite(array).all():
+            raise ValueError("q_init must be finite")
+        K = array.shape[-2]
+        if K > batch_size:
+            raise ValueError(f"q_init has {K} rows but batch_size is {batch_size}; K must not exceed batch_size")
+        return [np.ascontiguousarray(a) for a in per_target]
 
     def _validate_poses(self, poses) -> np.ndarray:
         array = np.array(poses, dtype=np.float64, copy=True)

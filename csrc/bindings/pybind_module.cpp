@@ -31,7 +31,7 @@
 #define HJCDIK_CUDA_COMPILER_VERSION ""
 #endif
 // Bump when the Python package and this binding disagree on names or argument lists.
-#define HJCDIK_BINDING_ABI 1
+#define HJCDIK_BINDING_ABI 2
 
 namespace py = pybind11;
 
@@ -126,20 +126,35 @@ py::dict stats_dict(const SolveStats& s) {
 
 py::dict solve_one(const std::array<double, 7>& target_pose,
                    int batch_size, int num_solutions, int collision, bool fp64, bool stats,
-                   const World* world, int device) {
+                   const World* world, int device, double margin_m, bool check_self, std::uint64_t seed,
+                   py::object q_init) {
   if (collision < 0 || collision > 3)
     throw py::value_error("collision code must be 0 (none), 1 (hard), 2 (soft) or 3 (both)");
+  if (seed > 0xFFFFFFFFull) throw py::value_error("seed must fit an unsigned 32-bit integer");
   const auto mode = static_cast<CollisionMode>(collision);
   const CollisionWorld* native_world = world ? world->get() : nullptr;
   auto tp = target_pose;  // The native boundary validates and normalizes before touching CUDA.
+
+  SolveOptions options;
+  options.margin_m = static_cast<float>(margin_m);
+  options.check_self = check_self;
+  options.seed = static_cast<std::uint32_t>(seed);
+  py::array_t<double, py::array::c_style | py::array::forcecast> init;
+  if (!q_init.is_none()) {
+    init = py::cast<py::array_t<double, py::array::c_style | py::array::forcecast>>(q_init);
+    if (init.ndim() != 2 || init.shape(1) != grid_num_joints())
+      throw py::value_error("q_init must have shape (K, num_joints)");
+    options.q_init = init.data();
+    options.num_init = static_cast<int>(init.shape(0));
+  }
 
   Result<double> res{};
   {
     py::gil_scoped_release release;
     DeviceScope scope(device);
     res = fp64
-        ? generate_ik_solutions<double, double>(tp.data(), batch_size, num_solutions, mode, native_world, stats)
-        : generate_ik_solutions<double, float>(tp.data(), batch_size, num_solutions, mode, native_world, stats);
+        ? generate_ik_solutions<double, double>(tp.data(), batch_size, num_solutions, mode, native_world, stats, options)
+        : generate_ik_solutions<double, float>(tp.data(), batch_size, num_solutions, mode, native_world, stats, options);
   }
 
   const int N = grid_num_joints();
@@ -195,6 +210,8 @@ PYBIND11_MODULE(HJCDIK_MODULE_NAME, m) {
   m.def("solve_one", &solve_one,
         py::arg("target_pose"), py::arg("batch_size"), py::arg("num_solutions"), py::arg("collision"),
         py::arg("fp64"), py::arg("stats"), py::arg("world").none(true), py::arg("device"),
+        py::arg("margin_m") = 0.0, py::arg("check_self") = true, py::arg("seed") = 1337,
+        py::arg("q_init") = py::none(),
         "Solve one target on a device; collision 0 none, 1 hard, 2 soft, 3 both. Releases the GIL.");
   m.def("sample_targets", &sample_targets,
         py::arg("num_targets"), py::arg("seed"), py::arg("device"),

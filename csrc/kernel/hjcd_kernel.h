@@ -120,6 +120,25 @@ struct WorldSpec {
     bool empty() const { return spheres.empty() && capsules.empty() && boxes.empty(); }
 };
 
+/**
+ * @brief Per-solve knobs beyond the collision policy. Defaults reproduce the historical solver.
+ *
+ * `margin_m` is the clearance (metres) below which a checked pair counts as a hit, applied by
+ * GRiD's checkers to every environment pair and, when `check_self`, to every self pair; zero is
+ * today's contact-free rule. Both apply to `hard` and `both` only (invalid otherwise). `seed`
+ * shifts the coarse search's random initial configurations (it changes which valid candidates are
+ * found, never their validity). `q_init` (row-major `num_init` x N, radians, clamped to the joint
+ * limits on the device) replaces the initial configurations of the first `num_init` coarse blocks;
+ * `num_init` must not exceed the batch size.
+ */
+struct SolveOptions {
+    float margin_m = 0.0f;
+    bool check_self = true;
+    std::uint32_t seed = 1337u;
+    const double* q_init = nullptr;
+    int num_init = 0;
+};
+
 /// Owning device copy of a WorldSpec, bound to the CUDA device current when it was made. Opaque.
 struct CollisionWorld;
 
@@ -178,6 +197,7 @@ std::array<T, 7> normalized_target_pose(const T* pose) {
  * @param world Uploaded obstacle world on the current device, or nullptr for an empty environment.
  * hard/both with an empty world check self-collision only; soft with an empty world is rejected.
  * @param collect_stats Fill Result::stats (sets Result::has_stats). Never changes the solution.
+ * @param options Margin, self-collision toggle, seed and warm starts; see SolveOptions.
  * @return Owning result. Candidates may be approximate, fewer than requested, or empty.
  * Collision checks describe configurations, never paths.
  * @throws std::invalid_argument For invalid scalar/pose values, a soft solve without obstacles, or
@@ -192,7 +212,8 @@ Result<T> generate_ik_solutions(
     int num_solutions = 1,
     CollisionMode collision = CollisionMode::none,
     const CollisionWorld* world = nullptr,
-    bool collect_stats = false
+    bool collect_stats = false,
+    const SolveOptions& options = SolveOptions{}
 );
 
 /**
