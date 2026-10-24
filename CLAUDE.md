@@ -187,7 +187,8 @@ measurement with the protocol in [`docs/development/timing_gate.md`](docs/develo
 - Audit A/B ([`audit_timing_2026-10-05`](docs/development/evidence/audit_timing_2026-10-05/README.md)): identical
   matched quality counts, 19/20 cells faster, one unchanged. GRiD/GLASS re-pin confirmed performance-neutral
   ([`postpin_timing_2026-10-06`](docs/development/evidence/postpin_timing_2026-10-06/README.md), 12 paired ratios
-  within 0.9946–1.0046). The 2026-10-12 re-pin to GRiD v0.5.1 changed only a block-checker race fix; no A/B owed.
+  within 0.9946–1.0046). The 2026-10-12 re-pin to GRiD v0.5.1 changed only a block-checker race fix, and the 2026-10-23 re-pin to
+  v0.5.5 changed no kernel code HJCD executes (header diff: linalg-argument removal and plant-menu templates); no A/B owed.
 - Full campaign on the shipped code, all baselines ([`paper_rerun_2026-10-07`](docs/development/evidence/paper_rerun_2026-10-07/README.md),
   results.rst *Current code — full campaign*): Panda open-world 1.62–1.65 ms at B ≥ 100 (cuRobo v2 5.9–6.4,
   PyRoki 6–7.2, IKFlow 2.5–6.2); Fetch 0.81–1.10 vs cuRobo 1.8–2.1; DoF 7/12/18/24 1.76/1.87/2.31/2.85 vs
@@ -201,10 +202,11 @@ measurement with the protocol in [`docs/development/timing_gate.md`](docs/develo
 > **Build/test gotcha:** `ninja -C build` does NOT update the imported `.so` (it's the editable copy in
 > site-packages). Always rebuild with **`scripts/setup/rebuild.sh`** (or `pip install -e . --no-build-isolation`).
 
-## Status and what next (updated 2026-10-12)
+## Status and what next (updated 2026-10-23)
 
 **Where the code is.** `origin/main` carries the closed fairness/hardening arc (2026-10-03 → 10-07) and the
-re-pin to GRiD **v0.5.1** (`d3be3f6`, the PyPI `grid-rbd` 0.5.1 release; GLASS `9e57178`, top-level and nested).
+re-pin to GRiD **v0.5.5** (`76a0736`, the PyPI `grid-rbd` 0.5.5 release, 2026-10-23; nested URDFParser `f391741`;
+GLASS `9e57178`, top-level and nested, unchanged since 10-03; pytest-gpu-proof 0.4.1 is still the latest release).
 All six upstream asks (G1–G6, `docs/development/upstream_asks_collision_2026-10.md`) are in GRiD; HJCD has no
 collision sidecar. GRiD's G5 fidelity report measures against collision (convex-hull) meshes, so
 `benchmark/make_bounded_bulge_spheres.py --report` remains the visual-mesh fidelity tool of record.
