@@ -1,0 +1,17 @@
+label,leg,batch,round,n_targets,median_ms,mean_ms,min_ms,p95_ms,solved,empty,returned,refine_fp64,correctness_only,header_sha
+main-S1,table1,1,1,2,,,,,2,0,2,-1,True,fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa
+main-S1,table1,64,1,2,,,,,2,0,2,-1,True,fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa
+main-S1,table2,1,1,2,,,,,2,0,2,-1,True,fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa
+main-S1,table2,64,1,2,,,,,2,0,2,-1,True,fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa
+branch-S1,table1,1,1,2,,,,,2,0,2,-1,True,fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa
+branch-S1,table1,64,1,2,,,,,2,0,2,-1,True,fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa
+branch-S1,table2,1,1,2,,,,,2,0,2,-1,True,fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa
+branch-S1,table2,64,1,2,,,,,2,0,2,-1,True,fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa
+main-S4,table1,1,1,2,,,,,2,0,8,-1,True,fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa
+main-S4,table1,64,1,2,,,,,2,0,8,-1,True,fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa
+main-S4,table2,1,1,2,,,,,2,0,8,-1,True,fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa
+main-S4,table2,64,1,2,,,,,2,0,8,-1,True,fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa
+branch-S4,table1,1,1,2,,,,,2,0,8,-1,True,fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa
+branch-S4,table1,64,1,2,,,,,2,0,8,-1,True,fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa
+branch-S4,table2,1,1,2,,,,,2,0,8,-1,True,fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa
+branch-S4,table2,64,1,2,,,,,2,0,8,-1,True,fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa
