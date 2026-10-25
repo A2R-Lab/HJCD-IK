@@ -1,0 +1,64 @@
+{
+  "rounds": 4,
+  "solutions": [
+    1,
+    4
+  ],
+  "batches": {
+    "table1": [
+      1,
+      2000,
+      8000,
+      32000
+    ],
+    "table2": [
+      100,
+      2000
+    ]
+  },
+  "target_counts": {
+    "table1": 100,
+    "table2": 100
+  },
+  "targets_json": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/audit_gate_2026-10-04/targets.json",
+  "targets_json_sha": "89d2d46ea69d101e4ce65cd54d999ae78814679f950c2fc120dd4a2277de28b4",
+  "problems_json": "/home/plancher/Desktop/HJCD-IK/tests/mb_problems.json",
+  "problems_json_sha": "69a3eae85e68d8cf696280e12407ac870b887b59a2913b52c4214524bc55dc94",
+  "problem_set": "box_panda",
+  "endpoints": {
+    "main": {
+      "repo": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/gate_2026-10-24/main",
+      "python": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/gate_2026-10-24/main/.venv/bin/python",
+      "commit": "7eead5b5b1abe81bc9d43da60879d36f997a65f0",
+      "header_sha": "6b9785bb14450493cf3c42185907559ff9357c9b5ae22ecd9fe3a35a924a51de",
+      "binary_sha": "4d83f23e2c6c18761f5e1821accfb579a082bcc89a1ffb3d31702e2b9244ee8e"
+    },
+    "branch": {
+      "repo": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/gate_2026-10-24/branch",
+      "python": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/gate_2026-10-24/branch/.venv/bin/python",
+      "commit": "4474ea5a54e4aecfa2bc43eba54dcb85f4680c5a",
+      "header_sha": "fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa",
+      "binary_sha": "db7e7ce773ce94102cc7b34ecd88cd50fb868f1ea261d0608517b593ed646360"
+    },
+    "branch-rt": {
+      "repo": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/gate_2026-10-24/branch",
+      "python": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/gate_2026-10-24/branch/.venv/bin/python",
+      "commit": "4474ea5a54e4aecfa2bc43eba54dcb85f4680c5a",
+      "header_sha": "53eba14024ab674026171d5b700c2c312ab5890425351d4c01df79f9d725d8d7",
+      "binary_sha": "17beeca86d07db193328f80459b12a169069bac9d9578deb99be5f16fb3c3981",
+      "env": {
+        "HJCDIK_TIMING_ROBOT": "gate-panda-hand"
+      }
+    },
+    "branch-margin": {
+      "repo": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/gate_2026-10-24/branch",
+      "python": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/gate_2026-10-24/branch/.venv/bin/python",
+      "commit": "4474ea5a54e4aecfa2bc43eba54dcb85f4680c5a",
+      "header_sha": "fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa",
+      "binary_sha": "db7e7ce773ce94102cc7b34ecd88cd50fb868f1ea261d0608517b593ed646360",
+      "env": {
+        "HJCDIK_TIMING_MARGIN": "0.02"
+      }
+    }
+  }
+}

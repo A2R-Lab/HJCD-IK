@@ -43,7 +43,7 @@ def test_hard_with_no_world_checks_self_collision_only(solver, targets):
 
 def test_soft_without_a_world_raises_before_any_launch(solver, targets, monkeypatch):
     calls = []
-    monkeypatch.setattr(hjcdik._solver._native, "solve_one", lambda *a, **k: calls.append(a))
+    monkeypatch.setattr(hjcdik._solver._native, "solve_batch", lambda *a, **k: calls.append(a))
     with pytest.raises(ValueError, match="soft"):
         solver.solve(targets, collision="soft")
     solver.set_world()   # explicitly empty world is the same state
@@ -160,7 +160,7 @@ def test_stats_are_per_target_and_do_not_change_outputs(solver, targets):
 # ------------------------------------------------------------------------------ batch and resources
 def test_whole_batch_is_validated_before_any_gpu_work(solver, targets, monkeypatch):
     calls = []
-    monkeypatch.setattr(hjcdik._solver._native, "solve_one", lambda *a, **k: calls.append(a))
+    monkeypatch.setattr(hjcdik._solver._native, "solve_batch", lambda *a, **k: calls.append(a))
     bad = np.array(targets, copy=True)
     bad[-1, 3:] = 0
     with pytest.raises(ValueError, match="quaternion"):
@@ -173,17 +173,10 @@ def test_whole_batch_is_validated_before_any_gpu_work(solver, targets, monkeypat
 
 
 def test_cuda_failure_raises_solve_error_with_position(solver, targets, monkeypatch):
-    seen = []
+    def failing(poses, *args):
+        raise RuntimeError("target 1: injected CUDA failure")   # the binding names the failing target
 
-    def failing(target, *args):
-        seen.append(target)
-        if len(seen) == 2:
-            raise RuntimeError("injected CUDA failure")
-        return hjcdik._solver._native.solve_one.__wrapped__(target, *args) if False else {
-            "count": 0, "joint_config": np.zeros((0, 7)), "pose": np.zeros((0, 7)),
-            "pos_errors": np.zeros(0), "ori_errors": np.zeros(0), "elapsed_ms": 0.0, "stats": None}
-
-    monkeypatch.setattr(hjcdik._solver._native, "solve_one", failing)
+    monkeypatch.setattr(hjcdik._solver._native, "solve_batch", failing)
     with pytest.raises(hjcdik.SolveError, match="target 1") as info:
         solver.solve(targets, collision=None)
     assert info.value.target_index == 1 and info.value.completed == 1

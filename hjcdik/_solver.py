@@ -207,6 +207,13 @@ def world_arrays(*, boxes=None, capsules=None, spheres=None, cylinders=None) -> 
     return {"spheres": spheres, "capsules": np.ascontiguousarray(capsules), "boxes": boxes}
 
 
+def _failed_target_index(message: str) -> int:
+    """The target index the binding names in a failure message ('... target 3: ...'), else 0."""
+    import re
+    m = re.search(r"target (\d+):", message)
+    return int(m.group(1)) if m else 0
+
+
 def _readonly(array: np.ndarray) -> np.ndarray:
     array.flags.writeable = False
     return array
@@ -371,36 +378,42 @@ class Solver:
             world = self._world
             if collision == "soft" and (world is None or world.empty):
                 raise ValueError("collision='soft' ranks by environment penetration and needs a non-empty world")
-            raw = []
-            for index, pose in enumerate(poses):
-                try:
-                    raw.append(self._native.solve_one(tuple(float(v) for v in pose), batch_size, num_solutions,
-                                                      code, fp64, bool(stats), world, self._device,
-                                                      margin, bool(self_collision), int(seed),
-                                                      None if inits is None else inits[index]))
-                except RuntimeError as error:
-                    raise SolveError(f"target {index}: {error}", target_index=index,
-                                     completed=index) from error
-        return self._assemble(raw, num_solutions, bool(stats))
+            if len(poses) == 0:
+                return self._empty(num_solutions, bool(stats))
+            try:
+                raw = self._native.solve_batch(poses, batch_size, num_solutions, code, fp64, bool(stats), world,
+                                               self._device, margin, bool(self_collision), int(seed), inits,
+                                               num_solutions)
+            except RuntimeError as error:
+                index = _failed_target_index(str(error))
+                raise SolveError(str(error), target_index=index, completed=index) from error
+        return self._assemble(raw, bool(stats))
+
+    def _empty(self, S: int, stats: bool) -> Result:
+        N = self.info.dof
+        empty_stats = None
+        if stats:
+            empty_stats = Stats(**{name: _readonly(np.zeros(0)) for name in Stats.field_names()})
+        return Result(q=_readonly(np.empty((0, S, N))), pose=_readonly(np.empty((0, S, 7))),
+                      pos_err_mm=_readonly(np.empty((0, S))), ori_err_rad=_readonly(np.empty((0, S))),
+                      count=_readonly(np.zeros(0, dtype=np.int64)), valid=_readonly(np.zeros((0, S), dtype=bool)),
+                      elapsed_ms=_readonly(np.zeros(0)), stats=empty_stats)
 
     def _validate_q_init(self, q_init, T: int, batch_size: int):
-        """`(K, N)` shared or `(T, K, N)` per target -> list of T contiguous `(K, N)` float64 arrays."""
+        """`(K, N)` shared or `(T, K, N)` per target -> one contiguous float64 array (or None)."""
         if q_init is None:
             return None
         N = self.info.dof
         array = np.array(q_init, dtype=np.float64, copy=True)
-        if array.ndim == 2 and array.shape[1] == N:
-            per_target = [array] * T
-        elif array.ndim == 3 and array.shape[0] == T and array.shape[2] == N:
-            per_target = [array[t] for t in range(T)]
-        else:
+        if not ((array.ndim == 2 and array.shape[1] == N) or
+                (array.ndim == 3 and array.shape[0] == T and array.shape[2] == N)):
             raise ValueError(f"q_init must have shape (K, {N}) or (T={T}, K, {N}); got {array.shape}")
         if not np.isfinite(array).all():
             raise ValueError("q_init must be finite")
         K = array.shape[-2]
         if K > batch_size:
             raise ValueError(f"q_init has {K} rows but batch_size is {batch_size}; K must not exceed batch_size")
-        return [np.ascontiguousarray(a) for a in per_target]
+        return np.ascontiguousarray(array)
 
     def _validate_poses(self, poses) -> np.ndarray:
         array = np.array(poses, dtype=np.float64, copy=True)
@@ -418,30 +431,15 @@ class Solver:
             raise ValueError("target positions exceed fp32 range")
         return array
 
-    def _assemble(self, raw: list, S: int, stats: bool) -> Result:
-        T, N = len(raw), self.info.dof
-        q = np.full((T, S, N), np.nan)
-        pose = np.full((T, S, 7), np.nan)
-        pos_err = np.full((T, S), np.nan)
-        ori_err = np.full((T, S), np.nan)
-        count = np.zeros(T, dtype=np.int64)
-        elapsed = np.zeros(T, dtype=np.float64)
-        rows = {name: [] for name in Stats.field_names()} if stats else None
-        for t, r in enumerate(raw):
-            n = min(int(r["count"]), S)
-            count[t] = n
-            q[t, :n] = r["joint_config"][:n]
-            pose[t, :n] = r["pose"][:n]
-            pos_err[t, :n] = r["pos_errors"][:n]
-            ori_err[t, :n] = r["ori_errors"][:n]
-            elapsed[t] = r["elapsed_ms"]
-            if stats:
-                for name in rows:
-                    rows[name].append(r["stats"][name])
+    def _assemble(self, raw: dict, stats: bool) -> Result:
+        """Wrap the binding's (T, S, ...) arrays read-only."""
+        count = raw["count"]
+        S = raw["joint_config"].shape[1]
         valid = np.arange(S)[None, :] < count[:, None]
         result_stats = None
         if stats:
-            result_stats = Stats(**{name: _readonly(np.asarray(values)) for name, values in rows.items()})
-        return Result(q=_readonly(q), pose=_readonly(pose), pos_err_mm=_readonly(pos_err),
-                      ori_err_rad=_readonly(ori_err), count=_readonly(count), valid=_readonly(valid),
-                      elapsed_ms=_readonly(elapsed), stats=result_stats)
+            result_stats = Stats(**{name: _readonly(raw["stats"][name]) for name in Stats.field_names()})
+        return Result(q=_readonly(raw["joint_config"]), pose=_readonly(raw["pose"]),
+                      pos_err_mm=_readonly(raw["pos_errors"]), ori_err_rad=_readonly(raw["ori_errors"]),
+                      count=_readonly(count), valid=_readonly(valid), elapsed_ms=_readonly(raw["elapsed_ms"]),
+                      stats=result_stats)
