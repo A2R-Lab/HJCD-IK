@@ -279,12 +279,21 @@ URDF, an end-effector frame and a sphere model, each a fixed-base serial chain:
      - ``iiwa_joint_ee``
      - ``iiwa14`` (GRiD spherizer on Drake's collision model)
      - Drake ``iiwa_description``; built on first use
+   * - ``ur5e``
+     - ``flange-tool0`` (the fixed joint whose child is ``tool0``)
+     - ``ur5e`` (bounded-bulge fit to upstream collision meshes)
+     - Universal Robots ROS2 description, nominal calibration; built on first use
 
 The fidelity of each shipped sphere model (sampled bulge and uncovered surface per link, from
 ``grid-spherize --report``) is recorded at the top of the sphere URDF under ``csrc/collision/``.
+UR5e's complete report and mesh hashes are in ``ur5e_provenance.json`` beside its sphere URDF.
+Its sampled bulge is up to 14.8 mm against collision meshes and 60.2 mm against visual meshes;
+zero uncovered surface samples are not a continuous-coverage certificate. Base-anchored geometry
+is not checked by the generated sphere checker. This is not a safety-certified whole-robot model.
 Custom models may have arbitrary-axis revolute, continuous and prismatic joints (1 to 32,
 independent, finite ordered non-continuous limits). Floating bases, actuated branches and mimics
-are rejected. Xacro-only descriptions need expansion to URDF first. Each
+are rejected. GRiD 0.6.0 also requires at least one revolute or continuous joint; all-prismatic
+chains are rejected before generation. Xacro-only descriptions need expansion to URDF first. Each
 artifact is its own extension module, so several robots can be solved in one process with
 independent worlds and locks; the modules are compiled with hidden symbol visibility so no static
 state binds across them. A build that changes after it was imported into a process cannot be

@@ -34,6 +34,8 @@ prismatic joints, with arbitrary axes and fixed attachments. Floating bases, act
 and mimic joints are rejected. The selected fixed tool joint must attach to the final actuated
 joint. Revolute and prismatic limits must be finite and strictly ordered; continuous joints use
 [-pi, pi] for sampling and clipping.
+GRiD 0.6.0 cannot generate all-prismatic chains: at least one revolute or continuous joint is
+required. The validator reports this upstream limitation before code generation (GRiD ask G13).
 
 `solver.info.joint_names`, `joint_types`, `joint_units` and `joint_limits` are immutable tuples
 in solver order. Use that order for `q_init`; revolute coordinates are radians and prismatic
@@ -43,6 +45,26 @@ metres and radians. This is not a unit-invariant metric. Correctness tests cover
 5 m slider travel before and after a rotating joint, both precisions, cold and perturbed warm
 starts. They do not establish convergence for every robot or scale. A failed solve means no
 qualifying solution was found within its search budget, not that the target is infeasible.
+
+Run `python examples/mixed_joint_warm_start.py` from a source checkout for a small analytic
+mixed-joint example. It builds once, prints coordinate metadata, installs a world, checks
+accuracy before reusing a result as a warm start, and handles zero-result output explicitly.
+Its spheres describe the demonstration geometry only, not a physical robot.
+
+## Shipped robot geometry
+
+`Solver("ur5e")` uses the pinned Universal Robots ROS2 description with its stock nominal
+calibration, not calibration measured from a particular robot. Its tool is `tool0`, named by
+the fixed joint `flange-tool0`. The URDF, sphere fit, license and mesh hashes ship in `csrc/`;
+the source meshes remain upstream. See `csrc/collision/ur5e_provenance.json` for collision
+and visual fidelity reports. Reproduce with `scripts/codegen/make_robot_presets.py` and the
+pinned checkout stated there (xacro 2.1.1, GRiD 0.6.0, scipy, trimesh and pycollada).
+The spherizer always reads collision geometry; `--geometry visual` changes only its report.
+
+Z1 is not yet a shipped collision preset: the conservative fit overlaps two non-adjacent
+wrist-link pairs in all sampled configurations. Fetch-with-torso is also not bundled while
+the upstream description's noncommercial/share-alike distribution terms are unresolved.
+Neither limitation changes support for user-supplied serial prismatic/general-axis models.
 
 # Regenerating the committed header (GRiD codegen workflow)
 

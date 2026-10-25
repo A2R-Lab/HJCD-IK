@@ -35,6 +35,7 @@ def test_supported_joint_count(n):
     ({"serial": False}, "serial"), ({"floating": True}, "fixed-base"),
     ({"mimic": True}, "independent"), ({"kind": "spherical"}, "independent"),
     ({"axis": (0, 0, 0)}, "unit axis"),
+    ({"kind": "prismatic"}, "all-prismatic"),
     ({"limits": (1, 1)}, "limits"), ({"limits": (2, 1)}, "limits"),
     ({"limits": (-np.inf, 1)}, "limits"), ({"limits": (0, np.nan)}, "limits"),
     ({"target_parent": "joint0"}, "final actuated"),
@@ -51,6 +52,7 @@ def test_continuous_sampling_contract_and_missing_target():
 
 
 @pytest.mark.parametrize("change,match", [("limit", "limits"),
+                                           ("all_prismatic", "all-prismatic"),
                                            ("target", "final actuated")])
 def test_runtime_plan_rejects_before_codegen(tmp_path, monkeypatch, change, match):
     import hjcdik
@@ -59,6 +61,9 @@ def test_runtime_plan_rejects_before_codegen(tmp_path, monkeypatch, change, matc
     first = tree.getroot().find("joint[@name='panda_joint1']")
     if change == "limit":
         first.find("limit").set("upper", first.find("limit").get("lower"))
+    elif change == "all_prismatic":
+        for joint in tree.getroot().findall("joint"):
+            if joint.get("type")=="revolute": joint.set("type","prismatic")
     else:
         ET.SubElement(tree.getroot(), "link", name="early_tool")
         fixed = ET.SubElement(tree.getroot(), "joint", name="early_tool", type="fixed")
@@ -74,11 +79,15 @@ def test_runtime_plan_rejects_before_codegen(tmp_path, monkeypatch, change, matc
 
 @pytest.mark.parametrize("kind,axis", [("revolute", (0, 0, -1)), ("prismatic", (0.6, 0.8, 0))])
 def test_general_axes_and_types(kind, axis):
-    model.validate_solver_robot(fake_robot(kind=kind, axis=axis), "tool")
+    robot=fake_robot(kind=kind, axis=axis)
+    if kind=="prismatic":
+        robot.get_joints_ordered_by_id()[0].jtype="revolute"
+        robot.get_S_by_id=lambda i: np.array([*axis,0,0,0] if i==0 else [0,0,0,*axis])
+    model.validate_solver_robot(robot, "tool")
 
 
 def test_side_header_identity_is_stable_and_detects_corruption(tmp_path):
-    r = fake_robot(kind="prismatic", axis=(0.6, 0.8, 0))
+    r = fake_robot(kind="revolute", axis=(0.6, 0.8, 0))
     urdf = tmp_path / "robot.urdf"
     urdf.write_text("test model")
     description = model.describe_robot(r, urdf, "tool")

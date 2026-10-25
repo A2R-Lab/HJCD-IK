@@ -203,6 +203,10 @@ tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_r
 tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[5-cudaMalloc(d_robotModel)-solve]
 tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[6-cudaMemcpy(d_robotModel)-sample]
 tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[6-cudaMemcpy(d_robotModel)-solve]
+tests/test_joint_boundaries.py::test_joint_count_boundary[1-fp32]
+tests/test_joint_boundaries.py::test_joint_count_boundary[1-fp64]
+tests/test_joint_boundaries.py::test_joint_count_boundary[32-fp32]
+tests/test_joint_boundaries.py::test_joint_count_boundary[32-fp64]
 tests/test_joint_fixtures.py::test_fixture_generation_is_reproducible
 tests/test_joint_fixtures.py::test_reexpressed_fk_matches_at_mapped_configurations[panda_axes-1]
 tests/test_joint_fixtures.py::test_reexpressed_fk_matches_at_mapped_configurations[panda_negz--1]
@@ -216,6 +220,11 @@ tests/test_multiwarp.py::test_multiwarp_matches_w1[8]
 tests/test_multiwarp.py::test_partial_last_block_no_crash[fp32]
 tests/test_multiwarp.py::test_partial_last_block_no_crash[fp64]
 tests/test_multiwarp.py::test_run_to_run_stability
+tests/test_new_robot_presets.py::test_mixed_joint_example_runs_from_other_directory
+tests/test_new_robot_presets.py::test_shipped_ur5e_preset_loads
+tests/test_new_robot_presets.py::test_ur5e_independent_fk_and_collision_ik[fp32]
+tests/test_new_robot_presets.py::test_ur5e_independent_fk_and_collision_ik[fp64]
+tests/test_new_robot_presets.py::test_ur5e_provenance_and_geometry
 tests/test_precision.py::test_auto_select_matches_explicit
 tests/test_precision.py::test_default_arg_is_auto
 tests/test_precision.py::test_fp32_refine_accuracy
@@ -237,15 +246,17 @@ tests/test_robot_model.py::test_general_axes_and_types[revolute-axis0]
 tests/test_robot_model.py::test_reject_unsupported_model[kwargs0-1 to 32]
 tests/test_robot_model.py::test_reject_unsupported_model[kwargs1-1 to 32]
 tests/test_robot_model.py::test_reject_unsupported_model[kwargs10-limits]
-tests/test_robot_model.py::test_reject_unsupported_model[kwargs11-final actuated]
+tests/test_robot_model.py::test_reject_unsupported_model[kwargs11-limits]
+tests/test_robot_model.py::test_reject_unsupported_model[kwargs12-final actuated]
 tests/test_robot_model.py::test_reject_unsupported_model[kwargs2-serial]
 tests/test_robot_model.py::test_reject_unsupported_model[kwargs3-fixed-base]
 tests/test_robot_model.py::test_reject_unsupported_model[kwargs4-independent]
 tests/test_robot_model.py::test_reject_unsupported_model[kwargs5-independent]
 tests/test_robot_model.py::test_reject_unsupported_model[kwargs6-unit axis]
-tests/test_robot_model.py::test_reject_unsupported_model[kwargs7-limits]
+tests/test_robot_model.py::test_reject_unsupported_model[kwargs7-all-prismatic]
 tests/test_robot_model.py::test_reject_unsupported_model[kwargs8-limits]
 tests/test_robot_model.py::test_reject_unsupported_model[kwargs9-limits]
+tests/test_robot_model.py::test_runtime_plan_rejects_before_codegen[all_prismatic-all-prismatic]
 tests/test_robot_model.py::test_runtime_plan_rejects_before_codegen[limit-limits]
 tests/test_robot_model.py::test_runtime_plan_rejects_before_codegen[target-final actuated]
 tests/test_robot_model.py::test_side_header_identity_is_stable_and_detects_corruption
@@ -293,6 +304,7 @@ tests/test_stats_summary.py::test_summary_uses_only_measured_denominators[32,0,0
 tests/test_stats_summary.py::test_summary_uses_only_measured_denominators[32,100,-1,100,-1\n-expected0]
 tests/test_stats_summary.py::test_summary_uses_only_measured_denominators[32,2,1,4,1\n-expected1]
 tests/test_stats_summary.py::test_summary_uses_only_measured_denominators[32,2,1,4,1\n32,100,-1,100,-1\n-expected2]
+tests/test_timing_contract.py::test_compile_cost_protocol_without_building_or_timing
 tests/test_timing_contract.py::test_driver_accepts_neutral_generator_target_schema
 tests/test_timing_contract.py::test_driver_names_precision_and_never_times_correctness
 tests/test_timing_contract.py::test_gate_preflight_checks_provenance_without_gpu_work[None]
@@ -301,3 +313,5 @@ tests/test_timing_contract.py::test_gate_preflight_checks_provenance_without_gpu
 tests/test_timing_contract.py::test_gate_preflight_checks_provenance_without_gpu_work[header]
 tests/test_timing_contract.py::test_gate_preflight_checks_provenance_without_gpu_work[input]
 tests/test_timing_contract.py::test_gate_rejects_missing_duplicate_and_mixed_protocol_cells
+tests/test_timing_contract.py::test_highdof_reference_uses_selected_robot
+tests/test_timing_contract.py::test_native_unpack_keeps_empty_query_and_removes_padding

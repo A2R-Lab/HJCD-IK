@@ -1,8 +1,12 @@
 # Current correctness and timing protocol
 
+The P2b general-joint wave uses the same accounting and review rules, with a matched
+pre-P2b reference and separate API/native/runtime/high-DoF legs. Its staging and single
+launcher are documented in [the P2b gate](p2b_gate.md). No P2b timing result is recorded yet.
+
 The October 4 audit separates correctness (shared GPU allowed) from performance (announced quiet window).
 The pre-upstream A/B completed October 5; see [verified evidence](evidence/audit_timing_2026-10-05/README.md).
-The API gate of October 24 (`Solver` API, GRiD 0.6.0, runtime builds, margin) found no device-side change
+The API gate of October 24 (`Solver` API, GRiD 0.6.0, runtime builds, margin) found no material native end-to-end regression
 against the pre-API build, about 10 µs of host time per target through the Python layer, and 13–16 % faster
 collision scenes (no per-call JSON comparison); see [API timing evidence](evidence/api_timing_2026-10-24/README.md).
 The focused post-pin confirmation completed October 6 and was independently reviewed October 7: identical

@@ -25,6 +25,7 @@ import argparse, csv, json, os, statistics, sys, time
 from pathlib import Path
 
 import hjcdik
+import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "benchmark"))
 from query_results import best_candidate, pose_errors, query_record, append_record
 
@@ -60,13 +61,37 @@ PRECISION = {-1: "auto", 0: "fp32", 1: "fp64"}
 # instead of the packaged robot, and a clearance margin for the collision leg (hard mode only).
 TIMING_ROBOT = os.environ.get("HJCDIK_TIMING_ROBOT") or None
 TIMING_MARGIN = float(os.environ.get("HJCDIK_TIMING_MARGIN", "0") or 0)
+TIMING_ENTRY = os.environ.get("HJCDIK_TIMING_ENTRY", "api")
+TIMING_URDF = os.environ.get("HJCDIK_TIMING_URDF")
+if TIMING_ENTRY not in ("api", "native"):
+    raise ValueError("HJCDIK_TIMING_ENTRY must be api or native")
+REFERENCE_CHAIN = None
+if TIMING_URDF:
+    from gen_targets import _parse_joints, _chain_to_target, _fk, _quat_from_R
+    REFERENCE_CHAIN = _chain_to_target(_parse_joints(TIMING_URDF), "panda_hand_joint")
+
+
+def independent_errors(q, target):
+    if REFERENCE_CHAIN is None:
+        return pose_errors(q, target, "panda_hand_joint")
+    transform = _fk(REFERENCE_CHAIN, q)
+    pos_mm = 1000 * np.linalg.norm(transform[:3, 3] - np.asarray(target[:3]))
+    dot = np.clip(abs(np.dot(_quat_from_R(transform[:3, :3]), target[3:])), 0, 1)
+    return float(pos_mm), float(2 * np.arccos(dot))
+
+
+def unpack_native(raw):
+    """Drop batch/padding outside the timed native call; preserve empty attempts."""
+    n = int(raw["count"][0])
+    return dict(count=n, joint_config=raw["joint_config"][0, :n],
+                pos_errors=raw["pos_errors"][0, :n], ori_errors=raw["ori_errors"][0, :n])
 
 
 def new_api_solver():
     return hjcdik.Solver(TIMING_ROBOT, allow_build=False) if TIMING_ROBOT else hjcdik.Solver()
 
 
-def make_solve(batch, num_solutions, collision_free, pj_text, set_name, precision):
+def make_solve(batch, num_solutions, collision_free, pj_text, set_name, precision, targets):
     """(prepare, solve) closures with matched settings on either API.
 
     prepare(i) makes target i's world resident untimed (new API: set_world; old API: one untimed
@@ -76,11 +101,17 @@ def make_solve(batch, num_solutions, collision_free, pj_text, set_name, precisio
     problems = json.loads(pj_text)["problems"][set_name] if collision_free else None
     if NEW_API:
         solver = new_api_solver()
+        native_poses = [np.asarray(t,dtype=float).reshape(1,7) for t in targets]
         extra = {"collision_margin_m": TIMING_MARGIN} if (collision_free and TIMING_MARGIN > 0) else {}
         def prepare(i):
             if collision_free:
                 solver.set_world(**hjcdik.worlds.from_mbm_problem(problems[i]))
         def solve(i, t):
+            if TIMING_ENTRY == "native":
+                return solver._native.solve_batch(native_poses[i],batch,num_solutions,
+                    1 if collision_free else 0, (num_solutions==1) if precision==-1 else bool(precision),
+                    False,solver._world,solver.info.device,TIMING_MARGIN if collision_free else 0.0,
+                    True,1337,None,num_solutions)
             return solver.solve(t, batch_size=batch, num_solutions=num_solutions,
                                 collision="hard" if collision_free else None,
                                 precision=PRECISION[precision], **extra)[0]
@@ -99,7 +130,9 @@ def make_solve(batch, num_solutions, collision_free, pj_text, set_name, precisio
 def time_leg(targets, batch, num_solutions, collision_free, pj_text, set_name, warmup,
              precision=-1, correctness_only=False, configs_out=None, label="hjcdik"):
     from query_results import candidate_arrays
-    prepare, solve = make_solve(batch, num_solutions, collision_free, pj_text, set_name, precision)
+    if TIMING_URDF and collision_free:
+        raise ValueError("custom reference URDF is for open-world high-DoF comparisons only")
+    prepare, solve = make_solve(batch, num_solutions, collision_free, pj_text, set_name, precision, targets)
     for i, t in enumerate(targets[:warmup]):
         prepare(i)
         solve(i, t)
@@ -112,6 +145,8 @@ def time_leg(targets, batch, num_solutions, collision_free, pj_text, set_name, w
         result = solve(i, t)
         if t0 is not None:
             times.append((time.perf_counter() - t0) * 1e3)
+        if NEW_API and TIMING_ENTRY == "native":
+            result = unpack_native(result)
         if configs_out:
             append_record(configs_out, query_record(result, solver=label, problem_set=set_name,
                 problem_idx=i, batch=batch, target=t, ee_target="panda_hand_joint",
@@ -124,7 +159,7 @@ def time_leg(targets, batch, num_solutions, collision_free, pj_text, set_name, w
             continue
         good = False
         for j, q in enumerate(qs):
-            pe, oe = pose_errors(q, t, "panda_hand_joint")
+            pe, oe = independent_errors(q, t)
             if abs(pe - pes[j]) > .001 or abs(oe - oes[j]) > 1e-5:
                 raise ValueError("reported errors disagree with independent FK")
             good |= pe < 5 and oe < .05

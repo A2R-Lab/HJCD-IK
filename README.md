@@ -243,13 +243,20 @@ python -m pip install -e . --no-build-isolation
 
 HJCD-IK supports fixed-base serial chains with 1–32 independent revolute, continuous or
 prismatic joints, with arbitrary joint axes. Fixed joints may connect links and the tool frame.
-Mimic joints, actuated branches and floating bases are rejected. The fixed tool target must
+Mimic joints, actuated branches and floating bases are rejected. GRiD 0.6.0 also requires at
+least one revolute or continuous joint; all-prismatic chains are rejected before generation.
+The fixed tool target must
 attach to the last actuated joint. `solver.info.joint_names`, `joint_types`, `joint_units` and
 `joint_limits` describe the order and units of `q` and `q_init` (radians or metres).
 Continuous joints use a bounded sampling interval of [-pi, pi]. Mixed-joint LM step norms
 and warm-start ranking use raw joint coordinates, not a unit-invariant distance metric.
 GRiD supports more robot classes than this solver. See the
 [custom-robot guide](docs/source/user_guide/tutorials/custom_robot.md).
+
+`Solver("ur5e")` builds the shipped nominal-calibration UR5e preset on first use with
+`hjcdik[build]`. Its sphere approximation and tool frame are documented in the guide.
+For coordinate metadata, world setup, warm starts and empty-result handling with mixed
+joints, run [the analytic example](examples/mixed_joint_warm_start.py).
 
 ### Collision checking for a custom robot
 

@@ -349,7 +349,7 @@ class Solver:
         collects per-target diagnostics without changing the solution.
 
         `collision_margin_m` (metres, `hard`/`both` only) is the clearance below which a checked pair
-        counts as a hit, for environment pairs and, while `self_collision` is true, self pairs; zero is
+        counts as a hit for environment pairs. Self pairs keep zero margin; zero is
         the contact-free rule. `self_collision=False` (`hard`/`both` only) skips the self pairs.
         `q_init` warm-starts the coarse search: `(K, N)` configurations shared by every target or
         `(T, K, N)` per target, `K <= batch_size`, clamped to the joint limits; the remaining

@@ -32,6 +32,11 @@ def validate_solver_robot(robot, ee_link=None):
                     or not float(limits[0]) < float(limits[1])
                     or any(abs(float(x)) > 1e30 for x in limits)):
                 raise ValueError(f"joint {joint.name!r} requires finite, strictly ordered limits")
+    # GRiD 0.6.0's homogeneous-loader trig scan reaches a NumPy fixed transform
+    # on an all-prismatic chain and calls .atoms on it. Keep this upstream limit
+    # explicit until a released generator supports the case (GRiD ask G13).
+    if all(j.jtype == "prismatic" for j in robot.get_joints_ordered_by_id()):
+        raise ValueError("GRiD 0.6.0 cannot generate all-prismatic chains; at least one revolute or continuous joint is required")
     if ee_link is not None:
         target = robot.get_fixed_joint_by_name(ee_link)
         if target is None:

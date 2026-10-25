@@ -77,6 +77,7 @@ def sphere_presets() -> dict:
     return {
         "panda_foam": root / "collision" / "panda_foam_rebound.urdf",
         "iiwa14": root / "collision" / "iiwa14_spheres.urdf",
+        "ur5e": root / "collision" / "ur5e_spheres.urdf",
     }
 
 
@@ -93,6 +94,8 @@ def presets() -> dict:
                       spheres="panda_foam", source="franka_description (panda_arm_hand.urdf.xacro)"),
         "iiwa14": dict(urdf=root / "urdf" / "iiwa14.urdf", ee_link="iiwa_joint_ee", spheres="iiwa14",
                        source="Drake manipulation/models/iiwa_description (iiwa14_primitive_collision.urdf)"),
+        "ur5e": dict(urdf=root / "urdf" / "ur5e.urdf", ee_link="flange-tool0", spheres="ur5e",
+                     source="UniversalRobots/Universal_Robots_ROS2_Description at 22f055da (nominal calibration)"),
     }
 
 

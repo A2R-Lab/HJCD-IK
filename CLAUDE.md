@@ -219,6 +219,11 @@ checks are in `tests/test_general_joints.py`; quality evidence is under
 coordinates; the finite tested scale range is not a universal convergence guarantee. Timing
 against pre-P2b `3f5ec5a` remains pending a user-announced quiet window. Local commits are not
 authorization to push. Fetch upstream preset assets require a distribution-license decision.
+UR5e is now a shipped nominal-calibration preset with complete provenance and sampled geometry
+fidelity under `csrc/collision/`. Z1 remains unpublished because its conservative wrist spheres
+overlap in all sampled configurations; do not silently disable self checks. All-prismatic chains
+are rejected before generation pending GRiD G13; mixed chains and arbitrary-axis revolute joints
+are supported. `examples/mixed_joint_warm_start.py` demonstrates the mixed-unit API.
 
 **Where the code is.** `origin/main` carries the closed fairness/hardening arc (2026-10-03 → 10-07) and the
 re-pin to GRiD **v0.6.0** (commit `712df1c`, the PyPI `grid-rbd` 0.6.0 release, 2026-10-24, which shipped every HJCD ask:
