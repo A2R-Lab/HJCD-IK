@@ -57,13 +57,23 @@ guarantee that they are collision-free either.
 ## Robot and collision identity
 
 A wheel contains one compiled robot. `hjcdik.build_info()` reports its name, joint count,
-collision capability, named EE target, generated-header SHA256 and CUDA compiler version without
-initializing CUDA; `solver.info` repeats them. Regenerate and rebuild to change the model; use
-separate build directories and environments when comparing robots.
+collision capability, named EE target, generated-header and joint-model SHA256, and CUDA compiler
+version without initializing CUDA. `solver.info` includes ordered joint names, types, units and
+effective limits. Build a runtime robot to select another model without replacing the packaged
+one; its first build needs `hjcdik[build]` and nvcc, later loads need grid-rbd but no compiler.
 
 The supported solver model is a fixed-base serial chain of 1–32 independent
-revolute/continuous local-+Z joints, plus fixed links/tool frames. Other GRiD robot
-classes are not implicitly supported. See {doc}`tutorials/custom_robot`.
+revolute, continuous or prismatic joints with arbitrary axes, plus fixed links/tool frames.
+The selected fixed tool must attach to the last actuated joint. Floating bases, actuated
+branches and mimics are rejected. GRiD 0.6.0 cannot generate all-prismatic chains, so at
+least one revolute or continuous joint is required. Continuous joints use [-pi, pi]; other
+limits must be finite and ordered. Coordinates are radians or metres in the reported order.
+LM and warm-start proximity use raw mixed coordinates, not a unit-invariant metric.
+See {doc}`tutorials/custom_robot` for the tested scope and example.
+
+The generated `grid.cuh` now has a matching `hjcd_joint_model.h`. Regenerate both together;
+do not copy a header from another model with the same joint count. Binding ABI 5 requires
+rebuilding older runtime artifacts; a mismatch raises an actionable `BuildError`.
 
 The default Panda keeps +/-40 mm fixed finger origins. The frozen paper collision
 reference uses +/-65 mm. `--collision-validation-model paper` retains historical
@@ -78,6 +88,8 @@ The audit exercised Linux/Python 3.12, CUDA 13.2 and RTX 5090, including full Py
 contracts, independent FK/collision checks, CUDA failure injection, focused memory
 and synchronization sanitizers, native API/CLI checks, and source/wheel builds.
 Custom-model correctness included no-collision Panda, Fetch and 12/18/24-DoF arms.
+P2b adds re-expressed/negative-axis/slider-mounted Panda, 1- and 32-joint boundaries,
+UR5e, and mixed-joint scale checks over 0.01/0.5/5 m travel in both precisions.
 These checks are not certification for physical deployment.
 
 The package declares Python 3.9+ and CUDA 12.x/13.x support, but this audit did not

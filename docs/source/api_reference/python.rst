@@ -234,9 +234,10 @@ summarises them.
 Runtime robot builds
 --------------------
 
-The base package solves with the packaged robot and loads prepared builds with numpy only. With
+The base package solves with the packaged robot using numpy only. Loading prepared runtime
+artifacts also requires ``grid-rbd``, but not nvcc or pybind11. With
 the ``hjcdik[build]`` extra (GRiD's ``grid-rbd`` and ``pybind11``) and ``nvcc`` on the machine,
-any fixed-base serial-chain URDF becomes a solver:
+a supported fixed-base serial-chain URDF becomes a solver:
 
 .. code-block:: text
 
