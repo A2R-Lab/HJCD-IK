@@ -19,8 +19,8 @@ the old one). `results.csv` has 192 rows, `analysis.json` the paired ratios, `ma
 Every matched cell has identical solved / empty / returned counts for `branch` and `branch-rt` against `main`
 (open-world S=1: 95/100 at B=1 and 100/100 above; S=4: 96/100 at B=1 and 100/100 above; `box_panda` 100/100 in
 every cell; zero empty outputs). `branch-margin` solves 81 % (S=1) and 79–81 % (S=4) of the `box_panda` targets
-at a 2 cm clearance margin: the margin makes some goals infeasible by construction (the hard filter is stricter),
-not a solver defect; the launcher flags the drop for review as designed.
+at a 2 cm clearance margin. No qualifying solution was found within the budget for the remaining targets;
+the stricter filter alone does not prove infeasibility. The launcher flags the drop for review as designed.
 
 ## Paired latency ratios (endpoint / main, per-round medians; 100 targets per cell)
 
@@ -42,17 +42,18 @@ not a solver defect; the launcher flags the drop for review as designed.
 
 ## Reading
 
-- **Kernels are unchanged.** A native-level A/B (`native_ab.py`, both endpoints' extension entry points called
+- **No material native end-to-end regression was measured.** A native-level A/B (`native_ab.py`, both endpoints' extension entry points called
   directly, four alternating rounds, same targets) gives paired ratios 0.999–1.006 on open-world S in {1, 4},
   B in {1, 2000, 32000} (`native_ab.jsonl`). The GRiD 0.6.0 re-pin, the Stage 3 kernel parameters (margin,
-  self toggle, warm-start entry band, coarse seed) and the hidden-visibility build change cost nothing measurable.
+  self toggle, warm-start entry band, coarse seed) and the hidden-visibility build change cost nothing measurable
+  at these matched settings. These measurements do not isolate device time or imply identical kernel source.
 - **Open-world is 0.8–2.0 % slower through `Solver.solve`.** That is the Python layer: validation before the
   call and `Result` construction after the GPU wait. Measured in situ (same process, raw binding vs `Solver.solve`,
   alternating): 9 µs at B=1, 13 µs at B=2000 (S=1 and S=4), 52 µs at B=32000, where the host core returns cold
   from the 2.8 ms wait and the same few microseconds of Python run several times slower. Moving the host loop
   and the NaN padding into the binding (one native call per batch, `eaad3e7`) took the cost down from 15–24 µs
   and 68 µs; what remains is the `Result` object itself. The published tables were measured through the old
-  direct binding; the new API adds this per-call host overhead and nothing on the device.
+  direct binding; this experiment identifies added per-call host overhead, not isolated device timings.
 - **Collision scenes are 13–16 % faster.** The old API compared the whole problem JSON string on every call to
   decide whether the scene changed (`ProblemDocument::update`, a memcmp over the multi-megabyte
   `mb_problems.json`); the new API installs the world once. This is a real per-call saving for any caller that
@@ -63,10 +64,10 @@ not a solver defect; the launcher flags the drop for review as designed.
   0.844–0.854 for `branch`, i.e. the second checker call GRiD ask G7b would remove) **and 6× when it does not**
   (S=1: 12.4 ms vs 2.06 ms): with the margin, 19 % of the targets have no free accurate candidate, the
   collision-aware early stop never fires, and coarse search plus refinement run to their iteration limits. That
-  is the price of an infeasible query under the collision-aware stop, the same as any blocked scene, not a
-  margin-specific cost.
+  is consistent with exhausting the search budget without a qualifying candidate. It does not distinguish
+  geometric infeasibility from search failure.
 
-Verdict: no device-side regression against the pre-API build; the `Solver` API adds about 10 µs of host time
+Verdict: no material native end-to-end regression against the pre-API build at the matched settings; the `Solver` API adds about 10 µs of host time
 per target (up to 50 µs after a long solve) and removes a per-call JSON comparison on collision scenes; the
 runtime-built robot is as fast as the packaged one. The paper's published numbers remain historical; they are
 not re-measured here.

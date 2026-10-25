@@ -38,7 +38,11 @@ Solver
    device. ``solver.info`` is an ``Info`` with ``robot``, ``dof``, ``ee_frame``,
    ``collision_enabled``, ``grid_header_sha256``, ``cuda_compiler_version``, ``device``,
    ``max_batch_size`` and ``artifact`` (the store path of a runtime build, ``None`` for the packaged
-   robot).
+   robot). Ordered ``joint_names``, ``joint_types``, ``joint_units`` and ``joint_limits`` are
+   immutable tuples describing the coordinates of ``q`` and ``q_init``. Units are ``"rad"``
+   for revolute/continuous joints and ``"m"`` for prismatic joints. Continuous-joint effective
+   limits are [-pi, pi]. LM norms and warm-start proximity use raw coordinates, not a
+   unit-invariant mixed-joint metric.
 
 ``solver.solve(poses, *, num_solutions=1, batch_size=2000, collision=<omitted>, precision="auto", stats=False, collision_margin_m=0.0, self_collision=True, q_init=None, seed=None)``
    Solve one pose ``(7,)`` or a batch ``(T, 7)``; returns a ``Result`` with ``T`` targets (a single
@@ -258,7 +262,7 @@ live under ``<cache_dir>/consumers/hjcdik/`` (default ``~/.cache/grid-rbd``, ``G
 schema and that the current GPU can run it; ``hjcdik.list_builds()`` lists the store.
 
 ``hjcdik.presets()`` (``hjcdik presets`` on the command line) names the robots the package ships as a
-URDF, an end-effector frame and a sphere model, each a fixed-base serial chain with local-+Z joints:
+URDF, an end-effector frame and a sphere model, each a fixed-base serial chain:
 
 .. list-table::
    :header-rows: 1
@@ -278,8 +282,9 @@ URDF, an end-effector frame and a sphere model, each a fixed-base serial chain w
 
 The fidelity of each shipped sphere model (sampled bulge and uncovered surface per link, from
 ``grid-spherize --report``) is recorded at the top of the sphere URDF under ``csrc/collision/``.
-Robots whose joints are not local-+Z (Unitree Z1, the UR series as distributed) wait for the general
-joint-axis solver; xacro-only descriptions (UR, Kinova Gen3, xArm) need their xacro expanded first. Each
+Custom models may have arbitrary-axis revolute, continuous and prismatic joints (1 to 32,
+independent, finite ordered non-continuous limits). Floating bases, actuated branches and mimics
+are rejected. Xacro-only descriptions need expansion to URDF first. Each
 artifact is its own extension module, so several robots can be solved in one process with
 independent worlds and locks; the modules are compiled with hidden symbol visibility so no static
 state binds across them. A build that changes after it was imported into a process cannot be
@@ -289,8 +294,9 @@ Build metadata
 --------------
 
 ``hjcdik.build_info()`` returns ``robot``, ``num_joints``, ``ee_target``, ``collision_enabled``,
-``grid_header_sha256``, ``cuda_compiler_version`` and ``binding_abi`` for the packaged robot without
+``grid_header_sha256``, ``joint_model_sha256``, ``cuda_compiler_version`` and ``binding_abi`` for the packaged robot without
 initialising CUDA. The header hash
 identifies the generated model compiled into the loaded extension; compare it with your selected
 ``grid.cuh`` to detect stale installs or a different robot wheel. The compiler version describes the
-build toolkit, not the driver. ``solver.info`` repeats these for the bound solver.
+build toolkit, not the driver. The joint-model hash identifies the ordered axes, types, limits,
+tool frame and source URDF. ``solver.info`` exposes the bound solver's geometry hash and joint metadata.

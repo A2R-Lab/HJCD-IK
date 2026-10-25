@@ -243,6 +243,17 @@ __device__ __forceinline__ T coarse_step(T theta, int k, int k_max) {
 // SOLVE
 template<typename T>
 __device__ T solve_pos(const T* s_jointXforms, const T* pos, const T* target_pose_local, int joint, int k, int k_max) {
+    if constexpr (!hjcd_model::ALL_REVOLUTE_Z) {
+        if (hjcd_model::is_prismatic(joint)) {
+            T axis[3]; joint_axis_world(&s_jointXforms[16*joint], joint, axis);
+            T step=T(0);
+            for (int i=0; i<3; ++i) step += (target_pose_local[i]-pos[i])*axis[i];
+            const T damping = T(0.75) + T(0.25)*(T(1)-T(k)/T(k_max));
+            // Translation cap is a quarter of joint travel, never an angle in metres.
+            const T cap = T(0.25)*(T(c_joint_limits[joint].y)-T(c_joint_limits[joint].x));
+            return clamp_val<T>(step*damping, -cap, cap);
+        }
+    }
     T joint_pos[3] = {
         s_jointXforms[joint * 16 + 12],
         s_jointXforms[joint * 16 + 13],
@@ -254,6 +265,8 @@ __device__ T solve_pos(const T* s_jointXforms, const T* pos, const T* target_pos
         s_jointXforms[joint * 16 + 9],
         s_jointXforms[joint * 16 + 10]
     };
+    if constexpr (!hjcd_model::ALL_REVOLUTE_Z)
+        joint_axis_world(&s_jointXforms[16*joint], joint, r);
     normalize_vec3(r);
 
     T u[3] = {
@@ -298,11 +311,17 @@ template<typename T>
 __device__ T solve_ori(const T* s_jointXforms, const T* q_t, int joint, int k, int k_max) {
     using QL = glass::block::QuatLayout;
 
+    if constexpr (!hjcd_model::ALL_REVOLUTE_Z) {
+        if (hjcd_model::is_prismatic(joint)) return T(0);
+    }
+
     T r[3] = {
         s_jointXforms[joint * 16 + 8],
         s_jointXforms[joint * 16 + 9],
         s_jointXforms[joint * 16 + 10]
     };
+    if constexpr (!hjcd_model::ALL_REVOLUTE_Z)
+        joint_axis_world(&s_jointXforms[16*joint], joint, r);
     normalize_vec3(r);
 
     // q_err = q_t (x) conj(q_ee): the rotation taking the current EE orientation to the target.
@@ -787,17 +806,9 @@ __device__ void solve_lm_batched(
             const T* Ci = &s_jointX[i*16];
             const T* Cn = &s_jointX[EE_IDX * 16];
 
-            const T oi0=Ci[12], oi1=Ci[13], oi2=Ci[14];
-            const T on0=Cn[12], on1=Cn[13], on2=Cn[14];
-            const T zi0=Ci[8],  zi1=Ci[9],  zi2=Ci[10];
-            const T r0=on0-oi0, r1=on1-oi1, r2=on2-oi2;
-
-            const T j0 = zi1*r2 - zi2*r1;
-            const T j1 = zi2*r0 - zi0*r2;
-            const T j2 = zi0*r1 - zi1*r0;
-            const T j3 = zi0;
-            const T j4 = zi1;
-            const T j5 = zi2;
+            T column[6]; joint_jacobian_column(Ci, Cn, i, column);
+            const T j0=column[0], j1=column[1], j2=column[2];
+            const T j3=column[3], j4=column[4], j5=column[5];
 
             J[0*N+i]=j0;  J[1*N+i]=j1;  J[2*N+i]=j2;
             J[3*N+i]=j3;  J[4*N+i]=j4;  J[5*N+i]=j5;
@@ -1488,6 +1499,65 @@ __global__ void forward_kinematics_kernel(
         store_ee_pose7(&s_jointX[EE_IDX * 16], &ee_pose7[(size_t)b * 7]);
     }
 }
+
+#if defined(HJCDIK_DIAGNOSTICS)
+template<typename T>
+__global__ void diagnostic_model_kernel(const T* q, T* out, const grid::robotModel<T>* rm,
+                                        CCEnv env, float margin, bool check_self) {
+    __shared__ T x[N], local[grid::XHOM_T_COUNT], world[NX*16], tmp[NX*2];
+    __shared__ float scratch[CC_WARP_POS_FLOATS > 0 ? CC_WARP_POS_FLOATS : 1];
+    const int lane=threadIdx.x, row=blockIdx.x, width=8+6*N;
+    if (lane<N) x[lane]=q[row*N+lane];
+    __syncthreads();
+    grid::load_update_XmatsHom_helpers<T>(local, nullptr, x, rm, tmp);
+    __syncthreads();
+    if (lane==0) {
+        ee_fk_thread<T>(world, local, x, EE_IDX, local);
+        store_ee_pose7(&world[EE_IDX*16], &out[row*width]);
+    }
+    __syncwarp();
+    if (lane<N) {
+        T column[6]; joint_jacobian_column(&world[lane*16], &world[EE_IDX*16], lane, column);
+        for (int k=0; k<6; ++k) out[row*width+7+k*N+lane]=column[k];
+    }
+#if defined(HJCD_HAS_COLLISION)
+    const bool free=cc_free_warp(world, env, scratch, margin, check_self);
+#else
+    const bool free=true;
+#endif
+    if (lane==0) out[row*width+7+6*N]=free ? T(1) : T(0);
+}
+
+template<typename T>
+std::vector<double> diagnostic_model_typed(const std::vector<double>& q, const CollisionWorld* world,
+                                          float margin, bool check_self) {
+    std::lock_guard<std::recursive_mutex> lock(solver_mutex());
+    if (q.empty() || q.size()%N || q.size()/N > 100000)
+        throw std::invalid_argument("diagnostic q must contain 1..100000 whole configurations");
+    for (double value:q) if (!std::isfinite(value)) throw std::invalid_argument("diagnostic q must be finite");
+    const auto* rm=cached_robot_model<T>();
+    CCEnv env{};
+#if defined(HJCD_HAS_COLLISION)
+    if (world) env=world->device_env.view();
+#endif
+    std::vector<T> input(q.begin(), q.end()), output((q.size()/N)*(8+6*N));
+    hjcd::DeviceAllocations allocations;
+    T *dq=nullptr, *dout=nullptr;
+    allocations.allocate(dq, input.size()*sizeof(T));
+    allocations.allocate(dout, output.size()*sizeof(T));
+    CUDA_OK(cudaMemcpy(dq, input.data(), input.size()*sizeof(T), cudaMemcpyHostToDevice));
+    diagnostic_model_kernel<T><<<q.size()/N,32>>>(dq,dout,rm,env,margin,check_self);
+    CUDA_OK(cudaGetLastError());
+    CUDA_OK(cudaMemcpy(output.data(),dout,output.size()*sizeof(T),cudaMemcpyDeviceToHost));
+    return std::vector<double>(output.begin(),output.end());
+}
+
+std::vector<double> diagnostic_model(const std::vector<double>& q, bool fp64, const CollisionWorld* world,
+                                    float margin, bool check_self) {
+    return fp64 ? diagnostic_model_typed<double>(q,world,margin,check_self)
+                : diagnostic_model_typed<float>(q,world,margin,check_self);
+}
+#endif
 
 // SAMPLE CONFIG
 __device__ __constant__ int c_halton_bases[32] =

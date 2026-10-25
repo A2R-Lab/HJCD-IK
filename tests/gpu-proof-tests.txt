@@ -56,13 +56,15 @@ tests/test_build.py::test_plan_reports_identity_without_building
 tests/test_build.py::test_runtime_panda_matches_the_packaged_build
 tests/test_build.py::test_solver_argument_contract
 tests/test_build.py::test_two_robots_in_one_process_are_isolated
+tests/test_codegen.py::test_cmake_rejects_mismatched_same_dof_headers
 tests/test_codegen.py::test_explicit_glass_provenance_is_archive_reproducible
 tests/test_codegen.py::test_failed_codegen_preserves_previous_header[flags0-fixed-base serial chain]
 tests/test_codegen.py::test_failed_codegen_preserves_previous_header[flags1-grid namespace]
 tests/test_codegen.py::test_failed_codegen_preserves_previous_header[flags2-None]
+tests/test_codegen.py::test_general_joint_geometry_is_accepted[negative_axis]
+tests/test_codegen.py::test_general_joint_geometry_is_accepted[prismatic]
 tests/test_codegen.py::test_generation_failure_after_partial_write_preserves_header
-tests/test_codegen.py::test_unsupported_joint_geometry_is_rejected[negative_axis-local +Z]
-tests/test_codegen.py::test_unsupported_joint_geometry_is_rejected[prismatic-independent revolute]
+tests/test_codegen.py::test_punctuated_tool_name_in_static_and_runtime_builds
 tests/test_codegen.py::test_wrong_glass_provenance_preserves_previous_header
 tests/test_collision.py::test_collision_free_matches_unconstrained_reach
 tests/test_collision.py::test_collision_free_runs_and_solves
@@ -141,6 +143,52 @@ tests/test_fk_equivalence.py::test_ee_orientation_matches_reference
 tests/test_fk_equivalence.py::test_ee_position_matches_reference
 tests/test_fk_equivalence.py::test_legacy_digit_permutation_unchanged
 tests/test_fk_equivalence.py::test_no_scramble_is_raw_halton_and_ignores_method
+tests/test_general_joints.py::test_collision_verdicts_match_reexpressed_robot
+tests/test_general_joints.py::test_fk_and_actual_jacobian[False-panda]
+tests/test_general_joints.py::test_fk_and_actual_jacobian[False-panda_axes]
+tests/test_general_joints.py::test_fk_and_actual_jacobian[False-panda_negz]
+tests/test_general_joints.py::test_fk_and_actual_jacobian[False-panda_slider]
+tests/test_general_joints.py::test_fk_and_actual_jacobian[True-panda]
+tests/test_general_joints.py::test_fk_and_actual_jacobian[True-panda_axes]
+tests/test_general_joints.py::test_fk_and_actual_jacobian[True-panda_negz]
+tests/test_general_joints.py::test_fk_and_actual_jacobian[True-panda_slider]
+tests/test_general_joints.py::test_ik_representation_parity[None-1]
+tests/test_general_joints.py::test_ik_representation_parity[None-4]
+tests/test_general_joints.py::test_ik_representation_parity[hard-1]
+tests/test_general_joints.py::test_ik_representation_parity[hard-4]
+tests/test_general_joints.py::test_joint_metadata_and_negative_axis_ik
+tests/test_general_joints.py::test_mixed_collision_partial_warps[both-fp32]
+tests/test_general_joints.py::test_mixed_collision_partial_warps[both-fp64]
+tests/test_general_joints.py::test_mixed_collision_partial_warps[hard-fp32]
+tests/test_general_joints.py::test_mixed_collision_partial_warps[hard-fp64]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model0-1-fp32]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model0-1-fp64]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model0-4-fp32]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model0-4-fp64]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model1-1-fp32]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model1-1-fp64]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model1-4-fp32]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model1-4-fp64]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model2-1-fp32]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model2-1-fp64]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model2-4-fp32]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model2-4-fp64]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model3-1-fp32]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model3-1-fp64]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model3-4-fp32]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model3-4-fp64]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model4-1-fp32]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model4-1-fp64]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model4-4-fp32]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model4-4-fp64]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model5-1-fp32]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model5-1-fp64]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model5-4-fp32]
+tests/test_general_joints.py::test_mixed_joint_scale_gate[mixed_model5-4-fp64]
+tests/test_general_joints.py::test_runtime_header_identity_across_processes
+tests/test_general_joints.py::test_same_dof_modules_isolated_without_toolchain[False]
+tests/test_general_joints.py::test_same_dof_modules_isolated_without_toolchain[True]
+tests/test_general_joints.py::test_slider_reaches_beyond_fixed_panda_bound
 tests/test_gpu_proof_policy.py::test_kernel_and_dependency_pin_changes_invalidate_fingerprint
 tests/test_gpu_proof_policy.py::test_receipt_policy_cannot_narrow_the_source_scope
 tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[1-cudaMalloc(d_joint_limits)-sample]
@@ -184,6 +232,8 @@ tests/test_regression.py::test_no_collision_free_regression_vs_baseline
 tests/test_regression.py::test_no_regression_vs_baseline
 tests/test_regression.py::test_solver_runs_and_returns_solutions
 tests/test_robot_model.py::test_continuous_sampling_contract_and_missing_target
+tests/test_robot_model.py::test_general_axes_and_types[prismatic-axis1]
+tests/test_robot_model.py::test_general_axes_and_types[revolute-axis0]
 tests/test_robot_model.py::test_reject_unsupported_model[kwargs0-1 to 32]
 tests/test_robot_model.py::test_reject_unsupported_model[kwargs1-1 to 32]
 tests/test_robot_model.py::test_reject_unsupported_model[kwargs10-limits]
@@ -192,13 +242,13 @@ tests/test_robot_model.py::test_reject_unsupported_model[kwargs2-serial]
 tests/test_robot_model.py::test_reject_unsupported_model[kwargs3-fixed-base]
 tests/test_robot_model.py::test_reject_unsupported_model[kwargs4-independent]
 tests/test_robot_model.py::test_reject_unsupported_model[kwargs5-independent]
-tests/test_robot_model.py::test_reject_unsupported_model[kwargs6-local \\+Z]
+tests/test_robot_model.py::test_reject_unsupported_model[kwargs6-unit axis]
 tests/test_robot_model.py::test_reject_unsupported_model[kwargs7-limits]
 tests/test_robot_model.py::test_reject_unsupported_model[kwargs8-limits]
 tests/test_robot_model.py::test_reject_unsupported_model[kwargs9-limits]
-tests/test_robot_model.py::test_runtime_plan_rejects_before_codegen[axis-local \\+Z]
 tests/test_robot_model.py::test_runtime_plan_rejects_before_codegen[limit-limits]
 tests/test_robot_model.py::test_runtime_plan_rejects_before_codegen[target-final actuated]
+tests/test_robot_model.py::test_side_header_identity_is_stable_and_detects_corruption
 tests/test_robot_model.py::test_supported_joint_count[1]
 tests/test_robot_model.py::test_supported_joint_count[32]
 tests/test_robot_model.py::test_supported_joint_count[7]

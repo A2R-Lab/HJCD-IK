@@ -7,7 +7,8 @@ CUDA architecture; per-unit object reuse; atomic publish. `load` returns a prepa
 no toolchain. GRiD never binds our symbols: the artifact is a Python extension module that this
 file imports from its store path under a per-artifact module name.
 
-Requires the `hjcdik[build]` extra (grid-rbd, pybind11) and nvcc to build; loading needs neither.
+Requires the `hjcdik[build]` extra (grid-rbd, pybind11) and nvcc to build. Loading a prepared
+artifact still needs grid-rbd, but needs neither nvcc nor pybind11.
 """
 from __future__ import annotations
 
@@ -27,10 +28,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Sequence
 
-from ._robot_model import validate_solver_robot
+from ._robot_model import validate_solver_robot, describe_robot, stage_joint_header, fixed_frame_index
 
 CONSUMER = "hjcdik"
-BINDING_ABI = 4   # must equal HJCDIK_BINDING_ABI in csrc/bindings/pybind_module.cpp
+BINDING_ABI = 5   # must equal HJCDIK_BINDING_ABI in csrc/bindings/pybind_module.cpp
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
@@ -84,7 +85,7 @@ def presets() -> dict:
 
     `Solver("<preset>")` builds the preset on first use (or loads it when already built); the
     packaged robot ("panda") is compiled into the wheel and needs no build. Every preset is a
-    fixed-base serial chain whose joints rotate about their local +Z, the solver's model.
+    fixed-base serial chain with independent revolute, continuous or prismatic joints.
     """
     root = source_root()
     return {
@@ -137,7 +138,7 @@ def _resolve_spheres(spheres):
     return path.resolve()
 
 
-def ee_fixed_frame_index(urdf_path, ee_link: str) -> int:
+def _prepare_robot(urdf_path, ee_link: str):
     """Where GRiD places the named fixed target inside the homogeneous-transform block.
 
     The index is robot-specific and read back from a kinematics-only generation, exactly as
@@ -147,8 +148,8 @@ def ee_fixed_frame_index(urdf_path, ee_link: str) -> int:
     _grid_rbd()
     from URDFParser import URDFParser  # noqa: E402  (grid-rbd ships it)
     from grid_codegen import GRiDCodeGenerator  # noqa: E402
-    robot = URDFParser().parse(str(urdf_path), floating_base=False)
     try:
+        robot = URDFParser().parse(str(urdf_path), floating_base=False)
         validate_solver_robot(robot, ee_link)
     except ValueError as error:
         raise BuildError(f"unsupported robot {urdf_path}: {error}") from error
@@ -159,11 +160,7 @@ def ee_fixed_frame_index(urdf_path, ee_link: str) -> int:
                 codegen_profile="kinematics", vendor_glass=False, include_homogenous_transforms=True,
                 fixed_target_name=ee_link, output_path=str(out))
         text = out.read_text()
-    for m0 in re.finditer(re.escape(f"end_effector_pose_inner_{ee_link}("), text):
-        m = re.search(r"s_Xhom\[16\s*\*\s*(\d+)\s*\+\s*ind\]", text[m0.start():m0.start() + 4000])
-        if m:
-            return int(m.group(1))
-    raise BuildError(f"could not resolve the fixed-frame index of {ee_link!r} in the generated header")
+    return fixed_frame_index(text, ee_link), describe_robot(robot, urdf_path, ee_link)
 
 
 def _nvcc_version(meta) -> str:
@@ -177,18 +174,21 @@ def _module_name(name: str) -> str:
     return "_hjcdik_" + hashlib.sha256(name.encode()).hexdigest()[:12]
 
 
-def _build_inputs(name: str, urdf_path: Path, ee_link: str, spheres: Optional[Path], defines_extra: dict) -> dict:
+def _build_inputs(name: str, urdf_path: Path, ee_link: str, spheres: Optional[Path], defines_extra: dict,
+                  cache_dir=None) -> dict:
     root = source_root()
     include = sysconfig.get_paths()["include"]
     try:
         import pybind11
     except ImportError as error:
         raise BuildError("runtime robot builds need pybind11: pip install 'hjcdik[build]'") from error
+    index, model = _prepare_robot(urdf_path, ee_link)
+    side = stage_joint_header(model, cache_dir if cache_dir is not None else _grid_rbd().default_cache_dir())
     defines = {
         "HJCDIK_MODULE_NAME": _module_name(name),
         "HJCDIK_ROBOT_NAME": f'"{robot_name(urdf_path)}"',
         "HJCDIK_EE_TARGET": f'"{ee_link}"',
-        "HJCDIK_EE_FIXED_FRAME_IDX": str(ee_fixed_frame_index(urdf_path, ee_link)),
+        "HJCDIK_EE_FIXED_FRAME_IDX": str(index),
     }
     if spheres is not None:
         defines["HJCD_HAS_COLLISION"] = "1"
@@ -197,8 +197,8 @@ def _build_inputs(name: str, urdf_path: Path, ee_link: str, spheres: Optional[Pa
     cuda_lib = Path(nvcc).resolve().parent.parent / "lib64"
     return dict(
         sources=[root / "kernel" / "hjcd_kernel.cu", root / "bindings" / "pybind_module.cpp"],
-        headers=sorted(p for p in (root / "kernel").iterdir() if p.suffix in (".h", ".cuh")),
-        include_dirs=[root, include, pybind11.get_include()],
+        headers=sorted(p for p in (root / "kernel").iterdir() if p.suffix in (".h", ".cuh")) + [side],
+        include_dirs=[side.parent, root, include, pybind11.get_include()],
         defines=[f"{k}={v}" for k, v in defines.items()],
         # Hidden visibility and no STB_GNU_UNIQUE: every artifact is its own module in one process, and
         # default-visibility template statics (the cached robot model, the solver mutex, GRiD's pools)
@@ -213,7 +213,7 @@ def _build_inputs(name: str, urdf_path: Path, ee_link: str, spheres: Optional[Pa
 
 def build(urdf, *, ee_link: str, spheres=None, name: Optional[str] = None, collision_res=0.05,
           cache_dir=None, cuda_arch: Optional[int] = None, force_rebuild: bool = False,
-          plan_only: bool = False):
+          plan_only: bool = False, _diagnostics: bool = False):
     """Build (or reuse) the solver for one robot and return its `Artifact`.
 
     `urdf` is a fixed-base serial-chain URDF, `ee_link` the fixed joint naming the end-effector target
@@ -228,8 +228,9 @@ def build(urdf, *, ee_link: str, spheres=None, name: Optional[str] = None, colli
         raise BuildError(f"URDF not found: {urdf_path}")
     sphere_path = _resolve_spheres(spheres)
     name = _check_name(name or default_name(urdf_path, ee_link, sphere_path))
-    inputs = _build_inputs(name, urdf_path, ee_link, sphere_path, {})
     try:
+        inputs = _build_inputs(name, urdf_path, ee_link, sphere_path,
+                               {"HJCDIK_DIAGNOSTICS": "1"} if _diagnostics else {}, cache_dir)
         result = grid_rbd.build_artifact(
             CONSUMER, name, urdf_path, cache_dir=cache_dir, cuda_arch=cuda_arch,
             force_rebuild=force_rebuild, plan_only=plan_only,
@@ -248,7 +249,7 @@ def build(urdf, *, ee_link: str, spheres=None, name: Optional[str] = None, colli
         if force_rebuild:
             raise BuildError(f"build of {name!r} published no artifact at {result.path}; see build.log there")
         return build(urdf, ee_link=ee_link, spheres=spheres, name=name, collision_res=collision_res,
-                     cache_dir=cache_dir, cuda_arch=cuda_arch, force_rebuild=True)
+                     cache_dir=cache_dir, cuda_arch=cuda_arch, force_rebuild=True, _diagnostics=_diagnostics)
     return Artifact(name=name, robot=robot_name(urdf_path), ee_frame=ee_link,
                     collision_enabled=sphere_path is not None, path=Path(result.path),
                     header=Path(result.header), content_key=result.content_key,

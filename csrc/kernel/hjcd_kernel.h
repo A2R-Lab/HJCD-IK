@@ -14,6 +14,13 @@ namespace grid {
     template<typename T> struct robotModel;
 }
 
+#if defined(HJCDIK_DIAGNOSTICS)
+struct CollisionWorld;
+// Private test build only: rows contain pose7, row-major 6xN Jacobian, free verdict.
+std::vector<double> diagnostic_model(const std::vector<double>& q, bool fp64,
+                                    const CollisionWorld* world, float margin, bool check_self);
+#endif
+
 /// Collision policy of one solve. `none` is an open-world solve. `hard` filters self and environment
 /// collisions against the compiled sphere model; `soft` ranks candidates by environment penetration
 /// only (no self-collision check, no filtering) and requires a non-empty world; `both` ranks and filters.

@@ -49,6 +49,10 @@ class Info:
     max_batch_size: int
     precisions: tuple = ("fp32", "fp64")
     artifact: Optional[str] = None   # store path of a runtime build; None for the packaged robot
+    joint_names: tuple = ()
+    joint_types: tuple = ()
+    joint_units: tuple = ()
+    joint_limits: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -235,6 +239,8 @@ class Solver:
         self._artifact: Optional[Artifact] = None
         self._native = self._resolve(robot, ee_link, spheres, allow_build, cache_dir)
         info = self._native.build_info()
+        import json
+        joints = json.loads(self._native.joint_model_json())["joints"]
         dof = int(info["num_joints"])
         self._device = self._native.current_device() if device is None else int(device)
         self._lock = threading.RLock()
@@ -247,6 +253,10 @@ class Solver:
             cuda_compiler_version=info["cuda_compiler_version"] or (artifact.cuda_compiler_version if artifact else ""),
             device=self._device, max_batch_size=(_INT_MAX - 255) // (16 * dof),
             artifact=None if artifact is None else str(artifact.path),
+            joint_names=tuple(j["name"] for j in joints),
+            joint_types=tuple(j["type"] for j in joints),
+            joint_units=tuple(j["unit"] for j in joints),
+            joint_limits=tuple(tuple(j["limits"]) for j in joints),
         )
 
     def _resolve(self, robot, ee_link, spheres, allow_build, cache_dir):

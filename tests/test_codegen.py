@@ -1,5 +1,6 @@
 """Codegen must reject unsupported robots without damaging the build's last good header."""
 import importlib.util
+import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -73,11 +74,8 @@ def test_generation_failure_after_partial_write_preserves_header(tmp_path, monke
     assert not list(tmp_path.glob(".hjcd-codegen-*"))
 
 
-@pytest.mark.parametrize("kind,match", [
-    ("prismatic", "independent revolute"),
-    ("negative_axis", "local +Z"),
-])
-def test_unsupported_joint_geometry_is_rejected(tmp_path, kind, match):
+@pytest.mark.parametrize("kind", ["prismatic", "negative_axis"])
+def test_general_joint_geometry_is_accepted(tmp_path, kind):
     tree = ET.parse(PANDA)
     joint = tree.getroot().find("joint[@name='panda_joint1']")
     assert joint is not None
@@ -92,9 +90,9 @@ def test_unsupported_joint_geometry_is_rejected(tmp_path, kind, match):
         [sys.executable, str(GEN), str(urdf), "-o", str(output)],
         capture_output=True, text=True, timeout=60,
     )
-    assert run.returncode != 0
-    assert match in run.stderr
-    assert not output.exists()
+    assert run.returncode == 0, run.stderr
+    assert output.exists()
+    assert "ALL_REVOLUTE_Z = false" in output.with_name("hjcd_joint_model.h").read_text()
 
 
 def test_explicit_glass_provenance_is_archive_reproducible(tmp_path, monkeypatch):
@@ -135,3 +133,30 @@ def test_wrong_glass_provenance_preserves_previous_header(tmp_path, monkeypatch)
         module.main()
     assert output.read_text() == "previous header\n"
     assert not list(tmp_path.glob(".hjcd-codegen-*"))
+
+
+def test_cmake_rejects_mismatched_same_dof_headers(tmp_path):
+    model = tmp_path / "model"
+    model.mkdir()
+    subprocess.run([sys.executable,str(GEN),str(ROOT/"tests/robots/panda_negz.urdf"),
+                    "-o",str(model/"grid.cuh")],check=True,capture_output=True,text=True)
+    # Both are seven-joint robots; a joint-count assertion cannot catch this mix-up.
+    shutil.copy(ROOT/"csrc/generated/hjcd_joint_model.h",model/"hjcd_joint_model.h")
+    run = subprocess.run(["cmake","-S",str(ROOT),"-B",str(tmp_path/"build"),
+                          "-DBUILD_PYTHON=OFF","-DCMAKE_CUDA_ARCHITECTURES=120",
+                          "-DHJCDIK_GRID_HEADER="+str(model/"grid.cuh")],capture_output=True,text=True)
+    assert run.returncode != 0
+    assert "Mismatched generated robot headers" in run.stdout+run.stderr
+
+
+def test_punctuated_tool_name_in_static_and_runtime_builds(tmp_path):
+    import hjcdik
+    source = tmp_path/"punctuated.urdf"
+    tree = ET.parse(PANDA)
+    tree.getroot().find("joint[@name='panda_grasptarget_hand']").set("name","flange-tool0")
+    tree.write(source)
+    subprocess.run([sys.executable,str(GEN),str(source),"-t","flange-tool0","-o",str(tmp_path/"grid.cuh")],
+                   check=True,capture_output=True,text=True)
+    assert "EE_FIXED_FRAME_IDX = 10" in (tmp_path/"grid.cuh").read_text()
+    plan = hjcdik.build(source,ee_link="flange-tool0",name="test-punctuated",plan_only=True)
+    assert "HJCDIK_EE_FIXED_FRAME_IDX=10" in plan["defines"]

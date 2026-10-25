@@ -4,7 +4,39 @@
 // (scripts/codegen/generate_grid.py) it includes the top-level external/GLASS itself and
 // aliases `grid::glass` to `::glass`, so exactly ONE GLASS is compiled per translation unit.
 #include "grid.cuh"
+#include "hjcd_joint_model.h"
 #include "glass.cuh"
+
+static_assert(hjcd_model::NUM_JOINTS == grid::NUM_JOINTS, "Generated joint model count mismatch");
+
+// The post-joint rotation leaves its own axis invariant, for revolute and prismatic joints.
+template<typename T>
+__device__ __forceinline__ void joint_axis_world(const T* Ci, int joint, T* axis) {
+    if constexpr (hjcd_model::ALL_REVOLUTE_Z) {
+        axis[0]=Ci[8]; axis[1]=Ci[9]; axis[2]=Ci[10];
+    } else {
+        T a[3]; hjcd_model::local_axis(joint, a);
+        for (int row=0; row<3; ++row)
+            axis[row] = Ci[row]*a[0] + Ci[4+row]*a[1] + Ci[8+row]*a[2];
+    }
+}
+
+template<typename T>
+__device__ __forceinline__ void joint_jacobian_column(const T* Ci, const T* Cn, int joint, T* column) {
+    T axis[3]; joint_axis_world(Ci, joint, axis);
+    if constexpr (!hjcd_model::ALL_REVOLUTE_Z) {
+        if (hjcd_model::is_prismatic(joint)) {
+            column[0]=axis[0]; column[1]=axis[1]; column[2]=axis[2];
+            column[3]=column[4]=column[5]=T(0);
+            return;
+        }
+    }
+    const T r0=Cn[12]-Ci[12], r1=Cn[13]-Ci[13], r2=Cn[14]-Ci[14];
+    column[0]=axis[1]*r2-axis[2]*r1;
+    column[1]=axis[2]*r0-axis[0]*r2;
+    column[2]=axis[0]*r1-axis[1]*r0;
+    column[3]=axis[0]; column[4]=axis[1]; column[5]=axis[2];
+}
 
 #ifndef WARP_SIZE
 #define WARP_SIZE 32

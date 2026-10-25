@@ -47,7 +47,11 @@ def main() -> int:
             capture_output=True, text=True,
         )
         if diff.returncode == 0:
-            print("[stale-check] grid.cuh is fresh ✓")
+            side = "hjcd_joint_model.h"
+            if not COMMITTED.with_name(side).exists() or COMMITTED.with_name(side).read_bytes() != regenerated.with_name(side).read_bytes():
+                print("[stale-check] hjcd_joint_model.h is stale or missing")
+                return 1
+            print("[stale-check] both generated robot headers are fresh ✓")
             return 0
         print("[stale-check] grid.cuh is STALE — regenerate and commit:")
         print("\n".join(diff.stdout.splitlines()[:40]))

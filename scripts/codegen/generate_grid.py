@@ -10,6 +10,7 @@ By default writes to csrc/generated/grid.cuh (the committed, build-default heade
 """
 import argparse
 import importlib.util
+import hashlib
 import sys
 import tempfile
 from pathlib import Path
@@ -129,6 +130,12 @@ def main():
     with tempfile.TemporaryDirectory(prefix=".hjcd-codegen-", dir=out.parent) as temporary:
         staged = Path(temporary) / out.name
         emit_header(codegen, args, staged, collision_spec)
+        model = robot_model.describe_robot(robot, urdf, args.fixed_target_name)
+        side = Path(temporary) / "hjcd_joint_model.h"
+        side.write_text(robot_model.joint_header(model, hashlib.sha256(staged.read_bytes()).hexdigest()))
+        # Both are fully generated before publication. CMake checks their paired hash,
+        # rejecting an interrupted replacement instead of compiling a mixed model.
+        side.replace(out.with_name(side.name))
         staged.replace(out)
     print(f"[generate_grid] wrote {out}")
 
@@ -168,13 +175,9 @@ def emit_header(codegen, args, out, collision_spec):
     import re
     if args.fixed_target_name:
         text = out.read_text()
-        idx = None
-        for m0 in re.finditer(re.escape(f"end_effector_pose_inner_{args.fixed_target_name}("), text):
-            m = re.search(r"s_Xhom\[16\s*\*\s*(\d+)\s*\+\s*ind\]", text[m0.start():m0.start() + 4000])
-            if m:
-                idx = int(m.group(1))
-                break
-        if idx is None:
+        try:
+            idx = robot_model.fixed_frame_index(text, args.fixed_target_name)
+        except ValueError:
             print(f"[generate_grid][ERROR] could not resolve EE_FIXED_FRAME_IDX for target "
                   f"'{args.fixed_target_name}' — kernel EE will be wrong.", file=sys.stderr)
             sys.exit(2)

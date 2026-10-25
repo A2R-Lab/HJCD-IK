@@ -7,6 +7,7 @@
 #include <limits>
 #include <memory>
 #include "kernel/hjcd_kernel.h"
+#include "hjcd_joint_model.h"
 
 // Low-level bindings. The user-facing API (hjcdik.Solver, Result, worlds) is pure Python on top of
 // these; nothing here is re-exported by the package. Every entry point that touches CUDA takes the
@@ -33,7 +34,7 @@
 #define HJCDIK_CUDA_COMPILER_VERSION ""
 #endif
 // Bump when the Python package and this binding disagree on names or argument lists.
-#define HJCDIK_BINDING_ABI 4
+#define HJCDIK_BINDING_ABI 5
 
 namespace py = pybind11;
 
@@ -256,6 +257,16 @@ std::vector<std::array<double, 7>> sample_targets(int num_targets, std::uint64_t
 PYBIND11_MODULE(HJCDIK_MODULE_NAME, m) {
   m.doc() = "Low-level bindings for the HJCD-IK CUDA solver; use hjcdik.Solver.";
   m.attr("BINDING_ABI") = HJCDIK_BINDING_ABI;
+#if defined(HJCDIK_DIAGNOSTICS)
+  m.def("_diagnostic_model", [](const std::vector<double>& q, bool fp64, const World* world,
+                                 int device, float margin, bool check_self) {
+      DeviceScope scope(device);
+      if (world && world->device()!=device) throw py::value_error("world device mismatch");
+      py::gil_scoped_release release;
+      return diagnostic_model(q, fp64, world ? world->get() : nullptr, margin, check_self);
+  }, py::arg("q"), py::arg("fp64")=true, py::arg("world")=nullptr, py::arg("device")=0,
+     py::arg("margin")=0.0f, py::arg("check_self")=true);
+#endif
   py::class_<World>(m, "World")
       .def(py::init<py::array_t<double, py::array::c_style | py::array::forcecast>,
                     py::array_t<double, py::array::c_style | py::array::forcecast>,
@@ -281,6 +292,7 @@ PYBIND11_MODULE(HJCDIK_MODULE_NAME, m) {
         "Return the compiled robot's actuated joint count without initializing CUDA.");
   m.def("collision_enabled", &grid_has_collision,
         "Report whether this build includes robot collision geometry, without initializing CUDA.");
+  m.def("joint_model_json", [] { return std::string(hjcd_model::MODEL_JSON); });
   m.def("build_info", [] {
     py::dict info;
     info["robot"] = HJCDIK_ROBOT_NAME;
@@ -288,6 +300,7 @@ PYBIND11_MODULE(HJCDIK_MODULE_NAME, m) {
     info["ee_target"] = HJCDIK_EE_TARGET;
     info["collision_enabled"] = grid_has_collision();
     info["grid_header_sha256"] = HJCDIK_GRID_SHA256;
+    info["joint_model_sha256"] = hjcd_model::MODEL_SHA256;
     info["cuda_compiler_version"] = HJCDIK_CUDA_COMPILER_VERSION;
     info["binding_abi"] = HJCDIK_BINDING_ABI;
     return info;

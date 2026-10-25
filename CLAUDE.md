@@ -25,8 +25,8 @@ barriers. Two phases (`csrc/kernel/hjcd_kernel.cu`):
    (`ee_fk_suffix_thread`, built on `grid::update_XmatHom_joint`) rather than a full chain — this is what
    makes high-DoF scale (was O(N³) serial-on-lane-0; see `docs/development/agent_debugging_guide.md` §5).
 2. **LM refine** (`solve_lm_batched` / `lm_tuner`): single-warp Levenberg–Marquardt — build the 6×N geometric
-   Jacobian (cross-products), form & solve the normal equations `(JᵀJ + λ·diag)Δq = Jᵀr` via a hand-rolled
-   `__shfl` warp-Cholesky, with dogleg/line-search backtracking.
+   Jacobian (revolute cross-products or prismatic translation columns), form & solve the normal equations
+   `(JᵀJ + λ·diag)Δq = Jᵀr` via GLASS warp linear algebra, with dogleg/line-search backtracking.
 
 Forward kinematics produces the **world-frame joint transforms** `s_jointXforms[16·jid]` (4×4 each); the EE
 pose error is computed as a **quaternion** error (`mat_to_quat` / `quat_err_rotvec`). For Panda: `N = 7`
@@ -47,7 +47,8 @@ joints. Target indices and transform counts are generated constants; the default
 | `external/foam/` | Submodule: pre-spherized Panda collision URDF (`assets/panda/smaller_panda_spherized.urdf`). |
 | `csrc/bindings/pybind_module.cpp` | Low-level bindings (`World`, `solve_one`, `sample_targets`, `current_device`, `build_info`); every call runs on the solver's device and restores the caller's. Compiled by CMake into the packaged `_hjcdik` AND by `grid_rbd.build_artifact` into per-robot artifacts (`HJCDIK_MODULE_NAME` define = unique init symbol; `HJCDIK_BINDING_ABI` checked on import). The user API is pure Python: `hjcdik/_solver.py` (`Solver`, `Result`, `TargetResult`, `Stats`, `Info`, `SolveError`), `hjcdik/worlds.py` (MotionBenchMaker JSON → `set_world` arrays), `hjcdik/_build.py` (`build`/`load`/`list_builds` over GRiD's consumer-artifact store; `-DHJCDIK_EE_FIXED_FRAME_IDX` resolved from a kinematics-only generation), `hjcdik/__main__.py` (`hjcdik build|list|info`). |
 | `csrc/collision/panda_foam_rebound.urdf` | foam's Panda spheres re-attached to `csrc/urdf/panda.urdf` by `grid-spherize --rebind-to` (GRiD V1); validated strictly; generates a header byte-identical to the foam path; the `"panda_foam"` preset for runtime builds. The wheel ships `csrc/` (minus `generated/`) as `hjcdik/_csrc` for runtime builds. |
-| `csrc/urdf/iiwa14.urdf`, `csrc/collision/iiwa14_spheres.urdf` | the `"iiwa14"` preset (`hjcdik.presets()`, `Solver("iiwa14")` builds on first use): Drake's iiwa14 URDF (BSD, attribution in the file) and GRiD's spherizer output with its fidelity report in the header comment. Presets require local-+Z joints (`validate_solver_robot`); Z1/UR need the general-axis solver (P2b). |
+| `csrc/urdf/iiwa14.urdf`, `csrc/collision/iiwa14_spheres.urdf` | the `"iiwa14"` preset (`hjcdik.presets()`, `Solver("iiwa14")` builds on first use): Drake's iiwa14 URDF (BSD, attribution in the file) and GRiD's spherizer output with its fidelity report in the header comment. |
+| `hjcdik/_robot_model.py`, `csrc/generated/hjcd_joint_model.h` | Shared model validation and generated ordered joint axes/types/limits. Arbitrary-axis revolute, continuous and prismatic joints, 1–32, fixed-base serial only. CMake verifies the side header's GRiD hash; runtime builds stage it under a stable content-derived input path. |
 | `tests/` | pytest suite (API contracts, FK equivalence, collision policy, codegen, stats, regression vs `baseline_metrics.json`); `tests/native/` = CTest native API + CLI contracts. `gpu-proof-tests.txt` is the signed-receipt manifest. |
 | `gpu-proof.json` | Signed pytest-gpu-proof receipt of the last full GPU run; verified by CPU-only CI. |
 | `benchmark/hjcd_ik_bench.py` | HJCD-IK benchmark harness: solved-rate, position/orientation error, timing. |
@@ -100,7 +101,7 @@ out = solver.solve(targets, batch_size=2000, num_solutions=4)          # Result:
 
 ## Conventions / discipline
 
-- **Never hand-edit `grid.cuh`.** It is GRiD codegen output. To change the robot or EE target, run
+- **Never hand-edit `grid.cuh` or `hjcd_joint_model.h`.** They are generated as a matched pair. To change the robot or EE target, run
   `python scripts/codegen/generate_grid.py <urdf> -t <target_frame>` and rebuild. Robot constants
   (`NUM_JOINTS`, topology counts) are baked per-URDF — read them from the generated symbols, never hardcode.
 - **Collision is URDF-driven (grid_collision), not hand-coded.** Passing `--collision` to
@@ -209,7 +210,15 @@ measurement with the protocol in [`docs/development/timing_gate.md`](docs/develo
 > **Build/test gotcha:** `ninja -C build` does NOT update the imported `.so` (it's the editable copy in
 > site-packages). Always rebuild with **`scripts/setup/rebuild.sh`** (or `pip install -e . --no-build-isolation`).
 
-## Status and what next (updated 2026-10-23)
+## Status and what next (updated 2026-10-25)
+
+P2b general axes and prismatic joints are implemented locally. The all-revolute-+Z path retains
+Panda's arithmetic. Independent FK/Jacobian, collision, mixed-unit scale and module-isolation
+checks are in `tests/test_general_joints.py`; quality evidence is under
+`docs/development/evidence/general_joints_2026-10-25/`. Mixed-joint LM and proximity use raw
+coordinates; the finite tested scale range is not a universal convergence guarantee. Timing
+against pre-P2b `3f5ec5a` remains pending a user-announced quiet window. Local commits are not
+authorization to push. Fetch upstream preset assets require a distribution-license decision.
 
 **Where the code is.** `origin/main` carries the closed fairness/hardening arc (2026-10-03 → 10-07) and the
 re-pin to GRiD **v0.6.0** (commit `712df1c`, the PyPI `grid-rbd` 0.6.0 release, 2026-10-24, which shipped every HJCD ask:

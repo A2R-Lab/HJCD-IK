@@ -89,10 +89,22 @@ if(NOT EXISTS "${GRID_HEADER}")
 endif()
 message(STATUS "HJCD-IK: using GRiD header ${GRID_HEADER}")
 
+set(JOINT_MODEL_HEADER "${GRID_HEADER_DIR}/hjcd_joint_model.h")
+if(NOT EXISTS "${JOINT_MODEL_HEADER}")
+  message(FATAL_ERROR "Missing hjcd_joint_model.h; regenerate this robot with scripts/codegen/generate_grid.py")
+endif()
+file(SHA256 "${GRID_HEADER}" GRID_PAIR_SHA)
+file(STRINGS "${JOINT_MODEL_HEADER}" JOINT_PAIR_LINE REGEX "^// grid-sha256:")
+if(NOT JOINT_PAIR_LINE STREQUAL "// grid-sha256: ${GRID_PAIR_SHA}")
+  message(FATAL_ERROR "Mismatched generated robot headers; regenerate both with scripts/codegen/generate_grid.py")
+endif()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${GRID_HEADER}" "${JOINT_MODEL_HEADER}")
+
 # Sources
 set(HJCDIK_HEADERS
   csrc/kernel/hjcd_settings.h
   csrc/kernel/device_utils.cuh
+  ${JOINT_MODEL_HEADER}
 )
 
 set(HJCDIK_COMMON_SOURCES
