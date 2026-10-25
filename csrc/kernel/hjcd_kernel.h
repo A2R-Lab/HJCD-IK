@@ -130,11 +130,11 @@ struct WorldSpec {
 /**
  * @brief Per-solve knobs beyond the collision policy. Defaults reproduce the historical solver.
  *
- * `margin_m` is the clearance (metres) below which a checked pair counts as a hit, applied by
- * GRiD's checkers to every environment pair and, when `check_self`, to every self pair; zero is
+ * `margin_m` is the clearance (metres) below which an environment pair counts as a hit;
+ * self pairs retain zero margin when `check_self` is true. Zero margin is
  * today's contact-free rule. Both apply to `hard` and `both` only (invalid otherwise). `seed`
  * shifts the coarse search's random initial configurations (it changes which valid candidates are
- * found, never their validity). `q_init` (row-major `num_init` x N, radians, clamped to the joint
+ * found, never their validity). `q_init` (row-major `num_init` x N, radians/metres, clamped to joint
  * limits on the device) replaces the initial configurations of the first `num_init` coarse blocks;
  * `num_init` must not exceed the batch size.
  */

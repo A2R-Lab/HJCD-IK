@@ -606,8 +606,8 @@ using CCEnv = grid_collision::Environment<float>;
 // ENVIRONMENT pairs only; the baked self pairs are checked at zero margin (GRiD's single margin also
 // widens every self pair, and a tight sphere model such as foam's Panda then fails every configuration
 // above about a centimetre; GRiD ask G7b asks for a separate self margin). At margin 0 this is one call.
-// One call site only: the checker is a large force-inlined device function, and a second inlined copy at
-// each of the five call sites multiplied the kernel's compile time by eight (measured 2026-10-24).
+// Keep one call site for this large force-inlined checker. The measured eightfold compile regression
+// came from a shared-memory loop condition in coarse_search, not checker duplication (see debugging guide).
 template<typename T>
 __device__ __forceinline__ bool cc_free_warp(const T* s_jointX, const CCEnv& env, float* scratch,
                                              float margin, bool check_self) {
@@ -664,7 +664,7 @@ __device__ void solve_lm_batched(
     CCEnv env,
     int cc_stop,              // 1 = collision-aware stop + repair (hard/both collision modes)
     int repair_attempts,
-    float cc_margin,          // clearance margin for every checked pair (metres)
+    float cc_margin,          // environment clearance margin; self pairs stay at zero (metres)
     bool cc_check_self,       // false: environment pairs only
     T warm_entry_pos,         // warm starts: a candidate entering inside this band (m / rad) is
     T warm_entry_ori)         // returned as it is; 0 for cold solves (the exact tolerances apply)
@@ -1099,7 +1099,7 @@ __global__ void coarse_search(
     CCEnv env,
     int cc_stop,              // 1 = only a collision-free accurate candidate raises the stop flag
     unsigned char* __restrict__ coarse_free,  // cc_stop: per-block verdict of the returned candidate
-    float cc_margin,          // clearance margin for every checked pair (metres)
+    float cc_margin,          // environment clearance margin; self pairs stay at zero (metres)
     bool cc_check_self,       // false: environment pairs only
     uint32_t seed_base,       // shifts the random initial configurations
     const T* __restrict__ q_init,   // num_init x N warm starts (blocks 0..num_init-1), or nullptr
@@ -1813,7 +1813,7 @@ __global__ void mark_collisions(
     unsigned char* __restrict__ valid,               // K bytes (1 = collision-free)
     const grid::robotModel<float>* d_robotModel,
     grid_collision::Environment<float> env,          // device pointers, by value
-    float margin,                                    // clearance margin for every checked pair (metres)
+    float margin,                                    // environment clearance margin (metres)
     bool check_self)                                 // false: environment pairs only
 {
     namespace gc = grid_collision;

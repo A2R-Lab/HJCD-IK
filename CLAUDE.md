@@ -180,7 +180,7 @@ and URDF-derived `hjcd` models. Paper comparisons retain `paper`; implementation
 Both Python oracles check environment collisions only, not the kernel's self-collision policy.
 
 The collision code path is compiled in only when `grid.cuh` was generated with `--collision` — codegen emits
-a `#define HJCD_HAS_COLLISION 1` sentinel and the kernel + `grid_env.cuh` guard all `grid_collision::` use on
+a `#define HJCD_HAS_COLLISION 1` sentinel and the kernel guards all `grid_collision::` use on
 it. A no-collision header (e.g. the DoF-scaling regens, or any BYO-URDF built without `--collision`) still
 compiles and runs open-world; the Python API rejects a collision-free request in that build.
 
