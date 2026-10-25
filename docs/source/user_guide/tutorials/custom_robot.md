@@ -50,6 +50,8 @@ Run `python examples/mixed_joint_warm_start.py` from a source checkout for a sma
 mixed-joint example. It builds once, prints coordinate metadata, installs a world, checks
 accuracy before reusing a result as a warm start, and handles zero-result output explicitly.
 Its spheres describe the demonstration geometry only, not a physical robot.
+For a seven-joint assembly with neighboring warm targets and world replacement, see
+{doc}`rail_ur5e`. It retains the moving UR5e base spheres and documents omitted supports.
 
 ## Shipped robot geometry
 

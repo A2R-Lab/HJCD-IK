@@ -43,28 +43,60 @@ def test_reexpressed_fk_matches_at_mapped_configurations(name, sign):
                                    fk(ROOT / "csrc/urdf/panda.urdf", q), atol=2e-14, rtol=0)
 
 
+class SphereModel:
+    """Independent serial-URDF sphere placement and the declared adjacency policy.
+
+    Uses NumPy FK, not GRiD transforms/tables. Same and adjacent movable-anchor
+    pairs are excluded, matching the documented model policy, not hardware safety.
+    """
+    def __init__(self, path, target="panda_grasptarget_hand"):
+        joints = gt._parse_joints(path)
+        chain = gt._chain_to_target(joints, target)
+        ordered = [id(v) for v in chain if v["type"] != "fixed"]
+        by_child = {v["child"]: k for k, v in joints.items()}
+        self.groups, anchors, links = [], [], []
+        for link in ET.parse(path).getroot().findall("link"):
+            name = link.get("name")
+            parent = by_child.get(name)
+            chain = [] if parent is None else gt._chain_to_target(joints, parent)
+            indices = [ordered.index(id(v)) for v in chain if v["type"] != "fixed"]
+            rows = []
+            for collision in link.findall("collision"):
+                sphere = collision.find("geometry/sphere")
+                if sphere is not None:
+                    origin = collision.find("origin")
+                    center = variants.vector("0 0 0" if origin is None else origin.get("xyz", "0 0 0"))
+                    rows.append([*center, float(sphere.get("radius"))])
+            if rows:
+                self.groups.append((chain, indices, np.array(rows)))
+                anchors.extend([indices[-1] if indices else -1] * len(rows))
+                links.extend([name] * len(rows))
+        self.anchors = np.array(anchors)
+        self.links = np.array(links)
+        active = (self.anchors[:, None] >= 0) & (self.anchors[None, :] >= 0)
+        self.pairs = np.where(np.triu(active & (np.abs(self.anchors[:, None]-self.anchors[None, :]) > 1), 1))
+
+    def placed(self, q):
+        rows = []
+        for chain, indices, local in self.groups:
+            transform = gt._fk(chain, np.asarray(q)[indices])
+            rows.append(np.column_stack([local[:, :3] @ transform[:3, :3].T + transform[:3, 3], local[:, 3]]))
+        return np.concatenate(rows)
+
+    def free(self, q, spheres=(), clearance=0):
+        placed = self.placed(q)
+        a, b = self.pairs
+        if np.any(np.linalg.norm(placed[a, :3]-placed[b, :3], axis=1) < placed[a, 3]+placed[b, 3]+clearance):
+            return False
+        moving = placed[self.anchors >= 0]
+        for obstacle in spheres:
+            if np.any(np.linalg.norm(moving[:, :3]-obstacle[:3], axis=1) < moving[:, 3]+obstacle[3]+clearance):
+                return False
+        return True
+
+
 def sphere_centers(path, q):
-    root = ET.parse(path).getroot()
-    joints = gt._parse_joints(path)
-    by_child = {v["child"]: k for k, v in joints.items()}
-    # Full arm coordinates by name; each sphere's ancestor chain may end earlier.
-    coords = {f"panda_joint{i+1}": q[i] for i in range(7)}
-    placed = []
-    for link in root.findall("link"):
-        parent = by_child.get(link.get("name"))
-        if parent is None:
-            transform = np.eye(4)
-        else:
-            chain = gt._chain_to_target(joints, parent)
-            names = {id(v): k for k, v in joints.items()}
-            chain_q = [coords[names[id(v)]] for v in chain if v["type"] != "fixed"]
-            transform = gt._fk(chain, chain_q)
-        for collision in link.findall("collision"):
-            sphere = collision.find("geometry/sphere")
-            if sphere is not None:
-                center = variants.vector(collision.find("origin").get("xyz"))
-                placed.append([*(transform[:3, :3] @ center + transform[:3, 3]), float(sphere.get("radius"))])
-    return np.array(placed)
+    return SphereModel(path).placed(q)
 
 
 def test_reexpressed_spheres_preserve_physical_placement():

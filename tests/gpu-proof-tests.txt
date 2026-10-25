@@ -56,6 +56,12 @@ tests/test_build.py::test_plan_reports_identity_without_building
 tests/test_build.py::test_runtime_panda_matches_the_packaged_build
 tests/test_build.py::test_solver_argument_contract
 tests/test_build.py::test_two_robots_in_one_process_are_isolated
+tests/test_build_failures.py::test_missing_compiler_names_build_and_cause
+tests/test_build_failures.py::test_missing_pybind_names_first_build_extra
+tests/test_build_failures.py::test_missing_runtime_dependency_names_extra
+tests/test_build_failures.py::test_prepared_import_failure_is_actionable[abi]
+tests/test_build_failures.py::test_prepared_import_failure_is_actionable[damaged]
+tests/test_build_failures.py::test_prepared_import_failure_is_actionable[missing]
 tests/test_codegen.py::test_cmake_rejects_mismatched_same_dof_headers
 tests/test_codegen.py::test_explicit_glass_provenance_is_archive_reproducible
 tests/test_codegen.py::test_failed_codegen_preserves_previous_header[flags0-fixed-base serial chain]
@@ -237,6 +243,16 @@ tests/test_query_results.py::test_empty_query_is_serialized_and_counts_as_an_att
 tests/test_query_results.py::test_hand_to_tcp_conversion_preserves_physical_hand_goal
 tests/test_query_results.py::test_mesh_oracle_constructs_spheres_without_optional_fcl
 tests/test_query_results.py::test_sphere_obstacles_cannot_disappear_from_validation
+tests/test_rail_example.py::test_assembly_and_targets_reproduce
+tests/test_rail_example.py::test_public_rail_journey[obstacle-fp32]
+tests/test_rail_example.py::test_public_rail_journey[obstacle-fp64]
+tests/test_rail_example.py::test_public_rail_journey[self_only-fp32]
+tests/test_rail_example.py::test_public_rail_journey[self_only-fp64]
+tests/test_rail_example.py::test_rail_example_does_not_warm_empty_results
+tests/test_rail_example.py::test_rail_fk_jacobian_and_moving_geometry[fp32]
+tests/test_rail_example.py::test_rail_fk_jacobian_and_moving_geometry[fp64]
+tests/test_rail_example.py::test_rail_partial_warp_sanitizer_path[fp32]
+tests/test_rail_example.py::test_rail_partial_warp_sanitizer_path[fp64]
 tests/test_regression.py::test_no_collision_free_regression_vs_baseline
 tests/test_regression.py::test_no_regression_vs_baseline
 tests/test_regression.py::test_solver_runs_and_returns_solutions

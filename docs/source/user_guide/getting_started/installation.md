@@ -48,6 +48,8 @@ The top-level submodules are `external/GRiD` (kinematics codegen → `grid.cuh`)
 `external/GLASS` (warp CUDA linear algebra), and `external/foam` (the default Panda's
 pre-spherized collision model). Development setup and GPU-proof tooling require Python 3.11+;
 the base package supports Python 3.9+.
+Runtime builds/prepared artifacts use `grid-rbd`, which requires Python 3.10+.
+Validation here used Python 3.12/CUDA 13.2 on Linux; other declared combinations were not all exercised.
 
 ## Quickstart
 
@@ -70,8 +72,9 @@ out = solver.solve(
 r = out[0]
 print("returned:", r.count)
 if r.count:
-    print("best position error (mm):", r.pos_err_mm.min())
-    print("best orientation error (rad):", r.ori_err_rad.min())
+    print("candidate position errors (mm):", r.pos_err_mm)
+    print("candidate orientation errors (rad):", r.ori_err_rad)
+    print("accurate candidates:", r.q[r.ok(pos_mm=5, ori_rad=0.001)])
 print("joint configs shape:", r.q.shape)
 ```
 

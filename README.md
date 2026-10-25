@@ -38,6 +38,8 @@ The script initializes the required submodules, creates a virtual environment, i
 regenerates the collision-enabled Panda model, and builds `hjcdik`.
 Development setup and signed GPU-proof tooling require Python 3.11 or newer; the base package
 supports Python 3.9 or newer.
+Runtime robot builds and prepared-artifact loading require Python 3.10+ through `grid-rbd`.
+The current validation environment is Linux/Python 3.12/CUDA 13.2; this is not a tested version matrix.
 
 If needed, convert the shell scripts to Unix line endings:
 
@@ -107,6 +109,8 @@ an open-world solve. The wheel ships one compiled robot (Panda); other robots ar
 through GRiD's artifact store with the `hjcdik[build]` extra (`hjcdik build arm.urdf --ee-link
 <tool joint>`, then `hjcdik.Solver("<name>")`; see
 [the Python API](docs/source/api_reference/python.rst)). `solver.info` identifies the robot in use.
+For a mixed-unit workflow, see the [illustrative rail-mounted UR5e](docs/source/user_guide/tutorials/rail_ur5e.md):
+build/load, world replacement, checked warm starts and zero-result handling without changing the default model.
 See [upgrading and verified scope](docs/source/user_guide/upgrading.md) for the move from the
 earlier function API.
 

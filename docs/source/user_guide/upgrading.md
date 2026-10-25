@@ -107,11 +107,21 @@ The CUDA core is compiled once for Python and the CLI; the default generated pro
 omits unneeded dynamics. No new headline performance or MMD claim accompanies the API
 change. The October 24 quiet-window gate (`docs/development/evidence/api_timing_2026-10-24/`)
 measured `Solver.solve` against the removed `generate_solutions` with matched settings: identical
-solution counts in every cell, kernels unchanged (native entry points within 0.6 %), about 10 µs of
+solution counts in every cell, native entry points within 0.6 % (not a proof of identical kernels), about 10 µs of
 host time per target on the Python side (up to 50 µs after a 3 ms solve, where the host core returns
 cold from the GPU wait), collision scenes 13–16 % faster because the world is installed once instead of
 being compared on every call, and a runtime-built robot as fast as the packaged one. A 2 cm clearance
-margin costs 2–3 % while a target stays solvable and makes infeasible targets run to the iteration limit.
+margin costs 2–3 % in the solvable S=4 regime; difficult or unsuccessful searches can run to the
+iteration limit. A miss does not prove infeasibility.
+
+The October 25 general-joint gate compared 70,400 queries across two quiet-window passes.
+Matched quality counts were identical; small repeatable Panda B=1/S=1 costs remain:
+API +0.412% (8.35 µs), runtime API +0.609% (12.39 µs). These were accepted for this wave;
+the evidence does not support a universal speedup or a claim of identical performance.
+See `docs/development/evidence/general_joint_timing_2026-10-25/` for the full scope and caveats.
+
+For historical revision/asset provenance versus current-code workload reruns, see
+{doc}`benchmarks/reproduction`. Preserving scripts is not a fresh reproduction of the paper.
 
 For before/after timing, use matched release builds on the same idle machine. Record
 targets, robot/EE frame, geometry, precision, tolerances, output counts, initialization,
@@ -133,3 +143,7 @@ See {doc}`benchmarks/results` for the unchanged published results.
 - **Zero collision-free results:** check the compiled model, scene/frame, and pose
   accuracy. Increasing the candidate batch may help; switching to `soft` is not an
   equivalent collision-free solve.
+- **Prepared build cannot load:** keep the original URDF, tool joint and sphere model.
+  Check CUDA/runtime compatibility and the named artifact path. Rebuild with the same
+  inputs and `hjcdik.build(..., force_rebuild=True)` (CLI: `hjcdik build ... --force`),
+  then restart a process that already imported the old artifact. Do not delete an entire cache.

@@ -270,7 +270,9 @@ def load(name: str, cache_dir=None, cuda_arch: Optional[int] = None) -> Artifact
         raise BuildError(f"no prepared build named {name!r}; run `hjcdik build <urdf> --ee-link <joint> "
                          f"--name {name}` or hjcdik.build(...) on a machine with nvcc") from error
     except grid_rbd.ConsumerArtifactError as error:
-        raise BuildError(f"the prepared build {name!r} cannot be used here: {error}") from error
+        raise BuildError(f"the prepared build {name!r} cannot be used here: {error}; "
+                         "rebuild from the original URDF, tool frame and sphere model with "
+                         "hjcdik.build(..., force_rebuild=True) on a compatible machine with nvcc") from error
     meta = record.meta or {}
     defines = {d.split("=", 1)[0]: d.split("=", 1)[1] if "=" in d else "" for d in meta.get("defines", [])}
     return Artifact(name=name, robot=defines.get("HJCDIK_ROBOT_NAME", "").strip('"'),
@@ -298,11 +300,14 @@ def import_artifact(artifact: Artifact):
         return module
     loader = importlib.machinery.ExtensionFileLoader(artifact.module_name, str(artifact.path))
     spec = importlib.util.spec_from_loader(artifact.module_name, loader)
-    module = importlib.util.module_from_spec(spec)
     try:
+        # Extension initialization can fail in create_module, before exec_module.
+        module = importlib.util.module_from_spec(spec)
         loader.exec_module(module)
     except ImportError as error:
-        raise BuildError(f"cannot import the prepared build {artifact.name!r} from {artifact.path}: {error}") from error
+        raise BuildError(f"cannot import the prepared build {artifact.name!r} from {artifact.path}: {error}; "
+                         "check CUDA runtime/library compatibility, or rebuild with "
+                         "hjcdik.build(..., force_rebuild=True)") from error
     abi = getattr(module, "BINDING_ABI", None)
     if abi != BINDING_ABI:
         raise BuildError(f"build {artifact.name!r} has binding ABI {abi}, this hjcdik expects {BINDING_ABI}; "

@@ -12,9 +12,10 @@ The running roadmap / open-work list is `docs/open-tasks/TODO.md` (local, ignore
    `python scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_grasptarget_hand --collision --spherized-urdf external/foam/assets/panda/smaller_panda_spherized.urdf` then
    `python -m pip install -e .`. Stale `grid.cuh` = silently wrong FK/Jacobian.
 2. **`FLANGE_IDX` / target agreement** across `grid.cuh`, `csrc/kernel/hjcd_kernel.cu`, and any benchmark problem.
-3. **Build clean** and import: `python -c "import hjcdik; print(hjcdik.num_joints())"`.
-4. **Run the benchmark** and compare to the committed baseline (do not eyeball):
-   `python benchmark/hjcd_ik_bench.py --skip-grid-codegen` → solved-rate, pos/ori error, timing.
+3. **Build clean** and import: `python -c "import hjcdik; print(hjcdik.build_info())"`.
+4. **Run correctness** and compare to the committed baseline:
+   `python -m pytest tests/test_regression.py tests/test_fk_equivalence.py`.
+   Run latency comparisons separately, only in a user-announced quiet window.
 5. **Thread/warp sweep** if you touched the solver loop: validate at 1 warp (32) and multi-warp block sizes;
    confirm results are batch-size-invariant (divergence at larger blocks ⇒ missing sync).
 6. **No GPU contention during timing.** Other agents run heavy GPU work on this machine — isolate timing runs.

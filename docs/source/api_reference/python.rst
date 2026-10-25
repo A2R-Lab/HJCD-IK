@@ -22,8 +22,9 @@ success certificate: inspect both errors against your application's tolerances.
    print(result.count, "candidates per target")
    best = result[0]                              # un-padded view of target 0
    if best.count:
-       print("best position error (mm):", best.pos_err_mm.min())
-       print("best orientation error (rad):", best.ori_err_rad.min())
+       print("candidate position errors (mm):", best.pos_err_mm)
+       print("candidate orientation errors (rad):", best.ori_err_rad)
+       print("accurate candidates:", best.q[best.ok(pos_mm=5, ori_rad=0.001)])
 
 Solver
 ------
@@ -126,9 +127,10 @@ tolerance skips coordinate descent and goes straight to refinement, and one that
 (position error below 1 µm, orientation error below 1 µrad) is returned as it is, under fp32 refinement
 too. With a warm start, the candidates
 that converged (position error below 1 mm and orientation error below 1e-3 rad) are ranked by
-joint-space distance to the nearest supplied configuration, so ``result[i].q[0]`` is the valid solution
-nearest the warm start and the following rows are the next nearest; candidates outside that band keep
-the accuracy ranking behind them. Collision filtering still applies.
+joint-space distance to the nearest supplied configuration. If such candidates exist, the first
+returned row is nearest among those found in that convergence band; this is not a global nearest-IK
+guarantee. Candidates outside that band keep the accuracy ranking behind them. Check ``count`` and
+``ok`` before indexing or forwarding a warm start; collision filtering can leave no rows.
 
 ``seed`` (an unsigned 32-bit integer; default 1337, the historical constant) shifts the random
 initialisation. Seeds and warm starts change which valid candidates are found, never their validity;
