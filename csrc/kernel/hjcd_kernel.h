@@ -62,7 +62,7 @@ struct SolveStats {
  */
 template<typename T>
 struct Result {
-    T* joint_config = nullptr;  ///< count x grid_num_joints() joint angles, radians.
+    T* joint_config = nullptr;  ///< count x grid_num_joints() coordinates, radians/metres by joint type.
     T* pose = nullptr;          ///< count x 7 poses: [x,y,z,qw,qx,qy,qz], positions in meters.
     T* pos_errors = nullptr;    ///< count position errors, millimeters.
     T* ori_errors = nullptr;    ///< count orientation errors, radians.

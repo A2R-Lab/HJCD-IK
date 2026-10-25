@@ -971,7 +971,7 @@ comparison.
    python benchmark/hjcd_ik_bench.py --skip-grid-codegen --batches 1,10,100,1000,2000 --num-targets 100
    # collision-free (Panda box_panda, the paper's Table II scene):
    python benchmark/hjcd_ik_bench.py --skip-grid-codegen --collision-free \
-       --problems-json tests/mb_problems.json --problem-set box_panda --batches 1,10,100,1000
+       --target-mode cylinder --problems-json tests/mb_problems.json --problem-set box_panda --batches 1,10,100,1000
 
 The harness reports position/orientation errors and timing per batch size. The collision-free
 column is a per-returned-solution environment check, not a per-query success rate; zero-output

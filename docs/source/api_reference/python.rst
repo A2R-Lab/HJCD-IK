@@ -181,7 +181,7 @@ the solver's destruction.
      - Units / meaning
    * - ``q``
      - ``(T, S, dof)``
-     - Joint angles in radians; NaN beyond ``count``
+     - Joint coordinates: radians/metres in ``info.joint_units`` order; NaN beyond ``count``
    * - ``pose``
      - ``(T, S, 7)``
      - Reached pose: metres and ``wxyz`` quaternion

@@ -1,8 +1,8 @@
 """User-facing solver: `Solver`, `Result`, `TargetResult`, `Stats`, `Info`, `SolveError`.
 
-Pure Python over the low-level `_hjcdik` bindings. The native layer solves one target per call; this
-module validates whole batches before any GPU work, loops over targets under one lock, and assembles
-fixed-capacity, NaN-padded host arrays that never reference device memory.
+Pure Python over the low-level `_hjcdik` bindings. This module validates whole batches before GPU
+work and holds one lock around the native batch call. The binding loops over targets and assembles
+fixed-capacity, NaN-padded host arrays; Python exposes read-only views without device references.
 """
 from __future__ import annotations
 
@@ -97,7 +97,7 @@ class Stats:
 class TargetResult:
     """Un-padded view of one target's candidates (`count` rows)."""
 
-    q: np.ndarray            # (count, N) radians
+    q: np.ndarray            # (count, N) radians/metres in info.joint_units order
     pose: np.ndarray         # (count, 7) metres, wxyz
     pos_err_mm: np.ndarray   # (count,)
     ori_err_rad: np.ndarray  # (count,)
