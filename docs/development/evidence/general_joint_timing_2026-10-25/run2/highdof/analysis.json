@@ -1,0 +1,90 @@
+[
+  {
+    "endpoint": "branch",
+    "solutions": 1,
+    "leg": "table1",
+    "batch": 1,
+    "solved_delta": 0,
+    "quality_review_required": false,
+    "paired_ratio": 0.9997540547314085,
+    "ratio_min": 0.9986809119423665,
+    "ratio_max": 1.0001694822079985
+  },
+  {
+    "endpoint": "branch",
+    "solutions": 1,
+    "leg": "table1",
+    "batch": 2000,
+    "solved_delta": 0,
+    "quality_review_required": false,
+    "paired_ratio": 0.9991004178789178,
+    "ratio_min": 0.994567129322085,
+    "ratio_max": 1.0017363867746956
+  },
+  {
+    "endpoint": "branch",
+    "solutions": 1,
+    "leg": "table1",
+    "batch": 8000,
+    "solved_delta": 0,
+    "quality_review_required": false,
+    "paired_ratio": 1.0008896795356093,
+    "ratio_min": 0.9973510137811703,
+    "ratio_max": 1.006246057072334
+  },
+  {
+    "endpoint": "branch",
+    "solutions": 1,
+    "leg": "table1",
+    "batch": 32000,
+    "solved_delta": 0,
+    "quality_review_required": false,
+    "paired_ratio": 0.9992629482622595,
+    "ratio_min": 0.9975825611637428,
+    "ratio_max": 1.0083633981545261
+  },
+  {
+    "endpoint": "branch",
+    "solutions": 4,
+    "leg": "table1",
+    "batch": 1,
+    "solved_delta": 0,
+    "quality_review_required": false,
+    "paired_ratio": 1.000736009992865,
+    "ratio_min": 0.9996328079238893,
+    "ratio_max": 1.0010019662533454
+  },
+  {
+    "endpoint": "branch",
+    "solutions": 4,
+    "leg": "table1",
+    "batch": 2000,
+    "solved_delta": 0,
+    "quality_review_required": false,
+    "paired_ratio": 0.9991446769239848,
+    "ratio_min": 0.9974390121203538,
+    "ratio_max": 1.0002415740430188
+  },
+  {
+    "endpoint": "branch",
+    "solutions": 4,
+    "leg": "table1",
+    "batch": 8000,
+    "solved_delta": 0,
+    "quality_review_required": false,
+    "paired_ratio": 0.9990957795700703,
+    "ratio_min": 0.9965624853958389,
+    "ratio_max": 1.0003160436626228
+  },
+  {
+    "endpoint": "branch",
+    "solutions": 4,
+    "leg": "table1",
+    "batch": 32000,
+    "solved_delta": 0,
+    "quality_review_required": false,
+    "paired_ratio": 1.0008097667273879,
+    "ratio_min": 0.9978932486148487,
+    "ratio_max": 1.0031970158917298
+  }
+]

@@ -1,0 +1,98 @@
+{
+  "config": {
+    "rounds": 4,
+    "solutions": [
+      1,
+      4
+    ],
+    "batches": {
+      "table1": [
+        1,
+        2000,
+        8000,
+        32000
+      ]
+    },
+    "target_counts": {
+      "table1": 100
+    },
+    "targets_json": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/p2b-gate-2026-10-25/highdof-targets.json",
+    "targets_json_sha": "17b12dd7bb3bbc3eddcb19538a3e7d0ab4ee4704d1ca6d82ab6c7b9b7ff754f7",
+    "problems_json": "/home/plancher/Desktop/HJCD-IK/tests/mb_problems.json",
+    "problems_json_sha": "69a3eae85e68d8cf696280e12407ac870b887b59a2913b52c4214524bc55dc94",
+    "problem_set": "box_panda",
+    "endpoints": {
+      "main": {
+        "repo": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/p2b-gate-2026-10-25/main",
+        "python": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/p2b-gate-2026-10-25/main/.venv/bin/python",
+        "commit": "9d3a53c36debe5bc48a03247e014cffd1565028a",
+        "source_commit": "3f5ec5a01f779d1397a57596999aec0639d0e4d5",
+        "header_sha": "2bcb60e46ac8c08cf2ed62224bd93e382ab3f360bad4529e704f54a2857391c6",
+        "binary_sha": "5b22ad296aae9463b7ae7d623eceb089f3da3ad7076c1a1fce7287f004b71668",
+        "env": {
+          "GRID_RBD_CACHE_DIR": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/p2b-gate-2026-10-25/main/.venv/robot-cache",
+          "HJCDIK_TIMING_ROBOT": "p2b-main-highdof",
+          "HJCDIK_TIMING_ENTRY": "api",
+          "HJCDIK_TIMING_URDF": "/home/plancher/Desktop/HJCD-IK/csrc/urdf/panda_ext_24dof.urdf"
+        }
+      },
+      "branch": {
+        "repo": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/p2b-gate-2026-10-25/branch",
+        "python": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/p2b-gate-2026-10-25/branch/.venv/bin/python",
+        "commit": "d40487623c7ded4877fda51066f9db65e32cecdf",
+        "source_commit": "190915ea2c77b35ea6d64d43092f902f8482df9e",
+        "header_sha": "2bcb60e46ac8c08cf2ed62224bd93e382ab3f360bad4529e704f54a2857391c6",
+        "binary_sha": "c271c6f809a8e53eebdd0e0d5c13a57e5e29d7155922c7ef4da7714bd8225054",
+        "env": {
+          "GRID_RBD_CACHE_DIR": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/p2b-gate-2026-10-25/branch/.venv/robot-cache",
+          "HJCDIK_TIMING_ROBOT": "p2b-branch-highdof",
+          "HJCDIK_TIMING_ENTRY": "api",
+          "HJCDIK_TIMING_URDF": "/home/plancher/Desktop/HJCD-IK/csrc/urdf/panda_ext_24dof.urdf"
+        }
+      }
+    },
+    "reference_urdf": "/home/plancher/Desktop/HJCD-IK/csrc/urdf/panda_ext_24dof.urdf",
+    "reference_urdf_sha": "343fd5607500c8a84c5db79963d2060e73b72a153e97ac3746629382d9cae044"
+  },
+  "provenance": {
+    "main": {
+      "build": {
+        "robot": "panda_24dof_ext012x5_p12",
+        "num_joints": 24,
+        "ee_target": "panda_hand_joint",
+        "collision_enabled": false,
+        "grid_header_sha256": "2bcb60e46ac8c08cf2ed62224bd93e382ab3f360bad4529e704f54a2857391c6",
+        "cuda_compiler_version": "",
+        "binding_abi": 4
+      },
+      "binary": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/p2b-gate-2026-10-25/main/.venv/robot-cache/consumers/hjcdik/store/5f304191ff0b8db8104296284e1577d156758d064bf2fb2401547571283b3de4/hjcdik_650d81900493.so",
+      "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+      "numpy": "2.5.1"
+    },
+    "branch": {
+      "build": {
+        "robot": "panda_24dof_ext012x5_p12",
+        "num_joints": 24,
+        "ee_target": "panda_hand_joint",
+        "collision_enabled": false,
+        "grid_header_sha256": "2bcb60e46ac8c08cf2ed62224bd93e382ab3f360bad4529e704f54a2857391c6",
+        "joint_model_sha256": "b404718804c2de99499abbfc8fd5caf6692f7131cc08b40a2bb421e5b18c5bfb",
+        "cuda_compiler_version": "",
+        "binding_abi": 5
+      },
+      "binary": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/p2b-gate-2026-10-25/branch/.venv/robot-cache/consumers/hjcdik/store/1b3823f200ea95885f3c379cba459f00893bd9d185cc64340acc361674b9a222/hjcdik_c694690e867e.so",
+      "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+      "numpy": "2.5.1"
+    }
+  },
+  "driver_sha": "88c5f8395567e8c2400ec52c2432434a67de1e59cf15256cdb8ce3b2fcb298f9",
+  "correctness_only": false,
+  "helpers": {
+    "query_results.py": "b7b3b741a37eaf6cbe4cb732f8a88ca762c6a136484411eb3d3b11e61e03c9d4",
+    "hjcd_ik_bench.py": "7f69cd50466601f5165e1275159705cffcbb37e40042c9006dd33e1e3039a32c",
+    "panda_collision.py": "f586d4c234fb0efb75d6b71730caafebd0549623f39aa6df2c0efa76f98d68d2",
+    "panda_model.py": "ff328922ffaf3c25672750f7e8fbd30bcd12400732f16cf4701b991e14142fa6",
+    "collision_check.py": "ffe5e42c2d5898d0476c44fb184dd35d4e432ab938a9345424dff212f0a6aca5",
+    "gen_targets.py": "093bedcee45b240d500188747878ca77c0eec9db6f2698c3ba6ea04a30fc16f7"
+  }
+}
