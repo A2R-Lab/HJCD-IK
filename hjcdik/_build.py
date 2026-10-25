@@ -27,6 +27,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Sequence
 
+from ._robot_model import validate_solver_robot
+
 CONSUMER = "hjcdik"
 BINDING_ABI = 4   # must equal HJCDIK_BINDING_ABI in csrc/bindings/pybind_module.cpp
 
@@ -146,8 +148,10 @@ def ee_fixed_frame_index(urdf_path, ee_link: str) -> int:
     from URDFParser import URDFParser  # noqa: E402  (grid-rbd ships it)
     from grid_codegen import GRiDCodeGenerator  # noqa: E402
     robot = URDFParser().parse(str(urdf_path), floating_base=False)
-    if robot.get_fixed_joint_by_name(ee_link) is None:
-        raise BuildError(f"{urdf_path} has no fixed joint named {ee_link!r} (the end-effector target frame)")
+    try:
+        validate_solver_robot(robot, ee_link)
+    except ValueError as error:
+        raise BuildError(f"unsupported robot {urdf_path}: {error}") from error
     with tempfile.TemporaryDirectory(prefix="hjcdik-frame-") as tmp:
         out = Path(tmp) / "grid.cuh"
         with contextlib.redirect_stdout(io.StringIO()):   # the generator narrates its frame table

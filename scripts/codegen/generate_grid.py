@@ -9,6 +9,7 @@ initialized (run scripts/setup/setup_dev.sh, or git submodule update --init --re
 By default writes to csrc/generated/grid.cuh (the committed, build-default header).
 """
 import argparse
+import importlib.util
 import sys
 import tempfile
 from pathlib import Path
@@ -18,19 +19,11 @@ GRID_DIR = REPO_ROOT / "external" / "GRiD"
 DEFAULT_OUT = REPO_ROOT / "csrc" / "generated" / "grid.cuh"
 
 
-def validate_solver_robot(robot):
-    """Reject GRiD models that HJCD's warp solver cannot represent correctly."""
-    if robot.floating_base or not robot.is_serial_chain():
-        raise ValueError("HJCD-IK requires a fixed-base serial chain")
-    if not 1 <= robot.get_num_joints() <= 32:
-        raise ValueError("HJCD-IK requires 1 to 32 actuated joints (one joint per warp lane)")
-    for joint in robot.get_joints_ordered_by_id():
-        # The geometric Jacobian uses each joint frame's +Z axis as a revolute axis.
-        # GRiD supports more joint types, but accepting them here silently produces wrong IK.
-        if joint.is_mimic or joint.jtype not in ("revolute", "continuous"):
-            raise ValueError("HJCD-IK requires independent revolute or continuous joints")
-        if list(robot.get_S_by_id(joint.jid).reshape(-1)) != [0, 0, 1, 0, 0, 0]:
-            raise ValueError("HJCD-IK requires each actuated joint to rotate around local +Z")
+# Load without executing hjcdik/__init__.py: codegen must work before the extension exists.
+_model_spec = importlib.util.spec_from_file_location("hjcd_robot_model", REPO_ROOT / "hjcdik/_robot_model.py")
+robot_model = importlib.util.module_from_spec(_model_spec)
+_model_spec.loader.exec_module(robot_model)
+validate_solver_robot = robot_model.validate_solver_robot
 
 
 def main():
@@ -85,12 +78,9 @@ def main():
 
     robot = URDFParser().parse(str(urdf), floating_base=args.floating_base)
     try:
-        validate_solver_robot(robot)
+        validate_solver_robot(robot, args.fixed_target_name)
     except ValueError as error:
         ap.error(str(error))
-    fixed_target = robot.get_fixed_joint_by_name(args.fixed_target_name)
-    if fixed_target is None or fixed_target.parent_name != robot.get_joint_by_id(robot.get_num_joints() - 1).name:
-        ap.error("HJCD-IK requires a fixed end-effector target attached to the final actuated joint")
     print(f"[generate_grid] robot={robot.name} dof={robot.get_num_joints()} target={args.fixed_target_name}")
 
     # --- optional collision spec (URDF -> covering spheres -> grid_collision namespace) ---

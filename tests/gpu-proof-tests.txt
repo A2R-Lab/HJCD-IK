@@ -155,6 +155,11 @@ tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_r
 tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[5-cudaMalloc(d_robotModel)-solve]
 tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[6-cudaMemcpy(d_robotModel)-sample]
 tests/test_initialization.py::test_checked_initialization_raises_cleans_up_and_retries[6-cudaMemcpy(d_robotModel)-solve]
+tests/test_joint_fixtures.py::test_fixture_generation_is_reproducible
+tests/test_joint_fixtures.py::test_reexpressed_fk_matches_at_mapped_configurations[panda_axes-1]
+tests/test_joint_fixtures.py::test_reexpressed_fk_matches_at_mapped_configurations[panda_negz--1]
+tests/test_joint_fixtures.py::test_reexpressed_spheres_preserve_physical_placement
+tests/test_joint_fixtures.py::test_slider_fk_is_a_translation
 tests/test_multiwarp.py::test_default_config_solves
 tests/test_multiwarp.py::test_multiwarp_high_w_opt_in_smem
 tests/test_multiwarp.py::test_multiwarp_matches_w1[2]
@@ -178,6 +183,25 @@ tests/test_query_results.py::test_sphere_obstacles_cannot_disappear_from_validat
 tests/test_regression.py::test_no_collision_free_regression_vs_baseline
 tests/test_regression.py::test_no_regression_vs_baseline
 tests/test_regression.py::test_solver_runs_and_returns_solutions
+tests/test_robot_model.py::test_continuous_sampling_contract_and_missing_target
+tests/test_robot_model.py::test_reject_unsupported_model[kwargs0-1 to 32]
+tests/test_robot_model.py::test_reject_unsupported_model[kwargs1-1 to 32]
+tests/test_robot_model.py::test_reject_unsupported_model[kwargs10-limits]
+tests/test_robot_model.py::test_reject_unsupported_model[kwargs11-final actuated]
+tests/test_robot_model.py::test_reject_unsupported_model[kwargs2-serial]
+tests/test_robot_model.py::test_reject_unsupported_model[kwargs3-fixed-base]
+tests/test_robot_model.py::test_reject_unsupported_model[kwargs4-independent]
+tests/test_robot_model.py::test_reject_unsupported_model[kwargs5-independent]
+tests/test_robot_model.py::test_reject_unsupported_model[kwargs6-local \\+Z]
+tests/test_robot_model.py::test_reject_unsupported_model[kwargs7-limits]
+tests/test_robot_model.py::test_reject_unsupported_model[kwargs8-limits]
+tests/test_robot_model.py::test_reject_unsupported_model[kwargs9-limits]
+tests/test_robot_model.py::test_runtime_plan_rejects_before_codegen[axis-local \\+Z]
+tests/test_robot_model.py::test_runtime_plan_rejects_before_codegen[limit-limits]
+tests/test_robot_model.py::test_runtime_plan_rejects_before_codegen[target-final actuated]
+tests/test_robot_model.py::test_supported_joint_count[1]
+tests/test_robot_model.py::test_supported_joint_count[32]
+tests/test_robot_model.py::test_supported_joint_count[7]
 tests/test_solver_contract.py::test_blocked_targets_pad_with_nan_and_zero_counts
 tests/test_solver_contract.py::test_both_with_empty_world_behaves_as_hard
 tests/test_solver_contract.py::test_cuda_failure_raises_solve_error_with_position
