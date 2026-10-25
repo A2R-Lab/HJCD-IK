@@ -33,7 +33,9 @@ Solver
    ``Solver()`` is the packaged robot (``"panda"`` in the shipped wheel; ``Solver("panda")`` is the
    same). Any other name is a shipped preset (``hjcdik.presets()``; built through the artifact store on
    first use, loaded afterwards) or a prepared runtime build of that name (see *Runtime robot builds*). A
-   URDF path with ``ee_link`` (the fixed joint naming the end-effector frame) and optionally
+   non-None ``spheres`` argument on the packaged robot raises ``ValueError``: its geometry is
+   compiled in. To select another sphere model, use a URDF path rather than ``Solver("panda")``.
+   A URDF path with ``ee_link`` (the fixed joint naming the end-effector frame) and optionally
    ``spheres`` builds the robot on first use; ``allow_build=False`` only loads a prepared build and
    raises ``BuildError`` naming the command otherwise. ``device`` defaults to the current CUDA
    device. ``solver.info`` is an ``Info`` with ``robot``, ``dof``, ``ee_frame``,

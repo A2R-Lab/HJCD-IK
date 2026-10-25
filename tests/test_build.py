@@ -102,6 +102,8 @@ def test_solver_argument_contract():
         hjcdik.Solver(str(PANDA))
     with pytest.raises(ValueError, match="build name"):
         hjcdik.Solver("test-panda-cc", ee_link="x")
+    with pytest.raises(ValueError, match="build name"):
+        hjcdik.Solver("test-panda-cc", spheres="panda_foam")
     with pytest.raises(ValueError, match="packaged"):
         hjcdik.Solver("panda", ee_link="panda_hand_joint")
     with pytest.raises(TypeError):

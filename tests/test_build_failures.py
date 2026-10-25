@@ -7,6 +7,19 @@ import hjcdik
 from hjcdik import _build
 
 
+@pytest.mark.parametrize("robot", [None, "panda"])
+@pytest.mark.parametrize("spheres", ["panda_foam", "missing-spheres.urdf", ""])
+def test_packaged_solver_rejects_sphere_override_before_gpu(robot, spheres, monkeypatch):
+    from hjcdik import _solver
+    def unexpected(*args, **kwargs):
+        pytest.fail("invalid packaged override reached a build or CUDA")
+    monkeypatch.setattr(_solver, "_build_artifact", unexpected)
+    monkeypatch.setattr(_solver, "_load_artifact", unexpected)
+    monkeypatch.setattr(_solver._native, "current_device", unexpected)
+    with pytest.raises(ValueError, match="spheres.*packaged.*URDF"):
+        hjcdik.Solver(robot, spheres=spheres)
+
+
 def test_missing_runtime_dependency_names_extra(monkeypatch):
     monkeypatch.setitem(sys.modules, "grid_rbd", None)
     with pytest.raises(hjcdik.BuildError, match=r"pip install 'hjcdik\[build\]'"):

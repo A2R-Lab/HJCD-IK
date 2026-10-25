@@ -33,6 +33,13 @@ def installed_check(work, phase, expected_key=None):
         import importlib.util
         assert importlib.util.find_spec("grid_rbd") is None
         assert importlib.util.find_spec("pybind11") is None
+        for robot in (None, "panda"):
+            try:
+                hjcdik.Solver(robot, spheres="missing-spheres.urdf")
+            except ValueError as error:
+                assert "packaged" in str(error) and "URDF" in str(error)
+            else:
+                raise AssertionError("packaged robot silently ignored a sphere override")
         solver = hjcdik.Solver()
         result = solver.solve(solver.sample_targets(4, seed=5), collision=None, batch_size=2000)
         assert result.ok(5, .001).any(axis=1).all()

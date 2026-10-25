@@ -30,6 +30,11 @@ The package exposes `Solver`, `Result`, `TargetResult`, `Stats`, `Info`, `SolveE
 
 ## Migrating a call
 
+Packaged-robot construction now rejects an explicit `spheres` override instead of silently
+ignoring it. `Solver()` and `Solver("panda")` retain their compiled geometry; select another
+model through `Solver("robot.urdf", ee_link=..., spheres=...)`. This validation raises
+`ValueError` before a build or CUDA call and does not change default solve behavior.
+
 ```python
 import hjcdik
 

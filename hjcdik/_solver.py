@@ -262,6 +262,9 @@ class Solver:
     def _resolve(self, robot, ee_link, spheres, allow_build, cache_dir):
         packaged = _native.build_info()
         if robot is None or robot == packaged["robot"]:
+            if spheres is not None:
+                raise ValueError("spheres cannot override the packaged robot's collision geometry; "
+                                 "build from a URDF: Solver('<robot>.urdf', ee_link=..., spheres=...)")
             if ee_link is not None and ee_link != packaged["ee_target"]:
                 raise ValueError(f"the packaged {packaged['robot']!r} solves the {packaged['ee_target']!r} frame, "
                                  f"not {ee_link!r}; build it from a URDF: Solver('<robot>.urdf', ee_link=...)")
