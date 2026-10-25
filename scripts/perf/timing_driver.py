@@ -87,6 +87,14 @@ def unpack_native(raw):
                 pos_errors=raw["pos_errors"][0, :n], ori_errors=raw["ori_errors"][0, :n])
 
 
+def error_agreement_mm(precision,num_solutions):
+    # fp32 accumulation over a long chain differs from double URDF FK by micrometres
+    # even in the pre-P2b reference. Match the component-wise 5 um FK test envelope
+    # conservatively in Euclidean norm. This is NOT the 5 mm solve-success threshold.
+    fp64=(num_solutions==1) if precision==-1 else bool(precision)
+    return .01 if REFERENCE_CHAIN is not None and not fp64 else .001
+
+
 def new_api_solver():
     return hjcdik.Solver(TIMING_ROBOT, allow_build=False) if TIMING_ROBOT else hjcdik.Solver()
 
@@ -160,7 +168,7 @@ def time_leg(targets, batch, num_solutions, collision_free, pj_text, set_name, w
         good = False
         for j, q in enumerate(qs):
             pe, oe = independent_errors(q, t)
-            if abs(pe - pes[j]) > .001 or abs(oe - oes[j]) > 1e-5:
+            if abs(pe - pes[j]) > error_agreement_mm(precision,num_solutions) or abs(oe - oes[j]) > 1e-5:
                 raise ValueError("reported errors disagree with independent FK")
             good |= pe < 5 and oe < .05
             if collision_free:
@@ -195,8 +203,10 @@ def main():
     info = dict(hjcdik.build_info())
     if NEW_API and TIMING_ROBOT:   # a runtime build: its own header and artifact are the provenance
         s = new_api_solver()
+        info = dict(s._native.build_info())
         info.update(grid_header_sha256=s.info.grid_header_sha256, ee_target=s.info.ee_frame,
-                    artifact=s.info.artifact, robot=s.info.robot)
+                    artifact=s.info.artifact, robot=s.info.robot,
+                    cuda_compiler_version=s.info.cuda_compiler_version)
     if TIMING_MARGIN:
         info["collision_margin_m"] = TIMING_MARGIN
     if info["grid_header_sha256"] != args.expected_header_sha:

@@ -58,6 +58,9 @@ def test_highdof_reference_uses_selected_robot(monkeypatch):
     target=np.r_[transform[:3,3],m._quat_from_R(transform[:3,:3])]
     pos,angle=m.independent_errors(q,target)
     assert pos<1e-9 and angle<1e-7
+    assert m.error_agreement_mm(-1,4)==.01
+    assert m.error_agreement_mm(-1,1)==.001
+    assert m.error_agreement_mm(1,4)==.001
 
 
 def test_compile_cost_protocol_without_building_or_timing(tmp_path,monkeypatch):

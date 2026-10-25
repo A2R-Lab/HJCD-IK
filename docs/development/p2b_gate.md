@@ -46,6 +46,13 @@ is open-world only. Every query, including empty results, is counted; errors are
 against independent FK. Native results are unpacked after the clock. Results appear in
 `api/`, `native/`, `runtime/`, `highdof/`, each with manifest, CSV, analysis and worker logs.
 
+Reported-error consistency uses the existing 0.001 mm/1e-5 rad envelope for Panda and
+fp64. High-DoF fp32 uses 0.01 mm for the position consistency check, corresponding to the
+general-joint component-wise 5 micrometre FK-test envelope in Euclidean norm. The unchanged
+pre-P2b 24-DoF reference already differs from independent double FK by about 2 micrometres.
+This was found in correctness-only rehearsal before timing. Independent solve acceptance
+remains 5 mm and 0.05 rad on the same candidate, as in the existing timing protocol.
+
 The final `compile/` leg measures cold runtime builds and repeated-build cache hits for
 Panda and 24-DoF, with fresh caches per endpoint/round. It includes code generation, compile
 and publication, not `pip install` or packaged-wheel installation. Build logs and artifacts
