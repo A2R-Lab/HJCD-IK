@@ -165,3 +165,9 @@ Source codegen requires `--collision` when `--spherized-urdf` is supplied; other
 before replacing either generated header. Runtime `hjcdik.build(..., spheres=...)` continues
 to enable collision geometry directly. Custom packaged builds preserve complete tool names,
 including hyphens and dots.
+
+Warm-start proximity ranking now uses the same clamped, coarse-precision seeds as initialization.
+Within each candidate pool, converged eligible candidates outrank inaccurate ones regardless of
+joint-space distance; the old finite ranking offset could fail for very large finite seeds.
+The distance metric, convergence tolerances, collision filters and refined-pool preference are
+unchanged. Candidate identities remain nondeterministic; this is not a new convergence guarantee.

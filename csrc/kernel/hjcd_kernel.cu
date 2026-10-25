@@ -3,6 +3,7 @@
 #include "kernel/util.h"
 #include "kernel/cuda_memory.h"
 #include "kernel/device_utils.cuh"
+#include "kernel/selection_key.h"
 
 #include <cuda_runtime.h>
 
@@ -2010,11 +2011,17 @@ Result<T> generate_ik_solutions(
     // float coarse targets, one row per candidate block
     TC* d_targets_coarse_c = upload_replicated_target<TC>(allocations, target_pose64, B);
     TC* d_q_init_c = nullptr;   // warm starts for the first num_init coarse blocks
+    std::vector<TC> h_q_init;
     if (options.num_init > 0) {
-        std::vector<TC> h_q_init((size_t)options.num_init * N);
+        h_q_init.resize((size_t)options.num_init * N);
+        std::array<double2, N> limits;
+        CUDA_OK(cudaMemcpyFromSymbol(limits.data(), c_joint_limits, sizeof(double2) * N));
         for (size_t i = 0; i < h_q_init.size(); ++i) {
             if (!std::isfinite(options.q_init[i])) throw std::invalid_argument("q_init values must be finite");
-            h_q_init[i] = (TC)options.q_init[i];
+            // Match coarse initialization's rounded limits, clamping before narrowing so
+            // even extreme finite inputs cannot overflow the coarse representation.
+            const auto limit = limits[i % N];
+            h_q_init[i] = (TC)std::clamp(options.q_init[i], (double)(TC)limit.x, (double)(TC)limit.y);
         }
         allocations.allocate(d_q_init_c, sizeof(TC) * h_q_init.size());
         CUDA_OK(cudaMemcpy(d_q_init_c, h_q_init.data(), sizeof(TC) * h_q_init.size(), cudaMemcpyHostToDevice));
@@ -2327,21 +2334,19 @@ Result<T> generate_ik_solutions(
         double best = std::numeric_limits<double>::infinity();
         for (int r = 0; r < options.num_init; ++r) {
             double d = 0;
-            for (int j = 0; j < N; ++j)
-                d = std::max(d, std::fabs(joint_value(idx, j) - options.q_init[(size_t)r * N + j]));
+            for (int j = 0; j < N; ++j) {
+                if (!std::isfinite(joint_value(idx, j))) return std::numeric_limits<double>::infinity();
+                d = std::max(d, std::fabs(joint_value(idx, j) - (double)h_q_init[(size_t)r * N + j]));
+            }
             best = std::min(best, d);
         }
         return best;
     };
-    auto score = [&](int idx)->double {
+    auto score = [&](int idx)->hjcd::SelectionKey {
         double s = rank_score(pos_mm(idx), ori_rad(idx));
         if (use_soft) s += ENV_COLLISION_COST_W * (double)env_cost(idx);
-        if (!std::isfinite(s)) return std::numeric_limits<double>::infinity();
-        if (warm) {
-            const bool converged = pos_mm(idx) < WARM_POS_MM && ori_rad(idx) < WARM_ORI_RAD;
-            return converged ? init_distance(idx) : 1e6 + s;
-        }
-        return s;
+        const bool converged = pos_mm(idx) < WARM_POS_MM && ori_rad(idx) < WARM_ORI_RAD;
+        return hjcd::selection_key(warm, converged, s, warm && converged ? init_distance(idx) : 0.);
     };
     const double DUP_TOL = 1e-7;
     auto is_dup = [&](int ia, int ib)->bool {
@@ -2358,7 +2363,7 @@ Result<T> generate_ik_solutions(
         std::sort(pool.begin(), pool.end(), [&](int a, int b){ return score(a) < score(b); });
         for (int idx : pool) {
             if ((int)chosen.size() == S_target) break;
-            if (!std::isfinite(score(idx)) || (use_hard && !is_valid(idx))) continue;
+            if (!std::isfinite(score(idx).second) || (use_hard && !is_valid(idx))) continue;
             if (std::any_of(chosen.begin(), chosen.end(),
                             [&](int previous) { return is_dup(idx, previous); })) continue;
             chosen.push_back(idx);
