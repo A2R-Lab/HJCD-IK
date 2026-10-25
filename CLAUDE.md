@@ -192,7 +192,10 @@ measurement with the protocol in [`docs/development/timing_gate.md`](docs/develo
   ([`postpin_timing_2026-10-06`](docs/development/evidence/postpin_timing_2026-10-06/README.md), 12 paired ratios
   within 0.9946–1.0046). The 2026-10-12 re-pin to GRiD v0.5.1 changed only a block-checker race fix; the 2026-10-23 re-pin to v0.5.5 and the
   2026-10-24 re-pin to v0.6.0 changed no kernel code HJCD executes (linalg-argument removal; plant block dropped from the
-  kinematics header; checker defaults `margin=0`, `check_self=true` are the old verdict); no A/B owed.
+  kinematics header; checker defaults `margin=0`, `check_self=true` are the old verdict). The 10-24 API gate
+  ([`api_timing_2026-10-24`](docs/development/evidence/api_timing_2026-10-24/README.md)): native entry points within
+  0.6 % of the pre-API build, `Solver.solve` adds ~10 µs host time per target, collision scenes 13–16 % faster (no
+  per-call JSON compare), runtime-built Panda == packaged, 2 cm margin ≈ +2–3 % while solvable.
 - Full campaign on the shipped code, all baselines ([`paper_rerun_2026-10-07`](docs/development/evidence/paper_rerun_2026-10-07/README.md),
   results.rst *Current code — full campaign*): Panda open-world 1.62–1.65 ms at B ≥ 100 (cuRobo v2 5.9–6.4,
   PyRoki 6–7.2, IKFlow 2.5–6.2); Fetch 0.81–1.10 vs cuRobo 1.8–2.1; DoF 7/12/18/24 1.76/1.87/2.31/2.85 vs

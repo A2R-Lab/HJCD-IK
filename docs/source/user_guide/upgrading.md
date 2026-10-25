@@ -93,9 +93,13 @@ CTest, sanitizer and build checks are separate evidence, not implied by that rec
 
 The CUDA core is compiled once for Python and the CLI; the default generated profile
 omits unneeded dynamics. No new headline performance or MMD claim accompanies the API
-change: the kernel is unchanged, and the latency comparison between `Solver.solve` and the
-removed `generate_solutions` runs with matched collision settings in an announced timing window
-(`docs/development/timing_gate.md`).
+change. The October 24 quiet-window gate (`docs/development/evidence/api_timing_2026-10-24/`)
+measured `Solver.solve` against the removed `generate_solutions` with matched settings: identical
+solution counts in every cell, kernels unchanged (native entry points within 0.6 %), about 10 µs of
+host time per target on the Python side (up to 50 µs after a 3 ms solve, where the host core returns
+cold from the GPU wait), collision scenes 13–16 % faster because the world is installed once instead of
+being compared on every call, and a runtime-built robot as fast as the packaged one. A 2 cm clearance
+margin costs 2–3 % while a target stays solvable and makes infeasible targets run to the iteration limit.
 
 For before/after timing, use matched release builds on the same idle machine. Record
 targets, robot/EE frame, geometry, precision, tolerances, output counts, initialization,

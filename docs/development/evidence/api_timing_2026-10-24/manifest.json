@@ -37,16 +37,16 @@
       "branch": {
         "repo": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/gate_2026-10-24/branch",
         "python": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/gate_2026-10-24/branch/.venv/bin/python",
-        "commit": "4474ea5a54e4aecfa2bc43eba54dcb85f4680c5a",
+        "commit": "4700ca0be570d049447d1b6753a26b41c139e92e",
         "header_sha": "fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa",
-        "binary_sha": "db7e7ce773ce94102cc7b34ecd88cd50fb868f1ea261d0608517b593ed646360"
+        "binary_sha": "29bc83fbe7a8c840fdbb4ea03373ffdea8572a43758113ee86fb7c0c90e546ac"
       },
       "branch-rt": {
         "repo": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/gate_2026-10-24/branch",
         "python": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/gate_2026-10-24/branch/.venv/bin/python",
-        "commit": "4474ea5a54e4aecfa2bc43eba54dcb85f4680c5a",
+        "commit": "4700ca0be570d049447d1b6753a26b41c139e92e",
         "header_sha": "53eba14024ab674026171d5b700c2c312ab5890425351d4c01df79f9d725d8d7",
-        "binary_sha": "17beeca86d07db193328f80459b12a169069bac9d9578deb99be5f16fb3c3981",
+        "binary_sha": "22ae576e27e499acae43cbad1750fd14f921a481ac32785034f94d13fadc4a97",
         "env": {
           "HJCDIK_TIMING_ROBOT": "gate-panda-hand"
         }
@@ -54,9 +54,9 @@
       "branch-margin": {
         "repo": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/gate_2026-10-24/branch",
         "python": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/gate_2026-10-24/branch/.venv/bin/python",
-        "commit": "4474ea5a54e4aecfa2bc43eba54dcb85f4680c5a",
+        "commit": "4700ca0be570d049447d1b6753a26b41c139e92e",
         "header_sha": "fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa",
-        "binary_sha": "db7e7ce773ce94102cc7b34ecd88cd50fb868f1ea261d0608517b593ed646360",
+        "binary_sha": "29bc83fbe7a8c840fdbb4ea03373ffdea8572a43758113ee86fb7c0c90e546ac",
         "env": {
           "HJCDIK_TIMING_MARGIN": "0.02"
         }
@@ -84,7 +84,7 @@
         "collision_enabled": true,
         "grid_header_sha256": "fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa",
         "cuda_compiler_version": "13.2.86",
-        "binding_abi": 2
+        "binding_abi": 4
       },
       "binary": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/gate_2026-10-24/branch/.venv/lib/python3.12/site-packages/hjcdik/_hjcdik.cpython-312-x86_64-linux-gnu.so",
       "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
@@ -98,9 +98,9 @@
         "collision_enabled": true,
         "grid_header_sha256": "53eba14024ab674026171d5b700c2c312ab5890425351d4c01df79f9d725d8d7",
         "cuda_compiler_version": "13.2.86",
-        "binding_abi": 2
+        "binding_abi": 4
       },
-      "binary": "/home/plancher/.cache/grid-rbd/consumers/hjcdik/store/9110f47398bb5d2684cdb80e706d96b08a43802f83a88acb81d746654a8b7e69/hjcdik_6dcbdf5557bf.so",
+      "binary": "/home/plancher/.cache/grid-rbd/consumers/hjcdik/store/d8bf7fbd0ded372534c19b2412f85a7776b642b7e523713bb317cc81e6b23cdf/hjcdik_6dcbdf5557bf.so",
       "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
       "numpy": "2.5.4"
     },
@@ -112,7 +112,7 @@
         "collision_enabled": true,
         "grid_header_sha256": "fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa",
         "cuda_compiler_version": "13.2.86",
-        "binding_abi": 2
+        "binding_abi": 4
       },
       "binary": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/gate_2026-10-24/branch/.venv/lib/python3.12/site-packages/hjcdik/_hjcdik.cpython-312-x86_64-linux-gnu.so",
       "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",

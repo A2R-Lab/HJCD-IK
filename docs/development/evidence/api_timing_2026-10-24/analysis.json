@@ -6,9 +6,9 @@
     "batch": 1,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0150222471004129,
-    "ratio_min": 1.0107818290724961,
-    "ratio_max": 1.0158068028910996
+    "paired_ratio": 1.0090310486020941,
+    "ratio_min": 1.0083655546340258,
+    "ratio_max": 1.0104512830761774
   },
   {
     "endpoint": "branch-rt",
@@ -17,9 +17,9 @@
     "batch": 1,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0139036612545462,
-    "ratio_min": 1.0114574265750869,
-    "ratio_max": 1.0165341588727115
+    "paired_ratio": 1.009863702840819,
+    "ratio_min": 1.0088295921857808,
+    "ratio_max": 1.0102025730107254
   },
   {
     "endpoint": "branch-margin",
@@ -28,9 +28,9 @@
     "batch": 1,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0140460701886513,
-    "ratio_min": 1.0112081238800796,
-    "ratio_max": 1.0154980694663527
+    "paired_ratio": 1.0094732585934936,
+    "ratio_min": 1.0082228493707541,
+    "ratio_max": 1.0102162709203781
   },
   {
     "endpoint": "branch",
@@ -39,9 +39,9 @@
     "batch": 2000,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0179269016608319,
-    "ratio_min": 1.0078476588285044,
-    "ratio_max": 1.029554174985916
+    "paired_ratio": 1.0079552544615833,
+    "ratio_min": 1.000347753646965,
+    "ratio_max": 1.0282159496149665
   },
   {
     "endpoint": "branch-rt",
@@ -50,9 +50,9 @@
     "batch": 2000,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0180514459673184,
-    "ratio_min": 1.0145335504010942,
-    "ratio_max": 1.0239078958127312
+    "paired_ratio": 1.0133379770088098,
+    "ratio_min": 1.0089208214177157,
+    "ratio_max": 1.0371531336941127
   },
   {
     "endpoint": "branch-margin",
@@ -61,9 +61,9 @@
     "batch": 2000,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0176580752150066,
-    "ratio_min": 1.0001792461780523,
-    "ratio_max": 1.0216559999948143
+    "paired_ratio": 1.009562116373842,
+    "ratio_min": 0.9983651337694514,
+    "ratio_max": 1.0264043067442588
   },
   {
     "endpoint": "branch",
@@ -72,9 +72,9 @@
     "batch": 8000,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0213472349265624,
-    "ratio_min": 1.019218944533726,
-    "ratio_max": 1.0234640530107617
+    "paired_ratio": 1.0151573861106442,
+    "ratio_min": 1.011992463096128,
+    "ratio_max": 1.0194100691935863
   },
   {
     "endpoint": "branch-rt",
@@ -83,9 +83,9 @@
     "batch": 8000,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0210905924641254,
-    "ratio_min": 1.0194434340263034,
-    "ratio_max": 1.026323379955444
+    "paired_ratio": 1.0163933362590374,
+    "ratio_min": 1.0119189522005734,
+    "ratio_max": 1.018267806821481
   },
   {
     "endpoint": "branch-margin",
@@ -94,9 +94,9 @@
     "batch": 8000,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0223648558265035,
-    "ratio_min": 1.0181368868825658,
-    "ratio_max": 1.0269312646461242
+    "paired_ratio": 1.0163151035086848,
+    "ratio_min": 1.008845880268297,
+    "ratio_max": 1.0196942363334698
   },
   {
     "endpoint": "branch",
@@ -105,9 +105,9 @@
     "batch": 32000,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0222440218841538,
-    "ratio_min": 1.020825741871301,
-    "ratio_max": 1.0352256532976973
+    "paired_ratio": 1.0177167528949678,
+    "ratio_min": 1.008775994065329,
+    "ratio_max": 1.0230132096983744
   },
   {
     "endpoint": "branch-rt",
@@ -116,9 +116,9 @@
     "batch": 32000,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0251880998973601,
-    "ratio_min": 1.0233930384096264,
-    "ratio_max": 1.027417513743832
+    "paired_ratio": 1.012687234043689,
+    "ratio_min": 1.007301154660665,
+    "ratio_max": 1.017345826613931
   },
   {
     "endpoint": "branch-margin",
@@ -127,9 +127,9 @@
     "batch": 32000,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0250478761859636,
-    "ratio_min": 1.0227546681195268,
-    "ratio_max": 1.027561965154798
+    "paired_ratio": 1.0114083390677457,
+    "ratio_min": 1.0076833678816757,
+    "ratio_max": 1.0182738602760717
   },
   {
     "endpoint": "branch",
@@ -138,9 +138,9 @@
     "batch": 100,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 0.8666917232317398,
-    "ratio_min": 0.8652168433859861,
-    "ratio_max": 0.869640439857231
+    "paired_ratio": 0.8608722340453419,
+    "ratio_min": 0.8575839923381562,
+    "ratio_max": 0.8628719405822876
   },
   {
     "endpoint": "branch-rt",
@@ -149,9 +149,9 @@
     "batch": 100,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 0.8675295600535433,
-    "ratio_min": 0.8658523888355716,
-    "ratio_max": 0.8682509575122429
+    "paired_ratio": 0.8622609319560881,
+    "ratio_min": 0.8603228493792958,
+    "ratio_max": 0.8655490622929418
   },
   {
     "endpoint": "branch-margin",
@@ -160,9 +160,9 @@
     "batch": 100,
     "solved_delta": -76,
     "quality_review_required": true,
-    "paired_ratio": 6.0146803343540345,
-    "ratio_min": 5.999670241654271,
-    "ratio_max": 6.028981165046634
+    "paired_ratio": 6.004634048311759,
+    "ratio_min": 5.99613863196491,
+    "ratio_max": 6.021612370868851
   },
   {
     "endpoint": "branch",
@@ -171,9 +171,9 @@
     "batch": 2000,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 0.8677849374774684,
-    "ratio_min": 0.8655609671597333,
-    "ratio_max": 0.8704210643863727
+    "paired_ratio": 0.866230124428453,
+    "ratio_min": 0.8650738972865872,
+    "ratio_max": 0.8682310968097245
   },
   {
     "endpoint": "branch-rt",
@@ -182,9 +182,9 @@
     "batch": 2000,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 0.8684721617668448,
-    "ratio_min": 0.8673389462186682,
-    "ratio_max": 0.8734235233504162
+    "paired_ratio": 0.8661896210370905,
+    "ratio_min": 0.8633948906994764,
+    "ratio_max": 0.8669046761062373
   },
   {
     "endpoint": "branch-margin",
@@ -193,9 +193,9 @@
     "batch": 2000,
     "solved_delta": -76,
     "quality_review_required": true,
-    "paired_ratio": 5.767508048265235,
-    "ratio_min": 5.763487370622517,
-    "ratio_max": 5.774328263257298
+    "paired_ratio": 5.776893378113757,
+    "ratio_min": 5.767013015278413,
+    "ratio_max": 5.783605713711833
   },
   {
     "endpoint": "branch",
@@ -204,9 +204,9 @@
     "batch": 1,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0264004104544866,
-    "ratio_min": 1.0259689562655723,
-    "ratio_max": 1.0276928164414798
+    "paired_ratio": 1.01946412981692,
+    "ratio_min": 1.0185742851600363,
+    "ratio_max": 1.0199023825941458
   },
   {
     "endpoint": "branch-rt",
@@ -215,9 +215,9 @@
     "batch": 1,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0275259610074396,
-    "ratio_min": 1.0228560680893322,
-    "ratio_max": 1.028592790963741
+    "paired_ratio": 1.0203186553708636,
+    "ratio_min": 1.020118634237415,
+    "ratio_max": 1.0206108029445489
   },
   {
     "endpoint": "branch-margin",
@@ -226,9 +226,9 @@
     "batch": 1,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0265807572581371,
-    "ratio_min": 1.0229563086008822,
-    "ratio_max": 1.0317750272550619
+    "paired_ratio": 1.0195126566320198,
+    "ratio_min": 1.0192020128612602,
+    "ratio_max": 1.0198449937101168
   },
   {
     "endpoint": "branch",
@@ -237,9 +237,9 @@
     "batch": 2000,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0234419481721986,
-    "ratio_min": 1.0196308552065,
-    "ratio_max": 1.0246239979735159
+    "paired_ratio": 1.0167958436856566,
+    "ratio_min": 1.0161038703276,
+    "ratio_max": 1.0177812727960611
   },
   {
     "endpoint": "branch-rt",
@@ -248,9 +248,9 @@
     "batch": 2000,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0253291826122517,
-    "ratio_min": 1.0222739557312421,
-    "ratio_max": 1.0299058500896445
+    "paired_ratio": 1.018410629704257,
+    "ratio_min": 1.0160396078044827,
+    "ratio_max": 1.0195252140625426
   },
   {
     "endpoint": "branch-margin",
@@ -259,9 +259,9 @@
     "batch": 2000,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0251630550856357,
-    "ratio_min": 1.0218485781055469,
-    "ratio_max": 1.0265639793473087
+    "paired_ratio": 1.0174461828607775,
+    "ratio_min": 1.0162153256411317,
+    "ratio_max": 1.018755522395567
   },
   {
     "endpoint": "branch",
@@ -270,9 +270,9 @@
     "batch": 8000,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0140495105501262,
-    "ratio_min": 1.0119997999370522,
-    "ratio_max": 1.0159871693802331
+    "paired_ratio": 1.0106906089694694,
+    "ratio_min": 1.0078579937926397,
+    "ratio_max": 1.0124293404768152
   },
   {
     "endpoint": "branch-rt",
@@ -281,9 +281,9 @@
     "batch": 8000,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0169697833377167,
-    "ratio_min": 1.0145692878399157,
-    "ratio_max": 1.0215441500232556
+    "paired_ratio": 1.01254547912939,
+    "ratio_min": 1.0119904036357292,
+    "ratio_max": 1.0162390758192532
   },
   {
     "endpoint": "branch-margin",
@@ -292,9 +292,9 @@
     "batch": 8000,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0166687433518966,
-    "ratio_min": 1.0151000270290844,
-    "ratio_max": 1.0192078814524865
+    "paired_ratio": 1.0153037217059029,
+    "ratio_min": 1.0090531470115387,
+    "ratio_max": 1.0159114266190392
   },
   {
     "endpoint": "branch",
@@ -303,9 +303,9 @@
     "batch": 32000,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0104122759110727,
-    "ratio_min": 1.0074547459515832,
-    "ratio_max": 1.0147445775699737
+    "paired_ratio": 1.0104933256837594,
+    "ratio_min": 1.0095178868247054,
+    "ratio_max": 1.0146172279280594
   },
   {
     "endpoint": "branch-rt",
@@ -314,9 +314,9 @@
     "batch": 32000,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0108557606838122,
-    "ratio_min": 1.0079989854754858,
-    "ratio_max": 1.0137921291236618
+    "paired_ratio": 1.0115824681105179,
+    "ratio_min": 1.008248787540341,
+    "ratio_max": 1.0157229579602225
   },
   {
     "endpoint": "branch-margin",
@@ -325,9 +325,9 @@
     "batch": 32000,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 1.0119219846096357,
-    "ratio_min": 1.0114228848709537,
-    "ratio_max": 1.0131208714728923
+    "paired_ratio": 1.0105092528970148,
+    "ratio_min": 1.009836900848172,
+    "ratio_max": 1.0128351130245279
   },
   {
     "endpoint": "branch",
@@ -336,9 +336,9 @@
     "batch": 100,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 0.8493138955137023,
-    "ratio_min": 0.8484057097442943,
-    "ratio_max": 0.8503866531465872
+    "paired_ratio": 0.8443346457977046,
+    "ratio_min": 0.843152340289683,
+    "ratio_max": 0.8499539323095152
   },
   {
     "endpoint": "branch-rt",
@@ -347,9 +347,9 @@
     "batch": 100,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 0.8504831286924228,
-    "ratio_min": 0.8493196201269864,
-    "ratio_max": 0.851777559876635
+    "paired_ratio": 0.8442728660758255,
+    "ratio_min": 0.8439581801902865,
+    "ratio_max": 0.8454987029685354
   },
   {
     "endpoint": "branch-margin",
@@ -358,9 +358,9 @@
     "batch": 100,
     "solved_delta": -76,
     "quality_review_required": true,
-    "paired_ratio": 0.8868998178625331,
-    "ratio_min": 0.8849483312305296,
-    "ratio_max": 0.8924428059318689
+    "paired_ratio": 0.8820305020551803,
+    "ratio_min": 0.8803525453392672,
+    "ratio_max": 0.8831373223143012
   },
   {
     "endpoint": "branch",
@@ -369,9 +369,9 @@
     "batch": 2000,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 0.8582389773459733,
-    "ratio_min": 0.8555837077470492,
-    "ratio_max": 0.8602306451872651
+    "paired_ratio": 0.8538268201427459,
+    "ratio_min": 0.8512577424648228,
+    "ratio_max": 0.8556896961556817
   },
   {
     "endpoint": "branch-rt",
@@ -380,9 +380,9 @@
     "batch": 2000,
     "solved_delta": 0,
     "quality_review_required": false,
-    "paired_ratio": 0.8567522091536537,
-    "ratio_min": 0.8564691810555061,
-    "ratio_max": 0.8592174872359368
+    "paired_ratio": 0.8535034317277765,
+    "ratio_min": 0.8487589075062149,
+    "ratio_max": 0.8537129603423508
   },
   {
     "endpoint": "branch-margin",
@@ -391,8 +391,8 @@
     "batch": 2000,
     "solved_delta": -84,
     "quality_review_required": true,
-    "paired_ratio": 0.8732341998241862,
-    "ratio_min": 0.8698618577958444,
-    "ratio_max": 0.8745876861928465
+    "paired_ratio": 0.8696265177263267,
+    "ratio_min": 0.8668445504523039,
+    "ratio_max": 0.8716712556141796
   }
 ]

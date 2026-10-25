@@ -2,6 +2,9 @@
 
 The October 4 audit separates correctness (shared GPU allowed) from performance (announced quiet window).
 The pre-upstream A/B completed October 5; see [verified evidence](evidence/audit_timing_2026-10-05/README.md).
+The API gate of October 24 (`Solver` API, GRiD 0.6.0, runtime builds, margin) found no device-side change
+against the pre-API build, about 10 µs of host time per target through the Python layer, and 13–16 % faster
+collision scenes (no per-call JSON comparison); see [API timing evidence](evidence/api_timing_2026-10-24/README.md).
 The focused post-pin confirmation completed October 6 and was independently reviewed October 7: identical
 matched quality counts and all twelve paired latency ratios within 0.9946–1.0046 — performance-neutral; see
 [post-pin evidence](evidence/postpin_timing_2026-10-06/README.md). The corrected full competitor/paper campaign ran on October 7 (`evidence/paper_rerun_2026-10-07/`).

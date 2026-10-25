@@ -203,7 +203,9 @@ only, never physical safety). ``result[i]`` is a ``TargetResult`` with the un-pa
 ``pose``, ``pos_err_mm``, ``ori_err_rad``, ``count``, ``elapsed_ms`` and ``stats`` of one target.
 
 ``solve`` is all-or-nothing: a CUDA failure at target ``i`` raises ``SolveError`` with
-``target_index`` and ``completed``; no partial ``Result`` is returned. One world applies to the whole
+``target_index`` and ``completed``; no partial ``Result`` is returned. The whole batch is one native
+call: the host loop over targets, the NaN padding and the statistics arrays are built in the binding,
+and the Python layer adds about 10 µs per target (measured October 2026; see the upgrading guide). One world applies to the whole
 call: ``set_world`` from another thread waits for a solve in flight.
 
 Diagnostics
