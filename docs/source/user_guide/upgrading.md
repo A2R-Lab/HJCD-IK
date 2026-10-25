@@ -152,3 +152,16 @@ See {doc}`benchmarks/results` for the unchanged published results.
   Check CUDA/runtime compatibility and the named artifact path. Rebuild with the same
   inputs and `hjcdik.build(..., force_rebuild=True)` (CLI: `hjcdik build ... --force`),
   then restart a process that already imported the old artifact. Do not delete an entire cache.
+
+### Prepared model identity and codegen options
+
+Loading from a URDF with `allow_build=False` now verifies the requested URDF content,
+sphere model and tool frame against the prepared artifact. Changed inputs raise `BuildError`
+instead of silently loading an older same-named model. Identical relocated files still load
+without compiling. To deliberately load an existing artifact independently of input files,
+use its prepared build name.
+
+Source codegen requires `--collision` when `--spherized-urdf` is supplied; otherwise it fails
+before replacing either generated header. Runtime `hjcdik.build(..., spheres=...)` continues
+to enable collision geometry directly. Custom packaged builds preserve complete tool names,
+including hyphens and dots.

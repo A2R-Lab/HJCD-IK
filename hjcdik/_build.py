@@ -262,6 +262,23 @@ def build(urdf, *, ee_link: str, spheres=None, name: Optional[str] = None, colli
 
 def load(name: str, cache_dir=None, cuda_arch: Optional[int] = None) -> Artifact:
     """A prepared artifact by name, with no toolchain. Raises `BuildError` naming the build command."""
+    return _load(name, cache_dir, cuda_arch)
+
+
+def load_for_urdf(urdf, ee_link, spheres, cache_dir=None) -> Artifact:
+    """Load without compilation, requiring the requested model rather than just its display name."""
+    sphere_path = _resolve_spheres(spheres)
+    try:
+        expected = (hashlib.sha256(Path(urdf).expanduser().read_bytes()).hexdigest(),
+                    None if sphere_path is None else hashlib.sha256(sphere_path.read_bytes()).hexdigest(),
+                    ee_link)
+    except OSError as error:
+        raise BuildError(f"cannot read requested model: {error}; restore the input files or load by name") from error
+    return _load(default_name(Path(urdf).expanduser(), ee_link, sphere_path), cache_dir,
+                 expected=expected)
+
+
+def _load(name, cache_dir=None, cuda_arch=None, *, expected=None):
     grid_rbd = _grid_rbd()
     _check_name(name)
     try:
@@ -275,6 +292,17 @@ def load(name: str, cache_dir=None, cuda_arch: Optional[int] = None) -> Artifact
                          "hjcdik.build(..., force_rebuild=True) on a compatible machine with nvcc") from error
     meta = record.meta or {}
     defines = {d.split("=", 1)[0]: d.split("=", 1)[1] if "=" in d else "" for d in meta.get("defines", [])}
+    if expected is not None:
+        options = meta.get("code_options", {})
+        actual = (meta.get("urdf_sha256"), options.get("spherized_urdf_sha256"),
+                  defines.get("HJCDIK_EE_TARGET", "").strip('"'))
+        collision = expected[1] is not None
+        if (actual != expected or options.get("ee_joint_names") != [expected[2]]
+                or ("HJCD_HAS_COLLISION" in defines) != collision
+                or bool(options.get("spherized_urdf")) != collision):
+            raise BuildError(f"prepared build {name!r} does not match the requested model; rebuild "
+                             "from the requested URDF, tool frame and sphere model with hjcdik.build(...), "
+                             "or explicitly load the prepared artifact by name")
     return Artifact(name=name, robot=defines.get("HJCDIK_ROBOT_NAME", "").strip('"'),
                     ee_frame=defines.get("HJCDIK_EE_TARGET", "").strip('"'),
                     collision_enabled="HJCD_HAS_COLLISION" in defines, path=Path(record.path),

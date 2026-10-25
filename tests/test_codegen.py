@@ -149,14 +149,29 @@ def test_cmake_rejects_mismatched_same_dof_headers(tmp_path):
     assert "Mismatched generated robot headers" in run.stdout+run.stderr
 
 
-def test_punctuated_tool_name_in_static_and_runtime_builds(tmp_path):
+@pytest.mark.parametrize("tool", ["flange-tool0", "flange.tool0", "panda_grasptarget_hand"])
+def test_punctuated_tool_name_in_static_and_runtime_builds(tmp_path, tool):
     import hjcdik
     source = tmp_path/"punctuated.urdf"
     tree = ET.parse(PANDA)
-    tree.getroot().find("joint[@name='panda_grasptarget_hand']").set("name","flange-tool0")
+    tree.getroot().find("joint[@name='panda_grasptarget_hand']").set("name",tool)
     tree.write(source)
-    subprocess.run([sys.executable,str(GEN),str(source),"-t","flange-tool0","-o",str(tmp_path/"grid.cuh")],
+    subprocess.run([sys.executable,str(GEN),str(source),"-t",tool,"-o",str(tmp_path/"grid.cuh")],
                    check=True,capture_output=True,text=True)
     assert "EE_FIXED_FRAME_IDX = 10" in (tmp_path/"grid.cuh").read_text()
-    plan = hjcdik.build(source,ee_link="flange-tool0",name="test-punctuated",plan_only=True)
+    plan = hjcdik.build(source,ee_link=tool,name="test-punctuated",plan_only=True)
     assert "HJCDIK_EE_FIXED_FRAME_IDX=10" in plan["defines"]
+    import pybind11
+    build = tmp_path/'build'
+    run = subprocess.run(['cmake', '-S', str(ROOT), '-B', str(build),
+                          '-DBUILD_PYTHON=ON', '-DCMAKE_CUDA_ARCHITECTURES=120',
+                          '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON',
+                          '-Dpybind11_DIR='+pybind11.get_cmake_dir(),
+                          '-DHJCDIK_GRID_HEADER='+str(tmp_path/'grid.cuh')],
+                         capture_output=True, text=True, timeout=60)
+    assert run.returncode == 0, run.stdout+run.stderr
+    import json
+    import shlex
+    commands = json.loads((build/'compile_commands.json').read_text())
+    binding = next(c['command'] for c in commands if c['file'].endswith('pybind_module.cpp'))
+    assert f'-DHJCDIK_EE_TARGET="{tool}"' in shlex.split(binding)

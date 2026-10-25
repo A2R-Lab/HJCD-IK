@@ -278,8 +278,8 @@ class Solver:
             if allow_build:
                 self._artifact = _build_artifact(text, ee_link=ee_link, spheres=spheres, cache_dir=cache_dir)
             else:
-                from ._build import default_name, _resolve_spheres
-                self._artifact = _load_artifact(default_name(text, ee_link, _resolve_spheres(spheres)), cache_dir=cache_dir)
+                from ._build import load_for_urdf
+                self._artifact = load_for_urdf(text, ee_link, spheres, cache_dir=cache_dir)
         else:
             if ee_link is not None or spheres is not None:
                 raise ValueError("ee_link and spheres apply to a URDF build; a build name is already complete")

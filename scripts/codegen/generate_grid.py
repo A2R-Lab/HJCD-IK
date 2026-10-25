@@ -53,6 +53,8 @@ def main():
     ap.add_argument("--glass-revision", default=None,
                     help="GLASS commit label for Git-free source archives; verified against Git when available.")
     args = ap.parse_args()
+    if args.spherized_urdf is not None and not args.collision:
+        ap.error("--spherized-urdf requires --collision")
     if args.floating_base:
         ap.error("HJCD-IK requires a fixed-base serial chain")
     if args.namespace != "grid":
