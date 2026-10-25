@@ -1,5 +1,10 @@
 # Usability closeout and review packet
 
+Superseded current review status: [boundary audit](../boundary_audit_2026-10-25/README.md).
+The packaged-spheres decision is resolved by `b1ef1dd` with 339 verified tests. Four
+additional correctness findings remain open; do not interpret this historical packet
+as merge approval. Its native validation and timing caveats remain preserved below.
+
 Closeout implementation: `e8cc1c3..06def18`. Full unpublished-wave comparison base:
 locally recorded `origin/main`, `119cacc` (not freshly fetched). Publication is not
 authorized. The packet is a local review checkpoint, not a remote CI or merge approval.
