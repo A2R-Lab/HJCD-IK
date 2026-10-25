@@ -1,0 +1,92 @@
+[
+  {
+    "label": "sdist",
+    "argv": [
+      "/home/plancher/Desktop/HJCD-IK/.venv/bin/python",
+      "-c",
+      "from scikit_build_core.build import build_sdist; import sys; build_sdist(sys.argv[1])",
+      "/tmp/hjcd-installed-boundary-verified-20261025/dist"
+    ],
+    "cwd": "/home/plancher/Desktop/HJCD-IK"
+  },
+  {
+    "label": "wheel",
+    "argv": [
+      "/home/plancher/Desktop/HJCD-IK/.venv/bin/python",
+      "-m",
+      "pip",
+      "wheel",
+      "--no-deps",
+      "--no-build-isolation",
+      "/tmp/hjcd-installed-boundary-verified-20261025/dist/hjcdik-0.0.1.tar.gz",
+      "-w",
+      "/tmp/hjcd-installed-boundary-verified-20261025/dist"
+    ],
+    "cwd": "/tmp/hjcd-installed-boundary-verified-20261025"
+  },
+  {
+    "label": "install-base",
+    "argv": [
+      "/tmp/hjcd-installed-boundary-verified-20261025/venv/bin/python",
+      "-m",
+      "pip",
+      "install",
+      "/tmp/hjcd-installed-boundary-verified-20261025/dist/hjcdik-0.0.1-cp312-cp312-linux_x86_64.whl",
+      "numpy==2.5.1"
+    ],
+    "cwd": "/tmp/hjcd-installed-boundary-verified-20261025"
+  },
+  {
+    "label": "panda",
+    "argv": [
+      "/tmp/hjcd-installed-boundary-verified-20261025/venv/bin/python",
+      "-I",
+      "/tmp/hjcd-installed-boundary-verified-20261025/check_installed.py",
+      "--out",
+      "/tmp/hjcd-installed-boundary-verified-20261025",
+      "--child",
+      "panda"
+    ],
+    "cwd": "/tmp/hjcd-installed-boundary-verified-20261025"
+  },
+  {
+    "label": "install-build",
+    "argv": [
+      "/tmp/hjcd-installed-boundary-verified-20261025/venv/bin/python",
+      "-m",
+      "pip",
+      "install",
+      "grid-rbd==0.6.0",
+      "pybind11==3.0.4"
+    ],
+    "cwd": "/tmp/hjcd-installed-boundary-verified-20261025"
+  },
+  {
+    "label": "build",
+    "argv": [
+      "/tmp/hjcd-installed-boundary-verified-20261025/venv/bin/python",
+      "-I",
+      "/tmp/hjcd-installed-boundary-verified-20261025/check_installed.py",
+      "--out",
+      "/tmp/hjcd-installed-boundary-verified-20261025",
+      "--child",
+      "build"
+    ],
+    "cwd": "/tmp/hjcd-installed-boundary-verified-20261025"
+  },
+  {
+    "label": "load",
+    "argv": [
+      "/tmp/hjcd-installed-boundary-verified-20261025/venv/bin/python",
+      "-I",
+      "/tmp/hjcd-installed-boundary-verified-20261025/check_installed.py",
+      "--out",
+      "/tmp/hjcd-installed-boundary-verified-20261025",
+      "--child",
+      "load",
+      "--expected-key",
+      "1d09799edda7953d5fc1d29306985944a8c0f7b05144550ccaa819a5cb9d950c"
+    ],
+    "cwd": "/tmp/hjcd-installed-boundary-verified-20261025"
+  }
+]

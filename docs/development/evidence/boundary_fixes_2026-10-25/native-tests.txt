@@ -1,0 +1,13 @@
+[1/3] Building CUDA object CMakeFiles/hjcdik_core.dir/csrc/kernel/hjcd_kernel.cu.o
+[2/3] Linking CXX executable hjcdik
+[3/3] Linking CXX executable hjcdik_native_tests
+Internal ctest changing into directory: /home/plancher/Desktop/HJCD-IK/build-native
+Test project /home/plancher/Desktop/HJCD-IK/build-native
+    Start 1: native_api
+1/2 Test #1: native_api .......................   Passed    0.37 sec
+    Start 2: cli_contracts
+2/2 Test #2: cli_contracts ....................   Passed    1.16 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) =   1.53 sec

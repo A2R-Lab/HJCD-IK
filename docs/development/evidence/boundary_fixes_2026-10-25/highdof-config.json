@@ -1,0 +1,55 @@
+{
+  "rounds": 4,
+  "solutions": [
+    1,
+    4
+  ],
+  "batches": {
+    "table1": [
+      1,
+      2000,
+      8000,
+      32000
+    ]
+  },
+  "target_counts": {
+    "table1": 100
+  },
+  "targets_json": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/highdof-targets.json",
+  "targets_json_sha": "17b12dd7bb3bbc3eddcb19538a3e7d0ab4ee4704d1ca6d82ab6c7b9b7ff754f7",
+  "problems_json": "/home/plancher/Desktop/HJCD-IK/tests/mb_problems.json",
+  "problems_json_sha": "69a3eae85e68d8cf696280e12407ac870b887b59a2913b52c4214524bc55dc94",
+  "problem_set": "box_panda",
+  "endpoints": {
+    "main": {
+      "repo": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/main",
+      "python": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/main/.venv/bin/python",
+      "commit": "fefecb8596cef1079404fc82046c6ac6dbd8f3f9",
+      "source_commit": "9f3e0175fd35d9cb1188a4fc72e7a40a1c0d7278",
+      "header_sha": "2bcb60e46ac8c08cf2ed62224bd93e382ab3f360bad4529e704f54a2857391c6",
+      "binary_sha": "af57e23f8763e4b43b24199fb9a1e9c615c6f5364563ef1de0235458c187e496",
+      "env": {
+        "GRID_RBD_CACHE_DIR": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/main/.venv/robot-cache",
+        "HJCDIK_TIMING_ROBOT": "p2b-main-highdof",
+        "HJCDIK_TIMING_ENTRY": "api",
+        "HJCDIK_TIMING_URDF": "/home/plancher/Desktop/HJCD-IK/csrc/urdf/panda_ext_24dof.urdf"
+      }
+    },
+    "branch": {
+      "repo": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/branch",
+      "python": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/branch/.venv/bin/python",
+      "commit": "a7c0dc5cb44a1aecbd34d4e91ab5b427fdbf7cf2",
+      "source_commit": "70bbb702383f74be1b6c8d8b99b091411a2bc702",
+      "header_sha": "2bcb60e46ac8c08cf2ed62224bd93e382ab3f360bad4529e704f54a2857391c6",
+      "binary_sha": "7b618efc0e4f3632b3dc5c926856385e7182832103d216b301f8320edd6c5075",
+      "env": {
+        "GRID_RBD_CACHE_DIR": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/branch/.venv/robot-cache",
+        "HJCDIK_TIMING_ROBOT": "p2b-branch-highdof",
+        "HJCDIK_TIMING_ENTRY": "api",
+        "HJCDIK_TIMING_URDF": "/home/plancher/Desktop/HJCD-IK/csrc/urdf/panda_ext_24dof.urdf"
+      }
+    }
+  },
+  "reference_urdf": "/home/plancher/Desktop/HJCD-IK/csrc/urdf/panda_ext_24dof.urdf",
+  "reference_urdf_sha": "343fd5607500c8a84c5db79963d2060e73b72a153e97ac3746629382d9cae044"
+}

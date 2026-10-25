@@ -1,0 +1,56 @@
+{
+  "rounds": 4,
+  "solutions": [
+    1,
+    4
+  ],
+  "batches": {
+    "table1": [
+      1,
+      2000,
+      8000,
+      32000
+    ],
+    "table2": [
+      100,
+      2000
+    ]
+  },
+  "target_counts": {
+    "table1": 100,
+    "table2": 100
+  },
+  "targets_json": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/audit_gate_2026-10-04/targets.json",
+  "targets_json_sha": "89d2d46ea69d101e4ce65cd54d999ae78814679f950c2fc120dd4a2277de28b4",
+  "problems_json": "/home/plancher/Desktop/HJCD-IK/tests/mb_problems.json",
+  "problems_json_sha": "69a3eae85e68d8cf696280e12407ac870b887b59a2913b52c4214524bc55dc94",
+  "problem_set": "box_panda",
+  "endpoints": {
+    "main": {
+      "repo": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/main",
+      "python": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/main/.venv/bin/python",
+      "commit": "fefecb8596cef1079404fc82046c6ac6dbd8f3f9",
+      "source_commit": "9f3e0175fd35d9cb1188a4fc72e7a40a1c0d7278",
+      "header_sha": "53eba14024ab674026171d5b700c2c312ab5890425351d4c01df79f9d725d8d7",
+      "binary_sha": "6e19111b26570c73238a6e2571ebe172e80a007eb9c51b42eab75e53bcd5b6ff",
+      "env": {
+        "GRID_RBD_CACHE_DIR": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/main/.venv/robot-cache",
+        "HJCDIK_TIMING_ROBOT": "p2b-main-runtime",
+        "HJCDIK_TIMING_ENTRY": "api"
+      }
+    },
+    "branch": {
+      "repo": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/branch",
+      "python": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/branch/.venv/bin/python",
+      "commit": "a7c0dc5cb44a1aecbd34d4e91ab5b427fdbf7cf2",
+      "source_commit": "70bbb702383f74be1b6c8d8b99b091411a2bc702",
+      "header_sha": "53eba14024ab674026171d5b700c2c312ab5890425351d4c01df79f9d725d8d7",
+      "binary_sha": "99e8cdc84eaa154c36f19c5b2ec2bd5e52d6a535b484f59b1795683dcc40c526",
+      "env": {
+        "GRID_RBD_CACHE_DIR": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/branch/.venv/robot-cache",
+        "HJCDIK_TIMING_ROBOT": "p2b-branch-runtime",
+        "HJCDIK_TIMING_ENTRY": "api"
+      }
+    }
+  }
+}

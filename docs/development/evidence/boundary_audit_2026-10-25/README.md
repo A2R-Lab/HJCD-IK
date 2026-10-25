@@ -1,5 +1,9 @@
 # API-boundary and maintenance audit — 2026-10-25
 
+Current status: the approved A1–A4, B1 and negative-device fixes are implemented and verified;
+see the [closure packet](../boundary_fixes_2026-10-25/README.md). Final timing remains pending.
+The findings and probe outputs below are the preserved pre-fix audit, not current failures.
+
 Reviewed source: `b1ef1dd` on `review/general-joints-closeout`; comparison baseline
 `ce2a1cb`. The user approved the packaged-spheres fix and requested a broader audit,
 including code bloat and drift. Only that approved behavior fix was implemented.
