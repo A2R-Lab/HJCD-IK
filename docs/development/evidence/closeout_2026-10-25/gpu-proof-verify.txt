@@ -1,0 +1,5 @@
+[gpu-proof] Signature valid (signer: @plancherb1)
+[gpu-proof] Fingerprint OK (e91b6a664e87…)
+[gpu-proof] Commit ancestry OK (06def18f94f7…)
+[gpu-proof] All 333 executed test(s) passed
+[gpu-proof] Receipt verified successfully.

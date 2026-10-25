@@ -1,0 +1,65 @@
+Running Sphinx v8.1.3
+loading translations [en]... done
+/home/plancher/Desktop/HJCD-IK/.venv/lib/python3.12/site-packages/breathe/project.py:116: RemovedInSphinx90Warning: Sphinx 9 will drop support for representing paths as strings. Use "pathlib.Path" or "os.fspath" instead.
+  self._default_build_dir = os.path.dirname(app.doctreedir.rstrip(os.sep))
+making output directory... done
+myst v4.0.0: MdParserConfig(commonmark_only=False, gfm_only=False, enable_extensions={'colon_fence', 'dollarmath'}, disable_syntax=[], all_links_external=False, links_external_new_tab=False, url_schemes=('http', 'https', 'mailto', 'ftp'), ref_domains=None, fence_as_directive=set(), number_code_blocks=[], title_to_header=False, heading_anchors=4, heading_slug_func=None, html_meta={}, footnote_sort=True, footnote_transition=True, words_per_minute=200, substitutions={}, linkify_fuzzy_links=True, dmath_allow_labels=True, dmath_allow_space=True, dmath_allow_digits=True, dmath_double_inline=False, update_mathjax=True, mathjax_classes='tex2jax_process|mathjax_process|math|output_area', enable_checkboxes=False, suppress_warnings=[], highlight_code_blocks=True)
+building [mo]: targets for 0 po files that are out of date
+writing output... 
+building [html]: targets for 13 source files that are out of date
+updating environment: [new config] 13 added, 0 changed, 0 removed
+reading sources... [  8%] api_reference/collision
+reading sources... [ 15%] api_reference/index
+reading sources... [ 23%] api_reference/kernel
+reading sources... [ 31%] api_reference/python
+reading sources... [ 38%] developer_guide/contribution_guidelines
+reading sources... [ 46%] index
+reading sources... [ 54%] user_guide/benchmarks/reproduction
+reading sources... [ 62%] user_guide/benchmarks/results
+reading sources... [ 69%] user_guide/concepts/hjcd_algorithm
+reading sources... [ 77%] user_guide/getting_started/installation
+reading sources... [ 85%] user_guide/tutorials/custom_robot
+reading sources... [ 92%] user_guide/tutorials/rail_ur5e
+reading sources... [100%] user_guide/upgrading
+
+looking for now-outdated files... none found
+pickling environment... done
+checking consistency... done
+preparing documents... done
+copying assets... 
+copying static files... 
+Writing evaluated template result to /tmp/hjcd-closeout-docs-fresh/_static/documentation_options.js
+Writing evaluated template result to /tmp/hjcd-closeout-docs-fresh/_static/language_data.js
+Writing evaluated template result to /tmp/hjcd-closeout-docs-fresh/_static/basic.css
+copying static files: done
+copying extra files... 
+copying extra files: done
+copying assets: done
+writing output... [  8%] api_reference/collision
+writing output... [ 15%] api_reference/index
+writing output... [ 23%] api_reference/kernel
+writing output... [ 31%] api_reference/python
+writing output... [ 38%] developer_guide/contribution_guidelines
+writing output... [ 46%] index
+writing output... [ 54%] user_guide/benchmarks/reproduction
+writing output... [ 62%] user_guide/benchmarks/results
+writing output... [ 69%] user_guide/concepts/hjcd_algorithm
+writing output... [ 77%] user_guide/getting_started/installation
+writing output... [ 85%] user_guide/tutorials/custom_robot
+writing output... [ 92%] user_guide/tutorials/rail_ur5e
+writing output... [100%] user_guide/upgrading
+
+generating indices... genindex done
+writing additional pages... search done
+copying images... [ 17%] _static/paper/pareto_batch.png
+copying images... [ 33%] _static/paper/pareto_collfree.png
+copying images... [ 50%] _static/paper/pareto_dof.png
+copying images... [ 67%] _static/paper/solution_distributions.png
+copying images... [ 83%] _static/rerun_2026-10-03/clearance_ladder.png
+copying images... [100%] _static/paper/design.png
+
+dumping search index in English (code: en)... done
+dumping object inventory... done
+build succeeded.
+
+The HTML pages are in ../../../../tmp/hjcd-closeout-docs-fresh.

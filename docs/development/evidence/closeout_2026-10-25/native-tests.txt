@@ -1,0 +1,10 @@
+Internal ctest changing into directory: /home/plancher/Desktop/HJCD-IK/build-native
+Test project /home/plancher/Desktop/HJCD-IK/build-native
+    Start 1: native_api
+1/2 Test #1: native_api .......................   Passed    0.38 sec
+    Start 2: cli_contracts
+2/2 Test #2: cli_contracts ....................   Passed    1.14 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) =   1.52 sec
