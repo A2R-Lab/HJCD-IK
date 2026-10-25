@@ -1959,8 +1959,8 @@ Result<T> generate_ik_solutions(
     }
 #endif  // HJCD_HAS_COLLISION
 
-    // Collision policy: "hard" (1, default) filters colliding candidates outright; "soft" (0) is a
-    // penetration cost that only biases selection; "both" (2) = soft cost + hard filter. Strict
+    // Collision policy: "hard" (1, default) filters colliding candidates outright; "soft" (2) is a
+    // penetration cost that only biases selection; "both" (3) = soft cost + hard filter. Strict
     // filtering is what makes a hard solve truthful.
     const bool use_soft = collision == CollisionMode::soft || collision == CollisionMode::both;
     const bool use_hard = collision == CollisionMode::hard || collision == CollisionMode::both;

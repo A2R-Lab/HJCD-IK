@@ -13,6 +13,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--stage",type=Path,required=True)
     p.add_argument("--out",type=Path,required=True)
+    p.add_argument("--include-warm",action="store_true",help="Also run the staged bounded warm-start leg")
     modes=p.add_mutually_exclusive_group(required=True)
     modes.add_argument("--quiet-window",action="store_true")
     modes.add_argument("--correctness-only",action="store_true")
@@ -20,7 +21,8 @@ def main():
     a=p.parse_args()
     mode="--check" if a.check else "--correctness-only" if a.correctness_only else "--quiet-window"
     if not a.check and a.out.exists(): raise SystemExit("choose a new output directory; partial runs are preserved")
-    for name in ("api","native","runtime","highdof"):
+    legs = ("api","native","runtime","highdof") + (("warm",) if a.include_warm else ())
+    for name in legs:
         subprocess.run([sys.executable,str(Path(__file__).with_name("run_audit_gate.py")),
                         "--config",str(a.stage/(name+".json")),"--out",str(a.out/name),mode],check=True)
     # Cold compilation is intentionally after every precompiled GPU leg. The user-announced

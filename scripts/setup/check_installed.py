@@ -68,6 +68,24 @@ def installed_check(work, phase, expected_key=None):
                 assert rows["restored"].ok(5, .001).any()
                 cells[f"{scene}-{precision}"] = dict(cold=cold, warm=warm, blocked=0)
         report.update(content_key=artifact.content_key, artifact=str(artifact.path), cells=cells)
+        # Exercise URDF-based no-build identity in the isolated wheel, not just named loading.
+        urdf = work/'cache/example-inputs/rail_ur5e.urdf'
+        spheres = work/'cache/example-inputs/rail_ur5e_spheres.urdf'
+        if phase == 'build':
+            hjcdik.build(urdf, ee_link=example['TARGET'], spheres=spheres, cache_dir=work/'cache')
+        prepared = hjcdik.Solver(urdf, ee_link=example['TARGET'], spheres=spheres,
+                                 allow_build=False, cache_dir=work/'cache', device=0)
+        assert prepared.info.joint_units == solver.info.joint_units
+        changed = work/f'changed-{phase}.urdf'
+        changed.write_bytes(urdf.read_bytes()+b'\n<!-- changed requested input -->\n')
+        try:
+            hjcdik.Solver(changed, ee_link=example['TARGET'], spheres=spheres,
+                          allow_build=False, cache_dir=work/'cache', device=0)
+        except hjcdik.BuildError as error:
+            assert 'requested model' in str(error)
+        else:
+            raise AssertionError('changed URDF loaded a stale artifact')
+        report['prepared_identity_checked'] = True
     report["versions"] = {name: metadata.version(name) for name in ("hjcdik", "numpy")}
     if phase != "panda":
         report["versions"]["grid-rbd"] = metadata.version("grid-rbd")

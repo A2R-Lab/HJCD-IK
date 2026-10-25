@@ -17,7 +17,6 @@ import hashlib
 import importlib.machinery
 import io
 import importlib.util
-import os
 import re
 import shutil
 import sys
@@ -26,7 +25,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Optional
 
 from ._robot_model import validate_solver_robot, describe_robot, stage_joint_header, fixed_frame_index
 

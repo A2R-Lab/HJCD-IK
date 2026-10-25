@@ -159,8 +159,8 @@ def emit_header(codegen, args, out, collision_spec):
     )
 
     # --- inject a collision-presence sentinel (compile guard for the kernel) ---
-    # grid.cuh only carries the grid_collision namespace when --collision was passed; the kernel and
-    # grid_env.cuh reference grid_collision:: symbols only under #if defined(HJCD_HAS_COLLISION), so a
+    # grid.cuh only carries the grid_collision namespace when --collision was passed; the kernel
+    # references grid_collision:: symbols only under #if defined(HJCD_HAS_COLLISION), so a
     # no-collision header (e.g. the DoF-scaling regens) still compiles. This is codegen output, not a
     # hand-edit — every regen re-emits it deterministically.
     if args.collision:

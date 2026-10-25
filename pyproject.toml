@@ -8,7 +8,7 @@ build-backend = "scikit_build_core.build"
 [project]
 name = "hjcdik"
 version = "0.0.1"
-description = "GPU-parallel hierarchical joint-coordinate-descent inverse kinematics"
+description = "GPU-parallel Hybrid Jacobian Coordinate Descent inverse kinematics"
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [

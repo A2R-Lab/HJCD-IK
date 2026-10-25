@@ -38,7 +38,10 @@ Solver
    A URDF path with ``ee_link`` (the fixed joint naming the end-effector frame) and optionally
    ``spheres`` builds the robot on first use; ``allow_build=False`` only loads a prepared build and
    raises ``BuildError`` naming the command otherwise. ``device`` defaults to the current CUDA
-   device. ``solver.info`` is an ``Info`` with ``robot``, ``dof``, ``ee_frame``,
+   device. Explicit device indices must be non-negative; ``None`` binds the current device
+   at construction. URDF loads with ``allow_build=False`` verify input content and the tool
+   frame against the prepared artifact; changed inputs raise ``BuildError`` with rebuild guidance.
+   ``solver.info`` is an ``Info`` with ``robot``, ``dof``, ``ee_frame``,
    ``collision_enabled``, ``grid_header_sha256``, ``cuda_compiler_version``, ``device``,
    ``max_batch_size`` and ``artifact`` (the store path of a runtime build, ``None`` for the packaged
    robot). Ordered ``joint_names``, ``joint_types``, ``joint_units`` and ``joint_limits`` are

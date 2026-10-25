@@ -49,6 +49,28 @@ def test_native_unpack_keeps_empty_query_and_removes_padding():
     assert result["pos_errors"].shape==result["ori_errors"].shape==(0,)
 
 
+@pytest.mark.parametrize('entry', ['api', 'native'])
+def test_warm_timing_prepares_fixed_seed_untimed(monkeypatch, entry):
+    from types import SimpleNamespace
+    monkeypatch.setenv('HJCDIK_TIMING_WARM', 'midpoint')
+    monkeypatch.setenv('HJCDIK_TIMING_ENTRY', entry)
+    m = module('timing_driver')
+    calls = []
+    def native(*args):
+        calls.append(args[11])
+    def api(*args, **kwargs):
+        calls.append(kwargs['q_init'])
+        return [None]
+    solver = SimpleNamespace(info=SimpleNamespace(joint_limits=((-2, 4), (0, 2)), device=0),
+                             _native=SimpleNamespace(solve_batch=native), _world=None, solve=api)
+    monkeypatch.setattr(m, 'new_api_solver', lambda: solver)
+    prepare, solve = m.make_solve(8, 1, False, '', '', -1, [[0]*7])
+    prepare(0)
+    assert not calls
+    solve(0, [0]*7)
+    np.testing.assert_array_equal(calls[0], [[1, 1]])
+
+
 def test_highdof_reference_uses_selected_robot(monkeypatch):
     path=ROOT/"csrc/urdf/panda_ext_24dof.urdf"
     monkeypatch.setenv("HJCDIK_TIMING_URDF",str(path))

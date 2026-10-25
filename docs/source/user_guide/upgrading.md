@@ -153,7 +153,7 @@ See {doc}`benchmarks/results` for the unchanged published results.
   inputs and `hjcdik.build(..., force_rebuild=True)` (CLI: `hjcdik build ... --force`),
   then restart a process that already imported the old artifact. Do not delete an entire cache.
 
-### Prepared model identity and codegen options
+## Prepared model identity and codegen options
 
 Loading from a URDF with `allow_build=False` now verifies the requested URDF content,
 sphere model and tool frame against the prepared artifact. Changed inputs raise `BuildError`
@@ -171,3 +171,9 @@ Within each candidate pool, converged eligible candidates outrank inaccurate one
 joint-space distance; the old finite ranking offset could fail for very large finite seeds.
 The distance metric, convergence tolerances, collision filters and refined-pool preference are
 unchanged. Candidate identities remain nondeterministic; this is not a new convergence guarantee.
+
+World box/cylinder quaternions are normalized robustly before upload, including very small
+nonzero scales within the accepted input range. Converted cylinder endpoints must still fit
+fp32. Invalid replacements leave the previous world installed. Negative device indices now
+raise `ValueError` before robot resolution instead of selecting the current device implicitly;
+use `device=None` for the current device at construction.

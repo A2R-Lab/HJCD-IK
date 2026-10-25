@@ -175,3 +175,44 @@ def test_punctuated_tool_name_in_static_and_runtime_builds(tmp_path, tool):
     commands = json.loads((build/'compile_commands.json').read_text())
     binding = next(c['command'] for c in commands if c['file'].endswith('pybind_module.cpp'))
     assert f'-DHJCDIK_EE_TARGET="{tool}"' in shlex.split(binding)
+
+
+def test_custom_packaged_ur5e_metadata_and_fk(tmp_path):
+    """Compile a separate custom extension, then exercise public Info and independent FK."""
+    import json
+    import pybind11
+    import numpy as np
+    from test_general_joints import targets_for
+    urdf = ROOT/'csrc/urdf/ur5e.urdf'
+    subprocess.run([sys.executable, str(GEN), str(urdf), '-t', 'flange-tool0',
+                    '-o', str(tmp_path/'grid.cuh')], check=True, capture_output=True, text=True)
+    build = tmp_path/'build'
+    subprocess.run(['cmake', '-S', str(ROOT), '-B', str(build), '-DBUILD_PYTHON=ON',
+                    '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_CUDA_ARCHITECTURES=120',
+                    '-Dpybind11_DIR='+pybind11.get_cmake_dir(),
+                    '-DHJCDIK_GRID_HEADER='+str(tmp_path/'grid.cuh'),
+                    '-DCMAKE_CXX_FLAGS=-DHJCDIK_DIAGNOSTICS',
+                    '-DCMAKE_CUDA_FLAGS=-DHJCDIK_DIAGNOSTICS'],
+                   check=True, capture_output=True, text=True)
+    subprocess.run(['cmake', '--build', str(build), '--target', '_hjcdik', '-j', '2'],
+                   check=True, capture_output=True, text=True, timeout=300)
+    binaries = list(build.glob('_hjcdik*.so'))
+    assert len(binaries) == 1
+    q = np.array([[.2, -.7, .5, -.3, .8, .1]])
+    expected = targets_for(urdf, q, 'flange-tool0')[0]
+    script = '''import importlib.util,json,sys,numpy as np
+spec=importlib.util.spec_from_file_location('hjcdik._hjcdik',sys.argv[1])
+native=importlib.util.module_from_spec(spec)
+sys.modules['hjcdik._hjcdik']=native
+spec.loader.exec_module(native)
+import hjcdik
+solver=hjcdik.Solver()
+assert solver.info.ee_frame==hjcdik.build_info()['ee_target']=='flange-tool0'
+raw=native._diagnostic_model(json.loads(sys.argv[2]))
+pose=np.array(raw[:7]); expected=np.array(json.loads(sys.argv[3]))
+np.testing.assert_allclose(pose[:3],expected[:3],atol=1e-9,rtol=0)
+assert abs(np.dot(pose[3:],expected[3:]))>1-1e-12
+'''
+    run = subprocess.run([sys.executable, '-c', script, str(binaries[0]), json.dumps(q[0].tolist()),
+                          json.dumps(expected.tolist())], capture_output=True, text=True)
+    assert run.returncode == 0, run.stdout+run.stderr

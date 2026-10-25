@@ -81,6 +81,7 @@ tests/test_build_failures.py::test_prepared_import_failure_is_actionable[abi]
 tests/test_build_failures.py::test_prepared_import_failure_is_actionable[damaged]
 tests/test_build_failures.py::test_prepared_import_failure_is_actionable[missing]
 tests/test_codegen.py::test_cmake_rejects_mismatched_same_dof_headers
+tests/test_codegen.py::test_custom_packaged_ur5e_metadata_and_fk
 tests/test_codegen.py::test_explicit_glass_provenance_is_archive_reproducible
 tests/test_codegen.py::test_failed_codegen_preserves_previous_header[flags0-fixed-base serial chain]
 tests/test_codegen.py::test_failed_codegen_preserves_previous_header[flags1-grid namespace]
@@ -351,6 +352,8 @@ tests/test_timing_contract.py::test_gate_preflight_checks_provenance_without_gpu
 tests/test_timing_contract.py::test_gate_rejects_missing_duplicate_and_mixed_protocol_cells
 tests/test_timing_contract.py::test_highdof_reference_uses_selected_robot
 tests/test_timing_contract.py::test_native_unpack_keeps_empty_query_and_removes_padding
+tests/test_timing_contract.py::test_warm_timing_prepares_fixed_seed_untimed[api]
+tests/test_timing_contract.py::test_warm_timing_prepares_fixed_seed_untimed[native]
 tests/test_warm_ranking.py::test_extreme_warm_seeds_keep_accurate_solutions[-1-None-fp32]
 tests/test_warm_ranking.py::test_extreme_warm_seeds_keep_accurate_solutions[-1-None-fp64]
 tests/test_warm_ranking.py::test_extreme_warm_seeds_keep_accurate_solutions[-1-both-fp32]
@@ -370,3 +373,11 @@ tests/test_warm_ranking.py::test_extreme_warm_seeds_keep_accurate_solutions[1-so
 tests/test_warm_ranking.py::test_multiple_per_target_extreme_seeds[fp32]
 tests/test_warm_ranking.py::test_multiple_per_target_extreme_seeds[fp64]
 tests/test_warm_ranking.py::test_native_selection_order
+tests/test_world_validation.py::test_derived_endpoints_rejected_before_upload
+tests/test_world_validation.py::test_explicit_numpy_device
+tests/test_world_validation.py::test_negative_device_rejected_before_resolution[-1]
+tests/test_world_validation.py::test_negative_device_rejected_before_resolution[device1]
+tests/test_world_validation.py::test_world_quaternion_scale[1.0]
+tests/test_world_validation.py::test_world_quaternion_scale[1e+30]
+tests/test_world_validation.py::test_world_quaternion_scale[1e-200]
+tests/test_world_validation.py::test_world_quaternion_scale[1e-320]

@@ -63,6 +63,11 @@ TIMING_ROBOT = os.environ.get("HJCDIK_TIMING_ROBOT") or None
 TIMING_MARGIN = float(os.environ.get("HJCDIK_TIMING_MARGIN", "0") or 0)
 TIMING_ENTRY = os.environ.get("HJCDIK_TIMING_ENTRY", "api")
 TIMING_URDF = os.environ.get("HJCDIK_TIMING_URDF")
+TIMING_WARM = os.environ.get("HJCDIK_TIMING_WARM", "none")
+if TIMING_WARM not in ("none", "midpoint"):
+    raise ValueError("HJCDIK_TIMING_WARM must be none or midpoint")
+if TIMING_WARM != "none" and not NEW_API:
+    raise ValueError("warm-start timing requires the Solver API")
 if TIMING_ENTRY not in ("api", "native"):
     raise ValueError("HJCDIK_TIMING_ENTRY must be api or native")
 REFERENCE_CHAIN = None
@@ -111,6 +116,13 @@ def make_solve(batch, num_solutions, collision_free, pj_text, set_name, precisio
         solver = new_api_solver()
         native_poses = [np.asarray(t,dtype=float).reshape(1,7) for t in targets]
         extra = {"collision_margin_m": TIMING_MARGIN} if (collision_free and TIMING_MARGIN > 0) else {}
+        # A fixed bounded seed, identical on both endpoints; no endpoint-specific IK result
+        # is used to manufacture an easier timed workload. Preparation stays outside the clock.
+        q_init = None
+        if TIMING_WARM == "midpoint":
+            limits = np.asarray(solver.info.joint_limits, dtype=float)
+            q_init = (limits[:, 0] / 2 + limits[:, 1] / 2)[None, :]
+            extra["q_init"] = q_init
         def prepare(i):
             if collision_free:
                 solver.set_world(**hjcdik.worlds.from_mbm_problem(problems[i]))
@@ -119,7 +131,7 @@ def make_solve(batch, num_solutions, collision_free, pj_text, set_name, precisio
                 return solver._native.solve_batch(native_poses[i],batch,num_solutions,
                     1 if collision_free else 0, (num_solutions==1) if precision==-1 else bool(precision),
                     False,solver._world,solver.info.device,TIMING_MARGIN if collision_free else 0.0,
-                    True,1337,None,num_solutions)
+                    True,1337,q_init,num_solutions)
             return solver.solve(t, batch_size=batch, num_solutions=num_solutions,
                                 collision="hard" if collision_free else None,
                                 precision=PRECISION[precision], **extra)[0]

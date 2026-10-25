@@ -9,12 +9,12 @@ from __future__ import annotations
 import os
 import threading
 from dataclasses import dataclass, fields
-from typing import Optional, Sequence, Union
+from typing import Optional
 
 import numpy as np
 
 from . import _hjcdik as _native   # the packaged robot; artifacts bring their own module
-from ._build import Artifact, BuildError, build as _build_artifact, import_artifact, load as _load_artifact
+from ._build import Artifact, build as _build_artifact, import_artifact, load as _load_artifact
 
 _COLLISION_CODES = {None: 0, "hard": 1, "soft": 2, "both": 3}
 _OMITTED = object()
@@ -179,9 +179,17 @@ def _check_positive(name: str, values: np.ndarray, what: str) -> None:
         raise ValueError(f"{name} {what} must be positive")
 
 
+def _normalized_quaternions(q: np.ndarray) -> np.ndarray:
+    """Scale first to avoid underflow in the norm of finite, nonzero rows."""
+    if not len(q):
+        return q.copy()
+    scaled = q / np.abs(q).max(axis=1, keepdims=True)
+    return scaled / np.linalg.norm(scaled, axis=1, keepdims=True)
+
+
 def _rotation_z_axis(q: np.ndarray) -> np.ndarray:
     """Third column of R(q) for rows of scalar-first quaternions (normalised here)."""
-    q = q / np.linalg.norm(q, axis=1, keepdims=True)
+    q = _normalized_quaternions(q)
     w, x, y, z = q.T
     return np.stack([2 * (x * z + y * w), 2 * (y * z - x * w), 1 - 2 * (x * x + y * y)], axis=1)
 
@@ -199,6 +207,7 @@ def world_arrays(*, boxes=None, capsules=None, spheres=None, cylinders=None) -> 
     _check_positive("capsules", capsules[:, 6], "radii")
     boxes = _as_matrix("boxes", boxes, 10)
     _check_quaternions("boxes", boxes[:, 3:7])
+    boxes[:, 3:7] = _normalized_quaternions(boxes[:, 3:7])
     _check_positive("boxes", boxes[:, 7:10], "side lengths")
     cylinders = _as_matrix("cylinders", cylinders, 9)
     if cylinders.shape[0]:
@@ -207,6 +216,7 @@ def world_arrays(*, boxes=None, capsules=None, spheres=None, cylinders=None) -> 
         axis = _rotation_z_axis(cylinders[:, 3:7])
         half = 0.5 * cylinders[:, 8:9] * axis
         converted = np.concatenate([cylinders[:, :3] - half, cylinders[:, :3] + half, cylinders[:, 7:8]], axis=1)
+        converted = _as_matrix("converted cylinders", converted, 7)
         capsules = np.concatenate([capsules, converted], axis=0)
     return {"spheres": spheres, "capsules": np.ascontiguousarray(capsules), "boxes": boxes}
 
@@ -236,6 +246,10 @@ class Solver:
 
     def __init__(self, robot=None, *, ee_link: Optional[str] = None, spheres=None,
                  device: Optional[int] = None, allow_build: bool = True, cache_dir=None):
+        if device is not None:
+            device = int(device)
+            if device < 0:
+                raise ValueError("device must be non-negative")
         self._artifact: Optional[Artifact] = None
         self._native = self._resolve(robot, ee_link, spheres, allow_build, cache_dir)
         info = self._native.build_info()
