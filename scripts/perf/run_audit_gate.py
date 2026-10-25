@@ -94,9 +94,14 @@ def main():
         sha = subprocess.check_output(["git", "-C", ep["repo"], "rev-parse", "HEAD"], text=True).strip()
         if sha != ep["commit"]:
             raise ValueError(f"changed checkout: {label}")
-        info = json.loads(subprocess.check_output([ep["python"], "-c",
-            "import json,sys,numpy,hjcdik,hjcdik._hjcdik as m; print(json.dumps(dict(build=hjcdik.build_info(),binary=m.__file__,python=sys.version,numpy=numpy.__version__)))"],
-            cwd="/tmp", env=env, text=True))
+        robot = ep.get("env", {}).get("HJCDIK_TIMING_ROBOT")
+        if robot:   # a prepared runtime build: its header and artifact are the provenance (no CUDA init: device=0)
+            probe = ("import json,sys,numpy,hjcdik; s=hjcdik.Solver(%r, device=0, allow_build=False); "
+                     "print(json.dumps(dict(build=dict(hjcdik.build_info(), grid_header_sha256=s.info.grid_header_sha256, "
+                     "ee_target=s.info.ee_frame), binary=s.info.artifact, python=sys.version, numpy=numpy.__version__)))" % robot)
+        else:
+            probe = "import json,sys,numpy,hjcdik,hjcdik._hjcdik as m; print(json.dumps(dict(build=hjcdik.build_info(),binary=m.__file__,python=sys.version,numpy=numpy.__version__)))"
+        info = json.loads(subprocess.check_output([ep["python"], "-c", probe], cwd="/tmp", env={**env, **ep.get("env", {})}, text=True))
         if info["build"]["grid_header_sha256"] != ep["header_sha"] or digest(info["binary"]) != ep["binary_sha"]:
             raise ValueError(f"changed installed build: {label}")
         if info["build"].get("ee_target", "panda_hand_joint") != "panda_hand_joint":

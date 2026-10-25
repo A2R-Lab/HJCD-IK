@@ -21,7 +21,7 @@ Output: appends one CSV row per (leg, batch) to --out:
   label,leg,batch,round,n_targets,median_ms,mean_ms,min_ms,p95_ms
 Timing = per-call wall time of one solve across targets in the round.
 """
-import argparse, csv, json, statistics, sys, time
+import argparse, csv, json, os, statistics, sys, time
 from pathlib import Path
 
 import hjcdik
@@ -56,6 +56,14 @@ def goal_pose_targets(problems_json_path, set_name):
 
 NEW_API = hasattr(hjcdik, "Solver")
 PRECISION = {-1: "auto", 0: "fp32", 1: "fp64"}
+# Endpoint knobs for the gate (set per endpoint in gate.json "env"): a prepared runtime build to time
+# instead of the packaged robot, and a clearance margin for the collision leg (hard mode only).
+TIMING_ROBOT = os.environ.get("HJCDIK_TIMING_ROBOT") or None
+TIMING_MARGIN = float(os.environ.get("HJCDIK_TIMING_MARGIN", "0") or 0)
+
+
+def new_api_solver():
+    return hjcdik.Solver(TIMING_ROBOT, allow_build=False) if TIMING_ROBOT else hjcdik.Solver()
 
 
 def make_solve(batch, num_solutions, collision_free, pj_text, set_name, precision):
@@ -67,14 +75,15 @@ def make_solve(batch, num_solutions, collision_free, pj_text, set_name, precisio
     """
     problems = json.loads(pj_text)["problems"][set_name] if collision_free else None
     if NEW_API:
-        solver = hjcdik.Solver()
+        solver = new_api_solver()
+        extra = {"collision_margin_m": TIMING_MARGIN} if (collision_free and TIMING_MARGIN > 0) else {}
         def prepare(i):
             if collision_free:
                 solver.set_world(**hjcdik.worlds.from_mbm_problem(problems[i]))
         def solve(i, t):
             return solver.solve(t, batch_size=batch, num_solutions=num_solutions,
                                 collision="hard" if collision_free else None,
-                                precision=PRECISION[precision])[0]
+                                precision=PRECISION[precision], **extra)[0]
         return prepare, solve
     def solve(i, t):
         return hjcdik.generate_solutions(t, batch_size=batch, num_solutions=num_solutions,
@@ -148,7 +157,13 @@ def main():
 
     # Provenance: make it impossible to silently time the wrong endpoint.
     print(f"[{args.label}] hjcdik = {hjcdik.__file__}")
-    info = hjcdik.build_info()
+    info = dict(hjcdik.build_info())
+    if NEW_API and TIMING_ROBOT:   # a runtime build: its own header and artifact are the provenance
+        s = new_api_solver()
+        info.update(grid_header_sha256=s.info.grid_header_sha256, ee_target=s.info.ee_frame,
+                    artifact=s.info.artifact, robot=s.info.robot)
+    if TIMING_MARGIN:
+        info["collision_margin_m"] = TIMING_MARGIN
     if info["grid_header_sha256"] != args.expected_header_sha:
         raise ValueError("wrong compiled header")
     if info.get("ee_target", "panda_hand_joint") != "panda_hand_joint":
