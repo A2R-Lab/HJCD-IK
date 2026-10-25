@@ -171,6 +171,11 @@ Within each candidate pool, converged eligible candidates outrank inaccurate one
 joint-space distance; the old finite ranking offset could fail for very large finite seeds.
 The distance metric, convergence tolerances, collision filters and refined-pool preference are
 unchanged. Candidate identities remain nondeterministic; this is not a new convergence guarantee.
+Prepared runtime artifacts retain the solver code they were compiled with: neither named loading
+nor `allow_build=False` upgrades an old artifact. To receive this fix for a custom robot, run
+`hjcdik.build(original_urdf, ee_link=original_tool, spheres=original_spheres, name=original_name)`
+with the updated package, then restart any process that already imported the old artifact.
+GRiD's content identity selects the new build; no cache deletion is needed.
 
 World box/cylinder quaternions are normalized robustly before upload, including very small
 nonzero scales within the accepted input range. Converted cylinder endpoints must still fit
