@@ -1,5 +1,10 @@
 # Boundary correctness closeout
 
+Update 2026-10-26: two complete [quiet timing passes](../boundary_timing_2026-10-26/README.md)
+are now recorded: 83,200 queries, identical paired quality counts, but small repeated
+Panda and warm-start latency increases. Performance acceptance remains pending; the
+timing-ready/no-measurement text below describes the original 2026-10-25 checkpoint.
+
 Scope: the approved fixes following the [boundary audit](../boundary_audit_2026-10-25/README.md),
 starting from `9f3e017` on `review/general-joints-closeout`. Implementation is `70bbb70`;
 `251832e` adds the prepared-artifact upgrade note without changing implementation.
