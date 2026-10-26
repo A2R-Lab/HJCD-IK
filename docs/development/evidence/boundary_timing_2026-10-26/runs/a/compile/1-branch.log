@@ -1,0 +1,217 @@
+/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/branch/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [panda_link0] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+  warnings.warn(
+/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/branch/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [panda_link0] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+  warnings.warn(
+------------------------------------------
+Assumed Input Joint Configuration Ordering
+------------------------------------------
+panda_joint1
+panda_joint2
+panda_joint3
+panda_joint4
+panda_joint5
+panda_joint6
+panda_joint7
+------------------------------------------
+Total of n = 7 dof
+Total of n = 7 joints
+Total of n = 8 links
+------------------------------------------
+Fixed Joints Found (if any):
+------------------------------------------
+right_gripper (id: 7, parent: panda_joint7)
+panda_finger_joint2 (id: 8, parent: panda_joint7)
+panda_finger_joint1 (id: 9, parent: panda_joint7)
+panda_grasptarget_hand (id: 10, parent: panda_joint7)
+panda_hand_joint (id: 11, parent: panda_joint7)
+panda_joint8 (id: 12, parent: panda_joint7)
+------------------------------------------
+------------------------------------------
+Assumed Input Joint Configuration Ordering
+------------------------------------------
+panda_joint1
+panda_joint2
+panda_joint3
+panda_joint4
+panda_joint5
+panda_joint6
+panda_joint7
+------------------------------------------
+Total of n = 7 dof
+Total of n = 7 joints
+Total of n = 8 links
+------------------------------------------
+Fixed Joints Found (if any):
+------------------------------------------
+right_gripper (id: 7, parent: panda_joint7)
+panda_finger_joint2 (id: 8, parent: panda_joint7)
+panda_finger_joint1 (id: 9, parent: panda_joint7)
+panda_grasptarget_hand (id: 10, parent: panda_joint7)
+panda_hand_joint (id: 11, parent: panda_joint7)
+panda_joint8 (id: 12, parent: panda_joint7)
+------------------------------------------
+------------------------------------------
+Assumed Input Joint Configuration Ordering
+------------------------------------------
+panda_joint1
+panda_joint2
+panda_joint3
+panda_joint4
+panda_joint5
+panda_joint6
+panda_joint7
+------------------------------------------
+Total of n = 7 dof
+Total of n = 7 joints
+Total of n = 8 links
+------------------------------------------
+Fixed Joints Found (if any):
+------------------------------------------
+right_gripper (id: 7, parent: panda_joint7)
+panda_finger_joint2 (id: 8, parent: panda_joint7)
+panda_finger_joint1 (id: 9, parent: panda_joint7)
+panda_grasptarget_hand (id: 10, parent: panda_joint7)
+panda_hand_joint (id: 11, parent: panda_joint7)
+panda_joint8 (id: 12, parent: panda_joint7)
+------------------------------------------
+{"robot": "panda", "cold_seconds": 15.288766701938584, "cache_hit_seconds": 0.1960172459948808, "source_sha": "90bb0a412eb12a3af0abb9d5d0f06be3dbbe1a72806b0416dd9769992cb35079", "content_key": "18c57b701f8ce4f2cd810c8731e97d9b18dbfa0e481758c38e2b9bdeec308f5f", "header_sha": "09657d29e9ab9c82aa023506e41b6b11496464e2ba390d9cd4f73f8c571dc5e8", "cuda_compiler_version": "", "binary": "/tmp/hjcd-boundary-timing-20261026-a/compile/1-branch/panda/consumers/hjcdik/store/18c57b701f8ce4f2cd810c8731e97d9b18dbfa0e481758c38e2b9bdeec308f5f/hjcdik_b3313213e47e.so", "pid": 4029301}
+/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/branch/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [panda_link0] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+  warnings.warn(
+/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/branch/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [panda_leftfinger] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+  warnings.warn(
+/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/branch/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [panda_rightfinger] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+  warnings.warn(
+/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/branch/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:568: UserWarning: URDFParser: Link(s) ['panda_link7'] have a degenerate/missing <inertial> (zero or non-positive-definite mass/inertia), which yields singular/broken dynamics. Provide a valid <inertial>, or parse with strict_inertial=True to reject this as an error.
+  self.validate_inertials(root_link_name)
+/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/branch/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [panda_link0] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+  warnings.warn(
+/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/branch/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [panda_leftfinger] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+  warnings.warn(
+/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/branch/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [panda_rightfinger] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+  warnings.warn(
+/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/branch/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:568: UserWarning: URDFParser: Link(s) ['panda_link7'] have a degenerate/missing <inertial> (zero or non-positive-definite mass/inertia), which yields singular/broken dynamics. Provide a valid <inertial>, or parse with strict_inertial=True to reject this as an error.
+  self.validate_inertials(root_link_name)
+------------------------------------------
+Assumed Input Joint Configuration Ordering
+------------------------------------------
+panda_joint1
+panda_joint2
+panda_joint3
+panda_joint4
+panda_joint5
+panda_joint6
+panda_joint7
+panda_joint8
+panda_joint9
+panda_joint10
+panda_joint11
+panda_joint12
+panda_joint13
+panda_joint14
+panda_joint15
+panda_joint16
+panda_joint17
+panda_joint18
+panda_joint19
+panda_joint20
+panda_joint21
+panda_joint22
+panda_joint23
+panda_joint24
+------------------------------------------
+Total of n = 24 dof
+Total of n = 24 joints
+Total of n = 25 links
+------------------------------------------
+Fixed Joints Found (if any):
+------------------------------------------
+right_gripper_mount (id: 24, parent: panda_joint24)
+panda_finger_joint2 (id: 25, parent: panda_joint24)
+panda_finger_joint1 (id: 26, parent: panda_joint24)
+panda_grasptarget_hand (id: 27, parent: panda_joint24)
+panda_hand_joint (id: 28, parent: panda_joint24)
+panda_joint_flange_offset (id: 29, parent: panda_joint24)
+------------------------------------------
+------------------------------------------
+Assumed Input Joint Configuration Ordering
+------------------------------------------
+panda_joint1
+panda_joint2
+panda_joint3
+panda_joint4
+panda_joint5
+panda_joint6
+panda_joint7
+panda_joint8
+panda_joint9
+panda_joint10
+panda_joint11
+panda_joint12
+panda_joint13
+panda_joint14
+panda_joint15
+panda_joint16
+panda_joint17
+panda_joint18
+panda_joint19
+panda_joint20
+panda_joint21
+panda_joint22
+panda_joint23
+panda_joint24
+------------------------------------------
+Total of n = 24 dof
+Total of n = 24 joints
+Total of n = 25 links
+------------------------------------------
+Fixed Joints Found (if any):
+------------------------------------------
+right_gripper_mount (id: 24, parent: panda_joint24)
+panda_finger_joint2 (id: 25, parent: panda_joint24)
+panda_finger_joint1 (id: 26, parent: panda_joint24)
+panda_grasptarget_hand (id: 27, parent: panda_joint24)
+panda_hand_joint (id: 28, parent: panda_joint24)
+panda_joint_flange_offset (id: 29, parent: panda_joint24)
+------------------------------------------
+------------------------------------------
+Assumed Input Joint Configuration Ordering
+------------------------------------------
+panda_joint1
+panda_joint2
+panda_joint3
+panda_joint4
+panda_joint5
+panda_joint6
+panda_joint7
+panda_joint8
+panda_joint9
+panda_joint10
+panda_joint11
+panda_joint12
+panda_joint13
+panda_joint14
+panda_joint15
+panda_joint16
+panda_joint17
+panda_joint18
+panda_joint19
+panda_joint20
+panda_joint21
+panda_joint22
+panda_joint23
+panda_joint24
+------------------------------------------
+Total of n = 24 dof
+Total of n = 24 joints
+Total of n = 25 links
+------------------------------------------
+Fixed Joints Found (if any):
+------------------------------------------
+right_gripper_mount (id: 24, parent: panda_joint24)
+panda_finger_joint2 (id: 25, parent: panda_joint24)
+panda_finger_joint1 (id: 26, parent: panda_joint24)
+panda_grasptarget_hand (id: 27, parent: panda_joint24)
+panda_hand_joint (id: 28, parent: panda_joint24)
+panda_joint_flange_offset (id: 29, parent: panda_joint24)
+------------------------------------------
+{"robot": "24dof", "cold_seconds": 55.1476388098672, "cache_hit_seconds": 0.42768870014697313, "source_sha": "343fd5607500c8a84c5db79963d2060e73b72a153e97ac3746629382d9cae044", "content_key": "fc9e37b34d93f11f5c33324f7a39457d4a876f21acbdfc2b25075c54899c1b41", "header_sha": "2bcb60e46ac8c08cf2ed62224bd93e382ab3f360bad4529e704f54a2857391c6", "cuda_compiler_version": "", "binary": "/tmp/hjcd-boundary-timing-20261026-a/compile/1-branch/24dof/consumers/hjcdik/store/fc9e37b34d93f11f5c33324f7a39457d4a876f21acbdfc2b25075c54899c1b41/hjcdik_e4cf727dccc0.so", "pid": 4029301}

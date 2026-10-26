@@ -1,0 +1,4 @@
+[main-S1] hjcdik = /home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/main/hjcdik/__init__.py
+{"build": {"robot": "panda", "num_joints": 7, "ee_target": "panda_hand_joint", "collision_enabled": true, "grid_header_sha256": "53eba14024ab674026171d5b700c2c312ab5890425351d4c01df79f9d725d8d7", "joint_model_sha256": "865db3c723537d4ba32f274f503cb392e4d8a137e7b359c7cd0210e20d200b97", "cuda_compiler_version": "", "binding_abi": 5, "artifact": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/main/.venv/robot-cache/consumers/hjcdik/store/ac0ddc0a96b65a8df4e7406d859d2ad06cb9e371fe54b110e22f87411487f50d/hjcdik_04c98ced6966.so"}, "precision": -1, "correctness_only": false}
+[main-S1 r1] table2 B=100: 100/100 accurate; empty=0
+[main-S1 r1] table2 B=2000: 100/100 accurate; empty=0

@@ -1,7 +1,8 @@
-b79cda5b597daac5f61fade1f3354fd23b94c40b4b85f62a16204cee793b4858  ./README.md
+a9981ab73028528fac8ffc78a4ed8cd9cb33addf3bd7b17a75e24f5824ddfbdc  ./README.md
 c81626d9759346df801d7a1a276a84940ceb7fca942473cede835a968f25a1d4  ./analyze.py
 c44a34c9f4398e198ae6c1d8cafd115226386b07b9329b87147b334e0e4d798f  ./paired_results.txt
 c39740bae9b07887e2a4aa03f802527b0504351119bfad2df5b392aa46beb309  ./receipt_dirty_check.log
+e7f089bb163e5ec8bcd6676cc77b8a468e9af60ecbc1b782df7eb10f76afedf1  ./receipt_verified.log
 75f7aded7a06130386620804d91b12aab9bbfd16f6118cdbc970cc9537f05470  ./runs/a/api/1-branch-S1-table1.log
 0cd768694e9ad71414838a25bb6ab6e045df55ca81d70f4705652d25c69b9d97  ./runs/a/api/1-branch-S1-table2.log
 2d7d69c59874a0fa170c14ddde6136a442d8ff1b86844d9443919542578bb99f  ./runs/a/api/1-branch-S4-table1.log

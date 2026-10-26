@@ -1,0 +1,6 @@
+[main-S1] hjcdik = /home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/main/hjcdik/__init__.py
+{"build": {"robot": "panda", "num_joints": 7, "ee_target": "panda_hand_joint", "collision_enabled": true, "grid_header_sha256": "fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa", "joint_model_sha256": "865db3c723537d4ba32f274f503cb392e4d8a137e7b359c7cd0210e20d200b97", "cuda_compiler_version": "13.2.86", "binding_abi": 5}, "precision": -1, "correctness_only": false}
+[main-S1 r4] table1 B=1: 95/100 accurate; empty=0
+[main-S1 r4] table1 B=2000: 100/100 accurate; empty=0
+[main-S1 r4] table1 B=8000: 100/100 accurate; empty=0
+[main-S1 r4] table1 B=32000: 100/100 accurate; empty=0

@@ -101,8 +101,8 @@ counts and order/toolchain effects limit compile-speed conclusions.
 Correctness remains closed, with **383 passed** in the signed suite; its receipt was
 reverified after timing on clean `1d795f9`. An additional verification attempt while
 this evidence directory was untracked correctly failed the clean-tree policy (retained
-as `receipt_dirty_check.log`); signature, fingerprint and ancestry still passed. Reverify
-again on the committed evidence checkpoint. The boundary source diff changes host seed preparation and
+as `receipt_dirty_check.log`); signature, fingerprint and ancestry still passed. Verification
+passed again on clean evidence commit `dd7f30c` (`receipt_verified.log`). The boundary source diff changes host seed preparation and
 candidate ranking, not the device solver math. The no-warm path now uses a categorical
 pair score, and warm calls add a joint-limit device-to-host copy plus finite checks.
 These are plausible attribution targets, **not measured root causes**; compiler layout
