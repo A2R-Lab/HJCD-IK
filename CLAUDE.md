@@ -210,22 +210,37 @@ measurement with the protocol in [`docs/development/timing_gate.md`](docs/develo
 > **Build/test gotcha:** `ninja -C build` does NOT update the imported `.so` (it's the editable copy in
 > site-packages). Always rebuild with **`scripts/setup/rebuild.sh`** (or `pip install -e . --no-build-isolation`).
 
-## Status and what next (updated 2026-10-25)
+## Status and what next (updated 2026-10-29)
 
-P2b general axes and prismatic joints are implemented locally. The all-revolute-+Z path retains
+Local work sits on `review/general-joints-closeout` (nothing pushed; local commits are not
+authorization to push). The branch carries the P1 user API, the `panda`, `iiwa14` and `ur5e`
+presets, P2b general joints and a boundary-fix wave; a signed 383-test receipt covers it.
+
+P2b general axes and prismatic joints are implemented. The all-revolute-+Z path retains
 Panda's arithmetic. Independent FK/Jacobian, collision, mixed-unit scale and module-isolation
 checks are in `tests/test_general_joints.py`; quality evidence is under
 `docs/development/evidence/general_joints_2026-10-25/`. Mixed-joint LM and proximity use raw
-coordinates; the finite tested scale range is not a universal convergence guarantee. Two quiet-window
-passes against pre-P2b `3f5ec5a` completed with 70,400 queries and identical matched quality counts;
-see `docs/development/evidence/general_joint_timing_2026-10-25/`. Small repeatable Panda costs
-remain (API B=1/S=1 +0.412%, runtime +0.609%) and were accepted for this wave. Local commits are not
-authorization to push. Fetch upstream preset assets require a distribution-license decision.
-UR5e is now a shipped nominal-calibration preset with complete provenance and sampled geometry
-fidelity under `csrc/collision/`. Z1 remains unpublished because its conservative wrist spheres
-overlap in all sampled configurations; do not silently disable self checks. All-prismatic chains
-are rejected before generation pending GRiD G13; mixed chains and arbitrary-axis revolute joints
-are supported. `examples/mixed_joint_warm_start.py` demonstrates the mixed-unit API.
+coordinates; the finite tested scale range is not a universal convergence guarantee. Two
+quiet-window passes against pre-P2b `3f5ec5a` (70,400 queries, identical matched quality
+counts, `general_joint_timing_2026-10-25/`) left small repeatable Panda costs (API B=1/S=1
++0.412%, runtime +0.609%) that were accepted for that wave. All-prismatic chains are rejected
+before generation pending GRiD G13; mixed chains and arbitrary-axis revolute joints are
+supported. `examples/mixed_joint_warm_start.py` demonstrates the mixed-unit API. Fetch upstream
+preset assets require a distribution-license decision. Z1 remains unpublished because its
+conservative wrist spheres overlap in all sampled configurations; do not silently disable self
+checks.
+
+The boundary-fix wave (2026-10-25/26, `docs/development/evidence/boundary_fixes_2026-10-25/`)
+closed six audit findings: prepared no-build loads validate model identity, codegen rejects
+sphere inputs without `--collision`, warm selection ranks convergence categorically on clamped
+coarse-precision seeds (`csrc/kernel/selection_key.h`), CMake captures punctuated tool names,
+world quaternions normalise scale-safely with converted endpoints validated, and negative
+device indices fail before any CUDA work. Two quiet timing passes
+(`boundary_timing_2026-10-26/`: 83,200 queries, identical paired quality counts) measured
+small host-side costs: Panda open S=4 at B>=2000 +0.7 to 1.1 %, warm starts +5 to 12 us, Panda
+cold build +0.33 s. Device code is identical between the endpoints. Accepting that cost or a
+bounded host-side optimisation is the user's pending decision; the local ledger
+`docs/open-tasks/TODO.md` holds the options and the ordered next steps.
 
 **Where the code is.** Local main carries the closed fairness/hardening arc (2026-10-03 → 10-07) and the
 re-pin to GRiD **v0.6.0** (commit `712df1c`, the PyPI `grid-rbd` 0.6.0 release, 2026-10-24, which shipped these HJCD asks:
@@ -250,21 +265,20 @@ collision sidecar. GRiD's G5 fidelity report measures against collision (convex-
   `ik_stats.csv` columns from them (`benchmark/_results_io.py`); the solver never opens files.
 
 **What next — make HJCD-IK a usable package** (user ruling 2026-10-07; the local ledgers under
-`docs/open-tasks/` hold the detail and are gitignored):
-1. **User-shaped API (P1).** Stage 0 (contract) and Stage 1 (`Solver` over the installed robot, array
-   worlds, padded `Result`, `precision`, `Result.stats`; `generate_solutions` removed) landed 2026-10-23.
-   Stage 2 (runtime robot builds over GRiD 0.6.0's `grid_rbd.build_artifact`/`load_artifact`: `hjcdik build`,
-   `Solver("<name>")`, `Solver("<urdf>", ee_link=...)`, `hjcdik[build]` extra, packaged Panda unchanged)
-   landed 2026-10-24. Stage 3 (`collision_margin_m` on environment pairs only, self pairs at zero; `self_collision=
-   False`; `q_init` warm starts (accurate ones skip coarse descent, converged candidates ranked by proximity);
-   `seed`) landed 2026-10-24 too. GRiD's single `config_free` margin also widens self pairs, which rejects every
-   Panda configuration above ~1 cm, so HJCD calls it twice when a margin is set (ask G7b: separate self margin).
-   Plan: local `docs/open-tasks/api_proposal_v2_2026-10-13.md` (v2.2).
-2. **Robots/presets (P2):** Panda, Fetch from `fetch_description` (HJCD's `csrc/urdf/fetch.urdf` differs from it
-   by up to 37 cm — do not reuse it for collision sets), UR/iiwa/xArm/Gen3; prismatic joints in the coarse search.
-3. **In-kernel multi-target (P3)** — needs a timing window to claim anything.
-4. **Distribution (P4):** wheels, self-hosted GPU runner for `test.yml`, versioned API docs, DLPack interop.
-5. **Robustness (P5):** cascade for conservative models, exposed margins.
+`docs/open-tasks/` hold the detail and are gitignored; `TODO.md` is the live one):
+1. **User-shaped API (P1): done** 2026-10-23/24 (`Solver`, array worlds, padded `Result`, `precision`,
+   `Result.stats`, runtime builds over GRiD 0.6.0's `build_artifact`/`load_artifact`, prepared loads,
+   `collision_margin_m` on environment pairs with self pairs at zero, `self_collision=False`, `q_init`
+   warm starts, `seed`, batched binding). GRiD's single `config_free` margin also widens self pairs, so
+   HJCD calls it twice when a margin is set (ask G7b: separate self margin).
+2. **Robots/presets (P2): P2a and P2b done.** Remaining: Fetch from `fetch_description` (HJCD's
+   `csrc/urdf/fetch.urdf` differs from it by up to 37 cm; keep it for the DoF sweep only), Z1 after a
+   collision-model fix, xArm7 and Gen3 if their descriptions de-xacro cleanly; all-prismatic chains after
+   GRiD G13. P2c floating base and branched chains stay future work.
+3. **In-kernel multi-target (P3)**: needs a timing window to claim anything.
+4. **Distribution (P4):** wheels and a versioned release on the GRiD playbook, self-hosted GPU runner
+   for `test.yml`, versioned API docs, DLPack interop; a Jetson receipt and tuning table.
+5. **Robustness (P5):** collision-aware LM rows for the top-k, cascade for conservative models.
 Housekeeping runs alongside (de-bloat, docs truth, one receipt per batch).
 
 **Standing rules.** Timing only on an empty GPU in a user-announced window (`timing_gate.md`); correctness
