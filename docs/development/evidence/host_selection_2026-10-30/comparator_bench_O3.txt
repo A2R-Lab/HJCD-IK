@@ -1,0 +1,20 @@
+Krep=  512 reference    median    26.96 us  p10    25.17  p90    29.21  (chk 131700)
+Krep=  512 candidate    median    38.60 us  p10    36.26  p90    42.48  (chk 131700)
+Krep=  512 precomputed  median    21.70 us  p10    21.12  p90    22.35  (chk 131700)
+   candidate-reference +11.64 us, precomputed-reference -5.26 us
+   permutation identical: yes
+Krep=  768 reference    median    34.88 us  p10    32.90  p90    43.10  (chk 213900)
+Krep=  768 candidate    median    49.73 us  p10    46.98  p90    54.04  (chk 213900)
+Krep=  768 precomputed  median    27.32 us  p10    26.75  p90    28.39  (chk 213900)
+   candidate-reference +14.85 us, precomputed-reference -7.56 us
+   permutation identical: yes
+Krep= 2304 reference    median   118.85 us  p10   111.91  p90   128.25  (chk 1004700)
+Krep= 2304 candidate    median   165.10 us  p10   155.32  p90   180.09  (chk 1004700)
+Krep= 2304 precomputed  median    94.30 us  p10    92.29  p90    96.87  (chk 1004700)
+   candidate-reference +46.25 us, precomputed-reference -24.55 us
+   permutation identical: yes
+Krep= 8448 reference    median   517.39 us  p10   492.70  p90   555.35  (chk 3301800)
+Krep= 8448 candidate    median   738.93 us  p10   699.89  p90   792.45  (chk 3301800)
+Krep= 8448 precomputed  median   407.16 us  p10   398.47  p90   427.68  (chk 3301800)
+   candidate-reference +221.53 us, precomputed-reference -110.24 us
+   permutation identical: yes

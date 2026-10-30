@@ -17,6 +17,7 @@
 #include <cmath>
 #include <numeric>
 #include <vector>
+#include <stdexcept>
 #include <chrono>
 #include <limits>
 #include <type_traits>
@@ -108,6 +109,9 @@ constexpr int EE_IDX     = N;
 constexpr int NX         = FLANGE_IDX + 1;
 
 __constant__ double2 c_joint_limits[N];
+// Host copy of exactly the values uploaded to c_joint_limits (same translation unit, so the same
+// per-robot module and identity as the symbol). Read under solver_mutex(); set once below.
+static std::vector<double2> g_host_joint_limits;
 
 void init_joint_limits_from_grid()
 {
@@ -143,6 +147,7 @@ void init_joint_limits_from_grid()
 
     CUDA_OK(cudaMemcpyToSymbol(c_joint_limits, packed.data(),
                                sizeof(double2) * N));
+    if (g_host_joint_limits.empty()) g_host_joint_limits = packed;
     initialized.insert(device);
 }
 
@@ -2014,8 +2019,9 @@ Result<T> generate_ik_solutions(
     std::vector<TC> h_q_init;
     if (options.num_init > 0) {
         h_q_init.resize((size_t)options.num_init * N);
-        std::array<double2, N> limits;
-        CUDA_OK(cudaMemcpyFromSymbol(limits.data(), c_joint_limits, sizeof(double2) * N));
+        // The host copy of c_joint_limits: no per-call device-to-host copy or implicit sync.
+        const std::vector<double2>& limits = g_host_joint_limits;
+        if (limits.size() != (size_t)N) throw std::logic_error("joint limits were not initialized");
         for (size_t i = 0; i < h_q_init.size(); ++i) {
             if (!std::isfinite(options.q_init[i])) throw std::invalid_argument("q_init values must be finite");
             // Match coarse initialization's rounded limits, clamping before narrowing so
@@ -2359,11 +2365,16 @@ Result<T> generate_ik_solutions(
     std::vector<int> chosen;
     chosen.reserve(S_target);
     // Append the best-scoring, valid, non-duplicate candidates of one pool until S_target is reached.
-    auto select_from = [&](std::vector<int> pool) {
-        std::sort(pool.begin(), pool.end(), [&](int a, int b){ return score(a) < score(b); });
-        for (int idx : pool) {
+    auto select_from = [&](const std::vector<int>& pool) {
+        // One key per candidate, sorted by position: the comparator is pure, so this is the
+        // permutation the per-comparison form produced, without recomputing the score O(K log K)
+        // times (hjcd::sorted_positions; equivalence checked in tests/native/test_selection.cpp).
+        std::vector<hjcd::SelectionKey> keys(pool.size());
+        for (size_t i = 0; i < pool.size(); ++i) keys[i] = score(pool[i]);
+        for (int at : hjcd::sorted_positions(keys)) {
+            const int idx = pool[at];
             if ((int)chosen.size() == S_target) break;
-            if (!std::isfinite(score(idx).second) || (use_hard && !is_valid(idx))) continue;
+            if (!std::isfinite(keys[at].second) || (use_hard && !is_valid(idx))) continue;
             if (std::any_of(chosen.begin(), chosen.end(),
                             [&](int previous) { return is_dup(idx, previous); })) continue;
             chosen.push_back(idx);
@@ -2372,12 +2383,12 @@ Result<T> generate_ik_solutions(
     {
         std::vector<int> refined(Krep);
         std::iota(refined.begin(), refined.end(), 0);
-        select_from(std::move(refined));
+        select_from(refined);
     }
     if ((int)chosen.size() < S_target) {
         std::vector<int> coarse(B);
         for (int c = 0; c < B; ++c) coarse[c] = -1 - c;
-        select_from(std::move(coarse));
+        select_from(coarse);
     }
 
     if (collect_stats) {
