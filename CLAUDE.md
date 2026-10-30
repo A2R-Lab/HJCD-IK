@@ -212,10 +212,10 @@ measurement with the protocol in [`docs/development/timing_gate.md`](docs/develo
 
 ## Status and what next (updated 2026-10-30)
 
-Work sits on `review/general-joints-closeout`, pushed as PR #4 (merge is the user's call; a
-push is never implied by local commits). The branch carries the P1 user API, the `panda`,
-`iiwa14` and `ur5e` presets, P2b general joints, a boundary-fix wave and the host-selection
-optimisation; a signed 383-test receipt covers it.
+PR #4 merged to `main` on 2026-10-30 as `1be962b` (a merge commit, so the receipt's commit
+ancestry holds on main; squash merges would break that). Main carries the P1 user API, the
+`panda`, `iiwa14` and `ur5e` presets, P2b general joints, a boundary-fix wave and the
+host-selection optimisation; a signed 383-test receipt covers it. No batch is in flight.
 
 P2b general axes and prismatic joints are implemented. The all-revolute-+Z path retains
 Panda's arithmetic. Independent FK/Jacobian, collision, mixed-unit scale and module-isolation
