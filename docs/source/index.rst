@@ -64,8 +64,9 @@ Quick start
    r = out[0]
    print(r.count, "candidates")
    if r.count:
-       print("best position error (mm):", r.pos_err_mm.min())
-       print("best orientation error (rad):", r.ori_err_rad.min())
+       print("candidate position errors (mm):", r.pos_err_mm)
+       print("candidate orientation errors (rad):", r.ori_err_rad)
+       print("accurate candidates:", r.q[r.ok(pos_mm=5, ori_rad=0.001)])
 
 .. toctree::
    :hidden:
@@ -73,6 +74,7 @@ Quick start
 
    user_guide/getting_started/installation
    user_guide/tutorials/custom_robot
+   user_guide/tutorials/rail_ur5e
    user_guide/upgrading
 
 .. toctree::

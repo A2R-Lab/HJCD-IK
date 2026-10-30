@@ -12,9 +12,10 @@ The running roadmap / open-work list is `docs/open-tasks/TODO.md` (local, ignore
    `python scripts/codegen/generate_grid.py csrc/urdf/panda.urdf -t panda_grasptarget_hand --collision --spherized-urdf external/foam/assets/panda/smaller_panda_spherized.urdf` then
    `python -m pip install -e .`. Stale `grid.cuh` = silently wrong FK/Jacobian.
 2. **`FLANGE_IDX` / target agreement** across `grid.cuh`, `csrc/kernel/hjcd_kernel.cu`, and any benchmark problem.
-3. **Build clean** and import: `python -c "import hjcdik; print(hjcdik.num_joints())"`.
-4. **Run the benchmark** and compare to the committed baseline (do not eyeball):
-   `python benchmark/hjcd_ik_bench.py --skip-grid-codegen` → solved-rate, pos/ori error, timing.
+3. **Build clean** and import: `python -c "import hjcdik; print(hjcdik.build_info())"`.
+4. **Run correctness** and compare to the committed baseline:
+   `python -m pytest tests/test_regression.py tests/test_fk_equivalence.py`.
+   Run latency comparisons separately, only in a user-announced quiet window.
 5. **Thread/warp sweep** if you touched the solver loop: validate at 1 warp (32) and multi-warp block sizes;
    confirm results are batch-size-invariant (divergence at larger blocks ⇒ missing sync).
 6. **No GPU contention during timing.** Other agents run heavy GPU work on this machine — isolate timing runs.
@@ -244,3 +245,23 @@ not exact candidate identity.
   Score pose via independent FK with explicit target/frame, reject incomplete groups, and compare both errors
   on one candidate. Never infer accuracy from count. The eighth positional Python solver argument is
   `refine_fp64`, not `write_stats`; name all options. See `timing_gate.md` for the corrected gate and errata.
+
+### A `__shared__` variable in a kernel loop condition multiplied nvcc's compile time by eight (2026-10-24)
+
+Symptom: after Stage 3 every `hjcd_kernel.cu` compile (CMake and `grid_rbd.build_artifact`) took 150–175 s
+instead of 19 s; runtime artifacts went from 20 s to 3 min per robot. Nothing in the kernel's measured runtime
+changed.
+
+Diagnosis: bisection by compiling variants of the file with the store's own nvcc command (`build.log` has it).
+Removing the margin arguments changed nothing (162 s); removing the LM warm entry band changed nothing (167 s);
+removing the coarse warm-start edits gave 18 s; keeping the warm-start initialisation but dropping
+`&& !s_skip` from `for (int k = 0; k < k_max && !s_skip; ++k)` gave 19 s. The loop body is the whole coarse
+coordinate-descent sweep; a `__shared__` read in its condition apparently blocks the loop structuring nvcc
+had been doing, and optimisation time balloons.
+
+Fix: read the flag once into a register after the barrier (`const bool skip_descent = (s_skip != 0);`) and
+use that in the condition. Same semantics (the flag is written once before the loop), 19 s again.
+
+Rule: keep kernel loop conditions on registers and compile-time constants; if a shared flag must gate a
+loop, snapshot it. When compile time jumps, bisect with the exact nvcc command rather than guessing (the
+obvious suspect, a duplicated force-inlined checker call, was innocent here).

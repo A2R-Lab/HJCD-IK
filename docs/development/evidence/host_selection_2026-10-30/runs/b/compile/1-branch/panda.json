@@ -1,0 +1,11 @@
+{
+  "robot": "panda",
+  "cold_seconds": 14.331680880859494,
+  "cache_hit_seconds": 0.20008959714323282,
+  "source_sha": "90bb0a412eb12a3af0abb9d5d0f06be3dbbe1a72806b0416dd9769992cb35079",
+  "content_key": "77816e32e13afc036f2ab2ab71c3d4e6e45f42e35313bb5a33e44ba77b7dbbf3",
+  "header_sha": "09657d29e9ab9c82aa023506e41b6b11496464e2ba390d9cd4f73f8c571dc5e8",
+  "cuda_compiler_version": "",
+  "binary": "/tmp/hjcd-boundary-timing-20261030-b/compile/1-branch/panda/consumers/hjcdik/store/77816e32e13afc036f2ab2ab71c3d4e6e45f42e35313bb5a33e44ba77b7dbbf3/hjcdik_b3313213e47e.so",
+  "pid": 1186206
+}

@@ -1,0 +1,97 @@
+{
+  "config": {
+    "rounds": 4,
+    "solutions": [
+      1,
+      4
+    ],
+    "batches": {
+      "table1": [
+        1,
+        2000,
+        8000,
+        32000
+      ],
+      "table2": [
+        100,
+        2000
+      ]
+    },
+    "target_counts": {
+      "table1": 100,
+      "table2": 100
+    },
+    "targets_json": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/audit_gate_2026-10-04/targets.json",
+    "targets_json_sha": "89d2d46ea69d101e4ce65cd54d999ae78814679f950c2fc120dd4a2277de28b4",
+    "problems_json": "/home/plancher/Desktop/HJCD-IK/tests/mb_problems.json",
+    "problems_json_sha": "69a3eae85e68d8cf696280e12407ac870b887b59a2913b52c4214524bc55dc94",
+    "problem_set": "box_panda",
+    "endpoints": {
+      "main": {
+        "repo": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/p2b-gate-2026-10-25/main",
+        "python": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/p2b-gate-2026-10-25/main/.venv/bin/python",
+        "commit": "9d3a53c36debe5bc48a03247e014cffd1565028a",
+        "source_commit": "3f5ec5a01f779d1397a57596999aec0639d0e4d5",
+        "header_sha": "fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa",
+        "binary_sha": "e56c8e5c5a3f12e7506f12f11a90bd6461d0c0452b738e3833665822327014d5",
+        "env": {
+          "GRID_RBD_CACHE_DIR": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/p2b-gate-2026-10-25/main/.venv/robot-cache",
+          "HJCDIK_TIMING_ENTRY": "api"
+        }
+      },
+      "branch": {
+        "repo": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/p2b-gate-2026-10-25/branch",
+        "python": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/p2b-gate-2026-10-25/branch/.venv/bin/python",
+        "commit": "d40487623c7ded4877fda51066f9db65e32cecdf",
+        "source_commit": "190915ea2c77b35ea6d64d43092f902f8482df9e",
+        "header_sha": "fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa",
+        "binary_sha": "64f37b96d6a2717e5b60fc230b87e1094ae1880d81f89017ce16dd035bec076a",
+        "env": {
+          "GRID_RBD_CACHE_DIR": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/p2b-gate-2026-10-25/branch/.venv/robot-cache",
+          "HJCDIK_TIMING_ENTRY": "api"
+        }
+      }
+    }
+  },
+  "provenance": {
+    "main": {
+      "build": {
+        "robot": "panda",
+        "num_joints": 7,
+        "ee_target": "panda_hand_joint",
+        "collision_enabled": true,
+        "grid_header_sha256": "fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa",
+        "cuda_compiler_version": "13.2.86",
+        "binding_abi": 4
+      },
+      "binary": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/p2b-gate-2026-10-25/main/.venv/lib/python3.12/site-packages/hjcdik/_hjcdik.cpython-312-x86_64-linux-gnu.so",
+      "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+      "numpy": "2.5.1"
+    },
+    "branch": {
+      "build": {
+        "robot": "panda",
+        "num_joints": 7,
+        "ee_target": "panda_hand_joint",
+        "collision_enabled": true,
+        "grid_header_sha256": "fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa",
+        "joint_model_sha256": "865db3c723537d4ba32f274f503cb392e4d8a137e7b359c7cd0210e20d200b97",
+        "cuda_compiler_version": "13.2.86",
+        "binding_abi": 5
+      },
+      "binary": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/p2b-gate-2026-10-25/branch/.venv/lib/python3.12/site-packages/hjcdik/_hjcdik.cpython-312-x86_64-linux-gnu.so",
+      "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+      "numpy": "2.5.1"
+    }
+  },
+  "driver_sha": "88c5f8395567e8c2400ec52c2432434a67de1e59cf15256cdb8ce3b2fcb298f9",
+  "correctness_only": false,
+  "helpers": {
+    "query_results.py": "b7b3b741a37eaf6cbe4cb732f8a88ca762c6a136484411eb3d3b11e61e03c9d4",
+    "hjcd_ik_bench.py": "7f69cd50466601f5165e1275159705cffcbb37e40042c9006dd33e1e3039a32c",
+    "panda_collision.py": "f586d4c234fb0efb75d6b71730caafebd0549623f39aa6df2c0efa76f98d68d2",
+    "panda_model.py": "ff328922ffaf3c25672750f7e8fbd30bcd12400732f16cf4701b991e14142fa6",
+    "collision_check.py": "ffe5e42c2d5898d0476c44fb184dd35d4e432ab938a9345424dff212f0a6aca5",
+    "gen_targets.py": "093bedcee45b240d500188747878ca77c0eec9db6f2698c3ba6ea04a30fc16f7"
+  }
+}

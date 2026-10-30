@@ -20,7 +20,7 @@ canonical contributor entry points are the repository's `CLAUDE.md` (architectur
 
 ## Discipline
 
-- **Never hand-edit `csrc/generated/grid.cuh`.** It is GRiD codegen output. Regenerate it with
+- **Never hand-edit `csrc/generated/grid.cuh` or `hjcd_joint_model.h`.** Regenerate the matched pair with
   `python scripts/codegen/generate_grid.py <urdf> -t <target>` and rebuild — see
   {doc}`../user_guide/tutorials/custom_robot`.
 - **Keep LM math warp-scoped.** LM refinement is warp-per-candidate; use warp primitives
@@ -58,7 +58,7 @@ docs/
     index.rst         docs landing page (grid cards + toctree)
     _static/          logo, favicon, custom.css, paper/ (committed paper figures)
     user_guide/       getting_started/ · concepts/ · tutorials/ · benchmarks/
-    api_reference/    python.rst (hand-written) + kernel/collision.rst (.. doxygenfile::)
+    api_reference/    python/collision.rst (hand-written) + kernel.rst (.. doxygenfile::)
     developer_guide/  this section
 docs/development/     un-published support docs (agent_debugging_guide, STARTUP_PROMPT)
 ```
@@ -82,7 +82,8 @@ make -C docs all                    # docs only → docs/build/html/index.html
   add the doc-comment in the header and ensure its file has a `.. doxygenfile::` entry under
   `api_reference/`. Doxygen runs with `EXTRACT_ALL=NO`, so only documented symbols appear.
 - **Python API** (`api_reference/python.rst`) is hand-authored — the compiled `hjcdik` extension is *not*
-  imported at build time (CI has no GPU), so keep that page in sync with `csrc/bindings/pybind_module.cpp` by hand.
+  imported at build time (CI has no GPU), so keep it in sync with `hjcdik/_solver.py`, `hjcdik/_build.py`
+  and `csrc/bindings/pybind_module.cpp` by hand.
 - **Benchmark figures/tables** are committed static assets under `_static/paper/`, taken from the
   camera-ready paper. Do **not** embed locally-generated benchmark output — see {doc}`../user_guide/benchmarks/results`.
 

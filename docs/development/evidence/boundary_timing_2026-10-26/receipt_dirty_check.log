@@ -1,0 +1,4 @@
+[gpu-proof] FAIL: repository policy requires clean recording and verification trees
+[gpu-proof] Signature valid (signer: @plancherb1)
+[gpu-proof] Fingerprint OK (c06cba474d00…)
+[gpu-proof] Commit ancestry OK (251832ecd5db…)

@@ -38,6 +38,8 @@ The script initializes the required submodules, creates a virtual environment, i
 regenerates the collision-enabled Panda model, and builds `hjcdik`.
 Development setup and signed GPU-proof tooling require Python 3.11 or newer; the base package
 supports Python 3.9 or newer.
+Runtime robot builds and prepared-artifact loading require Python 3.10+ through `grid-rbd`.
+The current validation environment is Linux/Python 3.12/CUDA 13.2; this is not a tested version matrix.
 
 If needed, convert the shell scripts to Unix line endings:
 
@@ -103,9 +105,14 @@ print("orientation error (rad):", best.ori_err_rad)
 `solve` takes one pose or a batch of poses. `batch_size` is the number of candidate configurations
 explored per target, not the number of target poses. On a collision build the default policy is
 `collision="hard"` (self and environment filtering against the installed world); `collision=None` is
-an open-world solve. A wheel contains one compiled robot; `solver.info` and `hjcdik.build_info()`
-identify it. See [upgrading and verified scope](docs/source/user_guide/upgrading.md) for the move
-from the earlier function API.
+an open-world solve. The wheel ships one compiled robot (Panda); other robots are built from a URDF
+through GRiD's artifact store with the `hjcdik[build]` extra (`hjcdik build arm.urdf --ee-link
+<tool joint>`, then `hjcdik.Solver("<name>")`; see
+[the Python API](docs/source/api_reference/python.rst)). `solver.info` identifies the robot in use.
+For a mixed-unit workflow, see the [illustrative rail-mounted UR5e](docs/source/user_guide/tutorials/rail_ur5e.md):
+build/load, world replacement, checked warm starts and zero-result handling without changing the default model.
+See [upgrading and verified scope](docs/source/user_guide/upgrading.md) for the move from the
+earlier function API.
 
 Target poses use:
 
@@ -238,11 +245,22 @@ Then rebuild:
 python -m pip install -e . --no-build-isolation
 ```
 
-HJCD-IK supports fixed-base serial chains with 1–32 independent revolute or continuous
-joints rotating around local +Z; fixed joints may connect links and the tool frame.
-Prismatic, mimic, branched, floating-base, and other-axis models are rejected.
+HJCD-IK supports fixed-base serial chains with 1–32 independent revolute, continuous or
+prismatic joints, with arbitrary joint axes. Fixed joints may connect links and the tool frame.
+Mimic joints, actuated branches and floating bases are rejected. GRiD 0.6.0 also requires at
+least one revolute or continuous joint; all-prismatic chains are rejected before generation.
+The fixed tool target must
+attach to the last actuated joint. `solver.info.joint_names`, `joint_types`, `joint_units` and
+`joint_limits` describe the order and units of `q` and `q_init` (radians or metres).
+Continuous joints use a bounded sampling interval of [-pi, pi]. Mixed-joint LM step norms
+and warm-start ranking use raw joint coordinates, not a unit-invariant distance metric.
 GRiD supports more robot classes than this solver. See the
 [custom-robot guide](docs/source/user_guide/tutorials/custom_robot.md).
+
+`Solver("ur5e")` builds the shipped nominal-calibration UR5e preset on first use with
+`hjcdik[build]`. Its sphere approximation and tool frame are documented in the guide.
+For coordinate metadata, world setup, warm starts and empty-result handling with mixed
+joints, run [the analytic example](examples/mixed_joint_warm_start.py).
 
 ### Collision checking for a custom robot
 

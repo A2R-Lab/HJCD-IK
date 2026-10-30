@@ -1,0 +1,98 @@
+{
+  "config": {
+    "rounds": 4,
+    "solutions": [
+      1,
+      4
+    ],
+    "batches": {
+      "table1": [
+        1,
+        2000,
+        8000,
+        32000
+      ],
+      "table2": [
+        100,
+        2000
+      ]
+    },
+    "target_counts": {
+      "table1": 100,
+      "table2": 100
+    },
+    "targets_json": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/audit_gate_2026-10-04/targets.json",
+    "targets_json_sha": "89d2d46ea69d101e4ce65cd54d999ae78814679f950c2fc120dd4a2277de28b4",
+    "problems_json": "/home/plancher/Desktop/HJCD-IK/tests/mb_problems.json",
+    "problems_json_sha": "69a3eae85e68d8cf696280e12407ac870b887b59a2913b52c4214524bc55dc94",
+    "problem_set": "box_panda",
+    "endpoints": {
+      "main": {
+        "repo": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/main",
+        "python": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/main/.venv/bin/python",
+        "commit": "fefecb8596cef1079404fc82046c6ac6dbd8f3f9",
+        "source_commit": "9f3e0175fd35d9cb1188a4fc72e7a40a1c0d7278",
+        "header_sha": "fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa",
+        "binary_sha": "b01c47f8b4cc0b9bc213f2584157ffaf0933dad32e4999c5afad27b72d183c66",
+        "env": {
+          "GRID_RBD_CACHE_DIR": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/main/.venv/robot-cache",
+          "HJCDIK_TIMING_ENTRY": "api"
+        }
+      },
+      "branch": {
+        "repo": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-30/branch",
+        "python": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-30/branch/.venv/bin/python",
+        "commit": "67570e6a1fd7d1007e7c40e508fbc13d35245536",
+        "source_commit": "577debb2ba47f6c893dade3c82394e47fa114b05",
+        "header_sha": "fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa",
+        "binary_sha": "a43daae84ebd5c8bdb296fb87630c71ed3908a489b551e4a0e064d9102d7f47f",
+        "env": {
+          "GRID_RBD_CACHE_DIR": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-30/branch/.venv/robot-cache",
+          "HJCDIK_TIMING_ENTRY": "api"
+        }
+      }
+    }
+  },
+  "provenance": {
+    "main": {
+      "build": {
+        "robot": "panda",
+        "num_joints": 7,
+        "ee_target": "panda_hand_joint",
+        "collision_enabled": true,
+        "grid_header_sha256": "fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa",
+        "joint_model_sha256": "865db3c723537d4ba32f274f503cb392e4d8a137e7b359c7cd0210e20d200b97",
+        "cuda_compiler_version": "13.2.86",
+        "binding_abi": 5
+      },
+      "binary": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-25/main/.venv/lib/python3.12/site-packages/hjcdik/_hjcdik.cpython-312-x86_64-linux-gnu.so",
+      "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+      "numpy": "2.5.1"
+    },
+    "branch": {
+      "build": {
+        "robot": "panda",
+        "num_joints": 7,
+        "ee_target": "panda_hand_joint",
+        "collision_enabled": true,
+        "grid_header_sha256": "fa3241db4b9af39764839b5455b697443b93ff568a4f1d01dfea52f4d1fe7bfa",
+        "joint_model_sha256": "865db3c723537d4ba32f274f503cb392e4d8a137e7b359c7cd0210e20d200b97",
+        "cuda_compiler_version": "13.2.86",
+        "binding_abi": 5
+      },
+      "binary": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/boundary-gate-2026-10-30/branch/.venv/lib/python3.12/site-packages/hjcdik/_hjcdik.cpython-312-x86_64-linux-gnu.so",
+      "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+      "numpy": "2.5.1"
+    }
+  },
+  "driver_sha": "cb23ed443fbd1cf6ebf144d5a3d714812c3679499d0d405256c53c9342711441",
+  "correctness_only": false,
+  "helpers": {
+    "query_results.py": "b7b3b741a37eaf6cbe4cb732f8a88ca762c6a136484411eb3d3b11e61e03c9d4",
+    "hjcd_ik_bench.py": "7f69cd50466601f5165e1275159705cffcbb37e40042c9006dd33e1e3039a32c",
+    "panda_collision.py": "f586d4c234fb0efb75d6b71730caafebd0549623f39aa6df2c0efa76f98d68d2",
+    "panda_model.py": "ff328922ffaf3c25672750f7e8fbd30bcd12400732f16cf4701b991e14142fa6",
+    "collision_check.py": "ffe5e42c2d5898d0476c44fb184dd35d4e432ab938a9345424dff212f0a6aca5",
+    "gen_targets.py": "093bedcee45b240d500188747878ca77c0eec9db6f2698c3ba6ea04a30fc16f7"
+  }
+}

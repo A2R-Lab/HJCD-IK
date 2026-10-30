@@ -1,0 +1,174 @@
+{
+  "changes": "Expanded stock ur5e xacro with default nominal calibration, no kinematic edits. Tool target is the fixed joint whose child is tool0.",
+  "commit": "22f055da2fa7e2158254426107d1f257fd56aebb",
+  "ee_joint": "flange-tool0",
+  "fidelity": {
+    "collision": [
+      {
+        "bulge_max_m": 0.01253746216414644,
+        "bulge_p99_m": 0.011800606889744531,
+        "link": "base_link_inertia",
+        "spheres": 53,
+        "surface_samples": 2000,
+        "uncovered_surface_fraction": 0.0,
+        "voxel_pitch_m": 0.0025
+      },
+      {
+        "bulge_max_m": 0.01257772776236809,
+        "bulge_p99_m": 0.011604531550088861,
+        "link": "shoulder_link",
+        "spheres": 40,
+        "surface_samples": 2000,
+        "uncovered_surface_fraction": 0.0,
+        "voxel_pitch_m": 0.0025
+      },
+      {
+        "bulge_max_m": 0.01440595713743108,
+        "bulge_p99_m": 0.011762947302741493,
+        "link": "upper_arm_link",
+        "spheres": 130,
+        "surface_samples": 2000,
+        "uncovered_surface_fraction": 0.0,
+        "voxel_pitch_m": 0.0025
+      },
+      {
+        "bulge_max_m": 0.012955363351261512,
+        "bulge_p99_m": 0.011685128972530353,
+        "link": "forearm_link",
+        "spheres": 99,
+        "surface_samples": 2000,
+        "uncovered_surface_fraction": 0.0,
+        "voxel_pitch_m": 0.0025
+      },
+      {
+        "bulge_max_m": 0.014539187135791293,
+        "bulge_p99_m": 0.012493418417600887,
+        "link": "wrist_1_link",
+        "spheres": 24,
+        "surface_samples": 2000,
+        "uncovered_surface_fraction": 0.0,
+        "voxel_pitch_m": 0.0025
+      },
+      {
+        "bulge_max_m": 0.014733914091960312,
+        "bulge_p99_m": 0.012381367009016942,
+        "link": "wrist_2_link",
+        "spheres": 22,
+        "surface_samples": 2000,
+        "uncovered_surface_fraction": 0.0,
+        "voxel_pitch_m": 0.0025
+      },
+      {
+        "bulge_max_m": 0.013913132157755855,
+        "bulge_p99_m": 0.013063721244492454,
+        "link": "wrist_3_link",
+        "spheres": 14,
+        "surface_samples": 2000,
+        "uncovered_surface_fraction": 0.0,
+        "voxel_pitch_m": 0.0025
+      }
+    ],
+    "visual": [
+      {
+        "bulge_max_m": 0.016113126169726,
+        "bulge_p99_m": 0.01290401188628151,
+        "link": "base_link_inertia",
+        "spheres": 53,
+        "surface_samples": 2000,
+        "uncovered_surface_fraction": 0.0,
+        "voxel_pitch_m": 0.0025
+      },
+      {
+        "bulge_max_m": 0.021009035596854957,
+        "bulge_p99_m": 0.013730835046873807,
+        "link": "shoulder_link",
+        "spheres": 40,
+        "surface_samples": 2000,
+        "uncovered_surface_fraction": 0.0,
+        "voxel_pitch_m": 0.0025
+      },
+      {
+        "bulge_max_m": 0.06015634764306174,
+        "bulge_p99_m": 0.05158716343170541,
+        "link": "upper_arm_link",
+        "spheres": 130,
+        "surface_samples": 2000,
+        "uncovered_surface_fraction": 0.0,
+        "voxel_pitch_m": 0.0025
+      },
+      {
+        "bulge_max_m": 0.05491692909160245,
+        "bulge_p99_m": 0.039392977994420646,
+        "link": "forearm_link",
+        "spheres": 99,
+        "surface_samples": 2000,
+        "uncovered_surface_fraction": 0.0,
+        "voxel_pitch_m": 0.0025
+      },
+      {
+        "bulge_max_m": 0.037057016349537834,
+        "bulge_p99_m": 0.030342908188294986,
+        "link": "wrist_1_link",
+        "spheres": 24,
+        "surface_samples": 2000,
+        "uncovered_surface_fraction": 0.0,
+        "voxel_pitch_m": 0.0025
+      },
+      {
+        "bulge_max_m": 0.036046053266278306,
+        "bulge_p99_m": 0.031647699079668905,
+        "link": "wrist_2_link",
+        "spheres": 22,
+        "surface_samples": 2000,
+        "uncovered_surface_fraction": 0.0,
+        "voxel_pitch_m": 0.0025
+      },
+      {
+        "bulge_max_m": 0.033961489545853464,
+        "bulge_p99_m": 0.02993741079871921,
+        "link": "wrist_3_link",
+        "spheres": 14,
+        "surface_samples": 2000,
+        "uncovered_surface_fraction": 0.0,
+        "voxel_pitch_m": 0.0025
+      }
+    ]
+  },
+  "generation": {
+    "grid_rbd": "0.6.0",
+    "mesh_mode": "bounded-bulge",
+    "resolution_m": 0.03
+  },
+  "license": "BSD-3-Clause",
+  "meshes": {
+    "package://ur_description/meshes/ur5e/collision/base.stl": "9a145e0d46f2130afdf2a2e8825a00a929870c4c3d6d8e4d1adc5f04db3aac1b",
+    "package://ur_description/meshes/ur5e/collision/forearm.stl": "2e7423cab807c34160ec4f770daee5e747d70e777eb01b7beeace2b8c5751816",
+    "package://ur_description/meshes/ur5e/collision/shoulder.stl": "ceb92532177daa77682f5fbd628e01c2137d168f949a7a706ce1dabe9f002387",
+    "package://ur_description/meshes/ur5e/collision/upperarm.stl": "ee893044caf00075cb55b4cf666d1f1311c7979786212a501009f33bee945209",
+    "package://ur_description/meshes/ur5e/collision/wrist1.stl": "f8c9f9337b6fd98c75f052e96de10e14a107ddb6874ba6b904e546f8a4e4f43a",
+    "package://ur_description/meshes/ur5e/collision/wrist2.stl": "2964a63f60ce3e3cf3ad55bcf190d7876d50e373cb64b70a57cea5885eaf3c86",
+    "package://ur_description/meshes/ur5e/collision/wrist3.stl": "83b3666b4ae2badd54af0d2c25a921682ecbc29e849eec646c3ed55fb74c78a3",
+    "package://ur_description/meshes/ur5e/visual/base.dae": "c30e4d7228ef633dca2a02c26df2316741f6642cb6333e8289dba6e6d0b22819",
+    "package://ur_description/meshes/ur5e/visual/forearm.dae": "04694bf57dac46e9b8bc7c30f2eec75a1bc762e1f1a879ea30c944f24cacbad8",
+    "package://ur_description/meshes/ur5e/visual/shoulder.dae": "c581bfa55b86061d9b99d315ed53817b6b693e6a500643bbf9bbb783322d585d",
+    "package://ur_description/meshes/ur5e/visual/upperarm.dae": "c040a05bb224f14cfab6aa6704d70cbb773ada940eca9a3e34e6ce486c4c4c29",
+    "package://ur_description/meshes/ur5e/visual/wrist1.dae": "a07a3d96d2540f9be12e4a07bcb8577d9f1e36005920c396a407804343a3b588",
+    "package://ur_description/meshes/ur5e/visual/wrist2.dae": "982fa42933c6f81629882ad7975e9ba5dac5d474a6b56694e233708376cf840e",
+    "package://ur_description/meshes/ur5e/visual/wrist3.dae": "7a7664ac4adcd53b0870fe6a2b8b975693d846dd4d07a5f44194c7d16f4890ba"
+  },
+  "source": "https://github.com/UniversalRobots/Universal_Robots_ROS2_Description",
+  "xacro_arguments": {
+    "force_abs_paths": "false",
+    "joint_limit_params": "/home/plancher/.cache/robot_descriptions/ur_description/config/ur5e/joint_limits.yaml",
+    "kinematics_params": "/home/plancher/.cache/robot_descriptions/ur_description/config/ur5e/default_kinematics.yaml",
+    "name": "ur5e",
+    "physical_params": "/home/plancher/.cache/robot_descriptions/ur_description/config/ur5e/physical_parameters.yaml",
+    "safety_k_position": "20",
+    "safety_limits": "false",
+    "safety_pos_margin": "0.15",
+    "tf_prefix": "",
+    "transmission_hw_interface": "",
+    "ur_type": "ur5e",
+    "visual_params": "/home/plancher/.cache/robot_descriptions/ur_description/config/ur5e/visual_parameters.yaml"
+  }
+}

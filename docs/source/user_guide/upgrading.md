@@ -12,7 +12,7 @@ The package exposes `Solver`, `Result`, `TargetResult`, `Stats`, `Info`, `SolveE
 
 | Area | Current contract / migration |
 | --- | --- |
-| Entry point | `solver = hjcdik.Solver()` wraps the installed, statically compiled robot and binds to the current CUDA device. `Solver("panda")` must match `build_info()`. |
+| Entry point | `solver = hjcdik.Solver()` is the packaged robot, bound to the current CUDA device. `Solver("<name>")` loads a prepared runtime build; `Solver("arm.urdf", ee_link=...)` builds one through GRiD's artifact store (`hjcdik[build]` extra, `hjcdik build`). |
 | One call, many targets | `solver.solve(poses)` takes `(7,)` or `(T, 7)`; `batch_size` is still the number of candidates per target. The whole batch is validated before any GPU work. |
 | Collision default | Omitted `collision` means `"hard"` on a collision build (self and environment filtering) and `None` on an open-world build. The old default was collision checking off: pass `collision=None` to keep it. `"soft"` ranks without filtering and raises on an empty world; `"both"` ranks and filters. |
 | Worlds | Obstacles are arrays installed once with `solver.set_world(boxes=, capsules=, spheres=, cylinders=)`, not JSON passed on every call. `hjcdik.worlds.from_mbm_problem` converts a MotionBenchMaker instance. A failed `set_world` leaves the previous world intact; `clear_world()` installs the empty world. |
@@ -23,10 +23,17 @@ The package exposes `Solver`, `Result`, `TargetResult`, `Stats`, `Info`, `SolveE
 | Devices and threads | Every operation runs on the solver's device and restores the caller's current device. Calls are serialised; `set_world` waits for a solve in flight, so one world applies to a whole batched call. |
 | Pose/units | Targets and returned poses are metres and `wxyz` quaternions; position errors are **millimetres**, orientation errors **radians**. Finite nonzero target quaternions are normalised. |
 | Success | Check both errors for the **same candidate**. A valid row is not a pose-accuracy certificate; collision checks certify neither a trajectory nor mesh-level safety. |
-| Native API | `generate_ik_solutions(target, batch, num_solutions, CollisionMode, const CollisionWorld*, collect_stats)` replaces the JSON triple and `write_stats`; worlds come from `make_collision_world(WorldSpec)`. `Result<T>` is move-only and carries `stats`. The JSON parser left the native layer. |
+| Native API | `generate_ik_solutions(target, batch, num_solutions, CollisionMode, const CollisionWorld*, collect_stats)` replaces the JSON triple and `write_stats`; worlds come from `make_collision_world(WorldSpec)`, which wraps GRiD's `grid_collision::DeviceEnvironment`. `Result<T>` is move-only and carries `stats`. The JSON parser and the `nlohmann-json` dependency left the native layer. |
+| Clearance and warm starts | `solve(..., collision_margin_m=, self_collision=, q_init=, seed=)`: an environment clearance margin and a self-collision toggle for `hard`/`both`, warm starts `(K, N)` or `(T, K, N)` that go straight to refinement and rank converged candidates by proximity, and a seed for the coarse initialisation (default 1337, the historical constant). The soft cost and the collision-free guarantee are unchanged. |
+| Other robots | Regenerating the committed header and rebuilding the package is no longer the only route: `hjcdik build <urdf> --ee-link <joint> [--spheres <preset or spherized URDF>]` compiles the robot once into GRiD's store and `Solver("<name>")` loads it without a compiler. The committed Panda header and the submodules stay the fixture of the packaged build. |
 | Determinism | Candidate identity is not run-to-run stable: identical calls may return different, equally valid candidates. Aggregate over targets or pin tolerances, never a specific configuration. |
 
 ## Migrating a call
+
+Packaged-robot construction now rejects an explicit `spheres` override instead of silently
+ignoring it. `Solver()` and `Solver("panda")` retain their compiled geometry; select another
+model through `Solver("robot.urdf", ee_link=..., spheres=...)`. This validation raises
+`ValueError` before a build or CUDA call and does not change default solve behavior.
 
 ```python
 import hjcdik
@@ -55,13 +62,23 @@ guarantee that they are collision-free either.
 ## Robot and collision identity
 
 A wheel contains one compiled robot. `hjcdik.build_info()` reports its name, joint count,
-collision capability, named EE target, generated-header SHA256 and CUDA compiler version without
-initializing CUDA; `solver.info` repeats them. Regenerate and rebuild to change the model; use
-separate build directories and environments when comparing robots.
+collision capability, named EE target, generated-header and joint-model SHA256, and CUDA compiler
+version without initializing CUDA. `solver.info` includes ordered joint names, types, units and
+effective limits. Build a runtime robot to select another model without replacing the packaged
+one; its first build needs `hjcdik[build]` and nvcc, later loads need grid-rbd but no compiler.
 
 The supported solver model is a fixed-base serial chain of 1–32 independent
-revolute/continuous local-+Z joints, plus fixed links/tool frames. Other GRiD robot
-classes are not implicitly supported. See {doc}`tutorials/custom_robot`.
+revolute, continuous or prismatic joints with arbitrary axes, plus fixed links/tool frames.
+The selected fixed tool must attach to the last actuated joint. Floating bases, actuated
+branches and mimics are rejected. GRiD 0.6.0 cannot generate all-prismatic chains, so at
+least one revolute or continuous joint is required. Continuous joints use [-pi, pi]; other
+limits must be finite and ordered. Coordinates are radians or metres in the reported order.
+LM and warm-start proximity use raw mixed coordinates, not a unit-invariant metric.
+See {doc}`tutorials/custom_robot` for the tested scope and example.
+
+The generated `grid.cuh` now has a matching `hjcd_joint_model.h`. Regenerate both together;
+do not copy a header from another model with the same joint count. Binding ABI 5 requires
+rebuilding older runtime artifacts; a mismatch raises an actionable `BuildError`.
 
 The default Panda keeps +/-40 mm fixed finger origins. The frozen paper collision
 reference uses +/-65 mm. `--collision-validation-model paper` retains historical
@@ -76,6 +93,8 @@ The audit exercised Linux/Python 3.12, CUDA 13.2 and RTX 5090, including full Py
 contracts, independent FK/collision checks, CUDA failure injection, focused memory
 and synchronization sanitizers, native API/CLI checks, and source/wheel builds.
 Custom-model correctness included no-collision Panda, Fetch and 12/18/24-DoF arms.
+P2b adds re-expressed/negative-axis/slider-mounted Panda, 1- and 32-joint boundaries,
+UR5e, and mixed-joint scale checks over 0.01/0.5/5 m travel in both precisions.
 These checks are not certification for physical deployment.
 
 The package declares Python 3.9+ and CUDA 12.x/13.x support, but this audit did not
@@ -91,9 +110,23 @@ CTest, sanitizer and build checks are separate evidence, not implied by that rec
 
 The CUDA core is compiled once for Python and the CLI; the default generated profile
 omits unneeded dynamics. No new headline performance or MMD claim accompanies the API
-change: the kernel is unchanged, and the latency comparison between `Solver.solve` and the
-removed `generate_solutions` runs with matched collision settings in an announced timing window
-(`docs/development/timing_gate.md`).
+change. The October 24 quiet-window gate (`docs/development/evidence/api_timing_2026-10-24/`)
+measured `Solver.solve` against the removed `generate_solutions` with matched settings: identical
+solution counts in every cell, native entry points within 0.6 % (not a proof of identical kernels), about 10 µs of
+host time per target on the Python side (up to 50 µs after a 3 ms solve, where the host core returns
+cold from the GPU wait), collision scenes 13–16 % faster because the world is installed once instead of
+being compared on every call, and a runtime-built robot as fast as the packaged one. A 2 cm clearance
+margin costs 2–3 % in the solvable S=4 regime; difficult or unsuccessful searches can run to the
+iteration limit. A miss does not prove infeasibility.
+
+The October 25 general-joint gate compared 70,400 queries across two quiet-window passes.
+Matched quality counts were identical; small repeatable Panda B=1/S=1 costs remain:
+API +0.412% (8.35 µs), runtime API +0.609% (12.39 µs). These were accepted for this wave;
+the evidence does not support a universal speedup or a claim of identical performance.
+See `docs/development/evidence/general_joint_timing_2026-10-25/` for the full scope and caveats.
+
+For historical revision/asset provenance versus current-code workload reruns, see
+{doc}`benchmarks/reproduction`. Preserving scripts is not a fresh reproduction of the paper.
 
 For before/after timing, use matched release builds on the same idle machine. Record
 targets, robot/EE frame, geometry, precision, tolerances, output counts, initialization,
@@ -115,3 +148,37 @@ See {doc}`benchmarks/results` for the unchanged published results.
 - **Zero collision-free results:** check the compiled model, scene/frame, and pose
   accuracy. Increasing the candidate batch may help; switching to `soft` is not an
   equivalent collision-free solve.
+- **Prepared build cannot load:** keep the original URDF, tool joint and sphere model.
+  Check CUDA/runtime compatibility and the named artifact path. Rebuild with the same
+  inputs and `hjcdik.build(..., force_rebuild=True)` (CLI: `hjcdik build ... --force`),
+  then restart a process that already imported the old artifact. Do not delete an entire cache.
+
+## Prepared model identity and codegen options
+
+Loading from a URDF with `allow_build=False` now verifies the requested URDF content,
+sphere model and tool frame against the prepared artifact. Changed inputs raise `BuildError`
+instead of silently loading an older same-named model. Identical relocated files still load
+without compiling. To deliberately load an existing artifact independently of input files,
+use its prepared build name.
+
+Source codegen requires `--collision` when `--spherized-urdf` is supplied; otherwise it fails
+before replacing either generated header. Runtime `hjcdik.build(..., spheres=...)` continues
+to enable collision geometry directly. Custom packaged builds preserve complete tool names,
+including hyphens and dots.
+
+Warm-start proximity ranking now uses the same clamped, coarse-precision seeds as initialization.
+Within each candidate pool, converged eligible candidates outrank inaccurate ones regardless of
+joint-space distance; the old finite ranking offset could fail for very large finite seeds.
+The distance metric, convergence tolerances, collision filters and refined-pool preference are
+unchanged. Candidate identities remain nondeterministic; this is not a new convergence guarantee.
+Prepared runtime artifacts retain the solver code they were compiled with: neither named loading
+nor `allow_build=False` upgrades an old artifact. To receive this fix for a custom robot, run
+`hjcdik.build(original_urdf, ee_link=original_tool, spheres=original_spheres, name=original_name)`
+with the updated package, then restart any process that already imported the old artifact.
+GRiD's content identity selects the new build; no cache deletion is needed.
+
+World box/cylinder quaternions are normalized robustly before upload, including very small
+nonzero scales within the accepted input range. Converted cylinder endpoints must still fit
+fp32. Invalid replacements leave the previous world installed. Negative device indices now
+raise `ValueError` before robot resolution instead of selecting the current device implicitly;
+use `device=None` for the current device at construction.

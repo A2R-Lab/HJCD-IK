@@ -89,11 +89,22 @@ if(NOT EXISTS "${GRID_HEADER}")
 endif()
 message(STATUS "HJCD-IK: using GRiD header ${GRID_HEADER}")
 
+set(JOINT_MODEL_HEADER "${GRID_HEADER_DIR}/hjcd_joint_model.h")
+if(NOT EXISTS "${JOINT_MODEL_HEADER}")
+  message(FATAL_ERROR "Missing hjcd_joint_model.h; regenerate this robot with scripts/codegen/generate_grid.py")
+endif()
+file(SHA256 "${GRID_HEADER}" GRID_PAIR_SHA)
+file(STRINGS "${JOINT_MODEL_HEADER}" JOINT_PAIR_LINE REGEX "^// grid-sha256:")
+if(NOT JOINT_PAIR_LINE STREQUAL "// grid-sha256: ${GRID_PAIR_SHA}")
+  message(FATAL_ERROR "Mismatched generated robot headers; regenerate both with scripts/codegen/generate_grid.py")
+endif()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${GRID_HEADER}" "${JOINT_MODEL_HEADER}")
+
 # Sources
 set(HJCDIK_HEADERS
   csrc/kernel/hjcd_settings.h
   csrc/kernel/device_utils.cuh
-  csrc/kernel/grid_env.cuh
+  ${JOINT_MODEL_HEADER}
 )
 
 set(HJCDIK_COMMON_SOURCES
@@ -128,13 +139,22 @@ set(HJCDIK_CUDA_FLAGS
   $<$<COMPILE_LANGUAGE:CUDA>:-use_fast_math>
   $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-O3>
 )
+# Hidden visibility and no STB_GNU_UNIQUE on every host object: the packaged module shares a process
+# with per-robot artifacts (hjcdik.build), and default-visibility template statics would bind
+# process-wide across those modules (one robot's cached model serving another robot's solves).
+if(NOT MSVC)
+  set(HJCDIK_VISIBILITY_FLAGS
+    $<$<COMPILE_LANGUAGE:CXX>:-fvisibility=hidden;-fvisibility-inlines-hidden;-fno-gnu-unique>
+    $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-fvisibility=hidden,-fvisibility-inlines-hidden,-fno-gnu-unique>
+  )
+endif()
 
 # Compile the CUDA solver once and reuse the object code in both front ends. Keeping bindings and
 # CLI code out of this target means ordinary wrapper edits do not trigger the expensive CUDA compile.
 add_library(hjcdik_core OBJECT ${HJCDIK_COMMON_SOURCES})
 target_sources(hjcdik_core PRIVATE ${GRID_HEADER})
 target_include_directories(hjcdik_core PUBLIC ${HJCDIK_INCLUDE_DIRS})
-target_compile_options(hjcdik_core PRIVATE ${HJCDIK_WARN_FLAGS} ${HJCDIK_CUDA_FLAGS})
+target_compile_options(hjcdik_core PRIVATE ${HJCDIK_WARN_FLAGS} ${HJCDIK_CUDA_FLAGS} ${HJCDIK_VISIBILITY_FLAGS})
 target_link_libraries(hjcdik_core PUBLIC CUDA::cudart Threads::Threads)
 set_target_properties(hjcdik_core PROPERTIES
   CUDA_SEPARABLE_COMPILATION OFF
@@ -167,7 +187,7 @@ if(BUILD_PYTHON)
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${GRID_HEADER}")
   file(SHA256 "${GRID_HEADER}" HJCDIK_GRID_SHA256)
   file(STRINGS "${GRID_HEADER}" HJCDIK_TARGET_LINE REGEX "codegen-resolved EE fixed-frame index for target")
-  string(REGEX MATCH "for target '?([A-Za-z0-9_]+)" HJCDIK_TARGET_MATCH "${HJCDIK_TARGET_LINE}")
+  string(REGEX MATCH "for target '([^']+)'" HJCDIK_TARGET_MATCH "${HJCDIK_TARGET_LINE}")
   set(HJCDIK_EE_TARGET "${CMAKE_MATCH_1}")
   if(NOT HJCDIK_EE_TARGET)
     message(FATAL_ERROR "Generated header is missing the named EE target metadata; regenerate it")
@@ -185,7 +205,7 @@ if(BUILD_PYTHON)
     HJCDIK_ROBOT_NAME="${HJCDIK_ROBOT_NAME}"
     HJCDIK_CUDA_COMPILER_VERSION="${CMAKE_CUDA_COMPILER_VERSION}"
   )
-  target_compile_options(_hjcdik PRIVATE ${HJCDIK_WARN_FLAGS})
+  target_compile_options(_hjcdik PRIVATE ${HJCDIK_WARN_FLAGS} ${HJCDIK_VISIBILITY_FLAGS})
   target_link_libraries(_hjcdik PRIVATE hjcdik_core)
   set_target_properties(_hjcdik PROPERTIES CUDA_RUNTIME_LIBRARY Shared)
 
@@ -193,5 +213,12 @@ if(BUILD_PYTHON)
     LIBRARY DESTINATION hjcdik
     RUNTIME DESTINATION hjcdik
     ARCHIVE DESTINATION hjcdik
+  )
+  # Runtime robot builds (hjcdik.build / `hjcdik build`) compile these same sources through
+  # grid_rbd.build_artifact, so the wheel carries them beside the package. The committed Panda header
+  # is not needed there: GRiD regenerates grid.cuh for every artifact.
+  install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/csrc/" DESTINATION hjcdik/_csrc
+    PATTERN "generated" EXCLUDE
+    PATTERN "__pycache__" EXCLUDE
   )
 endif()

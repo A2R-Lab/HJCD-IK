@@ -15,7 +15,7 @@ coordinate updates with Jacobian-based refinement and a GPU collision filter:
    coordinate-descent sweep picks the per-joint moves that most reduce position **and** orientation error.
    Cheap, fast, and good at escaping poor initializations — it produces a diverse set of coarse seeds.
 2. **Levenberg–Marquardt refine (PJ-IK).** The best coarse candidates are polished: build the 6×N geometric
-   Jacobian from the world-frame joint transforms (cross-products), form the normal equations
+   Jacobian from the world-frame joint transforms (revolute cross-products or prismatic translation), form the normal equations
    `(JᵀJ + λ·diag)Δq = Jᵀr`, and solve them with a warp Cholesky. A trust region + backtracking line search
    (with dogleg / single-coordinate fallbacks) adapts `λ` to sub-millimetre, sub-degree accuracy.
 3. **Collision filter.** The refined batch is filtered for feasibility (see below).
@@ -25,7 +25,8 @@ See [arXiv:2510.07514](https://arxiv.org/abs/2510.07514) for the full method and
 
 ## Batched execution & warp-locality
 
-Each call solves **one target**, exploring a batch of candidate configurations. Coarse search
+Each kernel solve handles **one target**, exploring a batch of candidate configurations. A Python
+`Solver.solve` call accepts multiple targets; the native binding loops over them on the host. Coarse search
 assigns **one candidate per CUDA block**; its warps cooperate on coordinate-pair trials.
 Refinement assigns **one candidate per warp**, optionally packing several independent
 candidates into a block (`warp_id = threadIdx.x >> 5`, `lane = threadIdx.x & 31`).
@@ -45,13 +46,14 @@ sizes.
 
 ## Collision avoidance
 
-With `collision="hard"` (the default on a collision build), the refined candidates are scored against the environment *after* optimization
-(never on the hot solver loop) using GRiD's URDF-driven `grid_collision`. The robot is approximated by
+With `collision="hard"` (the default on a collision build), refinement and final filtering use
+GRiD's URDF-driven `grid_collision`. Hard/both modes check collision inside the solver when deciding
+early stopping, ranking seeds, attempting repairs and retaining a free fallback. The robot is approximated by
 covering spheres baked into `grid.cuh` at codegen (`--collision`); obstacles (spheres / cuboids / cylinders)
 come from the problem set. `hard` mode (default) filters colliding candidates with
 `grid_collision::config_free` (self **and** environment), so a request can return fewer solutions than
 requested, including zero. `soft` adds a penetration cost for ranking experiments but does not guarantee
-collision freedom; `both` combines the two. Select the policy with the Python `collision_mode` argument;
+collision freedom; `both` combines the two. Select the policy with the Python `collision` argument;
 the benchmark also accepts `--collision-mode`.
 
 Collision geometry is generated from URDF shapes or supplied pre-spherized geometry and bound to

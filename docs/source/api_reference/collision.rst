@@ -10,11 +10,12 @@ into the generated ``grid.cuh`` as GRiD's ``grid_collision`` namespace (pass ``-
 header. Supported fixed-base serial arms get FK and collision from one codegen step;
 see :doc:`../user_guide/tutorials/custom_robot` for the solver's model restrictions.
 
-The obstacle set (spheres / cuboids / cylinders from a MotionBenchMaker-style problem JSON) is
-parsed and uploaded to the device by ``grid_env.cuh``, then passed by value into the scoring
-kernel as a ``grid_collision::Environment``.
+``hjcdik.worlds`` converts MotionBenchMaker JSON into arrays. ``Solver.set_world`` validates
+spheres, boxes and capsules (cylinders become capsules) and creates an owned uploaded world.
+The native ``CollisionWorld`` wraps GRiD's ``grid_collision::DeviceEnvironment``; its
+``Environment`` view is passed by value into the solver kernels. See :doc:`python` for array shapes.
 
-The default ``collision_mode="hard"`` checks self-collision and the environment, then
+The default ``collision="hard"`` on a collision build checks self-collision and the environment, then
 excludes colliding candidates. It can return zero solutions. ``soft`` only ranks by
 environment penetration cost and offers no collision-free guarantee; ``both`` ranks
 and strictly filters. The final filter is authoritative. These checks do not certify a motion path
@@ -34,20 +35,20 @@ Dimensions, radii, and lengths must be positive finite numbers; poses use meters
 as capsules. Guarantees are relative to the generated sphere model, which excludes the
 fixed Panda base geometry.
 
-Scene caching
--------------
+World ownership and replacement
+-------------------------------
 
-The solver retains one parsed problem document and one uploaded environment per CUDA
-device and precision specialization. Repeated text is compared byte-for-byte without
-allocating a combined key; changing only the selected scene reuses the parsed document.
-Changing the JSON contents invalidates the uploaded scene, even with the same set/index.
-Invalid input and failed uploads cannot silently reuse stale geometry. Access is serialized
-by the solver lock. The cache is bounded by the last document, not the number of scenes.
+Each ``Solver`` owns one world bound to its CUDA device. Repeated solves reuse that
+uploaded world without parsing or comparing JSON. ``set_world`` replaces it; ``clear_world``
+removes the environment while hard mode still checks self-collision. Invalid input or a
+failed upload leaves the previous world installed. Replacing a world waits for an in-flight
+solve, so one world applies to its entire target batch; returned results own their host data.
 
-The convenience API still converts/compares the JSON text on each call. Passing a compact
-document containing only the needed scenes avoids needless input handling; adjust
-``problem_idx`` to that document's indexing. Performance should be measured separately
-for scene changes and repeated solves in one scene.
+Different solver instances have independent worlds. Native ownership releases device memory
+on the device that allocated it. ``collision_margin_m`` widens environment checks only;
+self pairs retain zero margin. ``self_collision=False`` skips only self pairs. Both options
+apply to hard/both modes, not the soft penetration cost. This does not establish safe motion
+between configurations or coverage of unmodeled robot geometry.
 
 Default Panda geometry
 ----------------------
@@ -63,5 +64,4 @@ check environment collisions only; their boolean result does not certify self-co
 freedom or reproduce the compiled self-pair exclusion policy. The legacy reference and
 production geometry are intentionally unchanged.
 
-.. doxygenfile:: grid_env.cuh
-   :project: hjcdik
+The native input structure and world-construction function are documented in :doc:`kernel`.

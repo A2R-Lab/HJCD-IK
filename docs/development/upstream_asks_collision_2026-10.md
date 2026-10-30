@@ -2,16 +2,20 @@
 
 Written for: the GRiD and GLASS agents/maintainers, and whoever lands the HJCD-IK follow-up.
 
-## Current status — October 23
+## Current status — October 24
 
-HJCD pins GRiD **76a0736 (v0.5.5, the PyPI `grid-rbd` 0.5.5 release)** with nested URDFParser `f391741`
-and matching top-level/nested GLASS **9e57178**. G1–G6 are all upstream. The 10-12 re-pin to v0.5.1
+HJCD pins GRiD **712df1c (v0.6.0, the PyPI `grid-rbd` 0.6.0 release)** with nested URDFParser `f391741`
+and matching top-level/nested GLASS **9e57178**. G1–G6 are upstream, and 0.6.0 shipped every later ask
+(G7 margin-aware `config_free`, G10 `check_self`, G8a `DeviceEnvironment` and array builders, G9
+`grid_rbd.build_artifact`/`load_artifact` with the collision options folded in, V1 `grid-spherize --rebind-to`,
+V2 base-chain tolerance, V3 `--geometry visual`, E1 plant block dropped from kinematics headers). HJCD's own
+environment upload (`grid_env.cuh`) is deleted in favour of `DeviceEnvironment`. The 10-12 re-pin to v0.5.1
 changed `grid.cuh` only by GRiD's shared-flag race fix in the block checker (`atomicExch` on `s_cc_hit`)
 and one unused host helper. The 10-23 re-pin to v0.5.5 changed no numeric constant and no collision or
 kinematics code HJCD executes: GRiD retired the ignored trailing `s_linalg_smem` / `glass_nvidia_smem`
 arguments and the zero-byte linalg sizers (HJCD never passed them) and templated the plant-menu barrier
-helpers HJCD does not call. GRiD has not yet replied to G7–G10 or V1–V3 (its ledger, 10-13). 193 pytest
-+ 2 CTest pass on the GPU (correctness only, box shared). G5's report runs on our models but measures against the
+helpers HJCD does not call. The 10-23 re-pin note named `76a0736`, which is the annotated tag object of v0.5.5; the gitlink was the release commit
+`23b64f1`. Tests pass on the GPU after each re-pin (correctness only, box shared). G5's report runs on our models but measures against the
 **collision** (convex-hull) meshes, so it is not a replacement for the visual-mesh fidelity table in
 `evidence/fairness_hardsets_2026-10-03/sphere_model_fidelity.txt`; two validator strictness issues are
 noted below for GRiD. GLASS L1/L2 exist, but the generated checker still uses its existing

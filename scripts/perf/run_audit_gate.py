@@ -6,6 +6,7 @@ import hashlib
 import itertools
 import json
 import os
+import signal
 from pathlib import Path
 import statistics
 import subprocess
@@ -22,6 +23,40 @@ def foreign_gpu_pids(allowed=()):
     text = subprocess.check_output(["nvidia-smi", "--query-compute-apps=pid",
                                     "--format=csv,noheader,nounits"], text=True)
     return {int(line.strip()) for line in text.splitlines() if line.strip()} - set(allowed)
+
+
+def run_worker(cmd, cwd, env, log_path, quiet):
+    """Run one owned worker, rejecting contention and preserving its log on interruption."""
+    if quiet and foreign_gpu_pids():
+        raise RuntimeError("foreign GPU process appeared; partial run is invalid")
+    with Path(log_path).open("w") as log:
+        worker = subprocess.Popen(cmd,cwd=cwd,env=env,stdout=log,stderr=subprocess.STDOUT)
+        try:
+            while True:
+                try:
+                    code=worker.wait(timeout=2)
+                    break
+                except subprocess.TimeoutExpired:
+                    if quiet and foreign_gpu_pids({worker.pid}):
+                        raise RuntimeError("GPU contention detected; partial run is invalid")
+            if code: raise subprocess.CalledProcessError(code,cmd)
+        finally:
+            if worker.poll() is None:
+                # Compile workers can own nvcc/cicc children. Resolve descendants by
+                # parent PID and terminate only those, never by executable name.
+                pairs=[tuple(map(int,line.split())) for line in subprocess.check_output(
+                    ["ps","-eo","pid=,ppid="],text=True).splitlines()]
+                owned=[worker.pid]
+                for parent in owned:
+                    owned.extend(pid for pid,ppid in pairs if ppid==parent and pid not in owned)
+                for pid in reversed(owned[1:]):
+                    try: os.kill(pid,signal.SIGTERM)
+                    except ProcessLookupError: pass
+                worker.terminate()
+                try: worker.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    worker.kill()
+                    worker.wait()
 
 
 def cases(config):
@@ -84,19 +119,28 @@ def main():
     for key in ("targets_json", "problems_json"):
         if digest(config[key]) != config[key+"_sha"]:
             raise ValueError(f"changed workload: {key}")
+    if config.get("reference_urdf") and digest(config["reference_urdf"]) != config["reference_urdf_sha"]:
+        raise ValueError("changed high-DoF reference URDF")
     if "main" not in config["endpoints"]:
         raise ValueError("main comparison endpoint required")
     # Read-only preflight: provenance includes the installed binary, not just the checkout.
     provenance = {}
-    env = {k: v for k, v in os.environ.items() if not k.startswith("HJCD_") and k != "PYTHONPATH"}
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("HJCD_", "HJCDIK_")) and k != "PYTHONPATH"}
     env.update(PYTHONSAFEPATH="1", OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1")
     for label, ep in config["endpoints"].items():
+        if ep.get("env", {}).get("HJCDIK_TIMING_URDF") != config.get("reference_urdf"):
+            raise ValueError("endpoint reference URDF disagrees with the hashed workload")
         sha = subprocess.check_output(["git", "-C", ep["repo"], "rev-parse", "HEAD"], text=True).strip()
         if sha != ep["commit"]:
             raise ValueError(f"changed checkout: {label}")
-        info = json.loads(subprocess.check_output([ep["python"], "-c",
-            "import json,sys,numpy,hjcdik,hjcdik._hjcdik as m; print(json.dumps(dict(build=hjcdik.build_info(),binary=m.__file__,python=sys.version,numpy=numpy.__version__)))"],
-            cwd="/tmp", env=env, text=True))
+        robot = ep.get("env", {}).get("HJCDIK_TIMING_ROBOT")
+        if robot:   # a prepared runtime build: its header and artifact are the provenance (no CUDA init: device=0)
+            probe = ("import json,sys,numpy,hjcdik; s=hjcdik.Solver(%r, device=0, allow_build=False); "
+                     "print(json.dumps(dict(build=dict(s._native.build_info(), grid_header_sha256=s.info.grid_header_sha256, "
+                     "ee_target=s.info.ee_frame, cuda_compiler_version=s.info.cuda_compiler_version), binary=s.info.artifact, python=sys.version, numpy=numpy.__version__)))" % robot)
+        else:
+            probe = "import json,sys,numpy,hjcdik,hjcdik._hjcdik as m; print(json.dumps(dict(build=hjcdik.build_info(),binary=m.__file__,python=sys.version,numpy=numpy.__version__)))"
+        info = json.loads(subprocess.check_output([ep["python"], "-c", probe], cwd="/tmp", env={**env, **ep.get("env", {})}, text=True))
         if info["build"]["grid_header_sha256"] != ep["header_sha"] or digest(info["binary"]) != ep["binary_sha"]:
             raise ValueError(f"changed installed build: {label}")
         if info["build"].get("ee_target", "panda_hand_joint") != "panda_hand_joint":
@@ -124,32 +168,13 @@ def main():
                    "--round", str(r), "--targets-json", config["targets_json"],
                    "--problems-json", config["problems_json"], "--problem-set", config["problem_set"],
                    "--num-solutions", str(s), "--batches", ",".join(map(str, config["batches"][leg])),
+                   "--max-targets", str(config["target_counts"][leg]),
                    "--expected-header-sha", ep["header_sha"], "--out", str(output)]
             if args.correctness_only:
                 cmd.append("--correctness-only")
-            if args.quiet_window and foreign_gpu_pids():
-                raise RuntimeError("foreign GPU process appeared; partial run is invalid")
             print(f"round {r}: {ep_name} S={s} {leg}", flush=True)
-            with (args.out / f"{r}-{ep_name}-S{s}-{leg}.log").open("w") as log:
-                worker = subprocess.Popen(cmd, cwd="/tmp", env={**env, **ep.get("env", {})}, stdout=log, stderr=subprocess.STDOUT)
-                try:
-                    while True:
-                        try:
-                            code = worker.wait(timeout=2)
-                            break
-                        except subprocess.TimeoutExpired:
-                            if args.quiet_window and foreign_gpu_pids({worker.pid}):
-                                raise RuntimeError("GPU contention detected; partial run is invalid")
-                    if code:
-                        raise subprocess.CalledProcessError(code, cmd)
-                finally:
-                    if worker.poll() is None:
-                        worker.terminate()  # only this launcher's child, never another agent's process
-                        try:
-                            worker.wait(timeout=10)
-                        except subprocess.TimeoutExpired:
-                            worker.kill()
-                            worker.wait()
+            run_worker(cmd,"/tmp",{**env, **ep.get("env", {})},
+                       args.out/f"{r}-{ep_name}-S{s}-{leg}.log",args.quiet_window)
     with output.open(newline="") as stream:
         findings = analyze(config, list(csv.DictReader(stream)), args.correctness_only)
     (args.out / "analysis.json").write_text(json.dumps(findings, indent=2)+"\n")

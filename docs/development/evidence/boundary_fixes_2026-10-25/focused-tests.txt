@@ -1,0 +1,16 @@
+.......................................................                  [100%]
+=============================== warnings summary ===============================
+tests/test_codegen.py::test_generation_failure_after_partial_write_preserves_header
+tests/test_codegen.py::test_explicit_glass_provenance_is_archive_reproducible
+tests/test_codegen.py::test_wrong_glass_provenance_preserves_previous_header
+  /home/plancher/Desktop/HJCD-IK/external/GRiD/external/URDFParser/URDFParser.py:98: UserWarning: Link [panda_link0] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+    warnings.warn(
+
+tests/test_codegen.py::test_punctuated_tool_name_in_static_and_runtime_builds[flange-tool0]
+tests/test_codegen.py::test_punctuated_tool_name_in_static_and_runtime_builds[flange.tool0]
+tests/test_codegen.py::test_punctuated_tool_name_in_static_and_runtime_builds[panda_grasptarget_hand]
+  /home/plancher/Desktop/HJCD-IK/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [panda_link0] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+55 passed, 6 warnings in 28.99s

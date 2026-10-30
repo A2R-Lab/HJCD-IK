@@ -1,0 +1,9 @@
+label,leg,batch,round,n_targets,median_ms,mean_ms,min_ms,p95_ms,solved,empty,returned,refine_fp64,correctness_only,header_sha
+main-S1,table1,1,1,2,,,,,2,0,2,-1,True,2bcb60e46ac8c08cf2ed62224bd93e382ab3f360bad4529e704f54a2857391c6
+main-S1,table1,64,1,2,,,,,2,0,2,-1,True,2bcb60e46ac8c08cf2ed62224bd93e382ab3f360bad4529e704f54a2857391c6
+branch-S1,table1,1,1,2,,,,,2,0,2,-1,True,2bcb60e46ac8c08cf2ed62224bd93e382ab3f360bad4529e704f54a2857391c6
+branch-S1,table1,64,1,2,,,,,2,0,2,-1,True,2bcb60e46ac8c08cf2ed62224bd93e382ab3f360bad4529e704f54a2857391c6
+main-S4,table1,1,1,2,,,,,2,0,8,-1,True,2bcb60e46ac8c08cf2ed62224bd93e382ab3f360bad4529e704f54a2857391c6
+main-S4,table1,64,1,2,,,,,2,0,8,-1,True,2bcb60e46ac8c08cf2ed62224bd93e382ab3f360bad4529e704f54a2857391c6
+branch-S4,table1,1,1,2,,,,,2,0,8,-1,True,2bcb60e46ac8c08cf2ed62224bd93e382ab3f360bad4529e704f54a2857391c6
+branch-S4,table1,64,1,2,,,,,2,0,8,-1,True,2bcb60e46ac8c08cf2ed62224bd93e382ab3f360bad4529e704f54a2857391c6

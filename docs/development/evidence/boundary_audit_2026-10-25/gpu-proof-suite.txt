@@ -1,0 +1,128 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/plancher/Desktop/HJCD-IK
+configfile: pyproject.toml
+plugins: gpu-proof-0.4.1, platformdirs-4.13.5
+collected 339 items
+
+tests/test_api.py ....................................                   [ 10%]
+tests/test_benchmark_setup.py ......                                     [ 12%]
+tests/test_benchmark_smoke.py ..                                         [ 12%]
+tests/test_benchmark_tools.py .......                                    [ 15%]
+tests/test_build.py .......                                              [ 17%]
+tests/test_build_failures.py ............                                [ 20%]
+tests/test_codegen.py ..........                                         [ 23%]
+tests/test_collision.py ......................                           [ 30%]
+tests/test_collision_model.py ............                               [ 33%]
+tests/test_collision_refinement.py ....................                  [ 39%]
+tests/test_examples.py ...........                                       [ 42%]
+tests/test_fk_equivalence.py ............                                [ 46%]
+tests/test_general_joints.py ........................................... [ 58%]
+...                                                                      [ 59%]
+tests/test_gpu_proof_policy.py ..                                        [ 60%]
+tests/test_initialization.py ............                                [ 64%]
+tests/test_joint_boundaries.py ....                                      [ 65%]
+tests/test_joint_fixtures.py .....                                       [ 66%]
+tests/test_multiwarp.py ........                                         [ 69%]
+tests/test_new_robot_presets.py .....                                    [ 70%]
+tests/test_precision.py ....                                             [ 71%]
+tests/test_presets.py ...                                                [ 72%]
+tests/test_query_results.py .....                                        [ 74%]
+tests/test_rail_example.py ..........                                    [ 76%]
+tests/test_regression.py ...                                             [ 77%]
+tests/test_robot_model.py .......................                        [ 84%]
+tests/test_solver_contract.py .....................                      [ 90%]
+tests/test_stage3.py ........                                            [ 93%]
+tests/test_stats.py .......                                              [ 95%]
+tests/test_stats_summary.py .....                                        [ 96%]
+tests/test_timing_contract.py ...........                                [100%]
+[gpu-proof] Receipt written to /home/plancher/Desktop/HJCD-IK/gpu-proof.json
+[gpu-proof] Signed with key SHA256:hfyUcDJTDLry3j7nJ9V2X8iEIgNFmFJQKGQirOdyWtY
+
+
+=============================== warnings summary ===============================
+tests/test_build.py: 13 warnings
+tests/test_codegen.py: 1 warning
+tests/test_general_joints.py: 3 warnings
+tests/test_robot_model.py: 3 warnings
+  /home/plancher/Desktop/HJCD-IK/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [panda_link0] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+    warnings.warn(
+
+tests/test_codegen.py::test_generation_failure_after_partial_write_preserves_header
+tests/test_codegen.py::test_explicit_glass_provenance_is_archive_reproducible
+tests/test_codegen.py::test_wrong_glass_provenance_preserves_previous_header
+  /home/plancher/Desktop/HJCD-IK/external/GRiD/external/URDFParser/URDFParser.py:98: UserWarning: Link [panda_link0] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+    warnings.warn(
+
+tests/test_general_joints.py::test_fk_and_actual_jacobian[False-panda]
+  /home/plancher/Desktop/HJCD-IK/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [slider_base] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+    warnings.warn(
+
+tests/test_general_joints.py: 8 warnings
+tests/test_joint_boundaries.py: 2 warnings
+tests/test_new_robot_presets.py: 1 warning
+  /home/plancher/Desktop/HJCD-IK/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [link0] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+    warnings.warn(
+
+tests/test_new_robot_presets.py::test_ur5e_independent_fk_and_collision_ik[fp32]
+tests/test_new_robot_presets.py::test_shipped_ur5e_preset_loads
+tests/test_rail_example.py::test_rail_fk_jacobian_and_moving_geometry[fp32]
+tests/test_rail_example.py::test_rail_fk_jacobian_and_moving_geometry[fp32]
+  /home/plancher/Desktop/HJCD-IK/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [world] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+    warnings.warn(
+
+tests/test_new_robot_presets.py::test_ur5e_independent_fk_and_collision_ik[fp32]
+tests/test_new_robot_presets.py::test_shipped_ur5e_preset_loads
+tests/test_rail_example.py::test_rail_fk_jacobian_and_moving_geometry[fp32]
+tests/test_rail_example.py::test_rail_fk_jacobian_and_moving_geometry[fp32]
+  /home/plancher/Desktop/HJCD-IK/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [base_link] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+    warnings.warn(
+
+tests/test_new_robot_presets.py::test_ur5e_independent_fk_and_collision_ik[fp32]
+tests/test_new_robot_presets.py::test_shipped_ur5e_preset_loads
+tests/test_rail_example.py::test_rail_fk_jacobian_and_moving_geometry[fp32]
+tests/test_rail_example.py::test_rail_fk_jacobian_and_moving_geometry[fp32]
+  /home/plancher/Desktop/HJCD-IK/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [ft_frame] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+    warnings.warn(
+
+tests/test_new_robot_presets.py::test_ur5e_independent_fk_and_collision_ik[fp32]
+tests/test_new_robot_presets.py::test_shipped_ur5e_preset_loads
+tests/test_presets.py::test_iiwa14_preset_builds_and_solves_with_collision
+tests/test_rail_example.py::test_rail_fk_jacobian_and_moving_geometry[fp32]
+tests/test_rail_example.py::test_rail_fk_jacobian_and_moving_geometry[fp32]
+  /home/plancher/Desktop/HJCD-IK/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [base] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+    warnings.warn(
+
+tests/test_new_robot_presets.py::test_ur5e_independent_fk_and_collision_ik[fp32]
+tests/test_new_robot_presets.py::test_shipped_ur5e_preset_loads
+tests/test_rail_example.py::test_rail_fk_jacobian_and_moving_geometry[fp32]
+tests/test_rail_example.py::test_rail_fk_jacobian_and_moving_geometry[fp32]
+  /home/plancher/Desktop/HJCD-IK/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [flange] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+    warnings.warn(
+
+tests/test_new_robot_presets.py::test_ur5e_independent_fk_and_collision_ik[fp32]
+tests/test_new_robot_presets.py::test_shipped_ur5e_preset_loads
+tests/test_rail_example.py::test_rail_fk_jacobian_and_moving_geometry[fp32]
+tests/test_rail_example.py::test_rail_fk_jacobian_and_moving_geometry[fp32]
+  /home/plancher/Desktop/HJCD-IK/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [tool0] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+    warnings.warn(
+
+tests/test_presets.py::test_iiwa14_preset_builds_and_solves_with_collision
+  /home/plancher/Desktop/HJCD-IK/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [iiwa_link_ee_kuka] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+    warnings.warn(
+
+tests/test_presets.py::test_iiwa14_preset_builds_and_solves_with_collision
+  /home/plancher/Desktop/HJCD-IK/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [iiwa_link_ee] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+    warnings.warn(
+
+tests/test_rail_example.py::test_rail_fk_jacobian_and_moving_geometry[fp32]
+tests/test_rail_example.py::test_rail_fk_jacobian_and_moving_geometry[fp32]
+  /home/plancher/Desktop/HJCD-IK/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:568: UserWarning: URDFParser: Link(s) ['base_link'] have a degenerate/missing <inertial> (zero or non-positive-definite mass/inertia), which yields singular/broken dynamics. Provide a valid <inertial>, or parse with strict_inertial=True to reject this as an error.
+    self.validate_inertials(root_link_name)
+
+tests/test_robot_model.py::test_runtime_plan_rejects_before_codegen[target-final actuated]
+  /home/plancher/Desktop/HJCD-IK/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [early_tool] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================= 339 passed, 65 warnings in 67.56s (0:01:07) ==================

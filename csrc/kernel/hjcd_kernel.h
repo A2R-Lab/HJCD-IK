@@ -14,6 +14,13 @@ namespace grid {
     template<typename T> struct robotModel;
 }
 
+#if defined(HJCDIK_DIAGNOSTICS)
+struct CollisionWorld;
+// Private test build only: rows contain pose7, row-major 6xN Jacobian, free verdict.
+std::vector<double> diagnostic_model(const std::vector<double>& q, bool fp64,
+                                    const CollisionWorld* world, float margin, bool check_self);
+#endif
+
 /// Collision policy of one solve. `none` is an open-world solve. `hard` filters self and environment
 /// collisions against the compiled sphere model; `soft` ranks candidates by environment penetration
 /// only (no self-collision check, no filtering) and requires a non-empty world; `both` ranks and filters.
@@ -55,7 +62,7 @@ struct SolveStats {
  */
 template<typename T>
 struct Result {
-    T* joint_config = nullptr;  ///< count x grid_num_joints() joint angles, radians.
+    T* joint_config = nullptr;  ///< count x grid_num_joints() coordinates, radians/metres by joint type.
     T* pose = nullptr;          ///< count x 7 poses: [x,y,z,qw,qx,qy,qz], positions in meters.
     T* pos_errors = nullptr;    ///< count position errors, millimeters.
     T* ori_errors = nullptr;    ///< count orientation errors, radians.
@@ -120,6 +127,25 @@ struct WorldSpec {
     bool empty() const { return spheres.empty() && capsules.empty() && boxes.empty(); }
 };
 
+/**
+ * @brief Per-solve knobs beyond the collision policy. Defaults reproduce the historical solver.
+ *
+ * `margin_m` is the clearance (metres) below which an environment pair counts as a hit;
+ * self pairs retain zero margin when `check_self` is true. Zero margin is
+ * today's contact-free rule. Both apply to `hard` and `both` only (invalid otherwise). `seed`
+ * shifts the coarse search's random initial configurations (it changes which valid candidates are
+ * found, never their validity). `q_init` (row-major `num_init` x N, radians/metres, clamped to joint
+ * limits on the device) replaces the initial configurations of the first `num_init` coarse blocks;
+ * `num_init` must not exceed the batch size.
+ */
+struct SolveOptions {
+    float margin_m = 0.0f;
+    bool check_self = true;
+    std::uint32_t seed = 1337u;
+    const double* q_init = nullptr;
+    int num_init = 0;
+};
+
 /// Owning device copy of a WorldSpec, bound to the CUDA device current when it was made. Opaque.
 struct CollisionWorld;
 
@@ -178,6 +204,7 @@ std::array<T, 7> normalized_target_pose(const T* pose) {
  * @param world Uploaded obstacle world on the current device, or nullptr for an empty environment.
  * hard/both with an empty world check self-collision only; soft with an empty world is rejected.
  * @param collect_stats Fill Result::stats (sets Result::has_stats). Never changes the solution.
+ * @param options Margin, self-collision toggle, seed and warm starts; see SolveOptions.
  * @return Owning result. Candidates may be approximate, fewer than requested, or empty.
  * Collision checks describe configurations, never paths.
  * @throws std::invalid_argument For invalid scalar/pose values, a soft solve without obstacles, or
@@ -192,7 +219,8 @@ Result<T> generate_ik_solutions(
     int num_solutions = 1,
     CollisionMode collision = CollisionMode::none,
     const CollisionWorld* world = nullptr,
-    bool collect_stats = false
+    bool collect_stats = false,
+    const SolveOptions& options = SolveOptions{}
 );
 
 /**

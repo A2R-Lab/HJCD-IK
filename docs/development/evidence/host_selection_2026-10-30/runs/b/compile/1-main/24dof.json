@@ -1,0 +1,11 @@
+{
+  "robot": "24dof",
+  "cold_seconds": 55.335493138059974,
+  "cache_hit_seconds": 0.42646494414657354,
+  "source_sha": "343fd5607500c8a84c5db79963d2060e73b72a153e97ac3746629382d9cae044",
+  "content_key": "f9e2a905cc5b5bcbdf6715152c630b592927813883bcfc39729949ee6fec6e10",
+  "header_sha": "2bcb60e46ac8c08cf2ed62224bd93e382ab3f360bad4529e704f54a2857391c6",
+  "cuda_compiler_version": "",
+  "binary": "/tmp/hjcd-boundary-timing-20261030-b/compile/1-main/24dof/consumers/hjcdik/store/f9e2a905cc5b5bcbdf6715152c630b592927813883bcfc39729949ee6fec6e10/hjcdik_e4cf727dccc0.so",
+  "pid": 1185880
+}

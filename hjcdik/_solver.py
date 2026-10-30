@@ -1,18 +1,20 @@
 """User-facing solver: `Solver`, `Result`, `TargetResult`, `Stats`, `Info`, `SolveError`.
 
-Pure Python over the low-level `_hjcdik` bindings. The native layer solves one target per call; this
-module validates whole batches before any GPU work, loops over targets under one lock, and assembles
-fixed-capacity, NaN-padded host arrays that never reference device memory.
+Pure Python over the low-level `_hjcdik` bindings. This module validates whole batches before GPU
+work and holds one lock around the native batch call. The binding loops over targets and assembles
+fixed-capacity, NaN-padded host arrays; Python exposes read-only views without device references.
 """
 from __future__ import annotations
 
+import os
 import threading
 from dataclasses import dataclass, fields
-from typing import Optional, Sequence, Union
+from typing import Optional
 
 import numpy as np
 
-from . import _hjcdik as _native
+from . import _hjcdik as _native   # the packaged robot; artifacts bring their own module
+from ._build import Artifact, build as _build_artifact, import_artifact, load as _load_artifact
 
 _COLLISION_CODES = {None: 0, "hard": 1, "soft": 2, "both": 3}
 _OMITTED = object()
@@ -46,6 +48,11 @@ class Info:
     device: int
     max_batch_size: int
     precisions: tuple = ("fp32", "fp64")
+    artifact: Optional[str] = None   # store path of a runtime build; None for the packaged robot
+    joint_names: tuple = ()
+    joint_types: tuple = ()
+    joint_units: tuple = ()
+    joint_limits: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -90,7 +97,7 @@ class Stats:
 class TargetResult:
     """Un-padded view of one target's candidates (`count` rows)."""
 
-    q: np.ndarray            # (count, N) radians
+    q: np.ndarray            # (count, N) radians/metres in info.joint_units order
     pose: np.ndarray         # (count, 7) metres, wxyz
     pos_err_mm: np.ndarray   # (count,)
     ori_err_rad: np.ndarray  # (count,)
@@ -172,9 +179,17 @@ def _check_positive(name: str, values: np.ndarray, what: str) -> None:
         raise ValueError(f"{name} {what} must be positive")
 
 
+def _normalized_quaternions(q: np.ndarray) -> np.ndarray:
+    """Scale first to avoid underflow in the norm of finite, nonzero rows."""
+    if not len(q):
+        return q.copy()
+    scaled = q / np.abs(q).max(axis=1, keepdims=True)
+    return scaled / np.linalg.norm(scaled, axis=1, keepdims=True)
+
+
 def _rotation_z_axis(q: np.ndarray) -> np.ndarray:
     """Third column of R(q) for rows of scalar-first quaternions (normalised here)."""
-    q = q / np.linalg.norm(q, axis=1, keepdims=True)
+    q = _normalized_quaternions(q)
     w, x, y, z = q.T
     return np.stack([2 * (x * z + y * w), 2 * (y * z - x * w), 1 - 2 * (x * x + y * y)], axis=1)
 
@@ -192,6 +207,7 @@ def world_arrays(*, boxes=None, capsules=None, spheres=None, cylinders=None) -> 
     _check_positive("capsules", capsules[:, 6], "radii")
     boxes = _as_matrix("boxes", boxes, 10)
     _check_quaternions("boxes", boxes[:, 3:7])
+    boxes[:, 3:7] = _normalized_quaternions(boxes[:, 3:7])
     _check_positive("boxes", boxes[:, 7:10], "side lengths")
     cylinders = _as_matrix("cylinders", cylinders, 9)
     if cylinders.shape[0]:
@@ -200,8 +216,16 @@ def world_arrays(*, boxes=None, capsules=None, spheres=None, cylinders=None) -> 
         axis = _rotation_z_axis(cylinders[:, 3:7])
         half = 0.5 * cylinders[:, 8:9] * axis
         converted = np.concatenate([cylinders[:, :3] - half, cylinders[:, :3] + half, cylinders[:, 7:8]], axis=1)
+        converted = _as_matrix("converted cylinders", converted, 7)
         capsules = np.concatenate([capsules, converted], axis=0)
     return {"spheres": spheres, "capsules": np.ascontiguousarray(capsules), "boxes": boxes}
+
+
+def _failed_target_index(message: str) -> int:
+    """The target index the binding names in a failure message ('... target 3: ...'), else 0."""
+    import re
+    m = re.search(r"target (\d+):", message)
+    return int(m.group(1)) if m else 0
 
 
 def _readonly(array: np.ndarray) -> np.ndarray:
@@ -210,28 +234,77 @@ def _readonly(array: np.ndarray) -> np.ndarray:
 
 
 class Solver:
-    """IK solver for the robot the installed extension was compiled for.
+    """IK solver for one compiled robot: the packaged one, or a runtime build from the artifact store.
 
-    One instance binds to a CUDA device at construction and owns one obstacle world. Calls from
-    several threads are safe and serialised; they are not concurrent on the GPU.
+    `Solver()` is the packaged robot. `Solver("<name>")` is the packaged robot when the name matches it,
+    a shipped preset (`hjcdik.presets()`, built on first use) or a prepared build of that name
+    (`hjcdik.build` / `hjcdik build`). `Solver("<path>.urdf", ee_link=..., spheres=...)` builds the
+    robot on first use (`allow_build=False` only loads). One
+    instance binds to a CUDA device at construction and owns one obstacle world. Calls from several
+    threads are safe and serialised; they are not concurrent on the GPU.
     """
 
-    def __init__(self, robot: Optional[str] = None, *, device: Optional[int] = None):
-        info = _native.build_info()
-        if robot is not None and robot != info["robot"]:
-            raise ValueError(
-                f"this build solves {info['robot']!r}, not {robot!r}; runtime robot builds arrive in Stage 2")
+    def __init__(self, robot=None, *, ee_link: Optional[str] = None, spheres=None,
+                 device: Optional[int] = None, allow_build: bool = True, cache_dir=None):
+        if device is not None:
+            device = int(device)
+            if device < 0:
+                raise ValueError("device must be non-negative")
+        self._artifact: Optional[Artifact] = None
+        self._native = self._resolve(robot, ee_link, spheres, allow_build, cache_dir)
+        info = self._native.build_info()
+        import json
+        joints = json.loads(self._native.joint_model_json())["joints"]
         dof = int(info["num_joints"])
-        self._device = _native.current_device() if device is None else int(device)
+        self._device = self._native.current_device() if device is None else int(device)
         self._lock = threading.RLock()
         self._world = None
+        artifact = self._artifact
         self.info = Info(
             robot=info["robot"], dof=dof, ee_frame=info["ee_target"],
             collision_enabled=bool(info["collision_enabled"]),
-            grid_header_sha256=info["grid_header_sha256"],
-            cuda_compiler_version=info["cuda_compiler_version"],
+            grid_header_sha256=info["grid_header_sha256"] or (artifact.grid_header_sha256 if artifact else ""),
+            cuda_compiler_version=info["cuda_compiler_version"] or (artifact.cuda_compiler_version if artifact else ""),
             device=self._device, max_batch_size=(_INT_MAX - 255) // (16 * dof),
+            artifact=None if artifact is None else str(artifact.path),
+            joint_names=tuple(j["name"] for j in joints),
+            joint_types=tuple(j["type"] for j in joints),
+            joint_units=tuple(j["unit"] for j in joints),
+            joint_limits=tuple(tuple(j["limits"]) for j in joints),
         )
+
+    def _resolve(self, robot, ee_link, spheres, allow_build, cache_dir):
+        packaged = _native.build_info()
+        if robot is None or robot == packaged["robot"]:
+            if spheres is not None:
+                raise ValueError("spheres cannot override the packaged robot's collision geometry; "
+                                 "build from a URDF: Solver('<robot>.urdf', ee_link=..., spheres=...)")
+            if ee_link is not None and ee_link != packaged["ee_target"]:
+                raise ValueError(f"the packaged {packaged['robot']!r} solves the {packaged['ee_target']!r} frame, "
+                                 f"not {ee_link!r}; build it from a URDF: Solver('<robot>.urdf', ee_link=...)")
+            return _native
+        if not isinstance(robot, (str, os.PathLike)):
+            raise TypeError("robot is None, a build name, or a URDF path")
+        text = str(robot)
+        if text.lower().endswith(".urdf") or os.sep in text:
+            if ee_link is None:
+                raise ValueError("building from a URDF needs ee_link=<fixed joint of the end-effector frame>")
+            if allow_build:
+                self._artifact = _build_artifact(text, ee_link=ee_link, spheres=spheres, cache_dir=cache_dir)
+            else:
+                from ._build import load_for_urdf
+                self._artifact = load_for_urdf(text, ee_link, spheres, cache_dir=cache_dir)
+        else:
+            if ee_link is not None or spheres is not None:
+                raise ValueError("ee_link and spheres apply to a URDF build; a build name is already complete")
+            from ._build import presets
+            preset = presets().get(text)
+            if preset is not None and allow_build:
+                self._artifact = _build_artifact(preset["urdf"], ee_link=preset["ee_link"],
+                                                 spheres=preset["spheres"], name=text, cache_dir=cache_dir)
+            else:
+                self._artifact = _load_artifact(text, cache_dir=cache_dir)
+        return import_artifact(self._artifact)
 
     # ----------------------------------------------------------------------------- world
     def set_world(self, *, boxes=None, capsules=None, spheres=None, cylinders=None) -> None:
@@ -245,7 +318,7 @@ class Solver:
         if not self.info.collision_enabled:
             raise ValueError("this build has no collision geometry; worlds cannot be installed")
         arrays = world_arrays(boxes=boxes, capsules=capsules, spheres=spheres, cylinders=cylinders)
-        world = _native.World(arrays["spheres"], arrays["capsules"], arrays["boxes"], self._device)
+        world = self._native.World(arrays["spheres"], arrays["capsules"], arrays["boxes"], self._device)
         with self._lock:
             self._world = world
 
@@ -275,12 +348,14 @@ class Solver:
         if int(num_targets) > _INT_MAX - 255:
             raise ValueError("num_targets must fit CUDA launch indexing")
         with self._lock:
-            poses = _native.sample_targets(int(num_targets), int(seed), self._device)
+            poses = self._native.sample_targets(int(num_targets), int(seed), self._device)
         return np.asarray(poses, dtype=np.float64).reshape(-1, 7)
 
     # ------------------------------------------------------------------------------ solve
     def solve(self, poses, *, num_solutions: int = 1, batch_size: int = 2000,
-              collision=_OMITTED, precision: str = "auto", stats: bool = False) -> Result:
+              collision=_OMITTED, precision: str = "auto", stats: bool = False,
+              collision_margin_m: float = 0.0, self_collision: bool = True,
+              q_init=None, seed: Optional[int] = None) -> Result:
         """Solve IK for one pose `(7,)` or a batch `(T, 7)`; returns a `Result` with `T` targets.
 
         `batch_size` is the number of candidate configurations explored per target, not a target count.
@@ -289,6 +364,15 @@ class Solver:
         build and `None` on an open-world build. `precision` is `"auto"` (fp64 refinement for one
         solution, fp32 otherwise), `"fp32"` or `"fp64"`; I/O is float64 either way. `stats=True`
         collects per-target diagnostics without changing the solution.
+
+        `collision_margin_m` (metres, `hard`/`both` only) is the clearance below which a checked pair
+        counts as a hit for environment pairs. Self pairs keep zero margin; zero is
+        the contact-free rule. `self_collision=False` (`hard`/`both` only) skips the self pairs.
+        `q_init` warm-starts the coarse search: `(K, N)` configurations shared by every target or
+        `(T, K, N)` per target, `K <= batch_size`, clamped to the joint limits; the remaining
+        `batch_size - K` candidates start from the seeded random initialisation. `seed` (unsigned
+        32-bit; default 1337, the historical constant) shifts that initialisation. Seeds and warm
+        starts change which valid candidates are found, never their validity.
         """
         poses = self._validate_poses(poses)
         num_solutions, batch_size = int(num_solutions), int(batch_size)
@@ -306,20 +390,57 @@ class Solver:
             raise ValueError("precision must be 'auto', 'fp32' or 'fp64'")
         fp64 = (num_solutions == 1) if precision == "auto" else precision == "fp64"
         code = _COLLISION_CODES[collision]
+        margin = float(collision_margin_m)
+        if not np.isfinite(margin) or margin < 0:
+            raise ValueError("collision_margin_m must be finite and non-negative")
+        if (margin > 0 or not self_collision) and collision not in ("hard", "both"):
+            raise ValueError("collision_margin_m and self_collision apply to collision='hard' or 'both'")
+        if seed is None:
+            seed = 1337
+        if int(seed) != seed or not 0 <= int(seed) < 2**32:
+            raise ValueError("seed must be an integer in [0, 2**32)")
+        inits = self._validate_q_init(q_init, len(poses), batch_size)
 
         with self._lock:
             world = self._world
             if collision == "soft" and (world is None or world.empty):
                 raise ValueError("collision='soft' ranks by environment penetration and needs a non-empty world")
-            raw = []
-            for index, pose in enumerate(poses):
-                try:
-                    raw.append(_native.solve_one(tuple(float(v) for v in pose), batch_size, num_solutions,
-                                                 code, fp64, bool(stats), world, self._device))
-                except RuntimeError as error:
-                    raise SolveError(f"target {index}: {error}", target_index=index,
-                                     completed=index) from error
-        return self._assemble(raw, num_solutions, bool(stats))
+            if len(poses) == 0:
+                return self._empty(num_solutions, bool(stats))
+            try:
+                raw = self._native.solve_batch(poses, batch_size, num_solutions, code, fp64, bool(stats), world,
+                                               self._device, margin, bool(self_collision), int(seed), inits,
+                                               num_solutions)
+            except RuntimeError as error:
+                index = _failed_target_index(str(error))
+                raise SolveError(str(error), target_index=index, completed=index) from error
+        return self._assemble(raw, bool(stats))
+
+    def _empty(self, S: int, stats: bool) -> Result:
+        N = self.info.dof
+        empty_stats = None
+        if stats:
+            empty_stats = Stats(**{name: _readonly(np.zeros(0)) for name in Stats.field_names()})
+        return Result(q=_readonly(np.empty((0, S, N))), pose=_readonly(np.empty((0, S, 7))),
+                      pos_err_mm=_readonly(np.empty((0, S))), ori_err_rad=_readonly(np.empty((0, S))),
+                      count=_readonly(np.zeros(0, dtype=np.int64)), valid=_readonly(np.zeros((0, S), dtype=bool)),
+                      elapsed_ms=_readonly(np.zeros(0)), stats=empty_stats)
+
+    def _validate_q_init(self, q_init, T: int, batch_size: int):
+        """`(K, N)` shared or `(T, K, N)` per target -> one contiguous float64 array (or None)."""
+        if q_init is None:
+            return None
+        N = self.info.dof
+        array = np.array(q_init, dtype=np.float64, copy=True)
+        if not ((array.ndim == 2 and array.shape[1] == N) or
+                (array.ndim == 3 and array.shape[0] == T and array.shape[2] == N)):
+            raise ValueError(f"q_init must have shape (K, {N}) or (T={T}, K, {N}); got {array.shape}")
+        if not np.isfinite(array).all():
+            raise ValueError("q_init must be finite")
+        K = array.shape[-2]
+        if K > batch_size:
+            raise ValueError(f"q_init has {K} rows but batch_size is {batch_size}; K must not exceed batch_size")
+        return np.ascontiguousarray(array)
 
     def _validate_poses(self, poses) -> np.ndarray:
         array = np.array(poses, dtype=np.float64, copy=True)
@@ -337,30 +458,15 @@ class Solver:
             raise ValueError("target positions exceed fp32 range")
         return array
 
-    def _assemble(self, raw: list, S: int, stats: bool) -> Result:
-        T, N = len(raw), self.info.dof
-        q = np.full((T, S, N), np.nan)
-        pose = np.full((T, S, 7), np.nan)
-        pos_err = np.full((T, S), np.nan)
-        ori_err = np.full((T, S), np.nan)
-        count = np.zeros(T, dtype=np.int64)
-        elapsed = np.zeros(T, dtype=np.float64)
-        rows = {name: [] for name in Stats.field_names()} if stats else None
-        for t, r in enumerate(raw):
-            n = min(int(r["count"]), S)
-            count[t] = n
-            q[t, :n] = r["joint_config"][:n]
-            pose[t, :n] = r["pose"][:n]
-            pos_err[t, :n] = r["pos_errors"][:n]
-            ori_err[t, :n] = r["ori_errors"][:n]
-            elapsed[t] = r["elapsed_ms"]
-            if stats:
-                for name in rows:
-                    rows[name].append(r["stats"][name])
+    def _assemble(self, raw: dict, stats: bool) -> Result:
+        """Wrap the binding's (T, S, ...) arrays read-only."""
+        count = raw["count"]
+        S = raw["joint_config"].shape[1]
         valid = np.arange(S)[None, :] < count[:, None]
         result_stats = None
         if stats:
-            result_stats = Stats(**{name: _readonly(np.asarray(values)) for name, values in rows.items()})
-        return Result(q=_readonly(q), pose=_readonly(pose), pos_err_mm=_readonly(pos_err),
-                      ori_err_rad=_readonly(ori_err), count=_readonly(count), valid=_readonly(valid),
-                      elapsed_ms=_readonly(elapsed), stats=result_stats)
+            result_stats = Stats(**{name: _readonly(raw["stats"][name]) for name in Stats.field_names()})
+        return Result(q=_readonly(raw["joint_config"]), pose=_readonly(raw["pose"]),
+                      pos_err_mm=_readonly(raw["pos_errors"]), ori_err_rad=_readonly(raw["ori_errors"]),
+                      count=_readonly(count), valid=_readonly(valid), elapsed_ms=_readonly(raw["elapsed_ms"]),
+                      stats=result_stats)

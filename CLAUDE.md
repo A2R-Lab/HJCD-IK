@@ -25,8 +25,8 @@ barriers. Two phases (`csrc/kernel/hjcd_kernel.cu`):
    (`ee_fk_suffix_thread`, built on `grid::update_XmatHom_joint`) rather than a full chain — this is what
    makes high-DoF scale (was O(N³) serial-on-lane-0; see `docs/development/agent_debugging_guide.md` §5).
 2. **LM refine** (`solve_lm_batched` / `lm_tuner`): single-warp Levenberg–Marquardt — build the 6×N geometric
-   Jacobian (cross-products), form & solve the normal equations `(JᵀJ + λ·diag)Δq = Jᵀr` via a hand-rolled
-   `__shfl` warp-Cholesky, with dogleg/line-search backtracking.
+   Jacobian (revolute cross-products or prismatic translation columns), form & solve the normal equations
+   `(JᵀJ + λ·diag)Δq = Jᵀr` via GLASS warp linear algebra, with dogleg/line-search backtracking.
 
 Forward kinematics produces the **world-frame joint transforms** `s_jointXforms[16·jid]` (4×4 each); the EE
 pose error is computed as a **quaternion** error (`mat_to_quat` / `quat_err_rotvec`). For Panda: `N = 7`
@@ -39,14 +39,16 @@ joints. Target indices and transform counts are generated constants; the default
 |---|---|
 | `csrc/kernel/hjcd_kernel.cu` | The solver: block-cooperative coarse search + warp-scoped LM refine + host orchestration (`generate_ik_solutions`). **The file you'll edit most.** |
 | `csrc/kernel/hjcd_settings.h` | `HJCDSettings<T>` (coarse/LM tolerances, `lambda_init`), `mat4_mul`, FK helpers (`ee_fk_warp`/`ee_fk_thread`/`ee_fk_suffix_thread`), `#include "grid.cuh"`, `N`/`FLANGE_JID`/`GRASP_FIXED_IDX`. |
-| `csrc/kernel/hjcd_kernel.h` | Native host API: move-only `Result<T>` (with `SolveStats`), `CollisionMode`, `WorldSpec` → `make_collision_world` (owning device world), `generate_ik_solutions<T,RT>(target, batch, num_solutions, mode, world, collect_stats)`, `sample_random_target_poses`. |
+| `csrc/kernel/hjcd_kernel.h` | Native host API: move-only `Result<T>` (with `SolveStats`), `CollisionMode`, `WorldSpec` → `make_collision_world` (owning device world = GRiD's `grid_collision::DeviceEnvironment`), `generate_ik_solutions<T,RT>(target, batch, num_solutions, mode, world, collect_stats)`, `sample_random_target_poses`. |
 | `csrc/kernel/main.cpp` | Native CLI (`single`/`sweep`/`from_csv`), open-world only; CTest-covered by `tests/native/`. |
 | `csrc/generated/grid.cuh` | **Generated** GRiD kinematics + collision header. Do **not** hand-edit. Generated with `vendor_glass=False`, so it `#include "glass.cuh"`s the top-level GLASS instead of vendoring a copy (~6k lines, was ~15k). |
 | `external/GRiD/` | Submodule: GRiD codegen (emits `grid.cuh` from a URDF). Its nested GLASS pin must equal `external/GLASS`. |
 | `external/GLASS/` | Submodule: GLASS single-block / warp / thread linear algebra (`glass::warp::`, `glass::thread::`, `glass::block::`). |
 | `external/foam/` | Submodule: pre-spherized Panda collision URDF (`assets/panda/smaller_panda_spherized.urdf`). |
-| `csrc/kernel/grid_env.cuh` | `WorldSpec` arrays → `grid_collision::Environment` (device obstacle set) for the collision kernels; marked "move to GRiD (ask G8)". No JSON in the native layer any more. |
-| `csrc/bindings/pybind_module.cpp` | Low-level bindings (`_hjcdik`: `World`, `solve_one`, `sample_targets`, `current_device`, `build_info`); every call runs on the solver's device and restores the caller's. The user API is pure Python: `hjcdik/_solver.py` (`Solver`, `Result`, `TargetResult`, `Stats`, `Info`, `SolveError`) and `hjcdik/worlds.py` (MotionBenchMaker JSON → `set_world` arrays). |
+| `csrc/bindings/pybind_module.cpp` | Low-level bindings (`World`, `solve_batch`, `sample_targets`, `current_device`, `build_info`); every call runs on the solver's device and restores the caller's. Compiled by CMake into the packaged `_hjcdik` AND by `grid_rbd.build_artifact` into per-robot artifacts (`HJCDIK_MODULE_NAME` define = unique init symbol; `HJCDIK_BINDING_ABI` checked on import). The user API is pure Python: `hjcdik/_solver.py` (`Solver`, `Result`, `TargetResult`, `Stats`, `Info`, `SolveError`), `hjcdik/worlds.py` (MotionBenchMaker JSON → `set_world` arrays), `hjcdik/_build.py` (`build`/`load`/`list_builds` over GRiD's consumer-artifact store; `-DHJCDIK_EE_FIXED_FRAME_IDX` resolved from a kinematics-only generation), `hjcdik/__main__.py` (`hjcdik build|list|info`). |
+| `csrc/collision/panda_foam_rebound.urdf` | foam's Panda spheres re-attached to `csrc/urdf/panda.urdf` by `grid-spherize --rebind-to` (GRiD V1); validated strictly; generates a header byte-identical to the foam path; the `"panda_foam"` preset for runtime builds. The wheel ships `csrc/` (minus `generated/`) as `hjcdik/_csrc` for runtime builds. |
+| `csrc/urdf/iiwa14.urdf`, `csrc/collision/iiwa14_spheres.urdf` | the `"iiwa14"` preset (`hjcdik.presets()`, `Solver("iiwa14")` builds on first use): Drake's iiwa14 URDF (BSD, attribution in the file) and GRiD's spherizer output with its fidelity report in the header comment. |
+| `hjcdik/_robot_model.py`, `csrc/generated/hjcd_joint_model.h` | Shared model validation and generated ordered joint axes/types/limits. Arbitrary-axis revolute, continuous and prismatic joints, 1–32, fixed-base serial only. CMake verifies the side header's GRiD hash; runtime builds stage it under a stable content-derived input path. |
 | `tests/` | pytest suite (API contracts, FK equivalence, collision policy, codegen, stats, regression vs `baseline_metrics.json`); `tests/native/` = CTest native API + CLI contracts. `gpu-proof-tests.txt` is the signed-receipt manifest. |
 | `gpu-proof.json` | Signed pytest-gpu-proof receipt of the last full GPU run; verified by CPU-only CI. |
 | `benchmark/hjcd_ik_bench.py` | HJCD-IK benchmark harness: solved-rate, position/orientation error, timing. |
@@ -99,7 +101,7 @@ out = solver.solve(targets, batch_size=2000, num_solutions=4)          # Result:
 
 ## Conventions / discipline
 
-- **Never hand-edit `grid.cuh`.** It is GRiD codegen output. To change the robot or EE target, run
+- **Never hand-edit `grid.cuh` or `hjcd_joint_model.h`.** They are generated as a matched pair. To change the robot or EE target, run
   `python scripts/codegen/generate_grid.py <urdf> -t <target_frame>` and rebuild. Robot constants
   (`NUM_JOINTS`, topology counts) are baked per-URDF — read them from the generated symbols, never hardcode.
 - **Collision is URDF-driven (grid_collision), not hand-coded.** Passing `--collision` to
@@ -122,8 +124,8 @@ out = solver.solve(targets, batch_size=2000, num_solutions=4)          # Result:
   inside `HJCDSettings::cc_fallback_*` (5 mm / 0.05 rad) can be returned when this run finds no exactly
   converged free candidate. This does not establish infeasibility. `HJCD_CC_STOP` (bit 0 coarse, bit 1 LM)
   is the A/B knob. GRiD owns the tables and warp checker; HJCD has no duplicate collision sidecar.
-- **Collision policy.** Python exposes `collision_mode="hard"|"soft"|"both"`; `hard` is the
-  default and strictly excludes colliding candidates (self **+** environment). `soft` is a penetration-cost
+- **Collision policy.** `Solver.solve` exposes `collision="hard"|"soft"|"both"`; `hard` is the
+default and strictly excludes colliding candidates (self **+** environment). `soft` is a penetration-cost
   ranking mode and does not guarantee collision freedom; `both` ranks and filters. Nothing reads
   `HJCD_CC_MODE` any more (API, native solver or benchmark CLI); pass `--collision-mode` to the benchmark.
   Final filtering/ranking is post-solve; hard/both additionally check collision during refinement.
@@ -178,7 +180,7 @@ and URDF-derived `hjcd` models. Paper comparisons retain `paper`; implementation
 Both Python oracles check environment collisions only, not the kernel's self-collision policy.
 
 The collision code path is compiled in only when `grid.cuh` was generated with `--collision` — codegen emits
-a `#define HJCD_HAS_COLLISION 1` sentinel and the kernel + `grid_env.cuh` guard all `grid_collision::` use on
+a `#define HJCD_HAS_COLLISION 1` sentinel and the kernel guards all `grid_collision::` use on
 it. A no-collision header (e.g. the DoF-scaling regens, or any BYO-URDF built without `--collision`) still
 compiles and runs open-world; the Python API rejects a collision-free request in that build.
 
@@ -189,8 +191,12 @@ measurement with the protocol in [`docs/development/timing_gate.md`](docs/develo
 - Audit A/B ([`audit_timing_2026-10-05`](docs/development/evidence/audit_timing_2026-10-05/README.md)): identical
   matched quality counts, 19/20 cells faster, one unchanged. GRiD/GLASS re-pin confirmed performance-neutral
   ([`postpin_timing_2026-10-06`](docs/development/evidence/postpin_timing_2026-10-06/README.md), 12 paired ratios
-  within 0.9946–1.0046). The 2026-10-12 re-pin to GRiD v0.5.1 changed only a block-checker race fix, and the 2026-10-23 re-pin to
-  v0.5.5 changed no kernel code HJCD executes (header diff: linalg-argument removal and plant-menu templates); no A/B owed.
+  within 0.9946–1.0046). The 2026-10-12 re-pin to GRiD v0.5.1 changed only a block-checker race fix; the 2026-10-23 re-pin to v0.5.5 and the
+  2026-10-24 re-pin to v0.6.0 changed no kernel code HJCD executes (linalg-argument removal; plant block dropped from the
+  kinematics header; checker defaults `margin=0`, `check_self=true` are the old verdict). The 10-24 API gate
+  ([`api_timing_2026-10-24`](docs/development/evidence/api_timing_2026-10-24/README.md)): native entry points within
+  0.6 % of the pre-API build, `Solver.solve` adds ~10 µs host time per target, collision scenes 13–16 % faster (no
+  per-call JSON compare), runtime-built Panda == packaged, 2 cm margin ≈ +2–3 % while solvable.
 - Full campaign on the shipped code, all baselines ([`paper_rerun_2026-10-07`](docs/development/evidence/paper_rerun_2026-10-07/README.md),
   results.rst *Current code — full campaign*): Panda open-world 1.62–1.65 ms at B ≥ 100 (cuRobo v2 5.9–6.4,
   PyRoki 6–7.2, IKFlow 2.5–6.2); Fetch 0.81–1.10 vs cuRobo 1.8–2.1; DoF 7/12/18/24 1.76/1.87/2.31/2.85 vs
@@ -204,11 +210,50 @@ measurement with the protocol in [`docs/development/timing_gate.md`](docs/develo
 > **Build/test gotcha:** `ninja -C build` does NOT update the imported `.so` (it's the editable copy in
 > site-packages). Always rebuild with **`scripts/setup/rebuild.sh`** (or `pip install -e . --no-build-isolation`).
 
-## Status and what next (updated 2026-10-23)
+## Status and what next (updated 2026-10-30)
 
-**Where the code is.** `origin/main` carries the closed fairness/hardening arc (2026-10-03 → 10-07) and the
-re-pin to GRiD **v0.5.5** (`76a0736`, the PyPI `grid-rbd` 0.5.5 release, 2026-10-23; nested URDFParser `f391741`;
-GLASS `9e57178`, top-level and nested, unchanged since 10-03; pytest-gpu-proof 0.4.1 is still the latest release).
+Work sits on `review/general-joints-closeout`, pushed as PR #4 (merge is the user's call; a
+push is never implied by local commits). The branch carries the P1 user API, the `panda`,
+`iiwa14` and `ur5e` presets, P2b general joints, a boundary-fix wave and the host-selection
+optimisation; a signed 383-test receipt covers it.
+
+P2b general axes and prismatic joints are implemented. The all-revolute-+Z path retains
+Panda's arithmetic. Independent FK/Jacobian, collision, mixed-unit scale and module-isolation
+checks are in `tests/test_general_joints.py`; quality evidence is under
+`docs/development/evidence/general_joints_2026-10-25/`. Mixed-joint LM and proximity use raw
+coordinates; the finite tested scale range is not a universal convergence guarantee. Two
+quiet-window passes against pre-P2b `3f5ec5a` (70,400 queries, identical matched quality
+counts, `general_joint_timing_2026-10-25/`) left small repeatable Panda costs (API B=1/S=1
++0.412%, runtime +0.609%) that were accepted for that wave. All-prismatic chains are rejected
+before generation pending GRiD G13; mixed chains and arbitrary-axis revolute joints are
+supported. `examples/mixed_joint_warm_start.py` demonstrates the mixed-unit API. Fetch upstream
+preset assets require a distribution-license decision. Z1 remains unpublished because its
+conservative wrist spheres overlap in all sampled configurations; do not silently disable self
+checks.
+
+The boundary-fix wave (2026-10-25/26, `docs/development/evidence/boundary_fixes_2026-10-25/`)
+closed six audit findings: prepared no-build loads validate model identity, codegen rejects
+sphere inputs without `--collision`, warm selection ranks convergence categorically on clamped
+coarse-precision seeds (`csrc/kernel/selection_key.h`), CMake captures punctuated tool names,
+world quaternions normalise scale-safely with converted endpoints validated, and negative
+device indices fail before any CUDA work. Two quiet timing passes
+(`boundary_timing_2026-10-26/`: 83,200 queries, identical paired quality counts) measured
+small host-side costs: Panda open S=4 at B>=2000 +0.7 to 1.1 %, warm starts +5 to 12 us, Panda
+cold build +0.33 s. Device code is identical between the endpoints, so the costs were host code:
+a per-call device-to-host copy of the joint limits on warm calls and a pair comparator evaluated
+per comparison in the selection sort. Commit `577debb` keeps the uploaded limits on the host and
+precomputes each candidate's key once (`hjcd::sorted_positions`, equivalence checked on 200
+random pools in `tests/native/test_selection.cpp`); selection semantics are unchanged. The
+2026-10-30 paired gate (`host_selection_2026-10-30/`: 83,200 queries, identical quality counts)
+measured the candidate faster in every cell with a pool to sort, up to -3.3 % at B=32000, with
+the warm cost gone and no cell slower beyond 0.02 %. The local ledger `docs/open-tasks/TODO.md`
+holds the ordered next steps.
+
+**Where the code is.** Local main carries the closed fairness/hardening arc (2026-10-03 → 10-07) and the
+re-pin to GRiD **v0.6.0** (commit `712df1c`, the PyPI `grid-rbd` 0.6.0 release, 2026-10-24, which shipped these HJCD asks:
+G7 margin, G10 self toggle, G8a `DeviceEnvironment`, G9 `build_artifact`/`load_artifact`, V1 rebind, V2, V3, E1;
+nested URDFParser `f391741`; GLASS `9e57178`, top-level and nested; verified with pytest-gpu-proof 0.4.1).
+Check `git status` and the local handoff for unpublished work; these statements do not imply a push.
 All six upstream asks (G1–G6, `docs/development/upstream_asks_collision_2026-10.md`) are in GRiD; HJCD has no
 collision sidecar. GRiD's G5 fidelity report measures against collision (convex-hull) meshes, so
 `benchmark/make_bounded_bulge_spheres.py --report` remains the visual-mesh fidelity tool of record.
@@ -227,17 +272,20 @@ collision sidecar. GRiD's G5 fidelity report measures against collision (convex-
   `ik_stats.csv` columns from them (`benchmark/_results_io.py`); the solver never opens files.
 
 **What next — make HJCD-IK a usable package** (user ruling 2026-10-07; the local ledgers under
-`docs/open-tasks/` hold the detail and are gitignored):
-1. **User-shaped API (P1).** Stage 0 (contract) and Stage 1 (`Solver` over the installed robot, array
-   worlds, padded `Result`, `precision`, `Result.stats`; `generate_solutions` removed) landed 2026-10-23.
-   Stage 2 = runtime robot builds (gated on GRiD ask G9, consumer-artifact build API; re-scope, never copy
-   GRiD's store, if declined); Stage 3 = clearance margin (GRiD G7), self-collision toggle (GRiD G10), warm
-   starts and seeds. Plan: local `docs/open-tasks/api_proposal_v2_2026-10-13.md` (v2.2).
-2. **Robots/presets (P2):** Panda, Fetch from `fetch_description` (HJCD's `csrc/urdf/fetch.urdf` differs from it
-   by up to 37 cm — do not reuse it for collision sets), UR/iiwa/xArm/Gen3; prismatic joints in the coarse search.
-3. **In-kernel multi-target (P3)** — needs a timing window to claim anything.
-4. **Distribution (P4):** wheels, self-hosted GPU runner for `test.yml`, versioned API docs, DLPack interop.
-5. **Robustness (P5):** cascade for conservative models, exposed margins.
+`docs/open-tasks/` hold the detail and are gitignored; `TODO.md` is the live one):
+1. **User-shaped API (P1): done** 2026-10-23/24 (`Solver`, array worlds, padded `Result`, `precision`,
+   `Result.stats`, runtime builds over GRiD 0.6.0's `build_artifact`/`load_artifact`, prepared loads,
+   `collision_margin_m` on environment pairs with self pairs at zero, `self_collision=False`, `q_init`
+   warm starts, `seed`, batched binding). GRiD's single `config_free` margin also widens self pairs, so
+   HJCD calls it twice when a margin is set (ask G7b: separate self margin).
+2. **Robots/presets (P2): P2a and P2b done.** Remaining: Fetch from `fetch_description` (HJCD's
+   `csrc/urdf/fetch.urdf` differs from it by up to 37 cm; keep it for the DoF sweep only), Z1 after a
+   collision-model fix, xArm7 and Gen3 if their descriptions de-xacro cleanly; all-prismatic chains after
+   GRiD G13. P2c floating base and branched chains stay future work.
+3. **In-kernel multi-target (P3)**: needs a timing window to claim anything.
+4. **Distribution (P4):** wheels and a versioned release on the GRiD playbook, self-hosted GPU runner
+   for `test.yml`, versioned API docs, DLPack interop; a Jetson receipt and tuning table.
+5. **Robustness (P5):** collision-aware LM rows for the top-k, cascade for conservative models.
 Housekeeping runs alongside (de-bloat, docs truth, one receipt per batch).
 
 **Standing rules.** Timing only on an empty GPU in a user-announced window (`timing_gate.md`); correctness

@@ -9,6 +9,8 @@ initialized (run scripts/setup/setup_dev.sh, or git submodule update --init --re
 By default writes to csrc/generated/grid.cuh (the committed, build-default header).
 """
 import argparse
+import importlib.util
+import hashlib
 import sys
 import tempfile
 from pathlib import Path
@@ -18,19 +20,11 @@ GRID_DIR = REPO_ROOT / "external" / "GRiD"
 DEFAULT_OUT = REPO_ROOT / "csrc" / "generated" / "grid.cuh"
 
 
-def validate_solver_robot(robot):
-    """Reject GRiD models that HJCD's warp solver cannot represent correctly."""
-    if robot.floating_base or not robot.is_serial_chain():
-        raise ValueError("HJCD-IK requires a fixed-base serial chain")
-    if not 1 <= robot.get_num_joints() <= 32:
-        raise ValueError("HJCD-IK requires 1 to 32 actuated joints (one joint per warp lane)")
-    for joint in robot.get_joints_ordered_by_id():
-        # The geometric Jacobian uses each joint frame's +Z axis as a revolute axis.
-        # GRiD supports more joint types, but accepting them here silently produces wrong IK.
-        if joint.is_mimic or joint.jtype not in ("revolute", "continuous"):
-            raise ValueError("HJCD-IK requires independent revolute or continuous joints")
-        if list(robot.get_S_by_id(joint.jid).reshape(-1)) != [0, 0, 1, 0, 0, 0]:
-            raise ValueError("HJCD-IK requires each actuated joint to rotate around local +Z")
+# Load without executing hjcdik/__init__.py: codegen must work before the extension exists.
+_model_spec = importlib.util.spec_from_file_location("hjcd_robot_model", REPO_ROOT / "hjcdik/_robot_model.py")
+robot_model = importlib.util.module_from_spec(_model_spec)
+_model_spec.loader.exec_module(robot_model)
+validate_solver_robot = robot_model.validate_solver_robot
 
 
 def main():
@@ -59,6 +53,8 @@ def main():
     ap.add_argument("--glass-revision", default=None,
                     help="GLASS commit label for Git-free source archives; verified against Git when available.")
     args = ap.parse_args()
+    if args.spherized_urdf is not None and not args.collision:
+        ap.error("--spherized-urdf requires --collision")
     if args.floating_base:
         ap.error("HJCD-IK requires a fixed-base serial chain")
     if args.namespace != "grid":
@@ -85,12 +81,9 @@ def main():
 
     robot = URDFParser().parse(str(urdf), floating_base=args.floating_base)
     try:
-        validate_solver_robot(robot)
+        validate_solver_robot(robot, args.fixed_target_name)
     except ValueError as error:
         ap.error(str(error))
-    fixed_target = robot.get_fixed_joint_by_name(args.fixed_target_name)
-    if fixed_target is None or fixed_target.parent_name != robot.get_joint_by_id(robot.get_num_joints() - 1).name:
-        ap.error("HJCD-IK requires a fixed end-effector target attached to the final actuated joint")
     print(f"[generate_grid] robot={robot.name} dof={robot.get_num_joints()} target={args.fixed_target_name}")
 
     # --- optional collision spec (URDF -> covering spheres -> grid_collision namespace) ---
@@ -139,6 +132,12 @@ def main():
     with tempfile.TemporaryDirectory(prefix=".hjcd-codegen-", dir=out.parent) as temporary:
         staged = Path(temporary) / out.name
         emit_header(codegen, args, staged, collision_spec)
+        model = robot_model.describe_robot(robot, urdf, args.fixed_target_name)
+        side = Path(temporary) / "hjcd_joint_model.h"
+        side.write_text(robot_model.joint_header(model, hashlib.sha256(staged.read_bytes()).hexdigest()))
+        # Both are fully generated before publication. CMake checks their paired hash,
+        # rejecting an interrupted replacement instead of compiling a mixed model.
+        side.replace(out.with_name(side.name))
         staged.replace(out)
     print(f"[generate_grid] wrote {out}")
 
@@ -160,8 +159,8 @@ def emit_header(codegen, args, out, collision_spec):
     )
 
     # --- inject a collision-presence sentinel (compile guard for the kernel) ---
-    # grid.cuh only carries the grid_collision namespace when --collision was passed; the kernel and
-    # grid_env.cuh reference grid_collision:: symbols only under #if defined(HJCD_HAS_COLLISION), so a
+    # grid.cuh only carries the grid_collision namespace when --collision was passed; the kernel
+    # references grid_collision:: symbols only under #if defined(HJCD_HAS_COLLISION), so a
     # no-collision header (e.g. the DoF-scaling regens) still compiles. This is codegen output, not a
     # hand-edit — every regen re-emits it deterministically.
     if args.collision:
@@ -178,13 +177,9 @@ def emit_header(codegen, args, out, collision_spec):
     import re
     if args.fixed_target_name:
         text = out.read_text()
-        idx = None
-        for m0 in re.finditer(re.escape(f"end_effector_pose_inner_{args.fixed_target_name}("), text):
-            m = re.search(r"s_Xhom\[16\s*\*\s*(\d+)\s*\+\s*ind\]", text[m0.start():m0.start() + 4000])
-            if m:
-                idx = int(m.group(1))
-                break
-        if idx is None:
+        try:
+            idx = robot_model.fixed_frame_index(text, args.fixed_target_name)
+        except ValueError:
             print(f"[generate_grid][ERROR] could not resolve EE_FIXED_FRAME_IDX for target "
                   f"'{args.fixed_target_name}' — kernel EE will be wrong.", file=sys.stderr)
             sys.exit(2)

@@ -1,5 +1,6 @@
 """Codegen must reject unsupported robots without damaging the build's last good header."""
 import importlib.util
+import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -10,6 +11,22 @@ import pytest
 pytest.importorskip("sympy")
 pytest.importorskip("bs4")
 pytest.importorskip("lxml")
+
+
+@pytest.fixture(autouse=True)
+def submodule_codegen(monkeypatch):
+    """These tests exercise the submodule's codegen; a pip-installed grid_codegen (the [build]
+    extra) imported earlier in the session would otherwise shadow it through sys.modules."""
+    saved = {name: module for name, module in sys.modules.items()
+             if name == "grid_codegen" or name.startswith("grid_codegen.")
+             or name == "URDFParser" or name.startswith("URDFParser.")}
+    for name in saved:
+        monkeypatch.delitem(sys.modules, name)
+    yield
+    for name in [n for n in sys.modules if n == "grid_codegen" or n.startswith("grid_codegen.")
+                 or n == "URDFParser" or n.startswith("URDFParser.")]:
+        sys.modules.pop(name, None)
+    sys.modules.update(saved)
 
 ROOT = Path(__file__).resolve().parents[1]
 GEN = ROOT / "scripts/codegen/generate_grid.py"
@@ -57,11 +74,8 @@ def test_generation_failure_after_partial_write_preserves_header(tmp_path, monke
     assert not list(tmp_path.glob(".hjcd-codegen-*"))
 
 
-@pytest.mark.parametrize("kind,match", [
-    ("prismatic", "independent revolute"),
-    ("negative_axis", "local +Z"),
-])
-def test_unsupported_joint_geometry_is_rejected(tmp_path, kind, match):
+@pytest.mark.parametrize("kind", ["prismatic", "negative_axis"])
+def test_general_joint_geometry_is_accepted(tmp_path, kind):
     tree = ET.parse(PANDA)
     joint = tree.getroot().find("joint[@name='panda_joint1']")
     assert joint is not None
@@ -76,9 +90,9 @@ def test_unsupported_joint_geometry_is_rejected(tmp_path, kind, match):
         [sys.executable, str(GEN), str(urdf), "-o", str(output)],
         capture_output=True, text=True, timeout=60,
     )
-    assert run.returncode != 0
-    assert match in run.stderr
-    assert not output.exists()
+    assert run.returncode == 0, run.stderr
+    assert output.exists()
+    assert "ALL_REVOLUTE_Z = false" in output.with_name("hjcd_joint_model.h").read_text()
 
 
 def test_explicit_glass_provenance_is_archive_reproducible(tmp_path, monkeypatch):
@@ -119,3 +133,86 @@ def test_wrong_glass_provenance_preserves_previous_header(tmp_path, monkeypatch)
         module.main()
     assert output.read_text() == "previous header\n"
     assert not list(tmp_path.glob(".hjcd-codegen-*"))
+
+
+def test_cmake_rejects_mismatched_same_dof_headers(tmp_path):
+    model = tmp_path / "model"
+    model.mkdir()
+    subprocess.run([sys.executable,str(GEN),str(ROOT/"tests/robots/panda_negz.urdf"),
+                    "-o",str(model/"grid.cuh")],check=True,capture_output=True,text=True)
+    # Both are seven-joint robots; a joint-count assertion cannot catch this mix-up.
+    shutil.copy(ROOT/"csrc/generated/hjcd_joint_model.h",model/"hjcd_joint_model.h")
+    run = subprocess.run(["cmake","-S",str(ROOT),"-B",str(tmp_path/"build"),
+                          "-DBUILD_PYTHON=OFF","-DCMAKE_CUDA_ARCHITECTURES=120",
+                          "-DHJCDIK_GRID_HEADER="+str(model/"grid.cuh")],capture_output=True,text=True)
+    assert run.returncode != 0
+    assert "Mismatched generated robot headers" in run.stdout+run.stderr
+
+
+@pytest.mark.parametrize("tool", ["flange-tool0", "flange.tool0", "panda_grasptarget_hand"])
+def test_punctuated_tool_name_in_static_and_runtime_builds(tmp_path, tool):
+    import hjcdik
+    source = tmp_path/"punctuated.urdf"
+    tree = ET.parse(PANDA)
+    tree.getroot().find("joint[@name='panda_grasptarget_hand']").set("name",tool)
+    tree.write(source)
+    subprocess.run([sys.executable,str(GEN),str(source),"-t",tool,"-o",str(tmp_path/"grid.cuh")],
+                   check=True,capture_output=True,text=True)
+    assert "EE_FIXED_FRAME_IDX = 10" in (tmp_path/"grid.cuh").read_text()
+    plan = hjcdik.build(source,ee_link=tool,name="test-punctuated",plan_only=True)
+    assert "HJCDIK_EE_FIXED_FRAME_IDX=10" in plan["defines"]
+    import pybind11
+    build = tmp_path/'build'
+    run = subprocess.run(['cmake', '-S', str(ROOT), '-B', str(build),
+                          '-DBUILD_PYTHON=ON', '-DCMAKE_CUDA_ARCHITECTURES=120',
+                          '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON',
+                          '-Dpybind11_DIR='+pybind11.get_cmake_dir(),
+                          '-DHJCDIK_GRID_HEADER='+str(tmp_path/'grid.cuh')],
+                         capture_output=True, text=True, timeout=60)
+    assert run.returncode == 0, run.stdout+run.stderr
+    import json
+    import shlex
+    commands = json.loads((build/'compile_commands.json').read_text())
+    binding = next(c['command'] for c in commands if c['file'].endswith('pybind_module.cpp'))
+    assert f'-DHJCDIK_EE_TARGET="{tool}"' in shlex.split(binding)
+
+
+def test_custom_packaged_ur5e_metadata_and_fk(tmp_path):
+    """Compile a separate custom extension, then exercise public Info and independent FK."""
+    import json
+    import pybind11
+    import numpy as np
+    from test_general_joints import targets_for
+    urdf = ROOT/'csrc/urdf/ur5e.urdf'
+    subprocess.run([sys.executable, str(GEN), str(urdf), '-t', 'flange-tool0',
+                    '-o', str(tmp_path/'grid.cuh')], check=True, capture_output=True, text=True)
+    build = tmp_path/'build'
+    subprocess.run(['cmake', '-S', str(ROOT), '-B', str(build), '-DBUILD_PYTHON=ON',
+                    '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_CUDA_ARCHITECTURES=120',
+                    '-Dpybind11_DIR='+pybind11.get_cmake_dir(),
+                    '-DHJCDIK_GRID_HEADER='+str(tmp_path/'grid.cuh'),
+                    '-DCMAKE_CXX_FLAGS=-DHJCDIK_DIAGNOSTICS',
+                    '-DCMAKE_CUDA_FLAGS=-DHJCDIK_DIAGNOSTICS'],
+                   check=True, capture_output=True, text=True)
+    subprocess.run(['cmake', '--build', str(build), '--target', '_hjcdik', '-j', '2'],
+                   check=True, capture_output=True, text=True, timeout=300)
+    binaries = list(build.glob('_hjcdik*.so'))
+    assert len(binaries) == 1
+    q = np.array([[.2, -.7, .5, -.3, .8, .1]])
+    expected = targets_for(urdf, q, 'flange-tool0')[0]
+    script = '''import importlib.util,json,sys,numpy as np
+spec=importlib.util.spec_from_file_location('hjcdik._hjcdik',sys.argv[1])
+native=importlib.util.module_from_spec(spec)
+sys.modules['hjcdik._hjcdik']=native
+spec.loader.exec_module(native)
+import hjcdik
+solver=hjcdik.Solver()
+assert solver.info.ee_frame==hjcdik.build_info()['ee_target']=='flange-tool0'
+raw=native._diagnostic_model(json.loads(sys.argv[2]))
+pose=np.array(raw[:7]); expected=np.array(json.loads(sys.argv[3]))
+np.testing.assert_allclose(pose[:3],expected[:3],atol=1e-9,rtol=0)
+assert abs(np.dot(pose[3:],expected[3:]))>1-1e-12
+'''
+    run = subprocess.run([sys.executable, '-c', script, str(binaries[0]), json.dumps(q[0].tolist()),
+                          json.dumps(expected.tolist())], capture_output=True, text=True)
+    assert run.returncode == 0, run.stdout+run.stderr

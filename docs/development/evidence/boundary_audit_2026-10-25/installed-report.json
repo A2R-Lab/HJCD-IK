@@ -1,0 +1,93 @@
+{
+  "status": "passed",
+  "git_head": "b1ef1dd64306591eaf785e71cd6d6f383cf67c10",
+  "git_status": "",
+  "hashes": {
+    "dist/hjcdik-0.0.1.tar.gz": "e6fd6052ff9ec48c7723f966af02879d76d833a2113ce0846e4eea80dafbfca5",
+    "dist/hjcdik-0.0.1-cp312-cp312-linux_x86_64.whl": "aa3d8e60f8e3b4d5d4e2b2d0de3135fcedc50fb6d2436ee61d1b21159bb66999",
+    "rail_ur5e_targets.json": "98b308a0cef5b4f4277a3058e63c18d413a9a17db33f2856e1d66553381aaf71",
+    "cache/example-inputs/ur5e-license.txt": "143077f9f6a8de5a99f78c2c2472801fb53cf240277ef661642f079b9acdfff8",
+    "cache/example-inputs/rail_ur5e.urdf": "f4748034bda192b3581f947f958149e04aafbba7f41b149453147749fdc6768f",
+    "cache/example-inputs/rail_ur5e_spheres.urdf": "684dcfb73bc301a12118f98ee5fd218482c6fd07d5050c477b9b173f2985441a"
+  },
+  "phases": {
+    "panda": {
+      "package": "/tmp/hjcd-installed-constructor-20261025/venv/lib/python3.12/site-packages/hjcdik/__init__.py",
+      "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+      "phase": "panda",
+      "accurate": 4,
+      "versions": {
+        "hjcdik": "0.0.1",
+        "numpy": "2.5.1"
+      }
+    },
+    "build": {
+      "package": "/tmp/hjcd-installed-constructor-20261025/venv/lib/python3.12/site-packages/hjcdik/__init__.py",
+      "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+      "phase": "build",
+      "content_key": "4100de89a5ae11e37226c1ada8b06c7e1940c0d78cb43b2a5fbd8ae952dff365",
+      "artifact": "/tmp/hjcd-installed-constructor-20261025/cache/consumers/hjcdik/store/4100de89a5ae11e37226c1ada8b06c7e1940c0d78cb43b2a5fbd8ae952dff365/hjcdik_af41042d25f6.so",
+      "cells": {
+        "self_only-fp32": {
+          "cold": 32,
+          "warm": 32,
+          "blocked": 0
+        },
+        "obstacle-fp32": {
+          "cold": 32,
+          "warm": 32,
+          "blocked": 0
+        },
+        "self_only-fp64": {
+          "cold": 32,
+          "warm": 32,
+          "blocked": 0
+        },
+        "obstacle-fp64": {
+          "cold": 32,
+          "warm": 32,
+          "blocked": 0
+        }
+      },
+      "versions": {
+        "hjcdik": "0.0.1",
+        "numpy": "2.5.1",
+        "grid-rbd": "0.6.0"
+      }
+    },
+    "load": {
+      "package": "/tmp/hjcd-installed-constructor-20261025/venv/lib/python3.12/site-packages/hjcdik/__init__.py",
+      "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+      "phase": "load",
+      "content_key": "4100de89a5ae11e37226c1ada8b06c7e1940c0d78cb43b2a5fbd8ae952dff365",
+      "artifact": "/tmp/hjcd-installed-constructor-20261025/cache/consumers/hjcdik/store/4100de89a5ae11e37226c1ada8b06c7e1940c0d78cb43b2a5fbd8ae952dff365/hjcdik_af41042d25f6.so",
+      "cells": {
+        "self_only-fp32": {
+          "cold": 32,
+          "warm": 32,
+          "blocked": 0
+        },
+        "obstacle-fp32": {
+          "cold": 32,
+          "warm": 32,
+          "blocked": 0
+        },
+        "self_only-fp64": {
+          "cold": 32,
+          "warm": 32,
+          "blocked": 0
+        },
+        "obstacle-fp64": {
+          "cold": 32,
+          "warm": 32,
+          "blocked": 0
+        }
+      },
+      "versions": {
+        "hjcdik": "0.0.1",
+        "numpy": "2.5.1",
+        "grid-rbd": "0.6.0"
+      }
+    }
+  }
+}

@@ -1,0 +1,32 @@
+/home/plancher/Desktop/HJCD-IK/external/GRiD/external/URDFParser/URDFParser.py:98: UserWarning: Link [panda_link0] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+  warnings.warn(
+------------------------------------------
+Assumed Input Joint Configuration Ordering
+------------------------------------------
+panda_joint1
+panda_joint2
+panda_joint3
+panda_joint4
+panda_joint5
+panda_joint6
+panda_joint7
+------------------------------------------
+Total of n = 7 dof
+Total of n = 7 joints
+Total of n = 8 links
+------------------------------------------
+Fixed Joints Found (if any):
+------------------------------------------
+right_gripper (id: 7, parent: panda_joint7)
+panda_finger_joint2 (id: 8, parent: panda_joint7)
+panda_finger_joint1 (id: 9, parent: panda_joint7)
+panda_grasptarget_hand (id: 10, parent: panda_joint7)
+panda_hand_joint (id: 11, parent: panda_joint7)
+panda_joint8 (id: 12, parent: panda_joint7)
+------------------------------------------
+[generate_grid] robot=panda dof=7 target=panda_grasptarget_hand
+[generate_grid] collision ON from spherized URDF(s)=['/home/plancher/Desktop/HJCD-IK/external/foam/assets/panda/smaller_panda_spherized.urdf']
+[generate_grid] collision sentinel: #define HJCD_HAS_COLLISION 1
+[generate_grid] EE_FIXED_FRAME_IDX = 10  (target 'panda_grasptarget_hand')
+[generate_grid] wrote /tmp/tmp55u6qu37/grid.cuh
+[stale-check] both generated robot headers are fresh ✓

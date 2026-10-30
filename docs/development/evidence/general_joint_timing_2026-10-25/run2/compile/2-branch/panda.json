@@ -1,0 +1,11 @@
+{
+  "robot": "panda",
+  "cold_seconds": 14.88554719905369,
+  "cache_hit_seconds": 0.19962912099435925,
+  "source_sha": "90bb0a412eb12a3af0abb9d5d0f06be3dbbe1a72806b0416dd9769992cb35079",
+  "content_key": "cbe9f04ed6049b37ef9c33110a49d1c8e29d0281375e4b482f8a787f501d95d0",
+  "header_sha": "09657d29e9ab9c82aa023506e41b6b11496464e2ba390d9cd4f73f8c571dc5e8",
+  "cuda_compiler_version": "",
+  "binary": "/home/plancher/Desktop/HJCD-IK/docs/open-tasks/p2b-timing-results-2026-10-25-quiet-repeat/compile/2-branch/panda/consumers/hjcdik/store/cbe9f04ed6049b37ef9c33110a49d1c8e29d0281375e4b482f8a787f501d95d0/hjcdik_b3313213e47e.so",
+  "pid": 3802277
+}

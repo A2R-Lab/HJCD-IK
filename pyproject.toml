@@ -8,7 +8,7 @@ build-backend = "scikit_build_core.build"
 [project]
 name = "hjcdik"
 version = "0.0.1"
-description = "GPU-parallel hierarchical joint-coordinate-descent inverse kinematics"
+description = "GPU-parallel Hybrid Jacobian Coordinate Descent inverse kinematics"
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [
@@ -23,9 +23,18 @@ dependencies = [
   "numpy>=1.17.4",
 ]
 
-# OPTIONAL extras. Base install stays lightweight (HJCD-IK needs none of these). The competitor
-# baselines are heavy and skippable — see docs/source/user_guide/benchmarks/results.rst.
+[project.scripts]
+hjcdik = "hjcdik.__main__:main"
+
+# OPTIONAL extras. Base install solves with the packaged robot using numpy only.
+# Prepared artifacts also need grid-rbd. `build` adds its store and codegen for
+# runtime robot builds (`hjcdik build`, `hjcdik.build`). The competitor baselines are heavy and
+# skippable — see docs/source/user_guide/benchmarks/results.rst.
 [project.optional-dependencies]
+build = [
+  "grid-rbd>=0.6.0",          # grid_rbd.build_artifact / load_artifact, grid_codegen, GLASS resources
+  "pybind11>=2.11",           # headers for the binding unit of a runtime build
+]
 codegen = [
   "sympy>=1.7.1",
   "beautifulsoup4>=4.9.3",
@@ -50,6 +59,8 @@ plots = [
   "matplotlib>=3.5",   # benchmark/plot_pareto.py (Figs 4/5). make_tables.py needs nothing extra.
 ]
 dev = [
+  "grid-rbd>=0.6.0",          # the runtime-build tests need the [build] extra
+  "pybind11>=2.11",
   "pytest>=7.0",
   "scipy>=1.7",
   "pytest-gpu-proof>=0.4.1; python_version >= '3.11'", # receipt generation requires Python >=3.11

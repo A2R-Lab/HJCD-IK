@@ -1,0 +1,41 @@
+round 1: main S=1 table1
+round 1: main S=1 table2
+round 1: branch S=1 table1
+round 1: branch S=1 table2
+round 1: main S=4 table1
+round 1: main S=4 table2
+round 1: branch S=4 table1
+round 1: branch S=4 table2
+Complete; inspect analysis.json for quality regressions and paired latency ratios. No automatic performance approval.
+round 1: main S=1 table1
+round 1: main S=1 table2
+round 1: branch S=1 table1
+round 1: branch S=1 table2
+round 1: main S=4 table1
+round 1: main S=4 table2
+round 1: branch S=4 table1
+round 1: branch S=4 table2
+Complete; inspect analysis.json for quality regressions and paired latency ratios. No automatic performance approval.
+round 1: main S=1 table1
+round 1: main S=1 table2
+round 1: branch S=1 table1
+round 1: branch S=1 table2
+round 1: main S=4 table1
+round 1: main S=4 table2
+round 1: branch S=4 table1
+round 1: branch S=4 table2
+Complete; inspect analysis.json for quality regressions and paired latency ratios. No automatic performance approval.
+round 1: main S=1 table1
+round 1: branch S=1 table1
+round 1: main S=4 table1
+round 1: branch S=4 table1
+Complete; inspect analysis.json for quality regressions and paired latency ratios. No automatic performance approval.
+round 1: main S=1 table1
+round 1: main S=1 table2
+round 1: branch S=1 table1
+round 1: branch S=1 table2
+round 1: main S=4 table1
+round 1: main S=4 table2
+round 1: branch S=4 table1
+round 1: branch S=4 table2
+Complete; inspect analysis.json for quality regressions and paired latency ratios. No automatic performance approval.

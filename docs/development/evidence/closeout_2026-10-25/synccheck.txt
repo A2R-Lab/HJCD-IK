@@ -1,0 +1,41 @@
+========= COMPUTE-SANITIZER
+..                                                                       [100%]
+=============================== warnings summary ===============================
+tests/test_rail_example.py::test_rail_partial_warp_sanitizer_path[fp32]
+tests/test_rail_example.py::test_rail_partial_warp_sanitizer_path[fp32]
+  /home/plancher/Desktop/HJCD-IK/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [world] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+    warnings.warn(
+
+tests/test_rail_example.py::test_rail_partial_warp_sanitizer_path[fp32]
+tests/test_rail_example.py::test_rail_partial_warp_sanitizer_path[fp32]
+  /home/plancher/Desktop/HJCD-IK/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [base_link] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+    warnings.warn(
+
+tests/test_rail_example.py::test_rail_partial_warp_sanitizer_path[fp32]
+tests/test_rail_example.py::test_rail_partial_warp_sanitizer_path[fp32]
+  /home/plancher/Desktop/HJCD-IK/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [ft_frame] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+    warnings.warn(
+
+tests/test_rail_example.py::test_rail_partial_warp_sanitizer_path[fp32]
+tests/test_rail_example.py::test_rail_partial_warp_sanitizer_path[fp32]
+  /home/plancher/Desktop/HJCD-IK/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [base] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+    warnings.warn(
+
+tests/test_rail_example.py::test_rail_partial_warp_sanitizer_path[fp32]
+tests/test_rail_example.py::test_rail_partial_warp_sanitizer_path[fp32]
+  /home/plancher/Desktop/HJCD-IK/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [flange] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+    warnings.warn(
+
+tests/test_rail_example.py::test_rail_partial_warp_sanitizer_path[fp32]
+tests/test_rail_example.py::test_rail_partial_warp_sanitizer_path[fp32]
+  /home/plancher/Desktop/HJCD-IK/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:98: UserWarning: Link [tool0] does not have inertial properties. Assuming this is the fixed world base frame. Else there is an error with your URDF file.
+    warnings.warn(
+
+tests/test_rail_example.py::test_rail_partial_warp_sanitizer_path[fp32]
+tests/test_rail_example.py::test_rail_partial_warp_sanitizer_path[fp32]
+  /home/plancher/Desktop/HJCD-IK/.venv/lib/python3.12/site-packages/URDFParser/URDFParser.py:568: UserWarning: URDFParser: Link(s) ['base_link'] have a degenerate/missing <inertial> (zero or non-positive-definite mass/inertia), which yields singular/broken dynamics. Provide a valid <inertial>, or parse with strict_inertial=True to reject this as an error.
+    self.validate_inertials(root_link_name)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+2 passed, 8 deselected, 14 warnings in 1.83s
+========= ERROR SUMMARY: 0 errors
