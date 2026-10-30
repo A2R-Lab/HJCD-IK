@@ -210,11 +210,12 @@ measurement with the protocol in [`docs/development/timing_gate.md`](docs/develo
 > **Build/test gotcha:** `ninja -C build` does NOT update the imported `.so` (it's the editable copy in
 > site-packages). Always rebuild with **`scripts/setup/rebuild.sh`** (or `pip install -e . --no-build-isolation`).
 
-## Status and what next (updated 2026-10-29)
+## Status and what next (updated 2026-10-30)
 
-Local work sits on `review/general-joints-closeout` (nothing pushed; local commits are not
-authorization to push). The branch carries the P1 user API, the `panda`, `iiwa14` and `ur5e`
-presets, P2b general joints and a boundary-fix wave; a signed 383-test receipt covers it.
+Work sits on `review/general-joints-closeout`, pushed as PR #4 (merge is the user's call; a
+push is never implied by local commits). The branch carries the P1 user API, the `panda`,
+`iiwa14` and `ur5e` presets, P2b general joints, a boundary-fix wave and the host-selection
+optimisation; a signed 383-test receipt covers it.
 
 P2b general axes and prismatic joints are implemented. The all-revolute-+Z path retains
 Panda's arithmetic. Independent FK/Jacobian, collision, mixed-unit scale and module-isolation
@@ -238,9 +239,15 @@ world quaternions normalise scale-safely with converted endpoints validated, and
 device indices fail before any CUDA work. Two quiet timing passes
 (`boundary_timing_2026-10-26/`: 83,200 queries, identical paired quality counts) measured
 small host-side costs: Panda open S=4 at B>=2000 +0.7 to 1.1 %, warm starts +5 to 12 us, Panda
-cold build +0.33 s. Device code is identical between the endpoints. Accepting that cost or a
-bounded host-side optimisation is the user's pending decision; the local ledger
-`docs/open-tasks/TODO.md` holds the options and the ordered next steps.
+cold build +0.33 s. Device code is identical between the endpoints, so the costs were host code:
+a per-call device-to-host copy of the joint limits on warm calls and a pair comparator evaluated
+per comparison in the selection sort. Commit `577debb` keeps the uploaded limits on the host and
+precomputes each candidate's key once (`hjcd::sorted_positions`, equivalence checked on 200
+random pools in `tests/native/test_selection.cpp`); selection semantics are unchanged. The
+2026-10-30 paired gate (`host_selection_2026-10-30/`: 83,200 queries, identical quality counts)
+measured the candidate faster in every cell with a pool to sort, up to -3.3 % at B=32000, with
+the warm cost gone and no cell slower beyond 0.02 %. The local ledger `docs/open-tasks/TODO.md`
+holds the ordered next steps.
 
 **Where the code is.** Local main carries the closed fairness/hardening arc (2026-10-03 → 10-07) and the
 re-pin to GRiD **v0.6.0** (commit `712df1c`, the PyPI `grid-rbd` 0.6.0 release, 2026-10-24, which shipped these HJCD asks:
