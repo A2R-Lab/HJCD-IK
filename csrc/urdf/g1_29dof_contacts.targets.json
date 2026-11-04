@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "kind": "fixed_base_tree",
+  "urdf": "g1_29dof_contacts.urdf",
+  "urdf_sha256": "c8c443a537622673d6339b21ee780c0a3f0da15291b8b5e56dfaecbc13a955e7",
+  "provenance": "byte copy of CRAG assets/robot_models/g1/g1_handless.urdf; contact fixed joints equal the MuJoCo sites {left,right}_{hand,foot}_contact in CRAG assets/robot_models/g1/g1.xml",
+  "base": "external: world pose of URDF base_link (= pelvis, base_fixed is identity) = MuJoCo freejoint floating_base qpos[0:7], [x,y,z,qw,qx,qy,qz]",
+  "targets": [
+    {"name": "left_hand",  "frame": "left_hand_contact_joint"},
+    {"name": "right_hand", "frame": "right_hand_contact_joint"},
+    {"name": "left_foot",  "frame": "left_foot_contact_joint"},
+    {"name": "right_foot", "frame": "right_foot_contact_joint"}
+  ]
+}
